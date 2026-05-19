@@ -7,6 +7,7 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 type Poller struct {
 	Store    *store.Store
 	Tracker  providers.Tracker
+	Resolver providers.Resolver // optional; when set, backfills missing metadata
 	Hub      *sse.Hub
 	Interval time.Duration
 }
@@ -79,6 +81,18 @@ func (p *Poller) tick(ctx context.Context) {
 }
 
 func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
+	// Opportunistic metadata backfill: when a Resolver is configured and the
+	// flight is missing airport / airframe data (typically because it was
+	// added manually with the full form), try to fetch it once. Only the
+	// empty fields are written, so user-typed values are never clobbered.
+	// The resolver's cache short-circuits subsequent attempts for a known-
+	// missing flight, so this can't burn quota on repeated polls.
+	if p.Resolver != nil && needsBackfill(f) {
+		if fresh, err := p.backfillMetadata(ctx, f); err == nil && fresh != nil {
+			f = fresh
+		}
+	}
+
 	pos, err := p.Tracker.Track(ctx, f, now)
 	if err != nil {
 		slog.Warn("poller: track failed", "flight", f.Ident, "id", f.ID, "err", err)
@@ -109,4 +123,38 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 		return
 	}
 	p.Hub.Publish(sse.Event{Type: "flight.updated", Data: payload})
+}
+
+// needsBackfill is true when the resolver could meaningfully fill in at
+// least one of the metadata fields that the rest of the system needs.
+func needsBackfill(f *store.Flight) bool {
+	return f.OriginIATA == "" || f.DestIATA == "" || f.ICAO24 == nil
+}
+
+// backfillMetadata calls the Resolver for the flight's ident + departure
+// date and writes whichever fields are currently empty. Returns the
+// refetched Flight on success so the caller can continue with up-to-date
+// state, or nil + error otherwise.
+func (p *Poller) backfillMetadata(ctx context.Context, f *store.Flight) (*store.Flight, error) {
+	rf, err := p.Resolver.Resolve(ctx, f.Ident, f.ScheduledOut)
+	if err != nil {
+		if !errors.Is(err, providers.ErrFlightNotFound) {
+			slog.Warn("poller: backfill resolve failed",
+				"ident", f.Ident, "id", f.ID, "err", err)
+		}
+		return nil, err
+	}
+	if err := p.Store.BackfillFlight(ctx, f.ID, store.BackfillPayload{
+		OriginIATA: rf.OriginIATA, OriginLat: rf.OriginLat, OriginLon: rf.OriginLon,
+		DestIATA: rf.DestIATA, DestLat: rf.DestLat, DestLon: rf.DestLon,
+		ICAO24: rf.ICAO24,
+		Notes:  rf.Notes,
+	}); err != nil {
+		slog.Error("poller: backfill write failed", "id", f.ID, "err", err)
+		return nil, err
+	}
+	slog.Info("poller: backfilled metadata",
+		"ident", f.Ident, "id", f.ID,
+		"origin", rf.OriginIATA, "dest", rf.DestIATA, "icao24", rf.ICAO24)
+	return p.Store.FlightByID(ctx, f.ID)
 }

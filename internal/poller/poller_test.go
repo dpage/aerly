@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dpage/flight-tracker/internal/providers"
 	"github.com/dpage/flight-tracker/internal/sse"
 	"github.com/dpage/flight-tracker/internal/store"
 	"github.com/dpage/flight-tracker/internal/testsupport"
@@ -241,6 +242,118 @@ func TestTickContextCancelledBetweenFlights(t *testing.T) {
 
 	if tr.calls != 1 {
 		t.Errorf("expected loop to stop after first flight, tracker calls = %d", tr.calls)
+	}
+}
+
+// fakeResolver lets tests pin the resolver response without an HTTP server.
+type fakeResolver struct {
+	rf    *providers.ResolvedFlight
+	err   error
+	calls int
+}
+
+func (f *fakeResolver) Resolve(_ context.Context, _ string, _ time.Time) (*providers.ResolvedFlight, error) {
+	f.calls++
+	if f.rf != nil {
+		c := *f.rf
+		return &c, nil
+	}
+	return nil, f.err
+}
+
+// A flight added with blank IATAs and no icao24 should have those filled in
+// from the resolver on its next tick, leaving user-entered fields alone.
+func TestRefreshBackfillsMissingMetadata(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident:      "BA286",
+		OriginIATA: "LHR", OriginLat: 51.47, OriginLon: -0.46,
+		DestIATA: "SFO", DestLat: 37.62, DestLon: -122.38,
+		ICAO24: "406b05",
+		Notes:  "British Airways · Boeing 777",
+	}}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident:        "BA286",
+		ScheduledOut: now.Add(-time.Hour),
+		ScheduledIn:  now.Add(time.Hour),
+		Notes:        "user-typed note", // existing non-empty notes must NOT be overwritten
+	}, uid)
+	if err != nil {
+		t.Fatalf("create flight: %v", err)
+	}
+
+	p.tick(ctx)
+
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.OriginIATA != "LHR" || got.DestIATA != "SFO" {
+		t.Errorf("airports not backfilled: %q → %q", got.OriginIATA, got.DestIATA)
+	}
+	if got.OriginLat == nil || *got.OriginLat != 51.47 {
+		t.Errorf("origin lat not backfilled: %v", got.OriginLat)
+	}
+	if got.ICAO24 == nil || *got.ICAO24 != "406b05" {
+		t.Errorf("icao24 not backfilled: %v", got.ICAO24)
+	}
+	if got.Notes != "user-typed note" {
+		t.Errorf("user-typed notes were overwritten: %q", got.Notes)
+	}
+}
+
+// When ErrFlightNotFound comes back, the flight stays as-is and we don't
+// log it noisily (covered indirectly — what matters is the row is unchanged
+// and the tracker still runs).
+func TestRefreshBackfillNotFoundLeavesFlightAlone(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	fr := &fakeResolver{err: providers.ErrFlightNotFound}
+	p.Resolver = fr
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "XX9999", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+	}, uid)
+
+	p.tick(ctx)
+
+	if fr.calls != 1 {
+		t.Errorf("resolver should have been called exactly once, got %d", fr.calls)
+	}
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.OriginIATA != "" || got.DestIATA != "" || got.ICAO24 != nil {
+		t.Errorf("not-found should leave row blank: %+v", got)
+	}
+}
+
+// A flight that already has full metadata should NOT trigger a resolver
+// call on every tick — it would burn quota for nothing.
+func TestRefreshSkipsBackfillWhenComplete(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	fr := &fakeResolver{rf: &providers.ResolvedFlight{}}
+	p.Resolver = fr
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Created with both IATAs filled in already.
+	icao := "abc123"
+	_, _ = s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident:        "PL9",
+		ScheduledOut: now.Add(-time.Hour),
+		ScheduledIn:  now.Add(time.Hour),
+		OriginIATA:   "LHR",
+		DestIATA:     "JFK",
+		ICAO24:       icao,
+	}, uid)
+
+	p.tick(ctx)
+
+	if fr.calls != 0 {
+		t.Errorf("resolver should not be called when metadata is complete, got %d calls", fr.calls)
 	}
 }
 

@@ -223,6 +223,54 @@ func (s *Store) UpdateFlight(ctx context.Context, id int64, in UpdateFlightPaylo
 		in.ICAO24 != nil, icao24Arg))
 }
 
+// BackfillPayload carries optional resolver-supplied metadata for a flight
+// that was created with blanks. The poller uses this to fill in airports,
+// airframe, and notes the first time it sees the row in its active window.
+// Empty / zero values are ignored — the SQL only touches columns whose
+// current value is empty so user-typed entries are never overwritten.
+type BackfillPayload struct {
+	OriginIATA string
+	OriginLat  float64
+	OriginLon  float64
+	DestIATA   string
+	DestLat    float64
+	DestLon    float64
+	ICAO24     string
+	Notes      string
+}
+
+// BackfillFlight writes any non-empty fields from in into the matching
+// column on the flight row, but only when that column is currently empty
+// (empty string, NULL pointer). It's the database side of opportunistic
+// metadata backfill — see (*Poller).backfillMetadata.
+func (s *Store) BackfillFlight(ctx context.Context, id int64, in BackfillPayload) error {
+	icao24 := strings.ToLower(strings.TrimSpace(in.ICAO24))
+	var originLat, originLon, destLat, destLon *float64
+	if in.OriginLat != 0 || in.OriginLon != 0 {
+		originLat, originLon = &in.OriginLat, &in.OriginLon
+	}
+	if in.DestLat != 0 || in.DestLon != 0 {
+		destLat, destLon = &in.DestLat, &in.DestLon
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flights SET
+			origin_iata = CASE WHEN origin_iata = '' AND $2 <> '' THEN $2 ELSE origin_iata END,
+			origin_lat  = COALESCE(origin_lat, $3),
+			origin_lon  = COALESCE(origin_lon, $4),
+			dest_iata   = CASE WHEN dest_iata = '' AND $5 <> '' THEN $5 ELSE dest_iata END,
+			dest_lat    = COALESCE(dest_lat, $6),
+			dest_lon    = COALESCE(dest_lon, $7),
+			icao24      = COALESCE(icao24, NULLIF($8, '')),
+			notes       = CASE WHEN notes = '' AND $9 <> '' THEN $9 ELSE notes END,
+			updated_at  = NOW()
+		WHERE id = $1`,
+		id,
+		strings.ToUpper(in.OriginIATA), originLat, originLon,
+		strings.ToUpper(in.DestIATA), destLat, destLon,
+		icao24, in.Notes)
+	return err
+}
+
 // RefreshFlightStatus re-derives status from the row's scheduled times alone,
 // preserving terminal Cancelled / Diverted statuses. Called by the poller
 // after writing a position so the status pill stays in lockstep with the

@@ -95,6 +95,9 @@ func run() error {
 	}
 	tracker := providers.NewDeadReckoner(inner, s)
 	p := poller.New(s, tracker, hub, cfg.PollInterval)
+	// Give the poller the resolver too so it can backfill missing metadata
+	// on flights that were added manually with blanks.
+	p.Resolver = resolver
 	go p.Run(rootCtx)
 
 	mux := http.NewServeMux()
