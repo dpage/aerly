@@ -111,12 +111,21 @@ func (s *Store) CreateFlight(ctx context.Context, in CreateFlightPayload, create
 	originLat, originLon := lookupCoords(originIATA)
 	destLat, destLon := lookupCoords(destIATA)
 	icao24 := normalizeICAO24(in.ICAO24)
+	// Derive status from the schedule at insert time so a freshly-added
+	// flight whose scheduled_out is already past lands as Enroute rather
+	// than sitting on the column default ('Scheduled') until the first
+	// poll tick refreshes it.
 	return scanFlight(s.pool.QueryRow(ctx, `
 		INSERT INTO flights (ident, scheduled_out, scheduled_in,
 			origin_iata, origin_lat, origin_lon,
 			dest_iata,   dest_lat,   dest_lon,
-			icao24, notes, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			icao24, notes, created_by, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+			CASE
+				WHEN NOW() > $3 THEN 'Arrived'
+				WHEN NOW() >= $2 THEN 'Enroute'
+				ELSE 'Scheduled'
+			END)
 		RETURNING `+flightColumns,
 		ident, in.ScheduledOut, in.ScheduledIn,
 		originIATA, originLat, originLon,
@@ -309,6 +318,42 @@ func (s *Store) LatestRealPosition(ctx context.Context, flightID int64) (*Positi
 		return nil, err
 	}
 	return &p, nil
+}
+
+// RecentTracks returns up to `limit` of the most recent positions per flight
+// (oldest first within each entry) for the given IDs. Used to draw the
+// "flown so far" polyline on the map. Estimated and real fixes are both
+// included; consumers can filter if they only want hard data.
+func (s *Store) RecentTracks(ctx context.Context, flightIDs []int64, perFlight int) (map[int64][]*Position, error) {
+	out := map[int64][]*Position{}
+	if len(flightIDs) == 0 {
+		return out, nil
+	}
+	if perFlight <= 0 {
+		perFlight = 200
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT flight_id, ts, lat, lon, altitude_ft, groundspeed_kt, heading_deg, is_estimated
+		FROM (
+			SELECT *, ROW_NUMBER() OVER (PARTITION BY flight_id ORDER BY ts DESC) AS rn
+			FROM positions
+			WHERE flight_id = ANY($1)
+		) ranked
+		WHERE rn <= $2
+		ORDER BY flight_id, ts ASC`, flightIDs, perFlight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p Position
+		if err := rows.Scan(&p.FlightID, &p.Ts, &p.Lat, &p.Lon,
+			&p.AltitudeFt, &p.GroundspeedKt, &p.HeadingDeg, &p.IsEstimated); err != nil {
+			return nil, err
+		}
+		out[p.FlightID] = append(out[p.FlightID], &p)
+	}
+	return out, rows.Err()
 }
 
 // LatestPositions returns the latest position per flight for the given IDs.

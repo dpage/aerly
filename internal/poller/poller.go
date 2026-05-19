@@ -101,7 +101,8 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 	}
 	pmap, _ := p.Store.PassengersByFlight(ctx, []int64{f.ID})
 	latest, _ := p.Store.LatestPositions(ctx, []int64{f.ID})
-	dto := api.ToFlightDTO(fresh, pmap[f.ID], latest[f.ID])
+	tracks, _ := p.Store.RecentTracks(ctx, []int64{f.ID}, 200)
+	dto := api.ToFlightDTO(fresh, pmap[f.ID], latest[f.ID], tracks[f.ID])
 	payload, err := json.Marshal(dto)
 	if err != nil {
 		slog.Error("poller: marshal dto", "err", err)

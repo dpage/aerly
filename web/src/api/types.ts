@@ -77,6 +77,8 @@ export interface Flight {
   created_by?: number;
   passenger_ids: number[];
   latest_position?: Position;
+  /** Recent positions in order (oldest → newest), for the flown-track line. */
+  track?: Position[];
 }
 
 export interface CreateFlightInput {

@@ -73,9 +73,12 @@ type FlightDTO struct {
 	CreatedBy      *int64       `json:"created_by,omitempty"`
 	PassengerIDs   []int64      `json:"passenger_ids"`
 	LatestPosition *PositionDTO `json:"latest_position,omitempty"`
+	// Recent positions, oldest → newest, used to draw the flown track on the
+	// map. nil when there is no track yet.
+	Track []PositionDTO `json:"track,omitempty"`
 }
 
-func ToFlightDTO(f *store.Flight, passengerIDs []int64, latest *store.Position) FlightDTO {
+func ToFlightDTO(f *store.Flight, passengerIDs []int64, latest *store.Position, track []*store.Position) FlightDTO {
 	if passengerIDs == nil {
 		passengerIDs = []int64{}
 	}
@@ -104,6 +107,12 @@ func ToFlightDTO(f *store.Flight, passengerIDs []int64, latest *store.Position) 
 	if latest != nil {
 		p := ToPositionDTO(latest)
 		dto.LatestPosition = &p
+	}
+	if len(track) > 0 {
+		dto.Track = make([]PositionDTO, len(track))
+		for i, p := range track {
+			dto.Track[i] = ToPositionDTO(p)
+		}
 	}
 	return dto
 }

@@ -34,9 +34,16 @@ export default function FlightMap() {
   const mapRef = useRef<MlMap | null>(null);
   const markersRef = useRef<Map<number, maplibregl.Marker>>(new Map());
 
-  const arcsGeoJSON = useMemo(() => buildArcs(flights, selectedFlightId), [flights, selectedFlightId]);
+  const flownFC = useMemo(() => buildFlown(flights, selectedFlightId), [flights, selectedFlightId]);
+  const remainingFC = useMemo(
+    () => buildRemaining(flights, selectedFlightId),
+    [flights, selectedFlightId],
+  );
 
-  // Initialise the MapLibre instance once.
+  // Initialise the MapLibre instance once. Two line sources: the FLOWN track
+  // (origin → recorded positions → current, drawn solid) and the REMAINING
+  // route (current → destination, drawn dashed). For flights that haven't
+  // started yet, only the remaining line is drawn — from origin → destination.
   useEffect(() => {
     if (!containerRef.current) return;
     const map = new maplibregl.Map({
@@ -47,16 +54,27 @@ export default function FlightMap() {
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.on('load', () => {
-      map.addSource('arcs', { type: 'geojson', data: emptyFC() });
+      map.addSource('flown', { type: 'geojson', data: emptyFC() });
+      map.addSource('remaining', { type: 'geojson', data: emptyFC() });
       map.addLayer({
-        id: 'arcs-line',
+        id: 'remaining-line',
         type: 'line',
-        source: 'arcs',
+        source: 'remaining',
         paint: {
           'line-color': ['case', ['get', 'selected'], '#d97706', '#1f5fa8'],
-          'line-width': ['case', ['get', 'selected'], 3, 2],
+          'line-width': ['case', ['get', 'selected'], 2.5, 2],
           'line-dasharray': [2, 1.5],
-          'line-opacity': 0.85,
+          'line-opacity': 0.7,
+        },
+      });
+      map.addLayer({
+        id: 'flown-line',
+        type: 'line',
+        source: 'flown',
+        paint: {
+          'line-color': ['case', ['get', 'selected'], '#d97706', '#1f5fa8'],
+          'line-width': ['case', ['get', 'selected'], 3.5, 2.5],
+          'line-opacity': 0.95,
         },
       });
     });
@@ -69,17 +87,16 @@ export default function FlightMap() {
     };
   }, []);
 
-  // Push arc updates whenever flights change.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
-      const src = map.getSource('arcs') as maplibregl.GeoJSONSource | undefined;
-      if (src) src.setData(arcsGeoJSON);
+      (map.getSource('flown') as maplibregl.GeoJSONSource | undefined)?.setData(flownFC);
+      (map.getSource('remaining') as maplibregl.GeoJSONSource | undefined)?.setData(remainingFC);
     };
     if (map.isStyleLoaded()) apply();
     else map.once('load', apply);
-  }, [arcsGeoJSON]);
+  }, [flownFC, remainingFC]);
 
   // Auto-fit the map when the set of renderable flights changes — keeps newly
   // added flights from being off-screen. Skipped if the user has a flight
@@ -126,8 +143,6 @@ export default function FlightMap() {
         selectFlight(f.id === selectedFlightId ? null : f.id);
       };
       if (!marker) {
-        // rotationAlignment: 'map' keeps the plane's heading consistent with
-        // the compass even when the user rotates the map.
         marker = new maplibregl.Marker({
           element: el,
           rotation: heading,
@@ -149,7 +164,6 @@ export default function FlightMap() {
     }
   }, [flights, selectedFlightId, selectFlight]);
 
-  // When the user picks a flight, zoom to its bounding box.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || selectedFlightId == null) return;
@@ -163,11 +177,6 @@ export default function FlightMap() {
 }
 
 function buildMarkerEl(): HTMLElement {
-  // The SVG below points NORTH (nose at the top, tail at the bottom) when
-  // unrotated, so MapLibre's Marker.setRotation(headingDeg) with
-  // rotationAlignment: 'map' renders the plane pointing in its compass
-  // direction of travel. Do NOT set transform on this element — MapLibre owns
-  // the wrapper's transform and composites our rotation in for us.
   const el = document.createElement('div');
   el.style.width = '32px';
   el.style.height = '32px';
@@ -186,8 +195,6 @@ function buildMarkerEl(): HTMLElement {
 function stylePlane(el: HTMLElement, selected: boolean, estimated: boolean, title: string) {
   el.style.color = selected ? '#d97706' : '#1f5fa8';
   el.style.opacity = estimated ? '0.6' : '1';
-  // Switch fill → outline + dashed border when estimated, so users see at a
-  // glance that the position is dead-reckoned rather than a real fix.
   const svg = el.querySelector('svg');
   const path = svg?.querySelector('path');
   if (svg && path) {
@@ -208,19 +215,97 @@ function emptyFC(): GeoJSON.FeatureCollection {
   return { type: 'FeatureCollection', features: [] };
 }
 
-function buildArcs(flights: Flight[], selectedId: number | null): GeoJSON.FeatureCollection {
+// buildFlown returns one feature per flight: a MultiLineString joining
+// origin → first-tracked-point (via great-circle samples) → subsequent
+// tracked points linearly → latest_position. Flights that haven't produced
+// any position fix yet are skipped — their pre-departure route is rendered
+// by buildRemaining instead.
+function buildFlown(flights: Flight[], selectedId: number | null): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const f of flights) {
-    if (
-      f.origin_lat == null ||
-      f.origin_lon == null ||
-      f.dest_lat == null ||
-      f.dest_lon == null
-    ) {
+    const track = f.track ?? [];
+    const latest = f.latest_position;
+    if (track.length === 0 && !latest) continue;
+
+    const haveOrigin = f.origin_lat != null && f.origin_lon != null;
+    const segments: [number, number][][] = [];
+    let current: [number, number][] = [];
+
+    const pushPoint = (lon: number, lat: number) => {
+      const last = current[current.length - 1];
+      if (last && Math.abs(lon - last[0]) > 180) {
+        if (current.length > 1) segments.push(current);
+        current = [];
+      }
+      current.push([lon, lat]);
+    };
+
+    // Stitch origin → first sample with a great-circle so the line follows
+    // the planned route until ADS-B kicks in.
+    const firstSample = track[0] ?? latest;
+    if (haveOrigin && firstSample) {
+      const gc = greatCircle(f.origin_lat!, f.origin_lon!, firstSample.lat, firstSample.lon);
+      const parts = toMultiLine(gc);
+      for (const part of parts) {
+        for (const [lon, lat] of part) pushPoint(lon, lat);
+        if (current.length > 1) {
+          segments.push(current);
+          current = [];
+        }
+      }
+    }
+
+    // Then the recorded positions as straight segments — they're close
+    // enough in time (~1 min apart) that linear interpolation is fine.
+    for (const p of track) {
+      pushPoint(p.lon, p.lat);
+    }
+    // Latest_position may not yet be in track[] (poller writes then queries
+    // — they're consistent, but be defensive).
+    if (latest && (track.length === 0 || track[track.length - 1].ts !== latest.ts)) {
+      pushPoint(latest.lon, latest.lat);
+    }
+    if (current.length > 1) segments.push(current);
+
+    if (segments.length === 0) continue;
+    features.push({
+      type: 'Feature',
+      properties: { id: f.id, selected: f.id === selectedId },
+      geometry:
+        segments.length === 1
+          ? { type: 'LineString', coordinates: segments[0] }
+          : { type: 'MultiLineString', coordinates: segments },
+    });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+// buildRemaining returns one feature per flight: a (multi-)line from the
+// "current" anchor (latest_position when known, otherwise origin) to the
+// destination, drawn as a dashed great-circle. Skipped once a flight is
+// Arrived or Cancelled — there is nothing remaining.
+function buildRemaining(flights: Flight[], selectedId: number | null): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const f of flights) {
+    if (f.status === 'Arrived' || f.status === 'Cancelled') continue;
+    if (f.dest_lat == null || f.dest_lon == null) continue;
+
+    let anchorLat: number;
+    let anchorLon: number;
+    if (f.latest_position) {
+      anchorLat = f.latest_position.lat;
+      anchorLon = f.latest_position.lon;
+    } else if (f.origin_lat != null && f.origin_lon != null) {
+      anchorLat = f.origin_lat;
+      anchorLon = f.origin_lon;
+    } else {
       continue;
     }
-    const coords = greatCircle(f.origin_lat, f.origin_lon, f.dest_lat, f.dest_lon);
-    const parts = toMultiLine(coords);
+
+    const gc = greatCircle(anchorLat, anchorLon, f.dest_lat, f.dest_lon);
+    const parts = toMultiLine(gc);
+    if (parts.length === 0) continue;
+
     features.push({
       type: 'Feature',
       properties: { id: f.id, selected: f.id === selectedId },

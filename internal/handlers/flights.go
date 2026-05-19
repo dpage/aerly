@@ -54,9 +54,14 @@ func (a *API) listFlights(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	tracks, err := a.Store.RecentTracks(r.Context(), ids, 200)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
 	out := make([]api.FlightDTO, 0, len(flights))
 	for _, f := range flights {
-		out = append(out, api.ToFlightDTO(f, passengers[f.ID], latest[f.ID]))
+		out = append(out, api.ToFlightDTO(f, passengers[f.ID], latest[f.ID], tracks[f.ID]))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -74,7 +79,8 @@ func (a *API) getFlight(w http.ResponseWriter, r *http.Request) {
 	}
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{id})
 	latest, _ := a.Store.LatestPositions(r.Context(), []int64{id})
-	writeJSON(w, http.StatusOK, api.ToFlightDTO(f, passengers[id], latest[id]))
+	tracks, _ := a.Store.RecentTracks(r.Context(), []int64{id}, 200)
+	writeJSON(w, http.StatusOK, api.ToFlightDTO(f, passengers[id], latest[id], tracks[id]))
 }
 
 func (a *API) createFlight(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +110,7 @@ func (a *API) createFlight(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{f.ID})
-	writeJSON(w, http.StatusCreated, api.ToFlightDTO(f, passengers[f.ID], nil))
+	writeJSON(w, http.StatusCreated, api.ToFlightDTO(f, passengers[f.ID], nil, nil))
 }
 
 func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +139,8 @@ func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
 	}
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{id})
 	latest, _ := a.Store.LatestPositions(r.Context(), []int64{id})
-	writeJSON(w, http.StatusOK, api.ToFlightDTO(f, passengers[id], latest[id]))
+	tracks, _ := a.Store.RecentTracks(r.Context(), []int64{id}, 200)
+	writeJSON(w, http.StatusOK, api.ToFlightDTO(f, passengers[id], latest[id], tracks[id]))
 }
 
 func (a *API) deleteFlight(w http.ResponseWriter, r *http.Request) {
