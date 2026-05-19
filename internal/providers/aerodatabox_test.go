@@ -201,22 +201,23 @@ func TestIdentVariants(t *testing.T) {
 		in   string
 		want []string
 	}{
-		// The user's input is always tried first, then the 4-digit canonical
-		// form AeroDataBox prefers, then any remaining widths in ascending
-		// order. Saves a call in the common "typed short, stored long" case.
-		{"BA87", []string{"BA87", "BA0087", "BA087", "BA00087"}},
-		{"BA087", []string{"BA087", "BA0087", "BA87", "BA00087"}},
-		{"BA0087", []string{"BA0087", "BA87", "BA087", "BA00087"}},
-		{"BA00087", []string{"BA00087", "BA0087", "BA87", "BA087"}},
+		// At most two candidates: the user's literal input, and the canonical
+		// 4-digit form (only if different). Wider zero-paddings were dropped
+		// because they were a real driver of 429 bursts on tighter plans.
+		{"BA87", []string{"BA87", "BA0087"}},
+		{"BA087", []string{"BA087", "BA0087"}},
+		{"BA0087", []string{"BA0087"}},        // already canonical → single try
+		{"BA00087", []string{"BA00087", "BA0087"}},
 
 		// Airline codes can include digits ("9W" = Jet Airways). The regex
 		// is non-greedy on the prefix so the trailing run of digits is what
 		// gets re-padded, not the airline-code digit.
-		{"9W420", []string{"9W420", "9W0420", "9W00420"}},
+		{"9W420", []string{"9W420", "9W0420"}},
 
-		// 4-digit ident with no leading zero — already at the canonical width;
-		// only one extra padding fits under maxPad=5.
-		{"AC1234", []string{"AC1234", "AC01234"}},
+		// 4-digit ident with no leading zero — already canonical width.
+		{"AC1234", []string{"AC1234"}},
+		// More than 4 digits — we don't generate any 4-pad form.
+		{"AC12345", []string{"AC12345"}},
 
 		// Pathological inputs pass through unchanged.
 		{"", []string{""}},
@@ -231,6 +232,50 @@ func TestIdentVariants(t *testing.T) {
 				t.Errorf("identVariants(%q) = %v; want %v", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	now := time.Date(2026, 5, 19, 14, 0, 0, 0, time.UTC)
+	cases := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"", 0},
+		{"  ", 0},
+		{"5", 5 * time.Second},
+		{"0", 0},
+		{"-1", 0},
+		{"junk", 0},
+		// HTTP-date form, 90s in the future.
+		{now.Add(90 * time.Second).Format(http.TimeFormat), 90 * time.Second},
+		// HTTP-date form in the past → 0 (don't return a negative wait).
+		{now.Add(-time.Minute).Format(http.TimeFormat), 0},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got := parseRetryAfter(c.in, now)
+			// Accept ±1s slop on HTTP-date round-tripping (second-precision).
+			if got < c.want-time.Second || got > c.want+time.Second {
+				t.Errorf("parseRetryAfter(%q) = %v; want ~%v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// 429 with a Retry-After header surfaces the wait time in the error
+// message so the UI can render something useful.
+func TestAeroDataBoxRateLimitedWithRetryAfter(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "42")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	_, err := a.Resolve(context.Background(), "BA0087", time.Now())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "42") {
+		t.Errorf("error should mention the retry-after seconds: %v", err)
 	}
 }
 
@@ -260,7 +305,8 @@ func TestAeroDataBoxResolveTriesPaddedVariants(t *testing.T) {
 	if rf.Ident != "BA0087" {
 		t.Errorf("got ident %q, want BA0087", rf.Ident)
 	}
-	// Tried BA87 (204) → BA0087 (hit, canonical 4-digit is tried second).
+	// Tried BA87 (204) → BA0087 (hit). With the variant cap at 2 the loop
+	// stops after the canonical form regardless of the result.
 	if got := calls.Load(); got != 2 {
 		t.Errorf("server saw %d calls, want 2", got)
 	}

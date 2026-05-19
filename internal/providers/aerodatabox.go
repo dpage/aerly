@@ -6,11 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // AeroDataBox is a Resolver backed by the AeroDataBox API on RapidAPI.
@@ -24,6 +28,11 @@ type AeroDataBox struct {
 	BaseURL string
 	Host    string // RapidAPI host header
 	HTTP    *http.Client
+	// Limiter serializes outgoing requests so variant-retry bursts never
+	// trip RapidAPI's per-second cap on any plan tier. Default is 4 req/s
+	// with a burst of 1 — well under every advertised AeroDataBox plan
+	// and the practical RapidAPI gateway limit.
+	Limiter *rate.Limiter
 }
 
 func NewAeroDataBox(apiKey string) *AeroDataBox {
@@ -32,6 +41,7 @@ func NewAeroDataBox(apiKey string) *AeroDataBox {
 		BaseURL: "https://aerodatabox.p.rapidapi.com",
 		Host:    "aerodatabox.p.rapidapi.com",
 		HTTP:    &http.Client{Timeout: 20 * time.Second},
+		Limiter: rate.NewLimiter(rate.Limit(4), 1),
 	}
 }
 
@@ -77,6 +87,11 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 	req.Header.Set("X-RapidAPI-Host", a.Host)
 	req.Header.Set("Accept", "application/json")
 
+	if a.Limiter != nil {
+		if err := a.Limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
+	}
 	resp, err := a.HTTP.Do(req)
 	if err != nil {
 		return nil, err
@@ -90,9 +105,17 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 		return nil, ErrFlightNotFound
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
+		retry := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		slog.Warn("aerodatabox rate limited", "ident", ident, "date", date,
+			"retry_after_sec", int(retry.Seconds()), "body", truncate(body, 200))
+		if retry > 0 {
+			return nil, fmt.Errorf("aerodatabox rate limit hit — try again in %ds", int(retry.Seconds()))
+		}
 		return nil, fmt.Errorf("aerodatabox rate limit hit — try again shortly")
 	}
 	if resp.StatusCode != http.StatusOK {
+		slog.Warn("aerodatabox non-200", "ident", ident, "date", date,
+			"status", resp.StatusCode, "body", truncate(body, 200))
 		return nil, fmt.Errorf("aerodatabox %d: %s", resp.StatusCode, body)
 	}
 
@@ -114,12 +137,17 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 	return buildResolved(&pick, ident), nil
 }
 
-// identVariants returns the input ident plus zero-padded re-spellings of
-// its numeric portion. For example:
+// identVariants returns at most TWO candidates to try against AeroDataBox:
+// the user's literal input, and the canonical 4-digit padded form (if
+// different). We used to try every pad-length up to 5; that burst was a
+// real driver of 429s on tighter RapidAPI plans, and in practice we never
+// saw flights stored at any width other than 4. Examples:
 //
-//	"BA87"   → [BA87,   BA087, BA0087, BA00087]
-//	"BA0087" → [BA0087, BA87,  BA087,  BA00087]
-//	"9W420"  → [9W420,  9W0420, 9W00420]
+//	"BA87"   → [BA87,   BA0087]
+//	"BA087"  → [BA087,  BA0087]
+//	"BA0087" → [BA0087]
+//	"9W420"  → [9W420,  9W0420]
+//	"AC1234" → [AC1234]   (already 4-digit canonical)
 //
 // Idents that don't match an "airline code + digits" pattern (the prefix
 // must contain at least one letter) are passed through unchanged so we
@@ -138,26 +166,13 @@ func identVariants(ident string) []string {
 		// e.g. "BA0000" — all zeros, weird; return as-is.
 		return []string{ident}
 	}
-	seen := map[string]bool{ident: true}
 	out := []string{ident}
-	const maxPad = 5
-	add := func(length int) {
-		if length < len(num) || length > maxPad {
-			return
+	// Canonical 4-digit form, only if the user didn't already type it.
+	if len(num) <= 4 {
+		canonical := prefix + strings.Repeat("0", 4-len(num)) + num
+		if canonical != ident {
+			out = append(out, canonical)
 		}
-		v := prefix + strings.Repeat("0", length-len(num)) + num
-		if !seen[v] {
-			seen[v] = true
-			out = append(out, v)
-		}
-	}
-	// AeroDataBox stores flights at the 4-digit padded form ("BA0087").
-	// Try that immediately after the user's literal input so the common
-	// case ("user typed BA87, canonical is BA0087") costs two API calls
-	// rather than three.
-	add(4)
-	for length := len(num); length <= maxPad; length++ {
-		add(length)
 	}
 	return out
 }
@@ -165,6 +180,35 @@ func identVariants(ident string) []string {
 // Airline codes can start with a digit (e.g. "9W"), but they must contain
 // at least one letter — enforced by the post-regex check above.
 var identRe = regexp.MustCompile(`^([A-Z0-9]+?)(\d+)$`)
+
+// parseRetryAfter understands both forms of the Retry-After header:
+//   - "5"                              → 5 seconds (delta-seconds form)
+//   - "Wed, 21 Oct 2015 07:28:00 GMT"  → absolute HTTP-date form
+//
+// Returns 0 if the header is missing or unparsable.
+func parseRetryAfter(h string, now time.Time) time.Duration {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(h); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		d := t.Sub(now)
+		if d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+func truncate(b []byte, n int) string {
+	if len(b) <= n {
+		return string(b)
+	}
+	return string(b[:n]) + "…"
+}
 
 func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 	// AeroDataBox returns "BA 286" — split on whitespace then re-join so the
