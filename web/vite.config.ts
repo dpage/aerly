@@ -17,12 +17,18 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    sourcemap: true,
-    // Skip the "computing gzip size" step. It gzips the entire bundle in
-    // memory just to print one number in the build log, and on small VPS
-    // boxes (e.g. Hetzner CX11) the gzip buffer is enough to push Node
-    // past available RAM and trip the OOM killer mid-build. Doesn't affect
-    // the output — assets are served gzip-compressed at runtime regardless.
+    // sourcemap: false in production builds. Rollup buffers the entire
+    // source map in memory as it emits each chunk, and for our bundle
+    // (~1.5MB minified with maplibre-gl + MUI + React in it) the source
+    // maps reach several MB of JSON — enough to OOM-kill `vite build` on
+    // small VPS boxes during the "rendering chunks" step.
+    //
+    // Dev still has full sourcemaps automatically (Vite generates them
+    // on the fly when serving via `npm run dev`).
+    sourcemap: false,
+    // Skip the "computing gzip size" build-log line for the same reason —
+    // it gzips the whole bundle in memory just to print one number.
+    // Assets are served gzip-compressed at runtime regardless.
     reportCompressedSize: false,
   },
 });
