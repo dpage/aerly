@@ -10,14 +10,23 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
+// newADB builds an AeroDataBox client pointed at a httptest server and
+// disables the production 1-req/sec limiter + shortens the 429 retry
+// wait, so individual unit tests don't each pay seconds of real wall
+// time on rate-limit paths. Tests that need to verify the limiter or
+// retry-wait timing can override either field.
 func newADB(t *testing.T, h http.HandlerFunc) *AeroDataBox {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	a := NewAeroDataBox("apikey")
 	a.BaseURL = srv.URL
+	a.Limiter = rate.NewLimiter(rate.Inf, 1)
+	a.RetryWait = 5 * time.Millisecond
 	return a
 }
 
@@ -57,11 +66,58 @@ func TestAeroDataBoxNoContent(t *testing.T) {
 }
 
 func TestAeroDataBoxRateLimited(t *testing.T) {
+	var calls atomic.Int32
 	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
 	if _, err := a.Resolve(context.Background(), "BA286", time.Now()); err == nil {
 		t.Error("expected rate-limit error")
+	}
+	// resolveOne retries 429 once before giving up.
+	if got := calls.Load(); got != 2 {
+		t.Errorf("server saw %d calls, want 2 (initial + one retry)", got)
+	}
+}
+
+// A 429 followed by a 200 on retry returns the success cleanly — the
+// retry path hides the transient throttle from the caller.
+func TestAeroDataBoxRetryHidesTransient429(t *testing.T) {
+	var calls atomic.Int32
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"number":"BA286","codeshareStatus":"IsOperator",
+			"departure":{"airport":{"iata":"LHR"}},
+			"arrival":{"airport":{"iata":"SFO"}}}]`))
+	})
+	rf, err := a.Resolve(context.Background(), "BA286", time.Now())
+	if err != nil {
+		t.Fatalf("Resolve after retry: %v", err)
+	}
+	if rf.OriginIATA != "LHR" || rf.DestIATA != "SFO" {
+		t.Errorf("got %+v", rf)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("server saw %d calls, want 2", got)
+	}
+}
+
+// On 429, the upstream "message" field (when AeroDataBox supplies one)
+// surfaces in the final error so the UI shows something specific.
+func TestAeroDataBoxRateLimitSurfacesUpstreamMessage(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"message":"You have exceeded the rate limit per second for your plan, PRO, by the API provider"}`))
+	})
+	_, err := a.Resolve(context.Background(), "BA286", time.Now())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "PRO") {
+		t.Errorf("upstream message should appear in error: %v", err)
 	}
 }
 

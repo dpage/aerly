@@ -29,10 +29,14 @@ type AeroDataBox struct {
 	Host    string // RapidAPI host header
 	HTTP    *http.Client
 	// Limiter serializes outgoing requests so variant-retry bursts never
-	// trip RapidAPI's per-second cap on any plan tier. Default is 4 req/s
-	// with a burst of 1 — well under every advertised AeroDataBox plan
-	// and the practical RapidAPI gateway limit.
+	// trip RapidAPI's per-second cap on any plan tier. The default
+	// (configured in NewAeroDataBox) matches the AeroDataBox PRO plan's
+	// documented 1 req/sec ceiling.
 	Limiter *rate.Limiter
+	// RetryWait is how long resolveOne sleeps after a 429 before retrying
+	// once, used when the upstream's Retry-After header is missing or
+	// zero. Default 2s; tests can shorten it to keep the suite fast.
+	RetryWait time.Duration
 }
 
 func NewAeroDataBox(apiKey string) *AeroDataBox {
@@ -41,7 +45,14 @@ func NewAeroDataBox(apiKey string) *AeroDataBox {
 		BaseURL: "https://aerodatabox.p.rapidapi.com",
 		Host:    "aerodatabox.p.rapidapi.com",
 		HTTP:    &http.Client{Timeout: 20 * time.Second},
-		Limiter: rate.NewLimiter(rate.Limit(4), 1),
+		// 1 req/s — matches the AeroDataBox PRO plan's documented per-
+		// second rate limit exactly. Higher-tier plans aren't faster on
+		// this dimension (RapidAPI throttles ingress, not the upstream).
+		// Burst 1 keeps the very first call snappy; subsequent calls
+		// space by ~1s. The resolveOne path auto-retries 429 once with
+		// a short wait, so any slight clock-drift miss still succeeds.
+		Limiter:   rate.NewLimiter(rate.Limit(1), 1),
+		RetryWait: 2 * time.Second,
 	}
 }
 
@@ -69,10 +80,63 @@ func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time)
 	return nil, fmt.Errorf("no flight found for %s on %s: %w", ident, d, ErrFlightNotFound)
 }
 
-// resolveOne issues a single GET /flights/number/{ident}/{date} call and
-// returns the picked operator row, or ErrFlightNotFound if the upstream
-// has no record of this exact ident on this date.
+// resolveOne issues GET /flights/number/{ident}/{date} and returns the
+// picked operator row, or ErrFlightNotFound if the upstream has no record
+// of this exact ident on this date. On 429 it sleeps for the upstream's
+// Retry-After (or a short default) and retries once — the most common
+// transient throttle is hidden from the caller this way.
 func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*ResolvedFlight, error) {
+	const maxAttempts = 2
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		rf, status, retryAfter, body, err := a.doOne(ctx, ident, date)
+		if err != nil {
+			return nil, err
+		}
+		switch status {
+		case http.StatusOK:
+			return rf, nil
+		case http.StatusNotFound, http.StatusNoContent:
+			return nil, ErrFlightNotFound
+		case http.StatusTooManyRequests:
+			msg := upstreamMessage(body)
+			slog.Warn("aerodatabox rate limited",
+				"ident", ident, "date", date, "attempt", attempt,
+				"retry_after_sec", int(retryAfter.Seconds()),
+				"upstream_message", msg, "body", truncate(body, 200))
+			if attempt < maxAttempts {
+				wait := retryAfter
+				if wait <= 0 {
+					wait = a.RetryWait
+				}
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(wait):
+				}
+				continue
+			}
+			if retryAfter > 0 {
+				return nil, fmt.Errorf("aerodatabox rate limit — %s (retry in %ds)",
+					orFallback(msg, "throttled by RapidAPI"), int(retryAfter.Seconds()))
+			}
+			return nil, fmt.Errorf("aerodatabox rate limit — %s",
+				orFallback(msg, "throttled by RapidAPI; try again shortly"))
+		default:
+			slog.Warn("aerodatabox non-200", "ident", ident, "date", date,
+				"status", status, "body", truncate(body, 200))
+			return nil, fmt.Errorf("aerodatabox %d: %s", status, body)
+		}
+	}
+	return nil, lastErr
+}
+
+// doOne is the single-request workhorse. It returns the parsed flight (only
+// when status == 200), the HTTP status, the parsed Retry-After, the raw
+// body for logging / error formatting, and any transport-level error.
+func (a *AeroDataBox) doOne(ctx context.Context, ident, date string) (
+	*ResolvedFlight, int, time.Duration, []byte, error,
+) {
 	q := url.Values{}
 	q.Set("withAircraftImage", "false")
 	q.Set("withLocation", "true")
@@ -81,7 +145,7 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, nil, err
 	}
 	req.Header.Set("X-RapidAPI-Key", a.APIKey)
 	req.Header.Set("X-RapidAPI-Host", a.Host)
@@ -89,42 +153,29 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 
 	if a.Limiter != nil {
 		if err := a.Limiter.Wait(ctx); err != nil {
-			return nil, err
+			return nil, 0, 0, nil, err
 		}
 	}
 	resp, err := a.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, nil, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<18))
-	// AeroDataBox answers a well-formed request that simply has no matching
-	// schedule with 204 No Content (empty body) rather than 404. Treat both
-	// as a clean "nothing found".
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
-		return nil, ErrFlightNotFound
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		retry := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
-		slog.Warn("aerodatabox rate limited", "ident", ident, "date", date,
-			"retry_after_sec", int(retry.Seconds()), "body", truncate(body, 200))
-		if retry > 0 {
-			return nil, fmt.Errorf("aerodatabox rate limit hit — try again in %ds", int(retry.Seconds()))
-		}
-		return nil, fmt.Errorf("aerodatabox rate limit hit — try again shortly")
-	}
+	retry := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("aerodatabox non-200", "ident", ident, "date", date,
-			"status", resp.StatusCode, "body", truncate(body, 200))
-		return nil, fmt.Errorf("aerodatabox %d: %s", resp.StatusCode, body)
+		return nil, resp.StatusCode, retry, body, nil
 	}
 
 	var flights []adbFlight
 	if err := json.Unmarshal(body, &flights); err != nil {
-		return nil, fmt.Errorf("aerodatabox: bad JSON: %w", err)
+		return nil, resp.StatusCode, retry, body, fmt.Errorf("aerodatabox: bad JSON: %w", err)
 	}
 	if len(flights) == 0 {
-		return nil, ErrFlightNotFound
+		// Treat empty array as "not found"; bump the status so the caller's
+		// switch maps it to ErrFlightNotFound.
+		return nil, http.StatusNoContent, retry, body, nil
 	}
 
 	pick := flights[0]
@@ -134,7 +185,28 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 			break
 		}
 	}
-	return buildResolved(&pick, ident), nil
+	return buildResolved(&pick, ident), resp.StatusCode, retry, body, nil
+}
+
+// upstreamMessage extracts AeroDataBox's "message" field from a JSON error
+// body when present, returning "" otherwise. The shape is:
+//
+//	{"message":"You have exceeded the rate limit per second for your plan, PRO, by the API provider"}
+func upstreamMessage(body []byte) string {
+	var p struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &p); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(p.Message)
+}
+
+func orFallback(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
 }
 
 // identVariants returns at most TWO candidates to try against AeroDataBox:
