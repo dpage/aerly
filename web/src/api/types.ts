@@ -23,6 +23,8 @@ export interface Position {
 export interface Capabilities {
   /** When true, the Add Flight dialog can drop to "ident + date" only. */
   resolver_available: boolean;
+  /** Poll cadence in seconds; drives the "next update in N" footer. */
+  poll_interval_sec: number;
 }
 
 export interface ResolveFlightInput {

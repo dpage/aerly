@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   Avatar,
   AvatarGroup,
@@ -25,38 +26,94 @@ export default function FlightList({ onEditFlight }: Props) {
   const selectFlight = useStore((s) => s.selectFlight);
   const deleteFlight = useStore((s) => s.deleteFlight);
 
-  if (flights.length === 0) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Typography color="text.secondary" variant="body2">
-          No flights yet. Click <strong>Add flight</strong> in the top bar to track your first
-          journey.
-        </Typography>
-      </Box>
-    );
-  }
-
   const usersById = new Map(users.map((u) => [u.id, u]));
 
   return (
-    <Stack divider={<Box sx={{ borderBottom: 1, borderColor: 'divider' }} />}>
-      {flights.map((f) => (
-        <FlightRow
-          key={f.id}
-          flight={f}
-          passengers={f.passenger_ids
-            .map((id) => usersById.get(id))
-            .filter((u): u is User => u !== undefined)}
-          selected={f.id === selectedFlightId}
-          onSelect={() => selectFlight(f.id === selectedFlightId ? null : f.id)}
-          onEdit={() => onEditFlight(f.id)}
-          onDelete={() => {
-            if (confirm(`Delete flight ${f.ident}?`)) void deleteFlight(f.id);
-          }}
-        />
-      ))}
-    </Stack>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      <Box sx={{ flexGrow: 1 }}>
+        {flights.length === 0 ? (
+          <Box sx={{ p: 3 }}>
+            <Typography color="text.secondary" variant="body2">
+              No flights yet. Click <strong>Add flight</strong> in the top bar to track your first
+              journey.
+            </Typography>
+          </Box>
+        ) : (
+          <Stack divider={<Box sx={{ borderBottom: 1, borderColor: 'divider' }} />}>
+            {flights.map((f) => (
+              <FlightRow
+                key={f.id}
+                flight={f}
+                passengers={f.passenger_ids
+                  .map((id) => usersById.get(id))
+                  .filter((u): u is User => u !== undefined)}
+                selected={f.id === selectedFlightId}
+                onSelect={() => selectFlight(f.id === selectedFlightId ? null : f.id)}
+                onEdit={() => onEditFlight(f.id)}
+                onDelete={() => {
+                  if (confirm(`Delete flight ${f.ident}?`)) void deleteFlight(f.id);
+                }}
+              />
+            ))}
+          </Stack>
+        )}
+      </Box>
+      <PollFooter />
+    </Box>
   );
+}
+
+// PollFooter shows a tiny "last update Xs ago · next ~Ys" line at the
+// bottom of the flight list. The "next" countdown is best-effort — it
+// assumes the server's POLL_INTERVAL plus a small jitter; if no event
+// has arrived yet we just show "awaiting first update".
+function PollFooter() {
+  const lastUpdateAt = useStore((s) => s.lastUpdateAt);
+  const pollIntervalSec = useStore((s) => s.capabilities.poll_interval_sec);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  let body: React.ReactNode;
+  if (!lastUpdateAt) {
+    body = `Awaiting first update — polls every ${pollIntervalSec}s`;
+  } else {
+    const sinceSec = Math.max(0, Math.floor((now - lastUpdateAt) / 1000));
+    const remainSec = Math.max(0, pollIntervalSec - sinceSec);
+    body = (
+      <>
+        Last update {fmtRelative(sinceSec)} ago · next ~{remainSec}s
+      </>
+    );
+  }
+
+  return (
+    <Box
+      sx={{
+        px: 2,
+        py: 1,
+        borderTop: 1,
+        borderColor: 'divider',
+        bgcolor: 'background.default',
+        position: 'sticky',
+        bottom: 0,
+      }}
+    >
+      <Typography variant="caption" color="text.secondary">
+        {body}
+      </Typography>
+    </Box>
+  );
+}
+
+function fmtRelative(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s === 0 ? `${m}m` : `${m}m ${s}s`;
 }
 
 interface FlightRowProps {

@@ -20,6 +20,8 @@ interface AppState {
   flights: Flight[];
   users: User[];
   selectedFlightId: number | null;
+  /** Wall-clock time (ms since epoch) of the most recent flight.updated event. */
+  lastUpdateAt: number | null;
   error: string | null;
 
   init: () => Promise<void>;
@@ -46,10 +48,11 @@ interface AppState {
 export const useStore = create<AppState>((set, get) => ({
   auth: 'loading',
   me: null,
-  capabilities: { resolver_available: false },
+  capabilities: { resolver_available: false, poll_interval_sec: 60 },
   flights: [],
   users: [],
   selectedFlightId: null,
+  lastUpdateAt: null,
   error: null,
 
   async init() {
@@ -138,7 +141,8 @@ export const useStore = create<AppState>((set, get) => ({
       flights: [],
       users: [],
       selectedFlightId: null,
-      capabilities: { resolver_available: false },
+      capabilities: { resolver_available: false, poll_interval_sec: 60 },
+      lastUpdateAt: null,
     });
   },
 
@@ -149,10 +153,15 @@ export const useStore = create<AppState>((set, get) => ({
   applyFlightUpdate(f) {
     set((s) => {
       const idx = s.flights.findIndex((x) => x.id === f.id);
-      if (idx === -1) return { flights: [...s.flights, f].sort(byScheduledOut) };
-      const next = s.flights.slice();
-      next[idx] = f;
-      return { flights: next };
+      const flights =
+        idx === -1
+          ? [...s.flights, f].sort(byScheduledOut)
+          : (() => {
+              const next = s.flights.slice();
+              next[idx] = f;
+              return next;
+            })();
+      return { flights, lastUpdateAt: Date.now() };
     });
   },
 
