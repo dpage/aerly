@@ -95,8 +95,13 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 		}
 		switch status {
 		case http.StatusOK:
+			slog.Info("aerodatabox resolved", "ident", ident, "date", date,
+				"resolved_ident", rf.Ident, "origin", rf.OriginIATA,
+				"dest", rf.DestIATA, "icao24", rf.ICAO24)
 			return rf, nil
 		case http.StatusNotFound, http.StatusNoContent:
+			slog.Info("aerodatabox not found", "ident", ident, "date", date,
+				"status", status)
 			return nil, ErrFlightNotFound
 		case http.StatusTooManyRequests:
 			msg := upstreamMessage(body)

@@ -51,14 +51,15 @@ func (c *CachedResolver) Resolve(ctx context.Context, ident string, date time.Ti
 	c.mu.Unlock()
 	if ok && now.Before(entry.expires) {
 		if entry.notFnd {
-			slog.Debug("resolver cache hit (not found)", "key", key)
+			slog.Info("resolver cache hit (not found)", "key", key)
 			return nil, ErrFlightNotFound
 		}
-		slog.Debug("resolver cache hit", "key", key)
+		slog.Info("resolver cache hit", "key", key)
 		// Return a defensive copy so a caller can't mutate the cached value.
 		rfCopy := *entry.flight
 		return &rfCopy, nil
 	}
+	slog.Info("resolver cache miss", "key", key)
 
 	rf, err := c.Inner.Resolve(ctx, ident, date)
 	// Only cache definitive answers — a hit (rf != nil) or a confirmed
