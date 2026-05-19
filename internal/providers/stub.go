@@ -1,4 +1,4 @@
-package aeroapi
+package providers
 
 import (
 	"context"

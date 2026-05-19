@@ -15,7 +15,7 @@ const flightColumns = `id, ident, scheduled_out, scheduled_in,
 	estimated_out, estimated_in, actual_out, actual_in,
 	origin_iata, origin_lat, origin_lon,
 	dest_iata, dest_lat, dest_lon,
-	status, aeroapi_id, icao24, last_polled_at, created_by, notes, created_at, updated_at`
+	status, icao24, last_polled_at, created_by, notes, created_at, updated_at`
 
 func scanFlight(row pgx.Row) (*Flight, error) {
 	var f Flight
@@ -24,7 +24,7 @@ func scanFlight(row pgx.Row) (*Flight, error) {
 		&f.EstimatedOut, &f.EstimatedIn, &f.ActualOut, &f.ActualIn,
 		&f.OriginIATA, &f.OriginLat, &f.OriginLon,
 		&f.DestIATA, &f.DestLat, &f.DestLon,
-		&f.Status, &f.AeroAPIID, &f.ICAO24, &f.LastPolledAt, &f.CreatedBy, &f.Notes, &f.CreatedAt, &f.UpdatedAt,
+		&f.Status, &f.ICAO24, &f.LastPolledAt, &f.CreatedBy, &f.Notes, &f.CreatedAt, &f.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -62,8 +62,8 @@ func (s *Store) FlightByID(ctx context.Context, id int64) (*Flight, error) {
 // upper bound used to be scheduled_in + 30m, but that left stale flights
 // stuck Enroute if the server happened to be down during their landing —
 // instead we keep returning them until the next tick promotes them to
-// Arrived (via the stub or AeroAPI), at which point the status filter
-// drops them out.
+// Arrived (via the tracker), at which point the status filter drops them
+// out.
 func (s *Store) ActiveFlights(ctx context.Context, now time.Time) ([]*Flight, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+flightColumns+` FROM flights
@@ -419,7 +419,6 @@ func (s *Store) InsertPosition(ctx context.Context, p Position) error {
 		p.FlightID, p.Ts, p.Lat, p.Lon, p.AltitudeFt, p.GroundspeedKt, p.HeadingDeg, p.IsEstimated)
 	return err
 }
-
 
 func upperPtr(s *string) *string {
 	if s == nil {

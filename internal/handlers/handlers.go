@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/dpage/flight-tracker/internal/aeroapi"
 	"github.com/dpage/flight-tracker/internal/auth"
 	"github.com/dpage/flight-tracker/internal/config"
+	"github.com/dpage/flight-tracker/internal/providers"
 	"github.com/dpage/flight-tracker/internal/sse"
 	"github.com/dpage/flight-tracker/internal/store"
 )
@@ -19,10 +19,10 @@ type API struct {
 	Auth     *auth.Handler
 	Hub      *sse.Hub
 	Config   *config.Config
-	Resolver aeroapi.Resolver // may be nil if no resolver is configured
+	Resolver providers.Resolver // may be nil if no resolver is configured
 }
 
-func New(s *store.Store, a *auth.Handler, hub *sse.Hub, cfg *config.Config, r aeroapi.Resolver) *API {
+func New(s *store.Store, a *auth.Handler, hub *sse.Hub, cfg *config.Config, r providers.Resolver) *API {
 	return &API{Store: s, Auth: a, Hub: hub, Config: cfg, Resolver: r}
 }
 
@@ -79,4 +79,3 @@ func decode(r *http.Request, dst any) error {
 	dec.DisallowUnknownFields()
 	return dec.Decode(dst)
 }
-

@@ -1,0 +1,1 @@
+ALTER TABLE flights ADD COLUMN IF NOT EXISTS aeroapi_id TEXT;

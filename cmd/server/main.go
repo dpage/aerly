@@ -1,7 +1,8 @@
 // Command server is the flight-tracker HTTP server.
 //
-// It serves the React SPA, exposes the JSON API, handles GitHub OAuth, runs the
-// AeroAPI polling loop, and broadcasts flight updates over Server-Sent Events.
+// It serves the React SPA, exposes the JSON API, handles GitHub OAuth, runs
+// the flight-tracking poller (OpenSky / stub + dead-reckoning), and
+// broadcasts flight updates over Server-Sent Events.
 package main
 
 import (
@@ -16,12 +17,12 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/dpage/flight-tracker/internal/aeroapi"
 	"github.com/dpage/flight-tracker/internal/auth"
 	"github.com/dpage/flight-tracker/internal/config"
 	"github.com/dpage/flight-tracker/internal/db"
 	"github.com/dpage/flight-tracker/internal/handlers"
 	"github.com/dpage/flight-tracker/internal/poller"
+	"github.com/dpage/flight-tracker/internal/providers"
 	"github.com/dpage/flight-tracker/internal/sse"
 	"github.com/dpage/flight-tracker/internal/store"
 	"github.com/dpage/flight-tracker/migrations"
@@ -68,9 +69,9 @@ func run() error {
 	authH := auth.NewHandler(cfg.GitHubID, cfg.GitHubSecret, cfg.SessionKey, cfg.PublicURL, s)
 	hub := sse.NewHub()
 
-	var resolver aeroapi.Resolver
+	var resolver providers.Resolver
 	if cfg.AeroDataBoxKey != "" {
-		resolver = aeroapi.NewAeroDataBox(cfg.AeroDataBoxKey)
+		resolver = providers.NewAeroDataBox(cfg.AeroDataBoxKey)
 		slog.Info("resolver: aerodatabox")
 	}
 	api := handlers.New(s, authH, hub, cfg, resolver)
@@ -79,17 +80,17 @@ func run() error {
 	// anonymous OpenSky if requested), otherwise the in-memory stub. Either
 	// way we wrap with DeadReckoner so coverage gaps fall back to an
 	// extrapolation from the last real fix.
-	var inner aeroapi.Tracker
+	var inner providers.Tracker
 	switch {
 	case cfg.UseOpenSky():
-		inner = aeroapi.NewOpenSky(cfg.OpenSkyUsername, cfg.OpenSkyPassword)
+		inner = providers.NewOpenSky(cfg.OpenSkyUsername, cfg.OpenSkyPassword)
 		slog.Info("tracker: opensky",
 			"authed", cfg.OpenSkyUsername != "")
 	default:
-		inner = aeroapi.NewStub()
+		inner = providers.NewStub()
 		slog.Info("tracker: stub")
 	}
-	tracker := aeroapi.NewDeadReckoner(inner, s)
+	tracker := providers.NewDeadReckoner(inner, s)
 	p := poller.New(s, tracker, hub, cfg.PollInterval)
 	go p.Run(rootCtx)
 

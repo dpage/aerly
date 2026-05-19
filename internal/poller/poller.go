@@ -10,20 +10,20 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/aeroapi"
 	"github.com/dpage/flight-tracker/internal/api"
+	"github.com/dpage/flight-tracker/internal/providers"
 	"github.com/dpage/flight-tracker/internal/sse"
 	"github.com/dpage/flight-tracker/internal/store"
 )
 
 type Poller struct {
 	Store    *store.Store
-	Tracker  aeroapi.Tracker
+	Tracker  providers.Tracker
 	Hub      *sse.Hub
 	Interval time.Duration
 }
 
-func New(s *store.Store, t aeroapi.Tracker, hub *sse.Hub, interval time.Duration) *Poller {
+func New(s *store.Store, t providers.Tracker, hub *sse.Hub, interval time.Duration) *Poller {
 	if interval <= 0 {
 		interval = 60 * time.Second
 	}

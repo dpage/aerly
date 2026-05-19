@@ -1,11 +1,15 @@
-// Package aeroapi holds the flight-tracking backends — implementations of
-// the Tracker interface called once per poll cycle for each active flight.
+// Package providers holds the external flight-data integrations: position
+// trackers (Tracker) and schedule resolvers (Resolver), together with a
+// dead-reckoning wrapper that fills coverage gaps.
 //
-// The package is named "aeroapi" for historical reasons (the project started
-// with a FlightAware AeroAPI integration in mind). It now houses the OpenSky
-// tracker, the in-memory stub, and a dead-reckoning wrapper. A future
-// AeroAPI-style live tracker would live here too.
-package aeroapi
+// Concrete implementations:
+//
+//   - Stub        — in-memory; interpolates positions from the schedule alone.
+//   - OpenSky     — ADS-B state vectors from opensky-network.org.
+//   - DeadReckoner — wraps any Tracker and synthesises a position when the
+//     inner tracker returns no fresh fix.
+//   - AeroDataBox — schedule + airport + airframe lookups via RapidAPI.
+package providers
 
 import (
 	"context"
@@ -45,7 +49,7 @@ type ResolvedFlight struct {
 
 // Resolver maps a flight number + departure date to a ResolvedFlight. The
 // concrete implementation is whatever airline-data provider the operator
-// has configured (AeroDataBox today; AeroAPI / AviationStack / FlightStats
+// has configured (AeroDataBox today; AviationStack / FlightStats / similar
 // could slot in here too).
 type Resolver interface {
 	Resolve(ctx context.Context, ident string, date time.Time) (*ResolvedFlight, error)

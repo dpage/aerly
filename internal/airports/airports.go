@@ -1,8 +1,8 @@
-// Package airports holds a small embedded IATA → (lat, lon) table used both by
-// the stub AeroAPI backend and by the store layer (which resolves coordinates
-// at write time so newly-created flights render on the map without waiting for
-// the first poll cycle). It is a stand-alone package to avoid a store ↔ aeroapi
-// import cycle.
+// Package airports holds a small embedded IATA → (lat, lon) table used both
+// by the stub tracker and by the store layer (which resolves coordinates at
+// write time so newly-created flights render on the map without waiting for
+// the first poll cycle). It is a stand-alone package to avoid a store ↔
+// providers import cycle.
 package airports
 
 import "strings"

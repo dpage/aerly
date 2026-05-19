@@ -29,28 +29,27 @@ type User struct {
 }
 
 type Flight struct {
-	ID            int64
-	Ident         string
-	ScheduledOut  time.Time
-	ScheduledIn   time.Time
-	EstimatedOut  *time.Time
-	EstimatedIn   *time.Time
-	ActualOut     *time.Time
-	ActualIn      *time.Time
-	OriginIATA    string
-	OriginLat     *float64
-	OriginLon     *float64
-	DestIATA      string
-	DestLat       *float64
-	DestLon       *float64
-	Status        string
-	AeroAPIID     *string
-	ICAO24        *string
-	LastPolledAt  *time.Time
-	CreatedBy     *int64
-	Notes         string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID           int64
+	Ident        string
+	ScheduledOut time.Time
+	ScheduledIn  time.Time
+	EstimatedOut *time.Time
+	EstimatedIn  *time.Time
+	ActualOut    *time.Time
+	ActualIn     *time.Time
+	OriginIATA   string
+	OriginLat    *float64
+	OriginLon    *float64
+	DestIATA     string
+	DestLat      *float64
+	DestLon      *float64
+	Status       string
+	ICAO24       *string
+	LastPolledAt *time.Time
+	CreatedBy    *int64
+	Notes        string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Position struct {

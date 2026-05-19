@@ -31,8 +31,6 @@ CREATE TABLE flights (
     dest_lat        DOUBLE PRECISION,
     dest_lon        DOUBLE PRECISION,
     status          TEXT NOT NULL DEFAULT 'Scheduled',
-    -- The AeroAPI fa_flight_id, set once resolved from the ident.
-    aeroapi_id      TEXT,
     last_polled_at  TIMESTAMPTZ,
     created_by      BIGINT REFERENCES users(id) ON DELETE SET NULL,
     notes           TEXT NOT NULL DEFAULT '',
