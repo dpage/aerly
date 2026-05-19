@@ -2,9 +2,12 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -191,4 +194,106 @@ func TestBuildResolvedNilSubObjects(t *testing.T) {
 
 func TestAeroDataBoxResolverInterface(t *testing.T) {
 	var _ Resolver = (*AeroDataBox)(nil)
+}
+
+func TestIdentVariants(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		// The user's input is always tried first, then the 4-digit canonical
+		// form AeroDataBox prefers, then any remaining widths in ascending
+		// order. Saves a call in the common "typed short, stored long" case.
+		{"BA87", []string{"BA87", "BA0087", "BA087", "BA00087"}},
+		{"BA087", []string{"BA087", "BA0087", "BA87", "BA00087"}},
+		{"BA0087", []string{"BA0087", "BA87", "BA087", "BA00087"}},
+		{"BA00087", []string{"BA00087", "BA0087", "BA87", "BA087"}},
+
+		// Airline codes can include digits ("9W" = Jet Airways). The regex
+		// is non-greedy on the prefix so the trailing run of digits is what
+		// gets re-padded, not the airline-code digit.
+		{"9W420", []string{"9W420", "9W0420", "9W00420"}},
+
+		// 4-digit ident with no leading zero — already at the canonical width;
+		// only one extra padding fits under maxPad=5.
+		{"AC1234", []string{"AC1234", "AC01234"}},
+
+		// Pathological inputs pass through unchanged.
+		{"", []string{""}},
+		{"GIBBERISH", []string{"GIBBERISH"}},
+		{"BA0000", []string{"BA0000"}},
+		{"BA", []string{"BA"}},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got := identVariants(c.in)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("identVariants(%q) = %v; want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// Verifies that AeroDataBox.Resolve retries with zero-padded variants of the
+// requested ident on a not-found response, and stops as soon as one variant
+// hits. Airlines refer to BA87 / BA087 / BA0087 interchangeably; we want any
+// of those to find the record AeroDataBox stores under just one of them.
+func TestAeroDataBoxResolveTriesPaddedVariants(t *testing.T) {
+	var calls atomic.Int32
+	a := newADB(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		// The handler simulates AeroDataBox storing this flight only under
+		// the 4-digit padded form. Anything else is a 204.
+		switch {
+		case strings.Contains(r.URL.Path, "/BA0087/"):
+			_, _ = w.Write([]byte(`[{"number":"BA0087","codeshareStatus":"IsOperator",
+				"departure":{"airport":{"iata":"LHR"}},
+				"arrival":{"airport":{"iata":"YVR"}}}]`))
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+	rf, err := a.Resolve(context.Background(), "BA87", time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if rf.Ident != "BA0087" {
+		t.Errorf("got ident %q, want BA0087", rf.Ident)
+	}
+	// Tried BA87 (204) → BA0087 (hit, canonical 4-digit is tried second).
+	if got := calls.Load(); got != 2 {
+		t.Errorf("server saw %d calls, want 2", got)
+	}
+}
+
+// When every variant returns not-found, Resolve surfaces ErrFlightNotFound
+// so callers can distinguish it from network / quota failures.
+func TestAeroDataBoxResolveAllVariantsMiss(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	_, err := a.Resolve(context.Background(), "BA87", time.Now())
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !errors.Is(err, ErrFlightNotFound) {
+		t.Errorf("err = %v; want errors.Is(ErrFlightNotFound)", err)
+	}
+}
+
+// On a hard transport-level error, Resolve must NOT keep retrying — that
+// would burn API quota and mask the real problem.
+func TestAeroDataBoxResolveDoesNotRetryHardErrors(t *testing.T) {
+	var calls atomic.Int32
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("oh no"))
+	})
+	if _, err := a.Resolve(context.Background(), "BA87", time.Now()); err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("server saw %d calls, want exactly 1", got)
+	}
 }

@@ -3,10 +3,12 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -33,17 +35,39 @@ func NewAeroDataBox(apiKey string) *AeroDataBox {
 	}
 }
 
+// Resolve looks up a flight on AeroDataBox. Airlines refer to the same
+// flight as e.g. "BA87", "BA087", or "BA0087" interchangeably, but
+// AeroDataBox keys them under one canonical form. To absorb that, on a
+// "not found" response we retry with every reasonable zero-padding of the
+// numeric portion (pad-length 2 → 5) before giving up.
 func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time) (*ResolvedFlight, error) {
 	ident = strings.ToUpper(strings.TrimSpace(ident))
 	if ident == "" {
 		return nil, fmt.Errorf("ident required")
 	}
 	d := date.UTC().Format("2006-01-02")
+	variants := identVariants(ident)
+	for _, v := range variants {
+		rf, err := a.resolveOne(ctx, v, d)
+		if err == nil {
+			return rf, nil
+		}
+		if !errors.Is(err, ErrFlightNotFound) {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("no flight found for %s on %s: %w", ident, d, ErrFlightNotFound)
+}
+
+// resolveOne issues a single GET /flights/number/{ident}/{date} call and
+// returns the picked operator row, or ErrFlightNotFound if the upstream
+// has no record of this exact ident on this date.
+func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*ResolvedFlight, error) {
 	q := url.Values{}
 	q.Set("withAircraftImage", "false")
 	q.Set("withLocation", "true")
 	u := fmt.Sprintf("%s/flights/number/%s/%s?%s",
-		a.BaseURL, url.PathEscape(ident), d, q.Encode())
+		a.BaseURL, url.PathEscape(ident), date, q.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -61,9 +85,9 @@ func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time)
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<18))
 	// AeroDataBox answers a well-formed request that simply has no matching
 	// schedule with 204 No Content (empty body) rather than 404. Treat both
-	// as a clean "nothing found" instead of leaking a raw status code.
+	// as a clean "nothing found".
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
-		return nil, fmt.Errorf("no flight found for %s on %s", ident, d)
+		return nil, ErrFlightNotFound
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return nil, fmt.Errorf("aerodatabox rate limit hit — try again shortly")
@@ -77,7 +101,7 @@ func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time)
 		return nil, fmt.Errorf("aerodatabox: bad JSON: %w", err)
 	}
 	if len(flights) == 0 {
-		return nil, fmt.Errorf("no flight found for %s on %s", ident, d)
+		return nil, ErrFlightNotFound
 	}
 
 	pick := flights[0]
@@ -89,6 +113,58 @@ func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time)
 	}
 	return buildResolved(&pick, ident), nil
 }
+
+// identVariants returns the input ident plus zero-padded re-spellings of
+// its numeric portion. For example:
+//
+//	"BA87"   → [BA87,   BA087, BA0087, BA00087]
+//	"BA0087" → [BA0087, BA87,  BA087,  BA00087]
+//	"9W420"  → [9W420,  9W0420, 9W00420]
+//
+// Idents that don't match an "airline code + digits" pattern (the prefix
+// must contain at least one letter) are passed through unchanged so we
+// don't generate junk for pure-digit or pathological inputs.
+func identVariants(ident string) []string {
+	m := identRe.FindStringSubmatch(ident)
+	if m == nil {
+		return []string{ident}
+	}
+	prefix := m[1]
+	if !strings.ContainsAny(prefix, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+		return []string{ident}
+	}
+	num := strings.TrimLeft(m[2], "0")
+	if num == "" {
+		// e.g. "BA0000" — all zeros, weird; return as-is.
+		return []string{ident}
+	}
+	seen := map[string]bool{ident: true}
+	out := []string{ident}
+	const maxPad = 5
+	add := func(length int) {
+		if length < len(num) || length > maxPad {
+			return
+		}
+		v := prefix + strings.Repeat("0", length-len(num)) + num
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	// AeroDataBox stores flights at the 4-digit padded form ("BA0087").
+	// Try that immediately after the user's literal input so the common
+	// case ("user typed BA87, canonical is BA0087") costs two API calls
+	// rather than three.
+	add(4)
+	for length := len(num); length <= maxPad; length++ {
+		add(length)
+	}
+	return out
+}
+
+// Airline codes can start with a digit (e.g. "9W"), but they must contain
+// at least one letter — enforced by the post-regex check above.
+var identRe = regexp.MustCompile(`^([A-Z0-9]+?)(\d+)$`)
 
 func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 	// AeroDataBox returns "BA 286" — split on whitespace then re-join so the

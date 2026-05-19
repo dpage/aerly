@@ -13,10 +13,17 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/dpage/flight-tracker/internal/store"
 )
+
+// ErrFlightNotFound is returned by Resolver.Resolve (and helpers) when the
+// upstream provider has no record of the requested flight. Callers can use
+// it to drive fallback behaviour — e.g. AeroDataBox.Resolve tries several
+// pad-length variants of the same ident before giving up.
+var ErrFlightNotFound = errors.New("flight not found")
 
 // Tracker fetches (or fabricates) a single positional fix for one flight at
 // the given wall-clock time. Implementations should return:
