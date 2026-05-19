@@ -11,6 +11,10 @@ const state = {
   flights: [] as Flight[],
   users: [] as User[],
   selectedFlightId: null as number | null,
+  // PollFooter inside FlightList reads these — the mock must supply them
+  // or every render blows up inside the footer with "undefined.poll_interval_sec".
+  capabilities: { resolver_available: false, poll_interval_sec: 60 },
+  lastUpdateAt: null as number | null,
   selectFlight,
   deleteFlight,
 };

@@ -230,14 +230,23 @@ describe('FlightDialog - minimal form', () => {
     expect(created.icao24).toBe('deadbe');
   });
 
-  it('resolver failure drops into prefilled full form + manual override', async () => {
+  it('resolver failure shows inline error; explicit Enter manually switches with prefill', async () => {
     h.api.resolveFlight.mockRejectedValue(new Error('not found'));
     render(<FlightDialog open editId={null} onClose={vi.fn()} />);
     await userEvent.type(screen.getByLabelText(/^Flight number/), 'zz9');
     await userEvent.type(screen.getByLabelText('Notes (optional)'), 'note');
     await userEvent.click(screen.getByRole('button', { name: 'Look up & add' }));
-    expect(h.state.setError).toHaveBeenCalledWith('not found');
-    // Now showing the full form (manualOverride true) prefilled.
+
+    // Error surfaces inline (Alert), NOT via the global snackbar — so the
+    // user can't miss it before the dialog silently swaps modes.
+    expect(await screen.findByText(/Couldn.t look up that flight/)).toBeInTheDocument();
+    expect(screen.getByText(/not found/)).toBeInTheDocument();
+    expect(h.state.setError).not.toHaveBeenCalled();
+    // Submit button relabels so a re-click is a deliberate retry.
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+
+    // User explicitly opts into manual entry — minimal state carried as prefill.
+    await userEvent.click(screen.getByRole('button', { name: 'Enter manually' }));
     expect(await screen.findByText(/Entering everything manually/i)).toBeInTheDocument();
     expect((screen.getByLabelText(/^Flight number/) as HTMLInputElement).value).toBe('ZZ9');
   });
@@ -271,12 +280,13 @@ describe('FlightDialog - minimal form', () => {
     expect(screen.getByText('A')).toBeInTheDocument();
   });
 
-  it('resolver failure with non-Error sets String() and null date arrival', async () => {
+  it('non-Error rejection is stringified into the inline error', async () => {
     h.api.resolveFlight.mockRejectedValue('strerr');
     render(<FlightDialog open editId={null} onClose={vi.fn()} />);
     await userEvent.type(screen.getByLabelText(/^Flight number/), 'q1');
     await userEvent.click(screen.getByRole('button', { name: 'Look up & add' }));
-    expect(h.state.setError).toHaveBeenCalledWith('strerr');
+    expect(await screen.findByText(/strerr/)).toBeInTheDocument();
+    expect(h.state.setError).not.toHaveBeenCalled();
   });
 });
 
