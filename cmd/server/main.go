@@ -67,7 +67,7 @@ func run() error {
 	} else {
 		ac = aeroapi.NewLive(cfg.AeroAPIKey, cfg.AeroAPIBase)
 	}
-	p := poller.New(s, ac, hub, 60*time.Second)
+	p := poller.New(s, ac, hub, cfg.PollInterval)
 	go p.Run(rootCtx)
 
 	mux := http.NewServeMux()
