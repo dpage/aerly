@@ -71,8 +71,11 @@ func run() error {
 
 	var resolver providers.Resolver
 	if cfg.AeroDataBoxKey != "" {
-		resolver = providers.NewAeroDataBox(cfg.AeroDataBoxKey)
-		slog.Info("resolver: aerodatabox")
+		resolver = providers.NewCachedResolver(
+			providers.NewAeroDataBox(cfg.AeroDataBoxKey),
+			24*time.Hour,
+		)
+		slog.Info("resolver: aerodatabox (cached, ttl=24h)")
 	}
 	api := handlers.New(s, authH, hub, cfg, resolver)
 

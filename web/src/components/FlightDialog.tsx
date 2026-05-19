@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Autocomplete,
   Avatar,
   Box,
@@ -80,10 +81,16 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
   const [form, setForm] = useState<FormState>(emptyForm());
   const [minimal, setMinimal] = useState<MinimalState>(emptyMinimal());
   const [busy, setBusy] = useState(false);
+  // Resolver failures used to auto-drop into the manual form, which made it
+  // very easy to accidentally Create with blank IATAs. We now show the
+  // failure inline and require an explicit choice (Try again / Enter
+  // manually / Cancel) so nothing happens implicitly.
+  const [resolveError, setResolveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setManualOverride(false);
+    setResolveError(null);
     if (editing) {
       const passengers = editing.passenger_ids
         .map((id) => users.find((u) => u.id === id))
@@ -162,6 +169,7 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
   const handleMinimalSubmit = async () => {
     if (!canSubmitMinimal || !minimal.date) return;
     setBusy(true);
+    setResolveError(null);
     try {
       const resolved = await api.resolveFlight({
         ident: minimal.ident.trim().toUpperCase(),
@@ -180,21 +188,27 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
       await createFlight(input);
       onClose();
     } catch (err) {
-      // Drop the user into the full form, pre-populated with what they typed,
-      // and surface the resolver error so they can complete it by hand.
-      setError(err instanceof Error ? err.message : String(err));
-      setForm((f) => ({
-        ...f,
-        ident: minimal.ident.trim().toUpperCase(),
-        notes: minimal.notes,
-        passengers: minimal.passengers,
-        scheduledOut: minimal.date,
-        scheduledIn: minimal.date ? new Date(minimal.date.getTime() + 2 * 60 * 60 * 1000) : null,
-      }));
-      setManualOverride(true);
+      // Stay on the minimal form and surface the error inline. The user
+      // explicitly picks the next step via the buttons in DialogActions —
+      // we deliberately do NOT auto-switch to the manual form because that
+      // path used to swallow IATAs on accidental submits.
+      setResolveError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
+  };
+
+  const switchToManual = () => {
+    setForm((f) => ({
+      ...f,
+      ident: minimal.ident.trim().toUpperCase(),
+      notes: minimal.notes,
+      passengers: minimal.passengers,
+      scheduledOut: minimal.date,
+      scheduledIn: minimal.date ? new Date(minimal.date.getTime() + 2 * 60 * 60 * 1000) : null,
+    }));
+    setResolveError(null);
+    setManualOverride(true);
   };
 
   return (
@@ -221,20 +235,27 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
                 sx={{ flex: 1 }}
               />
             </Stack>
-            <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
-              Schedule, airports, and aircraft details will be filled in from
-              the flight database. Switch to{' '}
-              <Link
-                component="button"
-                type="button"
-                onClick={() => setManualOverride(true)}
-                sx={{ verticalAlign: 'baseline' }}
-              >
-                manual entry
-              </Link>{' '}
-              if the lookup fails or you want to enter a flight that isn’t in
-              the database.
-            </Box>
+            {resolveError ? (
+              <Alert severity="warning" variant="outlined">
+                Couldn’t look up that flight: {resolveError}. Try a different
+                ident or date, or click <strong>Enter manually</strong> to
+                fill in the rest of the details by hand.
+              </Alert>
+            ) : (
+              <Box sx={{ color: 'text.secondary', fontSize: 13 }}>
+                Schedule, airports, and aircraft details will be filled in
+                from the flight database. Switch to{' '}
+                <Link
+                  component="button"
+                  type="button"
+                  onClick={() => setManualOverride(true)}
+                  sx={{ verticalAlign: 'baseline' }}
+                >
+                  manual entry
+                </Link>{' '}
+                if you want to enter a flight that isn’t in the database.
+              </Box>
+            )}
             <Autocomplete
               multiple
               options={users}
@@ -390,12 +411,23 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
+        {useMinimal && resolveError && (
+          <Button onClick={switchToManual} disabled={busy}>
+            Enter manually
+          </Button>
+        )}
         <Button
           variant="contained"
           onClick={() => void (useMinimal ? handleMinimalSubmit() : handleFullSubmit())}
           disabled={busy || (useMinimal ? !canSubmitMinimal : !canSubmitFull)}
         >
-          {editing ? 'Save' : useMinimal ? 'Look up & add' : 'Create'}
+          {editing
+            ? 'Save'
+            : useMinimal
+              ? resolveError
+                ? 'Try again'
+                : 'Look up & add'
+              : 'Create'}
         </Button>
       </DialogActions>
     </Dialog>
