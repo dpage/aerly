@@ -49,6 +49,17 @@ func (p *Poller) Run(ctx context.Context) {
 	}
 }
 
+// minPollAge returns how long to wait between polls for a given flight.
+// Enroute flights are polled at the base interval; all other active statuses
+// (Scheduled, etc.) are polled at 5× the base interval since they change
+// infrequently before departure.
+func (p *Poller) minPollAge(status string) time.Duration {
+	if status == "Enroute" {
+		return p.Interval
+	}
+	return p.Interval * 5
+}
+
 func (p *Poller) tick(ctx context.Context) {
 	now := time.Now()
 	flights, err := p.Store.ActiveFlights(ctx, now)
@@ -59,6 +70,9 @@ func (p *Poller) tick(ctx context.Context) {
 	for _, f := range flights {
 		if ctx.Err() != nil {
 			return
+		}
+		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f.Status) {
+			continue
 		}
 		p.refresh(ctx, f, now)
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -15,10 +16,19 @@ type Config struct {
 	SessionKey     []byte
 	AeroAPIKey     string
 	AeroAPIBase    string
+	PollInterval   time.Duration
 	DevAuthBypass  bool
 }
 
 func Load() (*Config, error) {
+	pollInterval, pollErr := time.ParseDuration(getenv("POLL_INTERVAL", "60s"))
+	if pollErr != nil {
+		return nil, fmt.Errorf("POLL_INTERVAL must be a positive duration (e.g. 60s, 5m): %w", pollErr)
+	}
+	if pollInterval <= 0 {
+		return nil, fmt.Errorf("POLL_INTERVAL must be a positive duration (e.g. 60s, 5m)")
+	}
+
 	cfg := &Config{
 		ListenAddr:    getenv("LISTEN_ADDR", ":8080"),
 		PublicURL:     strings.TrimRight(getenv("PUBLIC_URL", "http://localhost:8080"), "/"),
@@ -27,6 +37,7 @@ func Load() (*Config, error) {
 		GitHubSecret:  os.Getenv("GITHUB_CLIENT_SECRET"),
 		AeroAPIKey:    os.Getenv("AEROAPI_KEY"),
 		AeroAPIBase:   getenv("AEROAPI_BASE_URL", "https://aeroapi.flightaware.com/aeroapi"),
+		PollInterval:  pollInterval,
 		DevAuthBypass: os.Getenv("DEV_AUTH_BYPASS") == "1",
 	}
 
