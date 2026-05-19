@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,6 +31,25 @@ func TestAeroDataBoxNotFound(t *testing.T) {
 	})
 	if _, err := a.Resolve(context.Background(), "BA286", time.Now()); err == nil {
 		t.Error("expected not-found error")
+	}
+}
+
+// AeroDataBox answers a well-formed lookup that simply has no matching
+// schedule with 204 No Content (empty body) rather than 404. It must read
+// as a clean not-found, never leak a raw "aerodatabox 204:" status.
+func TestAeroDataBoxNoContent(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	_, err := a.Resolve(context.Background(), "BA087", time.Now())
+	if err == nil {
+		t.Fatal("expected an error for a 204 response")
+	}
+	if strings.Contains(err.Error(), "204") {
+		t.Fatalf("204 status leaked into the error message: %q", err)
+	}
+	if !strings.Contains(err.Error(), "no flight found") {
+		t.Fatalf("want a friendly not-found message, got %q", err)
 	}
 }
 

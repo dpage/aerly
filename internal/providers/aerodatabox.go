@@ -59,7 +59,10 @@ func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<18))
-	if resp.StatusCode == http.StatusNotFound {
+	// AeroDataBox answers a well-formed request that simply has no matching
+	// schedule with 204 No Content (empty body) rather than 404. Treat both
+	// as a clean "nothing found" instead of leaking a raw status code.
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
 		return nil, fmt.Errorf("no flight found for %s on %s", ident, d)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
