@@ -1,0 +1,102 @@
+name: Release
+
+# Manual-only — Actions tab → Release → "Run workflow".
+# Builds the SPA, then a static Linux/amd64 binary with the SPA
+# embedded via //go:embed, and publishes it as a GitHub Release
+# asset. The deploy playbook fetches that asset; the production
+# VPS no longer runs npm install / vite build / go build itself.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (defaults to build-YYYYMMDD-HHMMSS-shortsha)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark as a pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  # gh release create needs write access to repository contents
+  # (it creates the tag if it doesn't already exist) and to releases.
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Build SPA
+        working-directory: web
+        run: npm run build
+
+      - name: Build Linux/amd64 binary
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -ldflags='-s -w' \
+            -o flight-tracker-linux-amd64 ./cmd/server
+          ls -lh flight-tracker-linux-amd64
+
+      - name: Compute release tag
+        id: meta
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="build-$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)"
+          fi
+          echo "tag=$tag"   >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate sha256
+        run: sha256sum flight-tracker-linux-amd64 > flight-tracker-linux-amd64.sha256
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes=$(cat <<EOF
+          Auto-built from \`${{ steps.meta.outputs.short }}\` (${{ steps.meta.outputs.sha }}).
+
+          - **flight-tracker-linux-amd64** — single static binary, SPA + migrations embedded.
+          - **flight-tracker-linux-amd64.sha256** — sha256 checksum.
+
+          Deploy by fetching the binary, replacing \`/opt/flight-tracker/flight-tracker\`,
+          and restarting the systemd unit.
+          EOF
+          )
+          flags=""
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            flags="--prerelease"
+          fi
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            flight-tracker-linux-amd64 \
+            flight-tracker-linux-amd64.sha256 \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --notes "$notes" \
+            $flags
