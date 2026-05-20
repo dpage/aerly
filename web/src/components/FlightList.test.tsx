@@ -152,6 +152,55 @@ describe('FlightList', () => {
     expect(screen.getByText('BA1')).toBeInTheDocument();
   });
 
+  it('shows the owner chip in the collapsed row when created_by maps to a known user', () => {
+    state.users = [user({ id: 7, github_login: 'dpage' })];
+    state.flights = [flight({ created_by: 7 })];
+    render(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.getByText('dpage')).toBeInTheDocument();
+  });
+
+  it('hides the owner chip when created_by is missing or unknown', () => {
+    state.users = [];
+    state.flights = [flight({ created_by: 999 })];
+    render(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.queryByText('999')).not.toBeInTheDocument();
+  });
+
+  it('renders the detail panel only when a row is selected', () => {
+    state.flights = [flight({ id: 5 })];
+    state.selectedFlightId = null;
+    const { rerender } = render(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.queryByTestId('flight-detail-panel')).not.toBeInTheDocument();
+
+    state.selectedFlightId = 5;
+    rerender(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.getByTestId('flight-detail-panel')).toBeInTheDocument();
+  });
+
+  it('detail panel shows position telemetry from latest_position', () => {
+    state.flights = [
+      flight({
+        id: 5,
+        latest_position: {
+          ts: '2024-01-01T10:00:00Z',
+          lat: 51.2034,
+          lon: -3.4521,
+          altitude_ft: 35000,
+          groundspeed_kt: 480,
+          heading_deg: 273,
+          is_estimated: false,
+        },
+      }),
+    ];
+    state.selectedFlightId = 5;
+    render(<FlightList onEditFlight={vi.fn()} />);
+    const panel = screen.getByTestId('flight-detail-panel');
+    expect(panel).toHaveTextContent('35,000 ft');
+    expect(panel).toHaveTextContent('480 kt');
+    expect(panel).toHaveTextContent('273°');
+    expect(panel).toHaveTextContent('51.2034°');
+  });
+
   it('renders schedule in each airport tz when provided', () => {
     // 10:00Z in LHR (Europe/London, BST in July) = 11:00; 14:00Z in JFK
     // (America/New_York, EDT) = 10:00. Use a date where DST is unambiguous.

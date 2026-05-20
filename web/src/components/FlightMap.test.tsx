@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
 
 import type { Flight, Position } from '../api/types';
-import maplibreMock, { FakeMap, FakeMarker, resetMaplibreMock } from '../test/maplibre-mock';
+import maplibreMock, {
+  FakeMap,
+  FakeMarker,
+  FakePopup,
+  resetMaplibreMock,
+} from '../test/maplibre-mock';
 
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
@@ -200,14 +205,120 @@ describe('marker sync', () => {
     expect(marker.remove).toHaveBeenCalled();
   });
 
-  it('skips markers for Arrived/Cancelled flights and ones without position', () => {
+  it('skips markers for Cancelled flights and ones without position', () => {
     h.state.flights = [
-      flight({ id: 1, status: 'Arrived', latest_position: pos() }),
-      flight({ id: 2, status: 'Cancelled', latest_position: pos() }),
-      flight({ id: 3, status: 'Enroute', latest_position: undefined }),
+      flight({ id: 1, status: 'Cancelled', latest_position: pos() }),
+      flight({ id: 2, status: 'Enroute', latest_position: undefined }),
     ];
     render(<FlightMap />);
     expect(FakeMarker.instances).toHaveLength(0);
+  });
+
+  it('keeps a grey, low-opacity marker for an Arrived flight at the last fix', () => {
+    h.state.flights = [
+      flight({ id: 1, status: 'Arrived', latest_position: pos({ lat: 40.7, lon: -73.8 }) }),
+    ];
+    render(<FlightMap />);
+    expect(FakeMarker.instances).toHaveLength(1);
+    const marker = FakeMarker.instances[0];
+    expect(marker.lngLat).toEqual([-73.8, 40.7]);
+    const el = marker.getElement();
+    expect(el.style.color).toBe('rgb(156, 163, 175)'); // #9ca3af
+    expect(el.style.opacity).toBe('0.7');
+  });
+
+  it('arrived flight: selection still tints the marker orange', () => {
+    h.state.selectedFlightId = 1;
+    h.state.flights = [flight({ id: 1, status: 'Arrived', latest_position: pos() })];
+    render(<FlightMap />);
+    const el = FakeMarker.instances[0].getElement();
+    expect(el.style.color).toBe('rgb(217, 119, 6)'); // #d97706
+  });
+
+  it('shows a popup with telemetry on marker mouseenter and removes it on mouseleave', () => {
+    h.state.flights = [
+      flight({
+        id: 1,
+        latest_position: pos({ altitude_ft: 35000, groundspeed_kt: 480, heading_deg: 273 }),
+      }),
+    ];
+    render(<FlightMap />);
+    const el = FakeMarker.instances[0].getElement();
+    act(() => {
+      el.onmouseenter?.(new MouseEvent('mouseenter'));
+    });
+    expect(FakePopup.instances).toHaveLength(1);
+    const popup = FakePopup.instances[0];
+    expect(popup.added).toBe(true);
+    expect(popup.html).toContain('BA1');
+    expect(popup.html).toContain('35,000 ft');
+    expect(popup.html).toContain('480 kt');
+    expect(popup.html).toContain('273°');
+    act(() => {
+      el.onmouseleave?.(new MouseEvent('mouseleave'));
+    });
+    expect(popup.remove).toHaveBeenCalled();
+  });
+
+  it('popup omits telemetry fields with no value', () => {
+    h.state.flights = [
+      flight({
+        id: 1,
+        latest_position: pos({ altitude_ft: undefined, groundspeed_kt: undefined, heading_deg: undefined }),
+      }),
+    ];
+    render(<FlightMap />);
+    const el = FakeMarker.instances[0].getElement();
+    act(() => {
+      el.onmouseenter?.(new MouseEvent('mouseenter'));
+    });
+    const html = FakePopup.instances[0].html;
+    expect(html).toContain('BA1');
+    expect(html).not.toContain('ft');
+    expect(html).not.toContain('kt');
+    expect(html).not.toContain('°');
+  });
+
+  it('popup notes dead-reckoned positions in a footnote', () => {
+    h.state.flights = [flight({ id: 1, latest_position: pos({ is_estimated: true }) })];
+    render(<FlightMap />);
+    const el = FakeMarker.instances[0].getElement();
+    act(() => {
+      el.onmouseenter?.(new MouseEvent('mouseenter'));
+    });
+    expect(FakePopup.instances[0].html).toContain('dead-reckoned');
+  });
+
+  it('popup uses labelled rows (Flight/Altitude/Speed/Heading)', () => {
+    h.state.flights = [
+      flight({
+        id: 1,
+        latest_position: pos({ altitude_ft: 35000, groundspeed_kt: 480, heading_deg: 273 }),
+      }),
+    ];
+    render(<FlightMap />);
+    const el = FakeMarker.instances[0].getElement();
+    act(() => {
+      el.onmouseenter?.(new MouseEvent('mouseenter'));
+    });
+    const html = FakePopup.instances[0].html;
+    expect(html).toContain('Flight');
+    expect(html).toContain('Altitude');
+    expect(html).toContain('Speed');
+    expect(html).toContain('Heading');
+  });
+
+  it('removes the popup when its flight disappears', () => {
+    h.state.flights = [flight({ id: 1, latest_position: pos() })];
+    const { rerender } = render(<FlightMap />);
+    const el = FakeMarker.instances[0].getElement();
+    act(() => {
+      el.onmouseenter?.(new MouseEvent('mouseenter'));
+    });
+    const popup = FakePopup.instances[0];
+    h.state.flights = [];
+    rerender(<FlightMap />);
+    expect(popup.remove).toHaveBeenCalled();
   });
 
   it('applies estimated styling and the click handler toggles selection', () => {

@@ -94,16 +94,53 @@ export class FakeMarker {
   }
 }
 
+export class FakePopup {
+  static instances: FakePopup[] = [];
+  opts: unknown;
+  lngLat: [number, number] | null = null;
+  html = '';
+  added = false;
+  remove = vi.fn(() => {
+    this.added = false;
+  });
+
+  constructor(opts?: unknown) {
+    this.opts = opts;
+    FakePopup.instances.push(this);
+  }
+
+  setLngLat(ll: [number, number]): this {
+    this.lngLat = ll;
+    return this;
+  }
+
+  setHTML(h: string): this {
+    this.html = h;
+    return this;
+  }
+
+  addTo(): this {
+    this.added = true;
+    return this;
+  }
+
+  isOpen(): boolean {
+    return this.added;
+  }
+}
+
 export class FakeNavigationControl {}
 
 export function resetMaplibreMock(): void {
   FakeMap.instances = [];
   FakeMarker.instances = [];
+  FakePopup.instances = [];
 }
 
 const maplibregl = {
   Map: FakeMap,
   Marker: FakeMarker,
+  Popup: FakePopup,
   NavigationControl: FakeNavigationControl,
 };
 

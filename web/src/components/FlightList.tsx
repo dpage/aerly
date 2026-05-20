@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   Avatar,
   AvatarGroup,
@@ -14,6 +14,8 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline';
 
 import { useStore } from '../state/store';
 import type { Flight, FlightStatus, User } from '../api/types';
+import { fmtDateTime, fmtRelative } from '../lib/format';
+import FlightDetailPanel from './FlightDetailPanel';
 
 interface Props {
   onEditFlight: (id: number) => void;
@@ -40,21 +42,31 @@ export default function FlightList({ onEditFlight }: Props) {
           </Box>
         ) : (
           <Stack divider={<Box sx={{ borderBottom: 1, borderColor: 'divider' }} />}>
-            {flights.map((f) => (
-              <FlightRow
-                key={f.id}
-                flight={f}
-                passengers={f.passenger_ids
-                  .map((id) => usersById.get(id))
-                  .filter((u): u is User => u !== undefined)}
-                selected={f.id === selectedFlightId}
-                onSelect={() => selectFlight(f.id === selectedFlightId ? null : f.id)}
-                onEdit={() => onEditFlight(f.id)}
-                onDelete={() => {
-                  if (confirm(`Delete flight ${f.ident}?`)) void deleteFlight(f.id);
-                }}
-              />
-            ))}
+            {flights.map((f) => {
+              const selected = f.id === selectedFlightId;
+              const passengers = f.passenger_ids
+                .map((id) => usersById.get(id))
+                .filter((u): u is User => u !== undefined);
+              const owner = f.created_by != null ? usersById.get(f.created_by) : undefined;
+              return (
+                <Fragment key={f.id}>
+                  <FlightRow
+                    flight={f}
+                    passengers={passengers}
+                    owner={owner}
+                    selected={selected}
+                    onSelect={() => selectFlight(selected ? null : f.id)}
+                    onEdit={() => onEditFlight(f.id)}
+                    onDelete={() => {
+                      if (confirm(`Delete flight ${f.ident}?`)) void deleteFlight(f.id);
+                    }}
+                  />
+                  {selected && (
+                    <FlightDetailPanel flight={f} passengers={passengers} owner={owner} />
+                  )}
+                </Fragment>
+              );
+            })}
           </Stack>
         )}
       </Box>
@@ -109,23 +121,25 @@ function PollFooter() {
   );
 }
 
-function fmtRelative(sec: number): string {
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return s === 0 ? `${m}m` : `${m}m ${s}s`;
-}
-
 interface FlightRowProps {
   flight: Flight;
   passengers: User[];
+  owner: User | undefined;
   selected: boolean;
   onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-function FlightRow({ flight, passengers, selected, onSelect, onEdit, onDelete }: FlightRowProps) {
+function FlightRow({
+  flight,
+  passengers,
+  owner,
+  selected,
+  onSelect,
+  onEdit,
+  onDelete,
+}: FlightRowProps) {
   const eta = flight.estimated_in ?? flight.scheduled_in;
   const missingCoords =
     flight.origin_lat == null ||
@@ -150,6 +164,21 @@ function FlightRow({ flight, passengers, selected, onSelect, onEdit, onDelete }:
               {flight.ident}
             </Typography>
             <StatusChip status={flight.status} />
+            {owner && (
+              <Tooltip title={`Added by ${owner.github_login}`}>
+                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ ml: 'auto' }}>
+                  <Avatar
+                    src={owner.avatar_url}
+                    sx={{ width: 18, height: 18, fontSize: 10 }}
+                  >
+                    {owner.github_login.charAt(0).toUpperCase()}
+                  </Avatar>
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {owner.github_login}
+                  </Typography>
+                </Stack>
+              </Tooltip>
+            )}
           </Stack>
           <Stack direction="row" alignItems="center" spacing={0.75}>
             <Typography variant="body2" color="text.secondary" noWrap>
@@ -229,23 +258,4 @@ function statusColor(status: FlightStatus): 'default' | 'primary' | 'success' | 
     default:
       return 'default';
   }
-}
-
-// fmtDateTime renders a scheduled timestamp in airport-local time. tz is the
-// IANA zone of the relevant airport (origin for departures, destination for
-// arrivals); when it's missing or empty we fall back to UTC and add a "UTC"
-// suffix so the user knows which clock they're looking at. hour12:false keeps
-// the output deterministic across runtime locales (and matches the 24-hour
-// convention airlines and schedule sources actually use).
-function fmtDateTime(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  const base = d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz || 'UTC',
-  });
-  return tz ? base : `${base} UTC`;
 }

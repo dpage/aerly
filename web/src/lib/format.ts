@@ -1,0 +1,49 @@
+// Shared display formatters used across the flight list and detail panel.
+
+// fmtDateTime renders an ISO timestamp in airport-local time. tz is the IANA
+// zone of the relevant airport (origin for departures, destination for
+// arrivals); when it's missing or empty we fall back to UTC and add a "UTC"
+// suffix so the user knows which clock they're looking at. hour12:false keeps
+// the output deterministic across runtime locales (and matches the 24-hour
+// convention airlines and schedule sources actually use).
+export function fmtDateTime(iso: string, tz?: string): string {
+  const d = new Date(iso);
+  const base = d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: tz || 'UTC',
+  });
+  return tz ? base : `${base} UTC`;
+}
+
+// fmtUTC renders the same instant in UTC for the secondary line beneath an
+// airport-local time. Always includes the "UTC" suffix.
+export function fmtUTC(iso: string): string {
+  return fmtDateTime(iso, undefined);
+}
+
+// fmtRelative turns "seconds since X" into a compact human label, e.g.
+// "42s", "3m", "1h 12m". Negative inputs are clamped to 0.
+export function fmtRelative(sec: number): string {
+  if (sec < 0) sec = 0;
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) {
+    const s = sec % 60;
+    return s === 0 ? `${m}m` : `${m}m ${s}s`;
+  }
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm === 0 ? `${h}h` : `${h}h ${rm}m`;
+}
+
+// fmtAgo returns how long ago an ISO timestamp was, relative to `now`.
+// Returns "just now" for fixes under 5 seconds old.
+export function fmtAgo(iso: string, now: number = Date.now()): string {
+  const sec = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
+  if (sec < 5) return 'just now';
+  return `${fmtRelative(sec)} ago`;
+}

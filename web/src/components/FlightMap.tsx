@@ -8,7 +8,8 @@ import { Box } from '@mui/material';
 
 import { useStore } from '../state/store';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
-import type { Flight } from '../api/types';
+import { fmtRelative } from '../lib/format';
+import type { Flight, Position } from '../api/types';
 
 const STYLE: StyleSpecification = {
   version: 8,
@@ -33,6 +34,9 @@ export default function FlightMap() {
   const containerRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const markersRef = useRef<Map<number, maplibregl.Marker>>(new Map());
+  // Hover popups, one per marker. Created lazily on first mouseenter; removed
+  // alongside the marker when a flight goes away.
+  const popupsRef = useRef<Map<number, maplibregl.Popup>>(new Map());
 
   const flownFC = useMemo(() => buildFlown(flights, selectedFlightId), [flights, selectedFlightId]);
   const remainingFC = useMemo(
@@ -101,6 +105,8 @@ export default function FlightMap() {
     return () => {
       markersRef.current.forEach((m) => m.remove());
       markersRef.current.clear();
+      popupsRef.current.forEach((p) => p.remove());
+      popupsRef.current.clear();
       map.remove();
       mapRef.current = null;
     };
@@ -140,28 +146,58 @@ export default function FlightMap() {
     else map.once('load', fit);
   }, [flights, selectedFlightId]);
 
-  // Sync plane markers with the latest_position on each flight.
+  // Sync plane markers with the latest_position on each flight. Cancelled
+  // flights drop their icon entirely (the grey great-circle conveys it);
+  // Arrived flights keep a faded grey icon at the last known position so the
+  // map still shows where the flight ended up.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const live = new Set<number>();
     for (const f of flights) {
       const pos = f.latest_position;
-      if (!pos || f.status === 'Arrived' || f.status === 'Cancelled') continue;
+      if (!pos || f.status === 'Cancelled') continue;
       live.add(f.id);
       let marker = markersRef.current.get(f.id);
       const el = marker?.getElement() ?? buildMarkerEl();
       const heading = pos.heading_deg ?? 0;
+      const arrived = f.status === 'Arrived';
       stylePlane(
         el,
         f.id === selectedFlightId,
         pos.is_estimated,
+        arrived,
         f.ident + (pos.is_estimated ? ' (estimated)' : ''),
       );
       el.onclick = (e) => {
         e.stopPropagation();
         selectFlight(f.id === selectedFlightId ? null : f.id);
       };
+      // (Re-)wire hover handlers each render so the popup HTML stays in sync
+      // with the latest position when the user is currently hovering.
+      const popupHtml = buildPopupHtml(f.ident, pos);
+      el.onmouseenter = () => {
+        let popup = popupsRef.current.get(f.id);
+        if (!popup) {
+          popup = new maplibregl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+            offset: 16,
+            className: 'plane-tooltip',
+          });
+          popupsRef.current.set(f.id, popup);
+        }
+        popup.setLngLat([pos.lon, pos.lat]).setHTML(popupHtml).addTo(map);
+      };
+      el.onmouseleave = () => {
+        popupsRef.current.get(f.id)?.remove();
+      };
+      // If the popup is currently open, refresh its content so live updates
+      // are reflected without requiring the user to move the mouse.
+      const openPopup = popupsRef.current.get(f.id);
+      if (openPopup?.isOpen?.()) {
+        openPopup.setLngLat([pos.lon, pos.lat]).setHTML(popupHtml);
+      }
       if (!marker) {
         marker = new maplibregl.Marker({
           element: el,
@@ -180,6 +216,8 @@ export default function FlightMap() {
       if (!live.has(id)) {
         marker.remove();
         markersRef.current.delete(id);
+        popupsRef.current.get(id)?.remove();
+        popupsRef.current.delete(id);
       }
     }
   }, [flights, selectedFlightId, selectFlight]);
@@ -212,9 +250,27 @@ function buildMarkerEl(): HTMLElement {
   return el;
 }
 
-function stylePlane(el: HTMLElement, selected: boolean, estimated: boolean, title: string) {
-  el.style.color = selected ? '#d97706' : '#1f5fa8';
-  el.style.opacity = estimated ? '0.6' : '1';
+function stylePlane(
+  el: HTMLElement,
+  selected: boolean,
+  estimated: boolean,
+  arrived: boolean,
+  title: string,
+) {
+  // Selection always wins for the outline colour; otherwise blue for active,
+  // grey for arrived (matches the completed-route line). Arrived flights also
+  // get a permanent low opacity so they fade into the background.
+  if (selected) {
+    el.style.color = '#d97706';
+  } else if (arrived) {
+    el.style.color = '#9ca3af';
+  } else {
+    el.style.color = '#1f5fa8';
+  }
+  let opacity = 1;
+  if (arrived) opacity = 0.7;
+  if (estimated) opacity = 0.6;
+  el.style.opacity = String(opacity);
   const svg = el.querySelector('svg');
   const path = svg?.querySelector('path');
   if (svg && path) {
@@ -229,6 +285,57 @@ function stylePlane(el: HTMLElement, selected: boolean, estimated: boolean, titl
     }
   }
   el.title = title;
+}
+
+// buildPopupHtml renders the hover tooltip body for a plane marker. Telemetry
+// fields render as "Label: value" rows; ones with no value are skipped
+// entirely (no em-dash placeholders) so dead-reckoned positions — which lack
+// altitude / speed / heading — produce a compact popup. The "estimated" /
+// "Xs ago" lines appear as muted footnotes when applicable. Styles are
+// inlined because the marker DOM lives outside the React/MUI tree.
+function buildPopupHtml(ident: string, pos: Position): string {
+  const rows: Array<[string, string]> = [['Flight', ident]];
+  if (pos.altitude_ft != null) {
+    rows.push(['Altitude', `${pos.altitude_ft.toLocaleString()} ft`]);
+  }
+  if (pos.groundspeed_kt != null) {
+    rows.push(['Speed', `${pos.groundspeed_kt} kt`]);
+  }
+  if (pos.heading_deg != null) {
+    rows.push(['Heading', `${pos.heading_deg}°`]);
+  }
+  const body = rows
+    .map(
+      ([k, v]) =>
+        `<div style="display:flex;gap:8px"><span style="color:#6b7280;min-width:56px">${escapeHtml(k)}</span><span>${escapeHtml(v)}</span></div>`,
+    )
+    .join('');
+  const footnotes: string[] = [];
+  if (pos.is_estimated) {
+    footnotes.push(
+      `<div style="color:#6b7280;font-style:italic;font-size:11px">dead-reckoned position</div>`,
+    );
+  }
+  const ageSec = Math.max(0, Math.floor((Date.now() - new Date(pos.ts).getTime()) / 1000));
+  if (ageSec >= 60) {
+    footnotes.push(
+      `<div style="color:#d97706;font-size:11px">fix: ${fmtRelative(ageSec)} ago</div>`,
+    );
+  }
+  const footer =
+    footnotes.length > 0
+      ? `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #e5e7eb">${footnotes.join('')}</div>`
+      : '';
+  return `<div style="font:12px/1.4 system-ui,-apple-system,sans-serif;min-width:120px">${body}${footer}</div>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function emptyFC(): GeoJSON.FeatureCollection {
