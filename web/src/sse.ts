@@ -5,18 +5,24 @@ export interface SSEHandlers {
   onDelete: (id: number) => void;
 }
 
+export interface SSEOptions {
+  /** Only honored server-side for superusers; the param is otherwise ignored. */
+  showAll?: boolean;
+}
+
 // connectSSE returns a teardown function. It auto-reconnects with backoff on
 // transient errors. The server pushes flight.updated events from both the
 // poller and user-driven writes (create / update / passenger ops) and
 // flight.deleted events when a flight is removed.
-export function connectSSE(handlers: SSEHandlers): () => void {
+export function connectSSE(handlers: SSEHandlers, opts: SSEOptions = {}): () => void {
   let es: EventSource | null = null;
   let stopped = false;
   let retry = 1000;
+  const url = opts.showAll ? '/api/events?show_all=1' : '/api/events';
 
   function open() {
     if (stopped) return;
-    es = new EventSource('/api/events', { withCredentials: true });
+    es = new EventSource(url, { withCredentials: true });
     es.addEventListener('open', () => {
       retry = 1000;
     });

@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS flight_shares;
+ALTER TABLE flights DROP COLUMN IF EXISTS is_public;

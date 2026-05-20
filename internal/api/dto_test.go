@@ -55,12 +55,15 @@ func TestToFlightDTOFull(t *testing.T) {
 	}
 	latest := &store.Position{Lat: 10, Lon: 20}
 	track := []*store.Position{{Lat: 1, Lon: 2}, {Lat: 3, Lon: 4}}
-	d := ToFlightDTO(f, []int64{5, 6}, latest, track)
+	d := ToFlightDTO(f, []int64{5, 6}, []int64{8}, latest, track)
 	if d.ID != 7 || d.Ident != "BA286" || d.Status != "Enroute" {
 		t.Errorf("unexpected dto: %+v", d)
 	}
 	if len(d.PassengerIDs) != 2 || d.LatestPosition == nil || len(d.Track) != 2 {
 		t.Errorf("nested fields wrong: %+v", d)
+	}
+	if len(d.SharedUserIDs) != 1 || d.SharedUserIDs[0] != 8 {
+		t.Errorf("SharedUserIDs wrong: %v", d.SharedUserIDs)
 	}
 	if d.Track[1].Lat != 3 {
 		t.Errorf("track order wrong")
@@ -69,9 +72,15 @@ func TestToFlightDTOFull(t *testing.T) {
 
 func TestToFlightDTONilsAndEmptyTrack(t *testing.T) {
 	f := &store.Flight{ID: 1, Ident: "X1"}
-	d := ToFlightDTO(f, nil, nil, nil)
+	d := ToFlightDTO(f, nil, nil, nil, nil)
 	if d.PassengerIDs == nil || len(d.PassengerIDs) != 0 {
 		t.Errorf("nil passengers should become empty slice, got %v", d.PassengerIDs)
+	}
+	if d.SharedUserIDs == nil || len(d.SharedUserIDs) != 0 {
+		t.Errorf("nil shared should become empty slice, got %v", d.SharedUserIDs)
+	}
+	if d.IsPublic {
+		t.Error("IsPublic should default false")
 	}
 	if d.LatestPosition != nil {
 		t.Error("LatestPosition should be nil")

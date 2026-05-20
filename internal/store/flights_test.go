@@ -386,3 +386,135 @@ func TestPositions(t *testing.T) {
 		t.Errorf("PositionsForFlight limit not applied: %d", len(pf2))
 	}
 }
+
+func TestShares(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	f := mkFlight(t, s, "SH1", now, now.Add(time.Hour))
+	u1 := testsupport.InsertUser(t, s.pool, "s1", false, true)
+	u2 := testsupport.InsertUser(t, s.pool, "s2", false, true)
+
+	if m, err := s.SharedUserIDsByFlight(ctx, nil); err != nil || len(m) != 0 {
+		t.Fatalf("empty ids → empty map: %v %v", m, err)
+	}
+	if err := s.AddShare(ctx, f.ID, u1); err != nil {
+		t.Fatalf("AddShare: %v", err)
+	}
+	// Idempotent.
+	if err := s.AddShare(ctx, f.ID, u1); err != nil {
+		t.Fatalf("AddShare idempotent: %v", err)
+	}
+	_ = s.AddShare(ctx, f.ID, u2)
+
+	m, err := s.SharedUserIDsByFlight(ctx, []int64{f.ID})
+	if err != nil || len(m[f.ID]) != 2 {
+		t.Fatalf("SharedUserIDsByFlight = %v %v", m, err)
+	}
+	if err := s.RemoveShare(ctx, f.ID, u1); err != nil {
+		t.Fatalf("RemoveShare: %v", err)
+	}
+	if err := s.RemoveShare(ctx, f.ID, u1); !errors.Is(err, ErrNotFound) {
+		t.Errorf("removing absent share → ErrNotFound, got %v", err)
+	}
+}
+
+func TestVisibilityHelpers(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	alice := testsupport.InsertUser(t, s.pool, "alice-v", false, true)
+	bob := testsupport.InsertUser(t, s.pool, "bob-v", false, true)
+	carol := testsupport.InsertUser(t, s.pool, "carol-v", false, true)
+
+	private, _ := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "PV", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, alice)
+	shared, _ := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "SV", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, alice)
+	if err := s.AddShare(ctx, shared.ID, bob); err != nil {
+		t.Fatalf("AddShare: %v", err)
+	}
+	public, _ := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "PU", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+		IsPublic: true,
+	}, alice)
+
+	listIdents := func(uid int64, showAll bool) []string {
+		fs, err := s.ListVisibleFlights(ctx, uid, showAll)
+		if err != nil {
+			t.Fatalf("ListVisibleFlights: %v", err)
+		}
+		out := make([]string, 0, len(fs))
+		for _, f := range fs {
+			out = append(out, f.Ident)
+		}
+		return out
+	}
+	want := func(have, expected []string) bool {
+		if len(have) != len(expected) {
+			return false
+		}
+		set := map[string]bool{}
+		for _, s := range have {
+			set[s] = true
+		}
+		for _, s := range expected {
+			if !set[s] {
+				return false
+			}
+		}
+		return true
+	}
+
+	if got := listIdents(alice, false); !want(got, []string{"PV", "SV", "PU"}) {
+		t.Errorf("alice list = %v, want all three", got)
+	}
+	if got := listIdents(bob, false); !want(got, []string{"SV", "PU"}) {
+		t.Errorf("bob list = %v, want SV PU", got)
+	}
+	if got := listIdents(carol, false); !want(got, []string{"PU"}) {
+		t.Errorf("carol list = %v, want PU only", got)
+	}
+	if got := listIdents(carol, true); !want(got, []string{"PV", "SV", "PU"}) {
+		t.Errorf("carol show-all list = %v, want all three", got)
+	}
+
+	ok, err := s.CanView(ctx, private.ID, carol, false)
+	if err != nil || ok {
+		t.Errorf("carol CanView private = %v %v, want false nil", ok, err)
+	}
+	ok, _ = s.CanView(ctx, private.ID, carol, true)
+	if !ok {
+		t.Errorf("carol CanView private with show-all should be true")
+	}
+	ok, _ = s.CanView(ctx, shared.ID, bob, false)
+	if !ok {
+		t.Errorf("bob CanView shared should be true")
+	}
+	ok, _ = s.CanView(ctx, public.ID, carol, false)
+	if !ok {
+		t.Errorf("carol CanView public should be true")
+	}
+
+	if ok, _ := s.CanEdit(ctx, private.ID, alice); !ok {
+		t.Errorf("alice CanEdit own flight should be true")
+	}
+	if ok, _ := s.CanEdit(ctx, private.ID, bob); ok {
+		t.Errorf("bob CanEdit alice's flight should be false")
+	}
+	if _, err := s.CanEdit(ctx, 999999, alice); !errors.Is(err, ErrNotFound) {
+		t.Errorf("CanEdit missing id should be ErrNotFound, got %v", err)
+	}
+
+	// VisibleUserIDs: shared flight returns {alice, bob}.
+	ids, err := s.VisibleUserIDs(ctx, shared.ID)
+	if err != nil {
+		t.Fatalf("VisibleUserIDs: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Errorf("VisibleUserIDs len = %d, want 2: %v", len(ids), ids)
+	}
+}

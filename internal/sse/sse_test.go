@@ -11,9 +11,13 @@ import (
 	"time"
 )
 
+// public is a convenience for tests: events with no VisibleTo go to all
+// subscribers regardless of identity.
+var anySub = Subscription{ViewerID: 1}
+
 func TestSubscribePublishReceive(t *testing.T) {
 	h := NewHub()
-	ch, unsub := h.Subscribe()
+	ch, unsub := h.Subscribe(anySub)
 	defer unsub()
 	h.Publish(Event{Type: "x", Data: []byte("hi")})
 	select {
@@ -28,7 +32,7 @@ func TestSubscribePublishReceive(t *testing.T) {
 
 func TestUnsubscribeIdempotentAndStopsDelivery(t *testing.T) {
 	h := NewHub()
-	ch, unsub := h.Subscribe()
+	ch, unsub := h.Subscribe(anySub)
 	unsub()
 	unsub() // second call must not panic / double-close
 	// Channel is closed; publishing must not panic and must not deliver.
@@ -40,7 +44,7 @@ func TestUnsubscribeIdempotentAndStopsDelivery(t *testing.T) {
 
 func TestPublishDropsWhenSubscriberSlow(t *testing.T) {
 	h := NewHub()
-	ch, unsub := h.Subscribe()
+	ch, unsub := h.Subscribe(anySub)
 	defer unsub()
 	// Fill the buffer (bufSz=16) then publish more — extra events are
 	// dropped for this subscriber without blocking Publish.
@@ -62,6 +66,56 @@ func TestPublishDropsWhenSubscriberSlow(t *testing.T) {
 	}
 }
 
+func TestPublishFiltersByVisibleTo(t *testing.T) {
+	h := NewHub()
+	chA, unsubA := h.Subscribe(Subscription{ViewerID: 1})
+	defer unsubA()
+	chB, unsubB := h.Subscribe(Subscription{ViewerID: 2})
+	defer unsubB()
+	chSup, unsubSup := h.Subscribe(Subscription{ViewerID: 99, IsSuperuser: true, ShowAll: true})
+	defer unsubSup()
+
+	// Private event: only viewer 1 + show-all superuser see it.
+	h.Publish(Event{Type: "flight.updated", Data: []byte("p"), VisibleTo: []int64{1}})
+	select {
+	case <-chA:
+	case <-time.After(time.Second):
+		t.Fatal("viewer 1 missed private event addressed to them")
+	}
+	select {
+	case <-chB:
+		t.Fatal("viewer 2 received private event not addressed to them")
+	case <-time.After(50 * time.Millisecond):
+	}
+	select {
+	case <-chSup:
+	case <-time.After(time.Second):
+		t.Fatal("show-all superuser missed private event")
+	}
+
+	// Public event (empty VisibleTo): everyone gets it.
+	h.Publish(Event{Type: "flight.updated", Data: []byte("g")})
+	for _, ch := range []<-chan Event{chA, chB, chSup} {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatal("public event not delivered to a subscriber")
+		}
+	}
+}
+
+func TestSuperuserWithoutShowAllRespectsVisibility(t *testing.T) {
+	h := NewHub()
+	ch, unsub := h.Subscribe(Subscription{ViewerID: 99, IsSuperuser: true, ShowAll: false})
+	defer unsub()
+	h.Publish(Event{Type: "x", VisibleTo: []int64{1}})
+	select {
+	case <-ch:
+		t.Fatal("superuser without show_all received private event for another user")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 // nonFlusher is a ResponseWriter that deliberately does NOT implement
 // http.Flusher.
 type nonFlusher struct{ h http.Header }
@@ -73,7 +127,7 @@ func (n *nonFlusher) WriteHeader(int)             {}
 func TestHandleRejectsNonFlusher(t *testing.T) {
 	h := NewHub()
 	w := &nonFlusher{h: http.Header{}}
-	h.Handle(w, httptest.NewRequest("GET", "/api/events", nil))
+	h.Stream(w, httptest.NewRequest("GET", "/api/events", nil), anySub)
 	// No panic, returns immediately; nothing to assert beyond not hanging.
 }
 
@@ -123,7 +177,7 @@ func TestHandleStreamsEventThenContextDone(t *testing.T) {
 	w := &syncWriter{hdr: http.Header{}}
 
 	done := make(chan struct{})
-	go func() { h.Handle(w, r); close(done) }()
+	go func() { h.Stream(w, r, anySub); close(done) }()
 
 	waitFor(t, func() bool { return strings.Contains(w.String(), ": ok") })
 	if w.hdr.Get("Content-Type") != "text/event-stream" {
@@ -152,7 +206,7 @@ func TestHandleReturnsOnInitialWriteError(t *testing.T) {
 	r := httptest.NewRequest("GET", "/api/events", nil)
 	w := &syncWriter{hdr: http.Header{}, failAt: 1} // fail the ": ok" write
 	done := make(chan struct{})
-	go func() { h.Handle(w, r); close(done) }()
+	go func() { h.Stream(w, r, anySub); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -167,7 +221,7 @@ func TestHandleReturnsOnEventWriteError(t *testing.T) {
 	r := httptest.NewRequest("GET", "/api/events", nil).WithContext(ctx)
 	w := &syncWriter{hdr: http.Header{}, failAt: 2} // ": ok" ok, event write fails
 	done := make(chan struct{})
-	go func() { h.Handle(w, r); close(done) }()
+	go func() { h.Stream(w, r, anySub); close(done) }()
 	waitFor(t, func() bool { return strings.Contains(w.String(), ": ok") })
 	waitFor(t, func() bool {
 		h.Publish(Event{Type: "e", Data: []byte("d")})

@@ -13,6 +13,8 @@ import type {
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
+const SHOW_ALL_KEY = 'ft.show_all';
+
 interface AppState {
   auth: AuthStatus;
   me: User | null;
@@ -22,6 +24,11 @@ interface AppState {
   selectedFlightId: number | null;
   /** Wall-clock time (ms since epoch) of the most recent flight.updated event. */
   lastUpdateAt: number | null;
+  /** Superuser-only: when true, list and SSE include every flight regardless
+   * of visibility. Persisted to localStorage so it survives reloads.
+   * Non-superusers see the flag stay false; the server ignores show_all
+   * for them in any case. */
+  showAll: boolean;
   error: string | null;
 
   init: () => Promise<void>;
@@ -34,6 +41,8 @@ interface AppState {
   deleteFlight: (id: number) => Promise<void>;
   addPassenger: (flightId: number, userId: number) => Promise<void>;
   removePassenger: (flightId: number, userId: number) => Promise<void>;
+  addShare: (flightId: number, userId: number) => Promise<void>;
+  removeShare: (flightId: number, userId: number) => Promise<void>;
 
   inviteUser: (input: InviteUserInput) => Promise<void>;
   updateUser: (id: number, patch: UpdateUserInput) => Promise<void>;
@@ -41,12 +50,31 @@ interface AppState {
 
   logout: () => Promise<void>;
   selectFlight: (id: number | null) => void;
+  setShowAll: (v: boolean) => Promise<void>;
   applyFlightUpdate: (f: Flight) => void;
   /** Drop a flight from local state in response to a flight.deleted SSE
    * event. Idempotent: no-op if the id isn't present (we may have already
    * removed it locally via deleteFlight()). */
   applyFlightDelete: (id: number) => void;
   setError: (msg: string | null) => void;
+}
+
+function loadShowAll(): boolean {
+  try {
+    return window.localStorage.getItem(SHOW_ALL_KEY) === '1';
+  } catch {
+    // SSR / privacy modes that throw on localStorage access — treat as off.
+    return false;
+  }
+}
+
+function persistShowAll(v: boolean): void {
+  try {
+    if (v) window.localStorage.setItem(SHOW_ALL_KEY, '1');
+    else window.localStorage.removeItem(SHOW_ALL_KEY);
+  } catch {
+    // ignore — best effort
+  }
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -57,6 +85,7 @@ export const useStore = create<AppState>((set, get) => ({
   users: [],
   selectedFlightId: null,
   lastUpdateAt: null,
+  showAll: loadShowAll(),
   error: null,
 
   async init() {
@@ -79,7 +108,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   async refreshFlights() {
     try {
-      const flights = await api.listFlights();
+      const flights = await api.listFlights({ showAll: get().showAll });
       set({ flights });
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -124,6 +153,16 @@ export const useStore = create<AppState>((set, get) => ({
     const updated = await api.getFlight(flightId);
     set((s) => ({ flights: s.flights.map((f) => (f.id === flightId ? updated : f)) }));
   },
+  async addShare(flightId, userId) {
+    await api.addShare(flightId, userId);
+    const updated = await api.getFlight(flightId);
+    set((s) => ({ flights: s.flights.map((f) => (f.id === flightId ? updated : f)) }));
+  },
+  async removeShare(flightId, userId) {
+    await api.removeShare(flightId, userId);
+    const updated = await api.getFlight(flightId);
+    set((s) => ({ flights: s.flights.map((f) => (f.id === flightId ? updated : f)) }));
+  },
 
   async inviteUser(input) {
     const user = await api.inviteUser(input);
@@ -156,6 +195,15 @@ export const useStore = create<AppState>((set, get) => ({
 
   selectFlight(id) {
     set({ selectedFlightId: id });
+  },
+
+  async setShowAll(v) {
+    persistShowAll(v);
+    set({ showAll: v });
+    // Refetch flights to immediately reflect the new visibility scope; the
+    // SSE connection is re-established by App.tsx because showAll is in its
+    // useEffect dependency list.
+    await get().refreshFlights();
   },
 
   applyFlightUpdate(f) {

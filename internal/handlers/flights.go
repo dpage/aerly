@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -14,14 +15,16 @@ import (
 )
 
 type createFlightReq struct {
-	Ident        string    `json:"ident"`
-	ScheduledOut time.Time `json:"scheduled_out"`
-	ScheduledIn  time.Time `json:"scheduled_in"`
-	OriginIATA   string    `json:"origin_iata"`
-	DestIATA     string    `json:"dest_iata"`
-	ICAO24       string    `json:"icao24"`
-	Notes        string    `json:"notes"`
-	PassengerIDs []int64   `json:"passenger_ids"`
+	Ident         string    `json:"ident"`
+	ScheduledOut  time.Time `json:"scheduled_out"`
+	ScheduledIn   time.Time `json:"scheduled_in"`
+	OriginIATA    string    `json:"origin_iata"`
+	DestIATA      string    `json:"dest_iata"`
+	ICAO24        string    `json:"icao24"`
+	Notes         string    `json:"notes"`
+	PassengerIDs  []int64   `json:"passenger_ids"`
+	SharedUserIDs []int64   `json:"shared_user_ids"`
+	IsPublic      bool      `json:"is_public"`
 }
 
 type updateFlightReq struct {
@@ -32,14 +35,20 @@ type updateFlightReq struct {
 	ICAO24       *string    `json:"icao24,omitempty"`
 	Notes        *string    `json:"notes,omitempty"`
 	Status       *string    `json:"status,omitempty"`
+	IsPublic     *bool      `json:"is_public,omitempty"`
 }
 
-type addPassengerReq struct {
+type userIDReq struct {
 	UserID int64 `json:"user_id"`
 }
 
+// listFlights returns flights the caller can see. Superusers may opt into
+// an "all flights" view with ?show_all=1; the param is silently ignored
+// for non-superusers.
 func (a *API) listFlights(w http.ResponseWriter, r *http.Request) {
-	flights, err := a.Store.ListFlights(r.Context())
+	me := auth.UserFrom(r.Context())
+	showAll := wantsShowAll(r, me)
+	flights, err := a.Store.ListVisibleFlights(r.Context(), me.ID, showAll)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
@@ -49,6 +58,11 @@ func (a *API) listFlights(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, f.ID)
 	}
 	passengers, err := a.Store.PassengersByFlight(r.Context(), ids)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	shares, err := a.Store.SharedUserIDsByFlight(r.Context(), ids)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
@@ -65,7 +79,7 @@ func (a *API) listFlights(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]api.FlightDTO, 0, len(flights))
 	for _, f := range flights {
-		out = append(out, api.ToFlightDTO(f, passengers[f.ID], latest[f.ID], tracks[f.ID]))
+		out = append(out, api.ToFlightDTO(f, passengers[f.ID], shares[f.ID], latest[f.ID], tracks[f.ID]))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -76,15 +90,26 @@ func (a *API) getFlight(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad id")
 		return
 	}
+	me := auth.UserFrom(r.Context())
+	if ok, err := a.canView(r.Context(), id, me); err != nil {
+		handleStoreErr(w, err)
+		return
+	} else if !ok {
+		// 404 rather than 403 to avoid leaking flight existence to users
+		// who aren't allowed to see it.
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 	f, err := a.Store.FlightByID(r.Context(), id)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{id})
+	shares, _ := a.Store.SharedUserIDsByFlight(r.Context(), []int64{id})
 	latest, _ := a.Store.LatestPositions(r.Context(), []int64{id})
 	tracks, _ := a.Store.RecentTracks(r.Context(), []int64{id}, 200)
-	writeJSON(w, http.StatusOK, api.ToFlightDTO(f, passengers[id], latest[id], tracks[id]))
+	writeJSON(w, http.StatusOK, api.ToFlightDTO(f, passengers[id], shares[id], latest[id], tracks[id]))
 }
 
 func (a *API) createFlight(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +127,7 @@ func (a *API) createFlight(w http.ResponseWriter, r *http.Request) {
 		DestIATA:     in.DestIATA,
 		ICAO24:       in.ICAO24,
 		Notes:        in.Notes,
+		IsPublic:     in.IsPublic,
 	}, me.ID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -113,9 +139,16 @@ func (a *API) createFlight(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	for _, uid := range in.SharedUserIDs {
+		if err := a.Store.AddShare(r.Context(), f.ID, uid); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{f.ID})
-	dto := api.ToFlightDTO(f, passengers[f.ID], nil, nil)
-	a.publishFlightUpdate(dto)
+	shares, _ := a.Store.SharedUserIDsByFlight(r.Context(), []int64{f.ID})
+	dto := api.ToFlightDTO(f, passengers[f.ID], shares[f.ID], nil, nil)
+	a.publishFlightDTO(r.Context(), dto)
 	writeJSON(w, http.StatusCreated, dto)
 }
 
@@ -123,6 +156,10 @@ func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requireEdit(r.Context(), id, me, w); err != nil {
 		return
 	}
 	var in updateFlightReq
@@ -138,16 +175,18 @@ func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
 		ICAO24:       in.ICAO24,
 		Notes:        in.Notes,
 		Status:       in.Status,
+		IsPublic:     in.IsPublic,
 	})
 	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{id})
+	shares, _ := a.Store.SharedUserIDsByFlight(r.Context(), []int64{id})
 	latest, _ := a.Store.LatestPositions(r.Context(), []int64{id})
 	tracks, _ := a.Store.RecentTracks(r.Context(), []int64{id}, 200)
-	dto := api.ToFlightDTO(f, passengers[id], latest[id], tracks[id])
-	a.publishFlightUpdate(dto)
+	dto := api.ToFlightDTO(f, passengers[id], shares[id], latest[id], tracks[id])
+	a.publishFlightDTO(r.Context(), dto)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -157,11 +196,20 @@ func (a *API) deleteFlight(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad id")
 		return
 	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requireEdit(r.Context(), id, me, w); err != nil {
+		return
+	}
+	// Capture the visibility set BEFORE deleting the row so the delete
+	// SSE event reaches exactly the subscribers who had the flight in
+	// their state — once the row is gone we can no longer derive it.
+	viewers := a.flightViewers(r.Context(), id)
+	wasPublic := a.flightIsPublic(r.Context(), id)
 	if err := a.Store.DeleteFlight(r.Context(), id); err != nil {
 		handleStoreErr(w, err)
 		return
 	}
-	a.publishFlightDelete(id)
+	a.publishFlightDelete(id, viewers, wasPublic)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -171,7 +219,11 @@ func (a *API) addPassenger(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad id")
 		return
 	}
-	var in addPassengerReq
+	me := auth.UserFrom(r.Context())
+	if err := a.requireEdit(r.Context(), fid, me, w); err != nil {
+		return
+	}
+	var in userIDReq
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -194,6 +246,10 @@ func (a *API) removePassenger(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad id")
 		return
 	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requireEdit(r.Context(), fid, me, w); err != nil {
+		return
+	}
 	uid, err := pathID(r, "userId")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad userId")
@@ -207,28 +263,155 @@ func (a *API) removePassenger(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// publishFlightUpdate fans a flight.updated SSE event to every connected
-// client with the given DTO. Mirrors the poller's broadcast format, so the
-// frontend can use a single applyFlightUpdate handler for both poll-driven
-// refreshes and user-driven write events. Best-effort: marshal errors are
-// logged and swallowed (the HTTP response to the caller has already succeeded
-// by the time we get here).
-func (a *API) publishFlightUpdate(dto api.FlightDTO) {
+func (a *API) addShare(w http.ResponseWriter, r *http.Request) {
+	fid, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requireEdit(r.Context(), fid, me, w); err != nil {
+		return
+	}
+	var in userIDReq
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if in.UserID == 0 {
+		writeError(w, http.StatusBadRequest, "user_id required")
+		return
+	}
+	if err := a.Store.AddShare(r.Context(), fid, in.UserID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.publishFlightByID(r.Context(), fid)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) removeShare(w http.ResponseWriter, r *http.Request) {
+	fid, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requireEdit(r.Context(), fid, me, w); err != nil {
+		return
+	}
+	uid, err := pathID(r, "userId")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad userId")
+		return
+	}
+	if err := a.Store.RemoveShare(r.Context(), fid, uid); err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	a.publishFlightByID(r.Context(), fid)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// events streams SSE to the caller. Builds a Subscription from the auth
+// context + ?show_all=1 query param (only honored for superusers).
+func (a *API) events(w http.ResponseWriter, r *http.Request) {
+	me := auth.UserFrom(r.Context())
+	a.Hub.Stream(w, r, sse.Subscription{
+		ViewerID:    me.ID,
+		IsSuperuser: me.IsSuperuser,
+		ShowAll:     wantsShowAll(r, me),
+	})
+}
+
+// wantsShowAll returns true when the caller asked for ?show_all=1 AND is
+// a superuser. Non-superusers cannot opt into the all-flights view.
+func wantsShowAll(r *http.Request, u *store.User) bool {
+	if u == nil || !u.IsSuperuser {
+		return false
+	}
+	v := r.URL.Query().Get("show_all")
+	return v == "1" || v == "true"
+}
+
+// canView returns true if u can see the flight: the visibility predicate,
+// OR the caller is a superuser (the API treats superusers as universally
+// allowed for individual-resource lookups even without show_all, so
+// admin-style probing still works).
+func (a *API) canView(ctx context.Context, id int64, u *store.User) (bool, error) {
+	if u == nil {
+		return false, nil
+	}
+	return a.Store.CanView(ctx, id, u.ID, u.IsSuperuser)
+}
+
+// requireEdit writes the appropriate error response and returns a non-nil
+// error if the caller may not edit the flight. Returns nil if edits are
+// allowed; in that case the caller continues normally.
+func (a *API) requireEdit(ctx context.Context, id int64, u *store.User, w http.ResponseWriter) error {
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return errors.New("unauthorized")
+	}
+	if u.IsSuperuser {
+		return nil
+	}
+	ok, err := a.Store.CanEdit(ctx, id, u.ID)
+	if err != nil {
+		handleStoreErr(w, err)
+		return err
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return errors.New("forbidden")
+	}
+	return nil
+}
+
+// flightViewers returns the visibility set for an existing flight, used by
+// publishers to scope SSE events. On any error (including the flight no
+// longer existing) we return nil — the publisher will treat that as
+// "deliver to nobody" rather than "deliver publicly", which is the safer
+// default.
+func (a *API) flightViewers(ctx context.Context, id int64) []int64 {
+	viewers, err := a.Store.VisibleUserIDs(ctx, id)
+	if err != nil {
+		slog.Warn("flightViewers: lookup failed", "err", err, "id", id)
+		return nil
+	}
+	return viewers
+}
+
+func (a *API) flightIsPublic(ctx context.Context, id int64) bool {
+	f, err := a.Store.FlightByID(ctx, id)
+	if err != nil {
+		return false
+	}
+	return f.IsPublic
+}
+
+// publishFlightDTO fans a flight.updated SSE event, scoped to the flight's
+// current visibility set. Public flights publish with empty VisibleTo (the
+// hub's broadcast-to-all path).
+func (a *API) publishFlightDTO(ctx context.Context, dto api.FlightDTO) {
 	if a.Hub == nil {
 		return
 	}
 	payload, err := json.Marshal(dto)
 	if err != nil {
-		slog.Error("publishFlightUpdate: marshal", "err", err, "id", dto.ID)
+		slog.Error("publishFlightDTO: marshal", "err", err, "id", dto.ID)
 		return
 	}
-	a.Hub.Publish(sse.Event{Type: "flight.updated", Data: payload})
+	var visible []int64
+	if !dto.IsPublic {
+		visible = a.flightViewers(ctx, dto.ID)
+	}
+	a.Hub.Publish(sse.Event{Type: "flight.updated", Data: payload, VisibleTo: visible})
 }
 
-// publishFlightByID refetches the flight + its associated passengers,
-// positions, and track, then broadcasts the DTO. Used by endpoints that
-// mutate a flight indirectly (passenger add/remove) and so don't already
-// have a complete DTO in hand.
+// publishFlightByID refetches the flight + associated data and broadcasts
+// the DTO. Used by endpoints that mutate a flight indirectly (passenger /
+// share add/remove) and so don't already have a complete DTO in hand.
 func (a *API) publishFlightByID(ctx context.Context, id int64) {
 	if a.Hub == nil {
 		return
@@ -239,15 +422,17 @@ func (a *API) publishFlightByID(ctx context.Context, id int64) {
 		return
 	}
 	passengers, _ := a.Store.PassengersByFlight(ctx, []int64{id})
+	shares, _ := a.Store.SharedUserIDsByFlight(ctx, []int64{id})
 	latest, _ := a.Store.LatestPositions(ctx, []int64{id})
 	tracks, _ := a.Store.RecentTracks(ctx, []int64{id}, 200)
-	a.publishFlightUpdate(api.ToFlightDTO(f, passengers[id], latest[id], tracks[id]))
+	a.publishFlightDTO(ctx, api.ToFlightDTO(f, passengers[id], shares[id], latest[id], tracks[id]))
 }
 
 // publishFlightDelete fans a flight.deleted SSE event so connected clients
-// can drop the flight from their local state. Payload is a minimal {"id":N}
-// envelope since the row is gone — no DTO to send.
-func (a *API) publishFlightDelete(id int64) {
+// can drop the flight from their local state. The visibility set must be
+// captured BEFORE the row is deleted — passed in here. Payload is a
+// minimal {"id":N} envelope since the row is gone.
+func (a *API) publishFlightDelete(id int64, viewers []int64, wasPublic bool) {
 	if a.Hub == nil {
 		return
 	}
@@ -258,5 +443,9 @@ func (a *API) publishFlightDelete(id int64) {
 		slog.Error("publishFlightDelete: marshal", "err", err, "id", id)
 		return
 	}
-	a.Hub.Publish(sse.Event{Type: "flight.deleted", Data: payload})
+	var visible []int64
+	if !wasPublic {
+		visible = viewers
+	}
+	a.Hub.Publish(sse.Event{Type: "flight.deleted", Data: payload, VisibleTo: visible})
 }

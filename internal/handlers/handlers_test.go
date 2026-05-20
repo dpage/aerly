@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -270,7 +271,7 @@ func TestFlightWritesPublishSSE(t *testing.T) {
 	pax := e.user(t, "pax", false)
 	now := time.Now()
 
-	ch, unsub := e.hub.Subscribe()
+	ch, unsub := e.hub.Subscribe(sse.Subscription{ViewerID: uid, IsSuperuser: true, ShowAll: true})
 	defer unsub()
 
 	// Create publishes flight.updated.
@@ -469,9 +470,10 @@ func TestListFlightsWithData(t *testing.T) {
 		t.Error("expected latest_position in DTO")
 	}
 
-	// AddPassenger to a nonexistent flight → FK error → 400.
-	if w := e.req(t, "POST", "/api/flights/888888/passengers", map[string]any{"user_id": pax}, uid); w.Code != 400 {
-		t.Errorf("addPassenger to missing flight = %d, want 400", w.Code)
+	// AddPassenger to a nonexistent flight: requireEdit hits CanEdit, which
+	// returns ErrNotFound for an unknown id → 404 from handleStoreErr.
+	if w := e.req(t, "POST", "/api/flights/888888/passengers", map[string]any{"user_id": pax}, uid); w.Code != 404 {
+		t.Errorf("addPassenger to missing flight = %d, want 404", w.Code)
 	}
 }
 
@@ -492,6 +494,159 @@ func TestListFlightsStoreError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError && w.Code != http.StatusUnauthorized {
 		t.Errorf("cancelled list = %d, want 500 or 401", w.Code)
 	}
+}
+
+// TestVisibilityFiltering exercises the new sharing model: each user sees
+// only the flights they own, are a passenger on, or are explicitly shared
+// with; superusers see the same set by default, expanded with ?show_all=1.
+func TestVisibilityFiltering(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	carol := e.user(t, "carol", false)
+	admin := e.user(t, "admin", true)
+	now := time.Now()
+
+	// Alice creates three flights with different visibility shapes:
+	//   A — private (only Alice can see it)
+	//   B — explicitly shared with Bob
+	//   C — public (everyone sees it)
+	create := func(ident string, isPublic bool, sharedWith []int64) int64 {
+		body := map[string]any{
+			"ident": ident, "scheduled_out": now.Add(time.Hour), "scheduled_in": now.Add(2 * time.Hour),
+			"origin_iata": "LHR", "dest_iata": "JFK",
+			"is_public": isPublic, "shared_user_ids": sharedWith,
+		}
+		w := e.req(t, "POST", "/api/flights", body, alice)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create %s: code=%d body=%s", ident, w.Code, w.Body.String())
+		}
+		return int64(decodeBody[map[string]any](t, w)["id"].(float64))
+	}
+	idA := create("A1", false, nil)
+	idB := create("B1", false, []int64{bob})
+	create("C1", true, nil)
+
+	idents := func(uid int64, query string) []string {
+		w := e.req(t, "GET", "/api/flights"+query, nil, uid)
+		if w.Code != http.StatusOK {
+			t.Fatalf("list as %d: code=%d", uid, w.Code)
+		}
+		out := decodeBody[[]map[string]any](t, w)
+		got := make([]string, 0, len(out))
+		for _, f := range out {
+			got = append(got, f["ident"].(string))
+		}
+		return got
+	}
+
+	if got := idents(alice, ""); !sameStrings(got, []string{"A1", "B1", "C1"}) {
+		t.Errorf("alice sees %v, want A1 B1 C1", got)
+	}
+	if got := idents(bob, ""); !sameStrings(got, []string{"B1", "C1"}) {
+		t.Errorf("bob sees %v, want B1 C1", got)
+	}
+	if got := idents(carol, ""); !sameStrings(got, []string{"C1"}) {
+		t.Errorf("carol sees %v, want C1 only", got)
+	}
+	if got := idents(admin, ""); !sameStrings(got, []string{"C1"}) {
+		t.Errorf("admin (no show_all) sees %v, want C1 only", got)
+	}
+	if got := idents(admin, "?show_all=1"); !sameStrings(got, []string{"A1", "B1", "C1"}) {
+		t.Errorf("admin show_all sees %v, want all three", got)
+	}
+	if got := idents(bob, "?show_all=1"); !sameStrings(got, []string{"B1", "C1"}) {
+		t.Errorf("non-superuser show_all should be ignored, got %v", got)
+	}
+
+	// Carol can't read A directly (404, not 403, to avoid leaking existence).
+	if w := e.req(t, "GET", apiFlightPath(idA), nil, carol); w.Code != http.StatusNotFound {
+		t.Errorf("carol GET private flight = %d, want 404", w.Code)
+	}
+	// Bob can read his shared flight.
+	if w := e.req(t, "GET", apiFlightPath(idB), nil, bob); w.Code != http.StatusOK {
+		t.Errorf("bob GET shared flight = %d, want 200", w.Code)
+	}
+	// Carol cannot edit Bob's flight (not creator, not superuser).
+	if w := e.req(t, "PATCH", apiFlightPath(idA),
+		map[string]any{"notes": "no"}, carol); w.Code != http.StatusForbidden {
+		t.Errorf("carol PATCH = %d, want 403", w.Code)
+	}
+	// Admin can edit anything regardless of show_all.
+	if w := e.req(t, "PATCH", apiFlightPath(idA),
+		map[string]any{"notes": "ok"}, admin); w.Code != http.StatusOK {
+		t.Errorf("admin PATCH = %d, want 200", w.Code)
+	}
+}
+
+func TestShareEndpoints(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	carol := e.user(t, "carol", false)
+	now := time.Now()
+	w := e.req(t, "POST", "/api/flights",
+		map[string]any{
+			"ident": "S1", "scheduled_out": now.Add(time.Hour), "scheduled_in": now.Add(2 * time.Hour),
+			"origin_iata": "LHR", "dest_iata": "JFK",
+		}, alice)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	id := int64(decodeBody[map[string]any](t, w)["id"].(float64))
+
+	// Bob can't add a share to Alice's flight (not creator).
+	if w := e.req(t, "POST", apiFlightPath(id)+"/shares",
+		map[string]any{"user_id": carol}, bob); w.Code != http.StatusForbidden {
+		t.Errorf("bob add share = %d, want 403", w.Code)
+	}
+	// Alice shares with Bob.
+	if w := e.req(t, "POST", apiFlightPath(id)+"/shares",
+		map[string]any{"user_id": bob}, alice); w.Code != http.StatusNoContent {
+		t.Errorf("alice add share = %d, want 204", w.Code)
+	}
+	// Bob now sees the flight; the DTO lists him in shared_user_ids.
+	w = e.req(t, "GET", apiFlightPath(id), nil, bob)
+	if w.Code != http.StatusOK {
+		t.Errorf("bob GET shared = %d, want 200", w.Code)
+	}
+	got := decodeBody[map[string]any](t, w)
+	shared, _ := got["shared_user_ids"].([]any)
+	if len(shared) != 1 || int64(shared[0].(float64)) != bob {
+		t.Errorf("shared_user_ids wrong: %v", got["shared_user_ids"])
+	}
+	// Alice un-shares.
+	if w := e.req(t, "DELETE", apiFlightPath(id)+"/shares/"+itoa(bob), nil, alice); w.Code != http.StatusNoContent {
+		t.Errorf("alice remove share = %d, want 204", w.Code)
+	}
+	// Removing twice yields 404.
+	if w := e.req(t, "DELETE", apiFlightPath(id)+"/shares/"+itoa(bob), nil, alice); w.Code != http.StatusNotFound {
+		t.Errorf("double remove share = %d, want 404", w.Code)
+	}
+}
+
+func apiFlightPath(id int64) string {
+	return "/api/flights/" + itoa(id)
+}
+
+func itoa(n int64) string {
+	return strconv.FormatInt(n, 10)
+}
+
+func sameStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	gotSet := map[string]bool{}
+	for _, s := range got {
+		gotSet[s] = true
+	}
+	for _, s := range want {
+		if !gotSet[s] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestWriteHelpers(t *testing.T) {

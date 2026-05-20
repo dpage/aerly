@@ -53,67 +53,83 @@ func ToPositionDTO(p *store.Position) PositionDTO {
 }
 
 type FlightDTO struct {
-	ID             int64        `json:"id"`
-	Ident          string       `json:"ident"`
-	ICAO24         *string      `json:"icao24,omitempty"`
-	ScheduledOut   time.Time    `json:"scheduled_out"`
-	ScheduledIn    time.Time    `json:"scheduled_in"`
-	EstimatedOut   *time.Time   `json:"estimated_out,omitempty"`
-	EstimatedIn    *time.Time   `json:"estimated_in,omitempty"`
-	ActualOut      *time.Time   `json:"actual_out,omitempty"`
-	ActualIn       *time.Time   `json:"actual_in,omitempty"`
-	OriginIATA     string       `json:"origin_iata"`
-	OriginLat      *float64     `json:"origin_lat,omitempty"`
-	OriginLon      *float64     `json:"origin_lon,omitempty"`
+	ID           int64      `json:"id"`
+	Ident        string     `json:"ident"`
+	ICAO24       *string    `json:"icao24,omitempty"`
+	ScheduledOut time.Time  `json:"scheduled_out"`
+	ScheduledIn  time.Time  `json:"scheduled_in"`
+	EstimatedOut *time.Time `json:"estimated_out,omitempty"`
+	EstimatedIn  *time.Time `json:"estimated_in,omitempty"`
+	ActualOut    *time.Time `json:"actual_out,omitempty"`
+	ActualIn     *time.Time `json:"actual_in,omitempty"`
+	OriginIATA   string     `json:"origin_iata"`
+	OriginLat    *float64   `json:"origin_lat,omitempty"`
+	OriginLon    *float64   `json:"origin_lon,omitempty"`
 	// OriginTZ / DestTZ are IANA timezone strings looked up from the
 	// embedded airports table; empty when the IATA is unknown. The
 	// frontend uses them to render scheduled times in airport-local
 	// time on both ends of the trip.
-	OriginTZ       string       `json:"origin_tz,omitempty"`
-	DestIATA       string       `json:"dest_iata"`
-	DestLat        *float64     `json:"dest_lat,omitempty"`
-	DestLon        *float64     `json:"dest_lon,omitempty"`
-	DestTZ         string       `json:"dest_tz,omitempty"`
-	Status         string       `json:"status"`
-	Notes          string       `json:"notes"`
-	LastPolledAt   *time.Time   `json:"last_polled_at,omitempty"`
-	CreatedBy      *int64       `json:"created_by,omitempty"`
-	PassengerIDs   []int64      `json:"passenger_ids"`
+	OriginTZ     string       `json:"origin_tz,omitempty"`
+	DestIATA     string       `json:"dest_iata"`
+	DestLat      *float64     `json:"dest_lat,omitempty"`
+	DestLon      *float64     `json:"dest_lon,omitempty"`
+	DestTZ       string       `json:"dest_tz,omitempty"`
+	Status       string       `json:"status"`
+	Notes        string       `json:"notes"`
+	LastPolledAt *time.Time   `json:"last_polled_at,omitempty"`
+	CreatedBy    *int64       `json:"created_by,omitempty"`
+	PassengerIDs []int64      `json:"passenger_ids"`
+	// IsPublic flips the flight to "visible to every authenticated user".
+	IsPublic bool `json:"is_public"`
+	// SharedUserIDs lists explicit share-list members. Always non-nil
+	// (empty slice when nobody has been explicitly shared with).
+	SharedUserIDs  []int64      `json:"shared_user_ids"`
 	LatestPosition *PositionDTO `json:"latest_position,omitempty"`
 	// Recent positions, oldest → newest, used to draw the flown track on the
 	// map. nil when there is no track yet.
 	Track []PositionDTO `json:"track,omitempty"`
 }
 
-func ToFlightDTO(f *store.Flight, passengerIDs []int64, latest *store.Position, track []*store.Position) FlightDTO {
+func ToFlightDTO(
+	f *store.Flight,
+	passengerIDs []int64,
+	sharedUserIDs []int64,
+	latest *store.Position,
+	track []*store.Position,
+) FlightDTO {
 	if passengerIDs == nil {
 		passengerIDs = []int64{}
+	}
+	if sharedUserIDs == nil {
+		sharedUserIDs = []int64{}
 	}
 	originTZ, _ := airports.LookupTZ(f.OriginIATA)
 	destTZ, _ := airports.LookupTZ(f.DestIATA)
 	dto := FlightDTO{
-		ID:           f.ID,
-		Ident:        f.Ident,
-		ICAO24:       f.ICAO24,
-		ScheduledOut: f.ScheduledOut,
-		ScheduledIn:  f.ScheduledIn,
-		EstimatedOut: f.EstimatedOut,
-		EstimatedIn:  f.EstimatedIn,
-		ActualOut:    f.ActualOut,
-		ActualIn:     f.ActualIn,
-		OriginIATA:   f.OriginIATA,
-		OriginLat:    f.OriginLat,
-		OriginLon:    f.OriginLon,
-		OriginTZ:     originTZ,
-		DestIATA:     f.DestIATA,
-		DestLat:      f.DestLat,
-		DestLon:      f.DestLon,
-		DestTZ:       destTZ,
-		Status:       f.Status,
-		Notes:        f.Notes,
-		LastPolledAt: f.LastPolledAt,
-		CreatedBy:    f.CreatedBy,
-		PassengerIDs: passengerIDs,
+		ID:            f.ID,
+		Ident:         f.Ident,
+		ICAO24:        f.ICAO24,
+		ScheduledOut:  f.ScheduledOut,
+		ScheduledIn:   f.ScheduledIn,
+		EstimatedOut:  f.EstimatedOut,
+		EstimatedIn:   f.EstimatedIn,
+		ActualOut:     f.ActualOut,
+		ActualIn:      f.ActualIn,
+		OriginIATA:    f.OriginIATA,
+		OriginLat:     f.OriginLat,
+		OriginLon:     f.OriginLon,
+		OriginTZ:      originTZ,
+		DestIATA:      f.DestIATA,
+		DestLat:       f.DestLat,
+		DestLon:       f.DestLon,
+		DestTZ:        destTZ,
+		Status:        f.Status,
+		Notes:         f.Notes,
+		LastPolledAt:  f.LastPolledAt,
+		CreatedBy:     f.CreatedBy,
+		PassengerIDs:  passengerIDs,
+		IsPublic:      f.IsPublic,
+		SharedUserIDs: sharedUserIDs,
 	}
 	if latest != nil {
 		p := ToPositionDTO(latest)

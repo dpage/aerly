@@ -7,6 +7,7 @@ import { fmtAgo, fmtDateTime, fmtUTC } from '../lib/format';
 interface Props {
   flight: Flight;
   passengers: User[];
+  sharedWith: User[];
   owner: User | undefined;
 }
 
@@ -15,7 +16,7 @@ interface Props {
 // touch the store. Field groups (Aircraft, Schedule, Current position, …)
 // collapse to nothing when the underlying data is missing — the panel for a
 // freshly-scheduled flight with no telemetry yet is correspondingly short.
-export default function FlightDetailPanel({ flight, passengers, owner }: Props) {
+export default function FlightDetailPanel({ flight, passengers, sharedWith, owner }: Props) {
   // Tick once a second so "Fix age" / "Last polled" stay live.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -96,7 +97,7 @@ export default function FlightDetailPanel({ flight, passengers, owner }: Props) 
           </Section>
         )}
 
-        {(passengers.length > 0 || owner) && (
+        {(passengers.length > 0 || sharedWith.length > 0 || owner) && (
           <Section title="People">
             {passengers.length > 0 && (
               <Row
@@ -110,9 +111,42 @@ export default function FlightDetailPanel({ flight, passengers, owner }: Props) 
                 }
               />
             )}
+            {sharedWith.length > 0 && (
+              <Row
+                label="Shared with"
+                value={
+                  <Stack spacing={0.5}>
+                    {sharedWith.map((u) => (
+                      <UserChip key={u.id} user={u} />
+                    ))}
+                  </Stack>
+                }
+              />
+            )}
             {owner && <Row label="Added by" value={<UserChip user={owner} />} />}
           </Section>
         )}
+
+        <Section title="Visibility">
+          <Row
+            label="Audience"
+            value={
+              flight.is_public ? (
+                <Chip
+                  label="Public — everyone"
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  sx={{ height: 20, fontSize: 11 }}
+                />
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Creator, passengers{sharedWith.length > 0 ? ', and shared users' : ''}
+                </Typography>
+              )
+            }
+          />
+        </Section>
 
         <Section title="Polling">
           <Row

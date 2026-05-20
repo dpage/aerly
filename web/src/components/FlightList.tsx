@@ -4,11 +4,14 @@ import {
   AvatarGroup,
   Box,
   Chip,
+  FormControlLabel,
   IconButton,
   Stack,
+  Switch,
   Tooltip,
   Typography,
 } from '@mui/material';
+import PublicIcon from '@mui/icons-material/Public';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 
@@ -24,14 +27,47 @@ interface Props {
 export default function FlightList({ onEditFlight }: Props) {
   const flights = useStore((s) => s.flights);
   const users = useStore((s) => s.users);
+  const me = useStore((s) => s.me);
   const selectedFlightId = useStore((s) => s.selectedFlightId);
   const selectFlight = useStore((s) => s.selectFlight);
   const deleteFlight = useStore((s) => s.deleteFlight);
+  const showAll = useStore((s) => s.showAll);
+  const setShowAll = useStore((s) => s.setShowAll);
 
   const usersById = new Map(users.map((u) => [u.id, u]));
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      {me?.is_superuser && (
+        <Box
+          sx={{
+            px: 2,
+            py: 0.5,
+            borderBottom: 1,
+            borderColor: 'divider',
+            bgcolor: 'background.default',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          <Tooltip title="Superuser-only: include every flight in the list, not just yours and ones shared with you.">
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={showAll}
+                  onChange={(e) => void setShowAll(e.target.checked)}
+                  size="small"
+                />
+              }
+              label={
+                <Typography variant="caption" color="text.secondary">
+                  Show all flights
+                </Typography>
+              }
+            />
+          </Tooltip>
+        </Box>
+      )}
       <Box sx={{ flexGrow: 1 }}>
         {flights.length === 0 ? (
           <Box sx={{ p: 3 }}>
@@ -45,6 +81,9 @@ export default function FlightList({ onEditFlight }: Props) {
             {flights.map((f) => {
               const selected = f.id === selectedFlightId;
               const passengers = f.passenger_ids
+                .map((id) => usersById.get(id))
+                .filter((u): u is User => u !== undefined);
+              const sharedWith = (f.shared_user_ids ?? [])
                 .map((id) => usersById.get(id))
                 .filter((u): u is User => u !== undefined);
               const owner = f.created_by != null ? usersById.get(f.created_by) : undefined;
@@ -62,7 +101,12 @@ export default function FlightList({ onEditFlight }: Props) {
                     }}
                   />
                   {selected && (
-                    <FlightDetailPanel flight={f} passengers={passengers} owner={owner} />
+                    <FlightDetailPanel
+                      flight={f}
+                      passengers={passengers}
+                      sharedWith={sharedWith}
+                      owner={owner}
+                    />
                   )}
                 </Fragment>
               );
@@ -164,6 +208,11 @@ function FlightRow({
               {flight.ident}
             </Typography>
             <StatusChip status={flight.status} />
+            {flight.is_public && (
+              <Tooltip title="Public flight — visible to every authenticated user">
+                <PublicIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+              </Tooltip>
+            )}
             {owner && (
               <Tooltip title={`Added by ${owner.github_login}`}>
                 <Stack direction="row" alignItems="center" spacing={0.5} sx={{ ml: 'auto' }}>

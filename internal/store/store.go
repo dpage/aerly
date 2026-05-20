@@ -48,8 +48,11 @@ type Flight struct {
 	LastPolledAt *time.Time
 	CreatedBy    *int64
 	Notes        string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// IsPublic makes the flight visible to every authenticated user,
+	// independent of the creator / passenger / share-list membership.
+	IsPublic  bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type Position struct {

@@ -86,7 +86,7 @@ func TestTickInsertsPositionRefreshesAndPublishes(t *testing.T) {
 		t.Fatalf("create flight: %v", err)
 	}
 
-	events, unsub := hub.Subscribe()
+	events, unsub := hub.Subscribe(sse.Subscription{ViewerID: 1, IsSuperuser: true, ShowAll: true})
 	defer unsub()
 
 	p.tick(ctx)
@@ -206,7 +206,7 @@ func TestRefreshHandlesDeletedFlight(t *testing.T) {
 			t.Fatalf("delete in tracker: %v", err)
 		}
 	}
-	events, unsub := hub.Subscribe()
+	events, unsub := hub.Subscribe(sse.Subscription{ViewerID: 1, IsSuperuser: true, ShowAll: true})
 	defer unsub()
 
 	p.tick(ctx) // must not panic; FlightByID after delete → error → return

@@ -89,6 +89,11 @@ export interface Flight {
   last_polled_at?: string;
   created_by?: number;
   passenger_ids: number[];
+  /** When true, every authenticated user can see the flight, regardless
+   * of passenger / share-list membership. */
+  is_public: boolean;
+  /** Users explicitly granted view access (non-passengers, non-creator). */
+  shared_user_ids: number[];
   latest_position?: Position;
   /** Recent positions in order (oldest → newest), for the flown-track line. */
   track?: Position[];
@@ -103,6 +108,8 @@ export interface CreateFlightInput {
   icao24?: string;
   notes?: string;
   passenger_ids?: number[];
+  shared_user_ids?: number[];
+  is_public?: boolean;
 }
 
 export interface UpdateFlightInput {
@@ -113,6 +120,7 @@ export interface UpdateFlightInput {
   icao24?: string;
   notes?: string;
   status?: FlightStatus;
+  is_public?: boolean;
 }
 
 export interface InviteUserInput {

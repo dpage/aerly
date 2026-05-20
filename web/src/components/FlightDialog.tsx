@@ -10,10 +10,13 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   LinearProgress,
   Link,
   Stack,
+  Switch,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -39,6 +42,8 @@ interface FormState {
   status: FlightStatus;
   notes: string;
   passengers: User[];
+  sharedWith: User[];
+  isPublic: boolean;
 }
 
 interface MinimalState {
@@ -46,6 +51,8 @@ interface MinimalState {
   date: Date | null;
   notes: string;
   passengers: User[];
+  sharedWith: User[];
+  isPublic: boolean;
 }
 
 const STATUSES: FlightStatus[] = [
@@ -61,11 +68,14 @@ const STATUSES: FlightStatus[] = [
 export default function FlightDialog({ open, editId, onClose }: Props) {
   const users = useStore((s) => s.users);
   const flights = useStore((s) => s.flights);
+  const me = useStore((s) => s.me);
   const capabilities = useStore((s) => s.capabilities);
   const createFlight = useStore((s) => s.createFlight);
   const updateFlight = useStore((s) => s.updateFlight);
   const addPassenger = useStore((s) => s.addPassenger);
   const removePassenger = useStore((s) => s.removePassenger);
+  const addShare = useStore((s) => s.addShare);
+  const removeShare = useStore((s) => s.removeShare);
   const setError = useStore((s) => s.setError);
 
   const editing = useMemo(
@@ -103,6 +113,9 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
       const passengers = editing.passenger_ids
         .map((id) => users.find((u) => u.id === id))
         .filter((u): u is User => u !== undefined);
+      const sharedWith = (editing.shared_user_ids ?? [])
+        .map((id) => users.find((u) => u.id === id))
+        .filter((u): u is User => u !== undefined);
       setForm({
         ident: editing.ident,
         icao24: editing.icao24 ?? '',
@@ -113,12 +126,21 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
         status: editing.status,
         notes: editing.notes,
         passengers,
+        sharedWith,
+        isPublic: editing.is_public ?? false,
       });
     } else {
       setForm(emptyForm());
       setMinimal(emptyMinimal());
     }
   }, [open, editing, users]);
+
+  // Only the creator and superusers can change visibility/sharing on an
+  // existing flight. New flights have no creator yet, so anyone can set
+  // the initial values.
+  const canEditSharing =
+    editing == null ||
+    (me != null && (me.is_superuser || me.id === editing.created_by));
 
   const canSubmitFull =
     form.ident.trim() !== '' &&
@@ -149,11 +171,24 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
         }
         if (form.notes !== editing.notes) patch.notes = form.notes;
         if (form.status !== editing.status) patch.status = form.status;
+        if (canEditSharing && form.isPublic !== editing.is_public) {
+          patch.is_public = form.isPublic;
+        }
         if (Object.keys(patch).length > 0) await updateFlight(editing.id, patch);
         const existing = new Set(editing.passenger_ids);
         const next = new Set(form.passengers.map((u) => u.id));
         for (const uid of next) if (!existing.has(uid)) await addPassenger(editing.id, uid);
         for (const uid of existing) if (!next.has(uid)) await removePassenger(editing.id, uid);
+        if (canEditSharing) {
+          const existingShared = new Set(editing.shared_user_ids ?? []);
+          const nextShared = new Set(form.sharedWith.map((u) => u.id));
+          for (const uid of nextShared) {
+            if (!existingShared.has(uid)) await addShare(editing.id, uid);
+          }
+          for (const uid of existingShared) {
+            if (!nextShared.has(uid)) await removeShare(editing.id, uid);
+          }
+        }
       } else {
         const input: CreateFlightInput = {
           ident: form.ident.trim().toUpperCase(),
@@ -164,6 +199,8 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
           dest_iata: form.destIATA.trim().toUpperCase(),
           notes: form.notes,
           passenger_ids: form.passengers.map((u) => u.id),
+          shared_user_ids: form.sharedWith.map((u) => u.id),
+          is_public: form.isPublic,
         };
         await createFlight(input);
       }
@@ -196,6 +233,8 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
         icao24: resolved.icao24 || undefined,
         notes: minimal.notes || resolved.notes,
         passenger_ids: minimal.passengers.map((u) => u.id),
+        shared_user_ids: minimal.sharedWith.map((u) => u.id),
+        is_public: minimal.isPublic,
       };
       await createFlight(input);
       onClose();
@@ -217,6 +256,8 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
       ident: minimal.ident.trim().toUpperCase(),
       notes: minimal.notes,
       passengers: minimal.passengers,
+      sharedWith: minimal.sharedWith,
+      isPublic: minimal.isPublic,
       scheduledOut: minimal.date,
       scheduledIn: minimal.date ? new Date(minimal.date.getTime() + 2 * 60 * 60 * 1000) : null,
     }));
@@ -313,6 +354,14 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
               multiline
               rows={2}
               helperText="Leaving notes blank uses the resolver’s default (airline + aircraft model)"
+            />
+            <VisibilityBlock
+              users={users}
+              sharedWith={minimal.sharedWith}
+              isPublic={minimal.isPublic}
+              disabled={false}
+              onSharedChange={(value) => setMinimal({ ...minimal, sharedWith: value })}
+              onPublicChange={(value) => setMinimal({ ...minimal, isPublic: value })}
             />
           </Stack>
         ) : (
@@ -433,6 +482,14 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
               multiline
               rows={2}
             />
+            <VisibilityBlock
+              users={users}
+              sharedWith={form.sharedWith}
+              isPublic={form.isPublic}
+              disabled={!canEditSharing}
+              onSharedChange={(value) => setForm({ ...form, sharedWith: value })}
+              onPublicChange={(value) => setForm({ ...form, isPublic: value })}
+            />
           </Stack>
         )}
       </DialogContent>
@@ -477,6 +534,8 @@ function emptyForm(): FormState {
     status: 'Scheduled',
     notes: '',
     passengers: [],
+    sharedWith: [],
+    isPublic: false,
   };
 }
 
@@ -486,7 +545,86 @@ function emptyMinimal(): MinimalState {
     date: new Date(),
     notes: '',
     passengers: [],
+    sharedWith: [],
+    isPublic: false,
   };
+}
+
+interface VisibilityBlockProps {
+  users: User[];
+  sharedWith: User[];
+  isPublic: boolean;
+  disabled: boolean;
+  onSharedChange: (next: User[]) => void;
+  onPublicChange: (next: boolean) => void;
+}
+
+// VisibilityBlock renders the "Share with everyone" toggle + per-user share
+// list, used by both the minimal and full FlightDialog forms. When public,
+// the share list is dimmed and gets a helper note — it's still editable so
+// un-toggling later doesn't lose the curated list.
+function VisibilityBlock({
+  users,
+  sharedWith,
+  isPublic,
+  disabled,
+  onSharedChange,
+  onPublicChange,
+}: VisibilityBlockProps) {
+  const switchControl = (
+    <FormControlLabel
+      control={
+        <Switch
+          checked={isPublic}
+          onChange={(e) => onPublicChange(e.target.checked)}
+          disabled={disabled}
+        />
+      }
+      label="Share with everyone"
+    />
+  );
+  return (
+    <Stack spacing={1}>
+      {disabled ? (
+        <Tooltip title="Only the flight's creator (or a superuser) can change sharing">
+          <span>{switchControl}</span>
+        </Tooltip>
+      ) : (
+        switchControl
+      )}
+      <Autocomplete
+        multiple
+        options={users}
+        value={sharedWith}
+        getOptionLabel={(o) => o.github_login}
+        isOptionEqualToValue={(a, b) => a.id === b.id}
+        onChange={(_, value) => onSharedChange(value)}
+        disabled={disabled}
+        renderTags={(value, getTagProps) =>
+          value.map((u, i) => (
+            <Chip
+              {...getTagProps({ index: i })}
+              key={u.id}
+              avatar={<Avatar src={u.avatar_url}>{u.github_login.charAt(0).toUpperCase()}</Avatar>}
+              label={u.github_login}
+            />
+          ))
+        }
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            label="Shared with"
+            helperText={
+              isPublic
+                ? 'Flight is public — this list is ignored until you turn off "Share with everyone".'
+                : 'Users listed here can see the flight in addition to its passengers.'
+            }
+          />
+        )}
+        sx={isPublic ? { opacity: 0.7 } : undefined}
+      />
+    </Stack>
+  );
 }
 
 // formatDateOnly renders the user's picked calendar date as YYYY-MM-DD using

@@ -50,11 +50,14 @@ const h = vi.hoisted(() => ({
   state: {
     users: [] as User[],
     flights: [] as Flight[],
+    me: null as User | null,
     capabilities: { resolver_available: false } as Capabilities,
     createFlight: vi.fn(),
     updateFlight: vi.fn(),
     addPassenger: vi.fn(),
     removePassenger: vi.fn(),
+    addShare: vi.fn(),
+    removeShare: vi.fn(),
     setError: vi.fn(),
   },
 }));
@@ -91,6 +94,8 @@ function flight(over: Partial<Flight> = {}): Flight {
     status: 'Scheduled',
     notes: 'orig notes',
     passenger_ids: [],
+    shared_user_ids: [],
+    is_public: false,
     ...over,
   };
 }
@@ -99,6 +104,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.state.users = [];
   h.state.flights = [];
+  h.state.me = null;
   h.state.capabilities = { resolver_available: false };
 });
 
@@ -166,6 +172,21 @@ describe('FlightDialog - full form (create)', () => {
     render(<FlightDialog open editId={null} onClose={onClose} />);
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('sends share-with-everyone and explicit share-list IDs through createFlight', async () => {
+    h.state.users = [user({ id: 11, github_login: 'alice' }), user({ id: 22, github_login: 'bob' })];
+    h.state.createFlight.mockResolvedValue(undefined);
+    render(<FlightDialog open editId={null} onClose={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText(/^Flight number/), 'X1');
+    await userEvent.click(screen.getByLabelText('Share with everyone'));
+    // Pick "alice" from the Shared with autocomplete.
+    await userEvent.click(screen.getByLabelText('Shared with'));
+    await userEvent.click(await screen.findByText('alice'));
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    const input = h.state.createFlight.mock.calls[0][0];
+    expect(input.is_public).toBe(true);
+    expect(input.shared_user_ids).toEqual([11]);
   });
 });
 
@@ -431,6 +452,41 @@ describe('FlightDialog - editing', () => {
     await userEvent.type(notes, 'b');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(h.state.setError).toHaveBeenCalledWith('patch failed');
+  });
+
+  it('disables visibility controls for a non-creator non-superuser', () => {
+    const me = user({ id: 5, is_superuser: false });
+    h.state.me = me;
+    const f = flight({ id: 99, created_by: 99 });
+    h.state.flights = [f];
+    render(<FlightDialog open editId={99} onClose={vi.fn()} />);
+    expect(screen.getByLabelText('Share with everyone')).toBeDisabled();
+    expect(screen.getByLabelText('Shared with')).toBeDisabled();
+  });
+
+  it('allows visibility edits for the creator', () => {
+    const me = user({ id: 99, is_superuser: false });
+    h.state.me = me;
+    const f = flight({ id: 99, created_by: 99 });
+    h.state.flights = [f];
+    render(<FlightDialog open editId={99} onClose={vi.fn()} />);
+    expect(screen.getByLabelText('Share with everyone')).not.toBeDisabled();
+    expect(screen.getByLabelText('Shared with')).not.toBeDisabled();
+  });
+
+  it('diffs share-list adds and removes through addShare/removeShare', async () => {
+    const me = user({ id: 99 });
+    h.state.me = me;
+    h.state.users = [user({ id: 11, github_login: 'alice' }), user({ id: 22, github_login: 'bob' })];
+    const f = flight({ id: 7, created_by: 99, shared_user_ids: [11] });
+    h.state.flights = [f];
+    render(<FlightDialog open editId={7} onClose={vi.fn()} />);
+    // Add bob (already-alice stays); then click Save.
+    await userEvent.click(screen.getByLabelText('Shared with'));
+    await userEvent.click(await screen.findByText('bob'));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(h.state.addShare).toHaveBeenCalledWith(7, 22);
+    expect(h.state.removeShare).not.toHaveBeenCalled();
   });
 });
 

@@ -34,7 +34,7 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	mux.Handle("GET /api/me", req(http.HandlerFunc(a.getMe)))
 	mux.Handle("GET /api/config", req(http.HandlerFunc(a.getConfig)))
-	mux.Handle("GET /api/events", req(http.HandlerFunc(a.Hub.Handle)))
+	mux.Handle("GET /api/events", req(http.HandlerFunc(a.events)))
 
 	mux.Handle("GET /api/flights", req(http.HandlerFunc(a.listFlights)))
 	mux.Handle("POST /api/flights", req(http.HandlerFunc(a.createFlight)))
@@ -44,6 +44,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/flights/{id}", req(http.HandlerFunc(a.deleteFlight)))
 	mux.Handle("POST /api/flights/{id}/passengers", req(http.HandlerFunc(a.addPassenger)))
 	mux.Handle("DELETE /api/flights/{id}/passengers/{userId}", req(http.HandlerFunc(a.removePassenger)))
+	mux.Handle("POST /api/flights/{id}/shares", req(http.HandlerFunc(a.addShare)))
+	mux.Handle("DELETE /api/flights/{id}/shares/{userId}", req(http.HandlerFunc(a.removeShare)))
 
 	mux.Handle("GET /api/users", req(http.HandlerFunc(a.listUsers)))
 	mux.Handle("POST /api/users", sup(http.HandlerFunc(a.inviteUser)))

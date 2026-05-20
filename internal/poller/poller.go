@@ -114,15 +114,25 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 		return
 	}
 	pmap, _ := p.Store.PassengersByFlight(ctx, []int64{f.ID})
+	smap, _ := p.Store.SharedUserIDsByFlight(ctx, []int64{f.ID})
 	latest, _ := p.Store.LatestPositions(ctx, []int64{f.ID})
 	tracks, _ := p.Store.RecentTracks(ctx, []int64{f.ID}, 200)
-	dto := api.ToFlightDTO(fresh, pmap[f.ID], latest[f.ID], tracks[f.ID])
+	dto := api.ToFlightDTO(fresh, pmap[f.ID], smap[f.ID], latest[f.ID], tracks[f.ID])
 	payload, err := json.Marshal(dto)
 	if err != nil {
 		slog.Error("poller: marshal dto", "err", err)
 		return
 	}
-	p.Hub.Publish(sse.Event{Type: "flight.updated", Data: payload})
+	// Scope the broadcast to viewers who can see this flight. Public
+	// flights publish with empty VisibleTo (the hub's broadcast path).
+	var visible []int64
+	if !fresh.IsPublic {
+		visible, err = p.Store.VisibleUserIDs(ctx, fresh.ID)
+		if err != nil {
+			slog.Warn("poller: visibility lookup failed", "id", fresh.ID, "err", err)
+		}
+	}
+	p.Hub.Publish(sse.Event{Type: "flight.updated", Data: payload, VisibleTo: visible})
 }
 
 // needsBackfill is true when the resolver could meaningfully fill in at

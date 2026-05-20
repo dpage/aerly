@@ -52,7 +52,8 @@ export const api = {
   getMe: () => request<User>('GET', '/api/me'),
   getConfig: () => request<Capabilities>('GET', '/api/config'),
 
-  listFlights: () => request<Flight[]>('GET', '/api/flights'),
+  listFlights: (opts?: { showAll?: boolean }) =>
+    request<Flight[]>('GET', opts?.showAll ? '/api/flights?show_all=1' : '/api/flights'),
   getFlight: (id: number) => request<Flight>('GET', `/api/flights/${id}`),
   createFlight: (input: CreateFlightInput) => request<Flight>('POST', '/api/flights', input),
   resolveFlight: (input: ResolveFlightInput) =>
@@ -64,6 +65,10 @@ export const api = {
     request<void>('POST', `/api/flights/${flightId}/passengers`, { user_id: userId }),
   removePassenger: (flightId: number, userId: number) =>
     request<void>('DELETE', `/api/flights/${flightId}/passengers/${userId}`),
+  addShare: (flightId: number, userId: number) =>
+    request<void>('POST', `/api/flights/${flightId}/shares`, { user_id: userId }),
+  removeShare: (flightId: number, userId: number) =>
+    request<void>('DELETE', `/api/flights/${flightId}/shares/${userId}`),
 
   listUsers: () => request<User[]>('GET', '/api/users'),
   inviteUser: (input: InviteUserInput) => request<User>('POST', '/api/users', input),

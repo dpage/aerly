@@ -15,7 +15,8 @@ const flightColumns = `id, ident, scheduled_out, scheduled_in,
 	estimated_out, estimated_in, actual_out, actual_in,
 	origin_iata, origin_lat, origin_lon,
 	dest_iata, dest_lat, dest_lon,
-	status, icao24, last_polled_at, created_by, notes, created_at, updated_at`
+	status, icao24, last_polled_at, created_by, notes, is_public,
+	created_at, updated_at`
 
 func scanFlight(row pgx.Row) (*Flight, error) {
 	var f Flight
@@ -24,7 +25,8 @@ func scanFlight(row pgx.Row) (*Flight, error) {
 		&f.EstimatedOut, &f.EstimatedIn, &f.ActualOut, &f.ActualIn,
 		&f.OriginIATA, &f.OriginLat, &f.OriginLon,
 		&f.DestIATA, &f.DestLat, &f.DestLon,
-		&f.Status, &f.ICAO24, &f.LastPolledAt, &f.CreatedBy, &f.Notes, &f.CreatedAt, &f.UpdatedAt,
+		&f.Status, &f.ICAO24, &f.LastPolledAt, &f.CreatedBy, &f.Notes, &f.IsPublic,
+		&f.CreatedAt, &f.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -93,6 +95,7 @@ type CreateFlightPayload struct {
 	DestIATA     string
 	ICAO24       string
 	Notes        string
+	IsPublic     bool
 }
 
 func (s *Store) CreateFlight(ctx context.Context, in CreateFlightPayload, createdBy int64) (*Flight, error) {
@@ -119,8 +122,8 @@ func (s *Store) CreateFlight(ctx context.Context, in CreateFlightPayload, create
 		INSERT INTO flights (ident, scheduled_out, scheduled_in,
 			origin_iata, origin_lat, origin_lon,
 			dest_iata,   dest_lat,   dest_lon,
-			icao24, notes, created_by, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+			icao24, notes, created_by, is_public, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
 			CASE
 				WHEN NOW() > $3 THEN 'Arrived'
 				WHEN NOW() >= $2 THEN 'Enroute'
@@ -130,7 +133,7 @@ func (s *Store) CreateFlight(ctx context.Context, in CreateFlightPayload, create
 		ident, in.ScheduledOut, in.ScheduledIn,
 		originIATA, originLat, originLon,
 		destIATA, destLat, destLon,
-		icao24, in.Notes, createdBy))
+		icao24, in.Notes, createdBy, in.IsPublic))
 }
 
 // normalizeICAO24 returns a lowercase hex string with no whitespace, or nil
@@ -169,6 +172,7 @@ type UpdateFlightPayload struct {
 	ICAO24       *string
 	Notes        *string
 	Status       *string
+	IsPublic     *bool
 }
 
 func (s *Store) UpdateFlight(ctx context.Context, id int64, in UpdateFlightPayload) (*Flight, error) {
@@ -207,6 +211,7 @@ func (s *Store) UpdateFlight(ctx context.Context, id int64, in UpdateFlightPaylo
 			dest_lon      = COALESCE($9, dest_lon),
 			icao24        = CASE WHEN $12::boolean THEN $13 ELSE icao24 END,
 			notes         = COALESCE($10, notes),
+			is_public     = COALESCE($14, is_public),
 			status = COALESCE($11, CASE
 				WHEN status IN ('Cancelled', 'Diverted') THEN status
 				WHEN NOW() > COALESCE($3, scheduled_in)  THEN 'Arrived'
@@ -220,7 +225,8 @@ func (s *Store) UpdateFlight(ctx context.Context, id int64, in UpdateFlightPaylo
 		originIATA, originLat, originLon,
 		destIATA, destLat, destLon,
 		in.Notes, in.Status,
-		in.ICAO24 != nil, icao24Arg))
+		in.ICAO24 != nil, icao24Arg,
+		in.IsPublic))
 }
 
 // BackfillPayload carries optional resolver-supplied metadata for a flight
@@ -343,6 +349,167 @@ func (s *Store) PassengersByFlight(ctx context.Context, flightIDs []int64) (map[
 		out[fid] = append(out[fid], uid)
 	}
 	return out, rows.Err()
+}
+
+// AddShare grants visibility on a flight to the given user. Idempotent.
+func (s *Store) AddShare(ctx context.Context, flightID, userID int64) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO flight_shares (flight_id, user_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING`, flightID, userID)
+	return err
+}
+
+// RemoveShare revokes share-list visibility. Returns ErrNotFound if the row
+// didn't exist (the caller already removed it, or it was never granted).
+func (s *Store) RemoveShare(ctx context.Context, flightID, userID int64) error {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM flight_shares WHERE flight_id = $1 AND user_id = $2`,
+		flightID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SharedUserIDsByFlight returns a flight_id → []user_id map of explicit
+// share-list members (not creator, not passengers, not is_public viewers).
+func (s *Store) SharedUserIDsByFlight(ctx context.Context, flightIDs []int64) (map[int64][]int64, error) {
+	out := map[int64][]int64{}
+	if len(flightIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT flight_id, user_id FROM flight_shares WHERE flight_id = ANY($1)`,
+		flightIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var fid, uid int64
+		if err := rows.Scan(&fid, &uid); err != nil {
+			return nil, err
+		}
+		out[fid] = append(out[fid], uid)
+	}
+	return out, rows.Err()
+}
+
+// VisibleUserIDs returns the union of {creator, passengers, share-list} for
+// a single flight — the exact set of user IDs that can see the flight
+// through any non-public, non-superuser-override path. Used by publishers
+// to populate the VisibleTo set on SSE events before broadcasting.
+//
+// Callers should additionally consider Flight.IsPublic; this query
+// intentionally does NOT widen the set when is_public is true so the caller
+// can pass an empty slice to the hub's public-broadcast path explicitly.
+func (s *Store) VisibleUserIDs(ctx context.Context, flightID int64) ([]int64, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT created_by FROM flights WHERE id = $1 AND created_by IS NOT NULL
+		UNION
+		SELECT user_id FROM flight_passengers WHERE flight_id = $1
+		UNION
+		SELECT user_id FROM flight_shares     WHERE flight_id = $1`, flightID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		out = append(out, uid)
+	}
+	return out, rows.Err()
+}
+
+// ListVisibleFlights returns flights the viewer is allowed to see.
+// Visibility rule: created_by=viewer OR passenger OR share-list OR
+// is_public OR (showAllForSuperuser AND caller is superuser). The
+// superuser-show-all branch is gated by the caller — pass true only when
+// the request actually originated from a superuser session that opted in.
+func (s *Store) ListVisibleFlights(ctx context.Context, viewerID int64, showAllForSuperuser bool) ([]*Flight, error) {
+	q := `SELECT ` + flightColumns + ` FROM flights`
+	args := []any{}
+	if !showAllForSuperuser {
+		q += `
+			WHERE is_public = TRUE
+			   OR created_by = $1
+			   OR EXISTS (SELECT 1 FROM flight_passengers
+			              WHERE flight_id = flights.id AND user_id = $1)
+			   OR EXISTS (SELECT 1 FROM flight_shares
+			              WHERE flight_id = flights.id AND user_id = $1)`
+		args = append(args, viewerID)
+	}
+	q += ` ORDER BY scheduled_out ASC`
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Flight
+	for rows.Next() {
+		f, err := scanFlight(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// CanView reports whether viewerID is allowed to see flightID. The caller
+// must pass showAllForSuperuser only when the viewer is in fact a superuser
+// who has opted into the show-all view; this function does not check the
+// superuser flag itself.
+func (s *Store) CanView(ctx context.Context, flightID, viewerID int64, showAllForSuperuser bool) (bool, error) {
+	if showAllForSuperuser {
+		// Existence check only — keeps the API consistent (CanView on a
+		// missing id returns false rather than true-for-everything).
+		var n int
+		err := s.pool.QueryRow(ctx,
+			`SELECT 1 FROM flights WHERE id = $1`, flightID).Scan(&n)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return err == nil, err
+	}
+	var ok bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM flights
+			WHERE id = $1
+			  AND (is_public = TRUE
+			       OR created_by = $2
+			       OR EXISTS (SELECT 1 FROM flight_passengers
+			                  WHERE flight_id = $1 AND user_id = $2)
+			       OR EXISTS (SELECT 1 FROM flight_shares
+			                  WHERE flight_id = $1 AND user_id = $2)))`,
+		flightID, viewerID).Scan(&ok)
+	return ok, err
+}
+
+// CanEdit reports whether viewerID can mutate the flight (rename, change
+// schedule, add/remove passengers, add/remove shares, toggle public, or
+// delete). True iff viewerID is the creator. Superuser overrides live in
+// the handler layer so this function stays a pure data lookup.
+func (s *Store) CanEdit(ctx context.Context, flightID, viewerID int64) (bool, error) {
+	var creator *int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT created_by FROM flights WHERE id = $1`, flightID).Scan(&creator)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	if err != nil {
+		return false, err
+	}
+	return creator != nil && *creator == viewerID, nil
 }
 
 // LatestRealPosition returns the most recent position from ADS-B / airline

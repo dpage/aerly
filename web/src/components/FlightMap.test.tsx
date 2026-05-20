@@ -44,6 +44,8 @@ function flight(over: Partial<Flight> = {}): Flight {
     status: 'Enroute',
     notes: '',
     passenger_ids: [],
+    shared_user_ids: [],
+    is_public: false,
     ...over,
   };
 }

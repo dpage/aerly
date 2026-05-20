@@ -6,17 +6,21 @@ import type { Flight, User } from '../api/types';
 
 const selectFlight = vi.fn();
 const deleteFlight = vi.fn();
+const setShowAll = vi.fn();
 
 const state = {
   flights: [] as Flight[],
   users: [] as User[],
+  me: null as User | null,
   selectedFlightId: null as number | null,
   // PollFooter inside FlightList reads these — the mock must supply them
   // or every render blows up inside the footer with "undefined.poll_interval_sec".
   capabilities: { resolver_available: false, poll_interval_sec: 60 },
   lastUpdateAt: null as number | null,
+  showAll: false,
   selectFlight,
   deleteFlight,
+  setShowAll,
 };
 
 vi.mock('../state/store', () => ({
@@ -40,6 +44,8 @@ function flight(over: Partial<Flight> = {}): Flight {
     status: 'Scheduled',
     notes: '',
     passenger_ids: [],
+    shared_user_ids: [],
+    is_public: false,
     ...over,
   };
 }
@@ -61,7 +67,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.flights = [];
   state.users = [];
+  state.me = null;
   state.selectedFlightId = null;
+  state.showAll = false;
 });
 
 describe('FlightList', () => {
@@ -175,6 +183,49 @@ describe('FlightList', () => {
     state.selectedFlightId = 5;
     rerender(<FlightList onEditFlight={vi.fn()} />);
     expect(screen.getByTestId('flight-detail-panel')).toBeInTheDocument();
+  });
+
+  it('renders a public-flight indicator next to the status chip', () => {
+    state.flights = [flight({ is_public: true })];
+    render(<FlightList onEditFlight={vi.fn()} />);
+    // The PublicIcon renders an MUI svg with a testid suffix; assert via title.
+    expect(screen.getByLabelText(/public flight/i, { selector: 'svg' })).toBeInTheDocument();
+  });
+
+  it('detail panel lists "Shared with" users when shared_user_ids is set', () => {
+    state.users = [user({ id: 11, github_login: 'alice' }), user({ id: 22, github_login: 'bob' })];
+    state.flights = [flight({ id: 5, shared_user_ids: [11, 22] })];
+    state.selectedFlightId = 5;
+    render(<FlightList onEditFlight={vi.fn()} />);
+    const panel = screen.getByTestId('flight-detail-panel');
+    expect(panel).toHaveTextContent('Shared with');
+    expect(panel).toHaveTextContent('alice');
+    expect(panel).toHaveTextContent('bob');
+  });
+
+  it('detail panel calls out public flights in the Visibility section', () => {
+    state.flights = [flight({ id: 5, is_public: true })];
+    state.selectedFlightId = 5;
+    render(<FlightList onEditFlight={vi.fn()} />);
+    const panel = screen.getByTestId('flight-detail-panel');
+    expect(panel).toHaveTextContent(/Public/i);
+  });
+
+  it('hides the show-all toggle for non-superusers', () => {
+    state.me = user({ is_superuser: false });
+    state.flights = [flight()];
+    render(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.queryByLabelText(/show all flights/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the show-all toggle for superusers and calls setShowAll on flip', async () => {
+    state.me = user({ is_superuser: true });
+    state.flights = [flight()];
+    render(<FlightList onEditFlight={vi.fn()} />);
+    const toggle = screen.getByLabelText(/show all flights/i);
+    expect(toggle).toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(setShowAll).toHaveBeenCalledWith(true);
   });
 
   it('detail panel shows position telemetry from latest_position', () => {
