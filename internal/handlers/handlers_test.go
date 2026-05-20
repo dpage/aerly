@@ -35,6 +35,7 @@ type testEnv struct {
 	mux   *http.ServeMux
 	store *store.Store
 	cfg   *config.Config
+	hub   *sse.Hub
 }
 
 func setup(t *testing.T, resolver providers.Resolver, cfg *config.Config) *testEnv {
@@ -49,7 +50,7 @@ func setup(t *testing.T, resolver providers.Resolver, cfg *config.Config) *testE
 	api := New(s, a, hub, cfg, resolver)
 	mux := http.NewServeMux()
 	api.Register(mux)
-	return &testEnv{mux: mux, store: s, cfg: cfg}
+	return &testEnv{mux: mux, store: s, cfg: cfg, hub: hub}
 }
 
 func (e *testEnv) req(t *testing.T, method, path string, body any, asUser int64) *httptest.ResponseRecorder {
@@ -242,6 +243,89 @@ func TestFlightCRUD(t *testing.T) {
 	}
 	if w := e.req(t, "DELETE", fmt.Sprintf("/api/flights/%d", fid), nil, uid); w.Code != 404 {
 		t.Errorf("delete again = %d, want 404", w.Code)
+	}
+}
+
+// drainEvents reads every event currently buffered for the subscriber, then
+// returns. We use it after each mutating request to assert that the right
+// flight.updated / flight.deleted events were published.
+func drainEvents(ch <-chan sse.Event) []sse.Event {
+	var out []sse.Event
+	for {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				return out
+			}
+			out = append(out, ev)
+		default:
+			return out
+		}
+	}
+}
+
+func TestFlightWritesPublishSSE(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "pilot", false)
+	pax := e.user(t, "pax", false)
+	now := time.Now()
+
+	ch, unsub := e.hub.Subscribe()
+	defer unsub()
+
+	// Create publishes flight.updated.
+	body := map[string]any{
+		"ident": "BA286", "scheduled_out": now.Add(-time.Hour), "scheduled_in": now.Add(time.Hour),
+		"origin_iata": "LHR", "dest_iata": "JFK",
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", w.Code, w.Body.String())
+	}
+	fid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
+	events := drainEvents(ch)
+	if len(events) != 1 || events[0].Type != "flight.updated" {
+		t.Fatalf("create events = %+v, want one flight.updated", events)
+	}
+
+	// Update publishes flight.updated.
+	if w := e.req(t, "PATCH", fmt.Sprintf("/api/flights/%d", fid), map[string]any{"notes": "n"}, uid); w.Code != 200 {
+		t.Fatalf("update = %d", w.Code)
+	}
+	if events := drainEvents(ch); len(events) != 1 || events[0].Type != "flight.updated" {
+		t.Errorf("update events = %+v, want one flight.updated", events)
+	}
+
+	// Adding a passenger publishes flight.updated.
+	if w := e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid), map[string]any{"user_id": pax}, uid); w.Code != 204 {
+		t.Fatalf("addPassenger = %d", w.Code)
+	}
+	if events := drainEvents(ch); len(events) != 1 || events[0].Type != "flight.updated" {
+		t.Errorf("addPassenger events = %+v, want one flight.updated", events)
+	}
+
+	// Removing a passenger publishes flight.updated.
+	if w := e.req(t, "DELETE", fmt.Sprintf("/api/flights/%d/passengers/%d", fid, pax), nil, uid); w.Code != 204 {
+		t.Fatalf("removePassenger = %d", w.Code)
+	}
+	if events := drainEvents(ch); len(events) != 1 || events[0].Type != "flight.updated" {
+		t.Errorf("removePassenger events = %+v, want one flight.updated", events)
+	}
+
+	// Delete publishes flight.deleted carrying the id.
+	if w := e.req(t, "DELETE", fmt.Sprintf("/api/flights/%d", fid), nil, uid); w.Code != 204 {
+		t.Fatalf("delete = %d", w.Code)
+	}
+	events = drainEvents(ch)
+	if len(events) != 1 || events[0].Type != "flight.deleted" {
+		t.Fatalf("delete events = %+v, want one flight.deleted", events)
+	}
+	var payload struct{ ID int64 }
+	if err := json.Unmarshal(events[0].Data, &payload); err != nil {
+		t.Fatalf("decode delete payload: %v", err)
+	}
+	if payload.ID != fid {
+		t.Errorf("delete payload id = %d, want %d", payload.ID, fid)
 	}
 }
 

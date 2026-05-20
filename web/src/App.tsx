@@ -12,6 +12,7 @@ export default function App() {
   const error = useStore((s) => s.error);
   const setError = useStore((s) => s.setError);
   const applyFlightUpdate = useStore((s) => s.applyFlightUpdate);
+  const applyFlightDelete = useStore((s) => s.applyFlightDelete);
 
   useEffect(() => {
     void init();
@@ -19,8 +20,11 @@ export default function App() {
 
   useEffect(() => {
     if (auth !== 'authenticated') return;
-    return connectSSE((f) => applyFlightUpdate(f));
-  }, [auth, applyFlightUpdate]);
+    return connectSSE({
+      onFlight: (f) => applyFlightUpdate(f),
+      onDelete: (id) => applyFlightDelete(id),
+    });
+  }, [auth, applyFlightUpdate, applyFlightDelete]);
 
   let body;
   if (auth === 'loading') {

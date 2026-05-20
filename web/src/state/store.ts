@@ -42,6 +42,10 @@ interface AppState {
   logout: () => Promise<void>;
   selectFlight: (id: number | null) => void;
   applyFlightUpdate: (f: Flight) => void;
+  /** Drop a flight from local state in response to a flight.deleted SSE
+   * event. Idempotent: no-op if the id isn't present (we may have already
+   * removed it locally via deleteFlight()). */
+  applyFlightDelete: (id: number) => void;
   setError: (msg: string | null) => void;
 }
 
@@ -163,6 +167,14 @@ export const useStore = create<AppState>((set, get) => ({
             })();
       return { flights, lastUpdateAt: Date.now() };
     });
+  },
+
+  applyFlightDelete(id) {
+    set((s) => ({
+      flights: s.flights.filter((f) => f.id !== id),
+      selectedFlightId: s.selectedFlightId === id ? null : s.selectedFlightId,
+      lastUpdateAt: Date.now(),
+    }));
   },
 
   setError(msg) {

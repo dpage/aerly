@@ -234,24 +234,18 @@ function statusColor(status: FlightStatus): 'default' | 'primary' | 'success' | 
 // fmtDateTime renders a scheduled timestamp in airport-local time. tz is the
 // IANA zone of the relevant airport (origin for departures, destination for
 // arrivals); when it's missing or empty we fall back to UTC and add a "UTC"
-// suffix so the user knows which clock they're looking at.
+// suffix so the user knows which clock they're looking at. hour12:false keeps
+// the output deterministic across runtime locales (and matches the 24-hour
+// convention airlines and schedule sources actually use).
 function fmtDateTime(iso: string, tz?: string): string {
   const d = new Date(iso);
-  if (tz) {
-    return d.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: tz,
-    });
-  }
   const base = d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'UTC',
+    hour12: false,
+    timeZone: tz || 'UTC',
   });
-  return `${base} UTC`;
+  return tz ? base : `${base} UTC`;
 }

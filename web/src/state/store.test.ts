@@ -286,6 +286,28 @@ describe('logout / selectFlight / applyFlightUpdate / setError', () => {
     expect(useStore.getState().flights.map((f) => f.id)).toEqual([2, 1]);
   });
 
+  it('applyFlightDelete removes a flight by id and bumps lastUpdateAt', () => {
+    useStore.setState({
+      flights: [flight({ id: 1 }), flight({ id: 2 })],
+      selectedFlightId: 1,
+      lastUpdateAt: null,
+    });
+    useStore.getState().applyFlightDelete(1);
+    expect(useStore.getState().flights.map((f) => f.id)).toEqual([2]);
+    // Selection cleared because the deleted flight was the selected one.
+    expect(useStore.getState().selectedFlightId).toBeNull();
+    expect(useStore.getState().lastUpdateAt).not.toBeNull();
+  });
+
+  it('applyFlightDelete leaves selectedFlightId alone when a different flight is removed', () => {
+    useStore.setState({
+      flights: [flight({ id: 1 }), flight({ id: 2 })],
+      selectedFlightId: 2,
+    });
+    useStore.getState().applyFlightDelete(1);
+    expect(useStore.getState().selectedFlightId).toBe(2);
+  });
+
   it('setError sets and clears the error', () => {
     useStore.getState().setError('oops');
     expect(useStore.getState().error).toBe('oops');

@@ -4,13 +4,14 @@ import userEvent from '@testing-library/user-event';
 
 const h = vi.hoisted(() => {
   return {
-    connectSSE: vi.fn((_cb: (f: unknown) => void) => vi.fn()),
+    connectSSE: vi.fn((_handlers: { onFlight: (f: unknown) => void; onDelete: (id: number) => void }) => vi.fn()),
     state: {
       auth: 'loading' as 'loading' | 'anonymous' | 'authenticated',
       error: null as string | null,
       init: vi.fn(),
       setError: vi.fn(),
       applyFlightUpdate: vi.fn(),
+      applyFlightDelete: vi.fn(),
     },
   };
 });
@@ -52,10 +53,12 @@ describe('App', () => {
     render(<App />);
     expect(screen.getByText('APP_SHELL')).toBeInTheDocument();
     expect(connectSSE).toHaveBeenCalledTimes(1);
-    // The SSE callback should forward to applyFlightUpdate.
-    const cb = connectSSE.mock.calls[0][0];
-    cb({ id: 7 });
+    // The SSE handlers should forward to applyFlightUpdate / applyFlightDelete.
+    const handlers = connectSSE.mock.calls[0][0];
+    handlers.onFlight({ id: 7 });
     expect(state.applyFlightUpdate).toHaveBeenCalledWith({ id: 7 });
+    handlers.onDelete(7);
+    expect(state.applyFlightDelete).toHaveBeenCalledWith(7);
   });
 
   it('shows an error snackbar and clears it via the Alert close button', async () => {

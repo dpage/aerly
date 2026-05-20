@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/dpage/flight-tracker/internal/api"
 	"github.com/dpage/flight-tracker/internal/auth"
+	"github.com/dpage/flight-tracker/internal/sse"
 	"github.com/dpage/flight-tracker/internal/store"
 )
 
@@ -110,7 +114,9 @@ func (a *API) createFlight(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{f.ID})
-	writeJSON(w, http.StatusCreated, api.ToFlightDTO(f, passengers[f.ID], nil, nil))
+	dto := api.ToFlightDTO(f, passengers[f.ID], nil, nil)
+	a.publishFlightUpdate(dto)
+	writeJSON(w, http.StatusCreated, dto)
 }
 
 func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +146,9 @@ func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{id})
 	latest, _ := a.Store.LatestPositions(r.Context(), []int64{id})
 	tracks, _ := a.Store.RecentTracks(r.Context(), []int64{id}, 200)
-	writeJSON(w, http.StatusOK, api.ToFlightDTO(f, passengers[id], latest[id], tracks[id]))
+	dto := api.ToFlightDTO(f, passengers[id], latest[id], tracks[id])
+	a.publishFlightUpdate(dto)
+	writeJSON(w, http.StatusOK, dto)
 }
 
 func (a *API) deleteFlight(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +161,7 @@ func (a *API) deleteFlight(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishFlightDelete(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -175,6 +184,7 @@ func (a *API) addPassenger(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	a.publishFlightByID(r.Context(), fid)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -193,5 +203,60 @@ func (a *API) removePassenger(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishFlightByID(r.Context(), fid)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// publishFlightUpdate fans a flight.updated SSE event to every connected
+// client with the given DTO. Mirrors the poller's broadcast format, so the
+// frontend can use a single applyFlightUpdate handler for both poll-driven
+// refreshes and user-driven write events. Best-effort: marshal errors are
+// logged and swallowed (the HTTP response to the caller has already succeeded
+// by the time we get here).
+func (a *API) publishFlightUpdate(dto api.FlightDTO) {
+	if a.Hub == nil {
+		return
+	}
+	payload, err := json.Marshal(dto)
+	if err != nil {
+		slog.Error("publishFlightUpdate: marshal", "err", err, "id", dto.ID)
+		return
+	}
+	a.Hub.Publish(sse.Event{Type: "flight.updated", Data: payload})
+}
+
+// publishFlightByID refetches the flight + its associated passengers,
+// positions, and track, then broadcasts the DTO. Used by endpoints that
+// mutate a flight indirectly (passenger add/remove) and so don't already
+// have a complete DTO in hand.
+func (a *API) publishFlightByID(ctx context.Context, id int64) {
+	if a.Hub == nil {
+		return
+	}
+	f, err := a.Store.FlightByID(ctx, id)
+	if err != nil {
+		slog.Warn("publishFlightByID: refetch", "err", err, "id", id)
+		return
+	}
+	passengers, _ := a.Store.PassengersByFlight(ctx, []int64{id})
+	latest, _ := a.Store.LatestPositions(ctx, []int64{id})
+	tracks, _ := a.Store.RecentTracks(ctx, []int64{id}, 200)
+	a.publishFlightUpdate(api.ToFlightDTO(f, passengers[id], latest[id], tracks[id]))
+}
+
+// publishFlightDelete fans a flight.deleted SSE event so connected clients
+// can drop the flight from their local state. Payload is a minimal {"id":N}
+// envelope since the row is gone — no DTO to send.
+func (a *API) publishFlightDelete(id int64) {
+	if a.Hub == nil {
+		return
+	}
+	payload, err := json.Marshal(struct {
+		ID int64 `json:"id"`
+	}{ID: id})
+	if err != nil {
+		slog.Error("publishFlightDelete: marshal", "err", err, "id", id)
+		return
+	}
+	a.Hub.Publish(sse.Event{Type: "flight.deleted", Data: payload})
 }

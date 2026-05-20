@@ -54,9 +54,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function noopHandlers() {
+  return { onFlight: () => {}, onDelete: () => {} };
+}
+
 describe('connectSSE', () => {
   it('opens an EventSource against /api/events with credentials', () => {
-    const teardown = connectSSE(() => {});
+    const teardown = connectSSE(noopHandlers());
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(FakeEventSource.instances[0].url).toBe('/api/events');
     expect(FakeEventSource.instances[0].opts).toEqual({ withCredentials: true });
@@ -64,7 +68,7 @@ describe('connectSSE', () => {
   });
 
   it('open handler resets retry backoff', () => {
-    const teardown = connectSSE(() => {});
+    const teardown = connectSSE(noopHandlers());
     const es = FakeEventSource.instances[0];
     // Trigger an error to bump retry, then open again to reset it.
     es.emit('error');
@@ -83,24 +87,42 @@ describe('connectSSE', () => {
 
   it('flight.updated with good payload calls onFlight', () => {
     const onFlight = vi.fn();
-    const teardown = connectSSE(onFlight);
+    const teardown = connectSSE({ onFlight, onDelete: () => {} });
     FakeEventSource.instances[0].emit('flight.updated', { data: JSON.stringify(flight) });
     expect(onFlight).toHaveBeenCalledWith(flight);
     teardown();
   });
 
-  it('bad JSON payload is caught and logged', () => {
+  it('flight.deleted with good payload calls onDelete', () => {
+    const onDelete = vi.fn();
+    const teardown = connectSSE({ onFlight: () => {}, onDelete });
+    FakeEventSource.instances[0].emit('flight.deleted', { data: JSON.stringify({ id: 42 }) });
+    expect(onDelete).toHaveBeenCalledWith(42);
+    teardown();
+  });
+
+  it('bad JSON payload on flight.updated is caught and logged', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const onFlight = vi.fn();
-    const teardown = connectSSE(onFlight);
+    const teardown = connectSSE({ onFlight, onDelete: () => {} });
     FakeEventSource.instances[0].emit('flight.updated', { data: '{not json' });
     expect(onFlight).not.toHaveBeenCalled();
     expect(err).toHaveBeenCalledWith('bad SSE payload', expect.anything());
     teardown();
   });
 
+  it('bad JSON payload on flight.deleted is caught and logged', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onDelete = vi.fn();
+    const teardown = connectSSE({ onFlight: () => {}, onDelete });
+    FakeEventSource.instances[0].emit('flight.deleted', { data: '{not json' });
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalledWith('bad SSE payload', expect.anything());
+    teardown();
+  });
+
   it('error handler closes, reconnects, and doubles backoff capped at 30s', () => {
-    const teardown = connectSSE(() => {});
+    const teardown = connectSSE(noopHandlers());
     const es0 = FakeEventSource.instances[0];
     es0.emit('error');
     expect(es0.closed).toBe(true);
@@ -125,7 +147,7 @@ describe('connectSSE', () => {
   });
 
   it('teardown stops reconnection (error after stop is a no-op)', () => {
-    const teardown = connectSSE(() => {});
+    const teardown = connectSSE(noopHandlers());
     const es = FakeEventSource.instances[0];
     teardown();
     expect(es.closed).toBe(true);
@@ -135,7 +157,7 @@ describe('connectSSE', () => {
   });
 
   it('open() early-returns when already stopped (scheduled reconnect fires after teardown)', () => {
-    const teardown = connectSSE(() => {});
+    const teardown = connectSSE(noopHandlers());
     FakeEventSource.instances[0].emit('error'); // schedules a reconnect in 1000ms
     teardown(); // sets stopped = true before the timer fires
     vi.advanceTimersByTime(5000);
