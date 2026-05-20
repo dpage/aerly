@@ -6,6 +6,7 @@ package api
 import (
 	"time"
 
+	"github.com/dpage/flight-tracker/internal/airports"
 	"github.com/dpage/flight-tracker/internal/store"
 )
 
@@ -64,9 +65,15 @@ type FlightDTO struct {
 	OriginIATA     string       `json:"origin_iata"`
 	OriginLat      *float64     `json:"origin_lat,omitempty"`
 	OriginLon      *float64     `json:"origin_lon,omitempty"`
+	// OriginTZ / DestTZ are IANA timezone strings looked up from the
+	// embedded airports table; empty when the IATA is unknown. The
+	// frontend uses them to render scheduled times in airport-local
+	// time on both ends of the trip.
+	OriginTZ       string       `json:"origin_tz,omitempty"`
 	DestIATA       string       `json:"dest_iata"`
 	DestLat        *float64     `json:"dest_lat,omitempty"`
 	DestLon        *float64     `json:"dest_lon,omitempty"`
+	DestTZ         string       `json:"dest_tz,omitempty"`
 	Status         string       `json:"status"`
 	Notes          string       `json:"notes"`
 	LastPolledAt   *time.Time   `json:"last_polled_at,omitempty"`
@@ -82,6 +89,8 @@ func ToFlightDTO(f *store.Flight, passengerIDs []int64, latest *store.Position, 
 	if passengerIDs == nil {
 		passengerIDs = []int64{}
 	}
+	originTZ, _ := airports.LookupTZ(f.OriginIATA)
+	destTZ, _ := airports.LookupTZ(f.DestIATA)
 	dto := FlightDTO{
 		ID:           f.ID,
 		Ident:        f.Ident,
@@ -95,9 +104,11 @@ func ToFlightDTO(f *store.Flight, passengerIDs []int64, latest *store.Position, 
 		OriginIATA:   f.OriginIATA,
 		OriginLat:    f.OriginLat,
 		OriginLon:    f.OriginLon,
+		OriginTZ:     originTZ,
 		DestIATA:     f.DestIATA,
 		DestLat:      f.DestLat,
 		DestLon:      f.DestLon,
+		DestTZ:       destTZ,
 		Status:       f.Status,
 		Notes:        f.Notes,
 		LastPolledAt: f.LastPolledAt,

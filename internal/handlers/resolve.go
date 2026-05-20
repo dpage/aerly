@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 	"time"
+
+	"github.com/dpage/flight-tracker/internal/airports"
 )
 
 type resolveReq struct {
@@ -17,9 +19,11 @@ type resolvedFlightDTO struct {
 	OriginIATA   string    `json:"origin_iata"`
 	OriginLat    float64   `json:"origin_lat"`
 	OriginLon    float64   `json:"origin_lon"`
+	OriginTZ     string    `json:"origin_tz,omitempty"`
 	DestIATA     string    `json:"dest_iata"`
 	DestLat      float64   `json:"dest_lat"`
 	DestLon      float64   `json:"dest_lon"`
+	DestTZ       string    `json:"dest_tz,omitempty"`
 	ICAO24       string    `json:"icao24"`
 	Notes        string    `json:"notes"`
 }
@@ -49,6 +53,8 @@ func (a *API) resolveFlight(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	originTZ, _ := airports.LookupTZ(rf.OriginIATA)
+	destTZ, _ := airports.LookupTZ(rf.DestIATA)
 	writeJSON(w, http.StatusOK, resolvedFlightDTO{
 		Ident:        rf.Ident,
 		ScheduledOut: rf.ScheduledOut,
@@ -56,9 +62,11 @@ func (a *API) resolveFlight(w http.ResponseWriter, r *http.Request) {
 		OriginIATA:   rf.OriginIATA,
 		OriginLat:    rf.OriginLat,
 		OriginLon:    rf.OriginLon,
+		OriginTZ:     originTZ,
 		DestIATA:     rf.DestIATA,
 		DestLat:      rf.DestLat,
 		DestLon:      rf.DestLon,
+		DestTZ:       destTZ,
 		ICAO24:       rf.ICAO24,
 		Notes:        rf.Notes,
 	})

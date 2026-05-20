@@ -136,8 +136,8 @@ describe('FlightDialog - full form (create)', () => {
 
   it('disables submit when invalid (arrival not after departure)', async () => {
     render(<FlightDialog open editId={null} onClose={vi.fn()} />);
-    const dep = screen.getByLabelText('Scheduled departure (UTC)');
-    const arr = screen.getByLabelText('Scheduled arrival (UTC)');
+    const dep = screen.getByLabelText('Scheduled departure (your local time)');
+    const arr = screen.getByLabelText('Scheduled arrival (your local time)');
     await userEvent.type(screen.getByLabelText(/^Flight number/), 'x1');
     // Make arrival before departure.
     await userEvent.clear(arr);
@@ -149,7 +149,7 @@ describe('FlightDialog - full form (create)', () => {
   it('clearing departure date disables submit (scheduledOut null)', async () => {
     render(<FlightDialog open editId={null} onClose={vi.fn()} />);
     await userEvent.type(screen.getByLabelText(/^Flight number/), 'x1');
-    fireChange(screen.getByLabelText('Scheduled departure (UTC)'), '');
+    fireChange(screen.getByLabelText('Scheduled departure (your local time)'), '');
     expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
   });
 
@@ -256,7 +256,7 @@ describe('FlightDialog - minimal form', () => {
     await userEvent.click(screen.getByRole('button', { name: /manual entry/i }));
     expect(screen.getByText(/Entering everything manually/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /look it up instead/i }));
-    expect(screen.getByLabelText('Departure date (UTC)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Departure date (at origin)')).toBeInTheDocument();
   });
 
   it('minimal submit disabled with blank ident; clearing date disables too', async () => {
@@ -264,7 +264,7 @@ describe('FlightDialog - minimal form', () => {
     expect(screen.getByRole('button', { name: 'Look up & add' })).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/^Flight number/), 'a1');
     expect(screen.getByRole('button', { name: 'Look up & add' })).toBeEnabled();
-    fireChange(screen.getByLabelText('Departure date (UTC)'), '');
+    fireChange(screen.getByLabelText('Departure date (at origin)'), '');
     expect(screen.getByRole('button', { name: 'Look up & add' })).toBeDisabled();
   });
 
@@ -360,8 +360,8 @@ describe('FlightDialog - editing', () => {
     // Change status
     await userEvent.selectOptions(screen.getByLabelText('Status'), 'Boarding');
     // Change times
-    fireChange(screen.getByLabelText('Scheduled departure (UTC)'), '2024-03-01T08:00');
-    fireChange(screen.getByLabelText('Scheduled arrival (UTC)'), '2024-03-01T12:00');
+    fireChange(screen.getByLabelText('Scheduled departure (your local time)'), '2024-03-01T08:00');
+    fireChange(screen.getByLabelText('Scheduled arrival (your local time)'), '2024-03-01T12:00');
 
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 

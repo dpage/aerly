@@ -10,6 +10,10 @@ import "strings"
 type Entry struct {
 	Lat, Lon float64
 	Name     string
+	// TZ is the IANA timezone string at the airport (e.g. "Europe/London",
+	// "America/New_York"). Used to render scheduled times in the airport's
+	// local time on the client.
+	TZ string
 }
 
 // Lookup returns lat/lon for a 3-letter IATA code, or zeros + false.
@@ -20,4 +24,14 @@ func Lookup(code string) (lat, lon float64, ok bool) {
 		return 0, 0, false
 	}
 	return a.Lat, a.Lon, true
+}
+
+// LookupTZ returns the IANA timezone for a 3-letter IATA code, or "" + false.
+// Case-insensitive.
+func LookupTZ(code string) (string, bool) {
+	a, ok := table[strings.ToUpper(strings.TrimSpace(code))]
+	if !ok || a.TZ == "" {
+		return "", false
+	}
+	return a.TZ, true
 }

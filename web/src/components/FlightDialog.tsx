@@ -256,7 +256,7 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
                 sx={{ flex: 1 }}
               />
               <DatePicker
-                label="Departure date (UTC)"
+                label="Departure date (at origin)"
                 value={minimal.date}
                 onChange={(d) => setMinimal({ ...minimal, date: d })}
                 sx={{ flex: 1 }}
@@ -356,14 +356,14 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <DateTimePicker
-                label="Scheduled departure (UTC)"
+                label="Scheduled departure (your local time)"
                 value={form.scheduledOut}
                 onChange={(d) => setForm({ ...form, scheduledOut: d })}
                 ampm={false}
                 sx={{ flexGrow: 1 }}
               />
               <DateTimePicker
-                label="Scheduled arrival (UTC)"
+                label="Scheduled arrival (your local time)"
                 value={form.scheduledIn}
                 onChange={(d) => setForm({ ...form, scheduledIn: d })}
                 ampm={false}
@@ -489,9 +489,15 @@ function emptyMinimal(): MinimalState {
   };
 }
 
+// formatDateOnly renders the user's picked calendar date as YYYY-MM-DD using
+// local components — i.e. the date the user actually sees in the picker.
+// The resolver (AeroDataBox) interprets the date as the local departure date
+// at the origin airport, so this is the right frame: "what you pick is what
+// gets looked up." Using UTC components here would silently shift the date
+// for users east of UTC (e.g. Tokyo picking May 19 → sending May 18).
 function formatDateOnly(d: Date): string {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }

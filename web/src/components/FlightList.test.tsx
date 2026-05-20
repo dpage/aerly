@@ -151,4 +151,34 @@ describe('FlightList', () => {
     render(<FlightList onEditFlight={vi.fn()} />);
     expect(screen.getByText('BA1')).toBeInTheDocument();
   });
+
+  it('renders schedule in each airport tz when provided', () => {
+    // 10:00Z in LHR (Europe/London, BST in July) = 11:00; 14:00Z in JFK
+    // (America/New_York, EDT) = 10:00. Use a date where DST is unambiguous.
+    state.flights = [
+      flight({
+        scheduled_out: '2024-07-01T10:00:00Z',
+        scheduled_in: '2024-07-01T14:00:00Z',
+        origin_tz: 'Europe/London',
+        dest_tz: 'America/New_York',
+      }),
+    ];
+    render(<FlightList onEditFlight={vi.fn()} />);
+    // Departure shown in BST → 11:00; arrival shown in EDT → 10:00.
+    expect(screen.getByText(/11:00.*→.*10:00/)).toBeInTheDocument();
+  });
+
+  it('falls back to UTC display when airport tz is unknown', () => {
+    state.flights = [
+      flight({
+        scheduled_out: '2024-07-01T10:00:00Z',
+        scheduled_in: '2024-07-01T14:00:00Z',
+        origin_tz: undefined,
+        dest_tz: undefined,
+      }),
+    ];
+    render(<FlightList onEditFlight={vi.fn()} />);
+    // No timezone known → both ends rendered as UTC with explicit suffix.
+    expect(screen.getByText(/10:00 UTC.*→.*14:00 UTC/)).toBeInTheDocument();
+  });
 });

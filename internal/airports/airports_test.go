@@ -45,5 +45,18 @@ func TestTableEntriesPlausible(t *testing.T) {
 		if e.Name == "" {
 			t.Errorf("%s has empty name", code)
 		}
+		if e.TZ == "" {
+			t.Errorf("%s has empty TZ", code)
+		}
+	}
+}
+
+func TestLookupTZ(t *testing.T) {
+	tz, ok := LookupTZ("LHR")
+	if !ok || tz != "Europe/London" {
+		t.Errorf("LHR should resolve to Europe/London, got (%q,%v)", tz, ok)
+	}
+	if _, ok := LookupTZ("ZZZ"); ok {
+		t.Error("unknown code should not resolve")
 	}
 }

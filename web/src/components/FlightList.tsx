@@ -168,7 +168,8 @@ function FlightRow({ flight, passengers, selected, onSelect, onEdit, onDelete }:
             )}
           </Stack>
           <Typography variant="caption" color="text.secondary">
-            {fmtDateTime(flight.scheduled_out)} → {fmtDateTime(eta)}
+            {fmtDateTime(flight.scheduled_out, flight.origin_tz)} →{' '}
+            {fmtDateTime(eta, flight.dest_tz)}
           </Typography>
           {passengers.length > 0 && (
             <AvatarGroup
@@ -230,12 +231,27 @@ function statusColor(status: FlightStatus): 'default' | 'primary' | 'success' | 
   }
 }
 
-function fmtDateTime(iso: string): string {
+// fmtDateTime renders a scheduled timestamp in airport-local time. tz is the
+// IANA zone of the relevant airport (origin for departures, destination for
+// arrivals); when it's missing or empty we fall back to UTC and add a "UTC"
+// suffix so the user knows which clock they're looking at.
+function fmtDateTime(iso: string, tz?: string): string {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, {
+  if (tz) {
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: tz,
+    });
+  }
+  const base = d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'UTC',
   });
+  return `${base} UTC`;
 }
