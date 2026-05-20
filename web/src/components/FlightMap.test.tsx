@@ -66,8 +66,9 @@ describe('FlightMap lifecycle', () => {
     expect(map.controls).toHaveLength(1);
     expect(map.sources.has('flown')).toBe(true);
     expect(map.sources.has('remaining')).toBe(true);
+    expect(map.sources.has('estimated-past')).toBe(true);
     expect(map.sources.has('completed')).toBe(true);
-    expect(map.layers).toHaveLength(3);
+    expect(map.layers).toHaveLength(4);
     unmount();
     expect(map.remove).toHaveBeenCalled();
   });
@@ -85,6 +86,7 @@ describe('FlightMap lifecycle', () => {
     const map = FakeMap.instances[0];
     expect(map.getSource('flown')?.setData).toHaveBeenCalled();
     expect(map.getSource('remaining')?.setData).toHaveBeenCalled();
+    expect(map.getSource('estimated-past')?.setData).toHaveBeenCalled();
     expect(map.getSource('completed')?.setData).toHaveBeenCalled();
   });
 
@@ -523,5 +525,109 @@ describe('buildFlown / buildRemaining geometry branches', () => {
     const fc = FakeMap.instances[0].getSource('remaining')!.setData.mock
       .calls[0][0] as GeoJSON.FeatureCollection;
     expect((fc.features[0].properties as { selected: boolean }).selected).toBe(true);
+  });
+});
+
+describe('buildEstimatedPast', () => {
+  it('draws a dashed origin → first-observed arc when track exists', () => {
+    h.state.flights = [
+      flight({
+        id: 1,
+        status: 'Enroute',
+        track: [pos({ ts: 'a', lat: 55, lon: -30 }), pos({ ts: 'b', lat: 50, lon: -50 })],
+        latest_position: pos({ ts: 'c', lat: 45, lon: -70 }),
+      }),
+    ];
+    render(<FlightMap />);
+    const fc = FakeMap.instances[0].getSource('estimated-past')!.setData.mock
+      .calls.at(-1)![0] as GeoJSON.FeatureCollection;
+    expect(fc.features).toHaveLength(1);
+    expect((fc.features[0].properties as { id: number }).id).toBe(1);
+  });
+
+  it('falls back to latest_position when there is no track', () => {
+    h.state.flights = [
+      flight({
+        id: 1,
+        status: 'Enroute',
+        track: [],
+        latest_position: pos({ lat: 55, lon: -30 }),
+      }),
+    ];
+    render(<FlightMap />);
+    const fc = FakeMap.instances[0].getSource('estimated-past')!.setData.mock
+      .calls.at(-1)![0] as GeoJSON.FeatureCollection;
+    expect(fc.features).toHaveLength(1);
+  });
+
+  it('skips when there is no observed position at all', () => {
+    h.state.flights = [flight({ id: 1, status: 'Scheduled', track: [], latest_position: undefined })];
+    render(<FlightMap />);
+    const fc = FakeMap.instances[0].getSource('estimated-past')!.setData.mock
+      .calls.at(-1)![0] as GeoJSON.FeatureCollection;
+    expect(fc.features).toHaveLength(0);
+  });
+
+  it('skips arrived/cancelled flights (the completed layer handles them)', () => {
+    h.state.flights = [
+      flight({ id: 1, status: 'Arrived', latest_position: pos() }),
+      flight({ id: 2, status: 'Cancelled', latest_position: pos() }),
+    ];
+    render(<FlightMap />);
+    const fc = FakeMap.instances[0].getSource('estimated-past')!.setData.mock
+      .calls.at(-1)![0] as GeoJSON.FeatureCollection;
+    expect(fc.features).toHaveLength(0);
+  });
+
+  it('skips when origin coordinates are unknown', () => {
+    h.state.flights = [
+      flight({
+        id: 1,
+        status: 'Enroute',
+        origin_lat: undefined,
+        origin_lon: undefined,
+        latest_position: pos(),
+      }),
+    ];
+    render(<FlightMap />);
+    const fc = FakeMap.instances[0].getSource('estimated-past')!.setData.mock
+      .calls.at(-1)![0] as GeoJSON.FeatureCollection;
+    expect(fc.features).toHaveLength(0);
+  });
+
+  it('marks the selected flight in the estimated-past feature', () => {
+    h.state.selectedFlightId = 1;
+    h.state.flights = [flight({ id: 1, status: 'Enroute', latest_position: pos() })];
+    render(<FlightMap />);
+    const fc = FakeMap.instances[0].getSource('estimated-past')!.setData.mock
+      .calls.at(-1)![0] as GeoJSON.FeatureCollection;
+    expect((fc.features[0].properties as { selected: boolean }).selected).toBe(true);
+  });
+});
+
+describe('buildFlown no longer synthesizes the past', () => {
+  it('flown line consists only of observed positions, not an origin→first-fix arc', () => {
+    h.state.flights = [
+      flight({
+        id: 1,
+        origin_lat: 51.5,
+        origin_lon: 0,
+        status: 'Enroute',
+        track: [pos({ ts: 'a', lat: 55, lon: -30 })],
+        latest_position: pos({ ts: 'b', lat: 50, lon: -50 }),
+      }),
+    ];
+    render(<FlightMap />);
+    const fc = FakeMap.instances[0].getSource('flown')!.setData.mock
+      .calls.at(-1)![0] as GeoJSON.FeatureCollection;
+    expect(fc.features).toHaveLength(1);
+    const geom = fc.features[0].geometry as GeoJSON.LineString;
+    expect(geom.type).toBe('LineString');
+    // Exactly two points: the single track sample and latest. No GC samples
+    // before track[0].
+    expect(geom.coordinates).toEqual([
+      [-30, 55],
+      [-50, 50],
+    ]);
   });
 });

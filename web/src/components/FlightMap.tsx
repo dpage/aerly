@@ -43,15 +43,26 @@ export default function FlightMap() {
     () => buildRemaining(flights, selectedFlightId),
     [flights, selectedFlightId],
   );
+  const estimatedPastFC = useMemo(
+    () => buildEstimatedPast(flights, selectedFlightId),
+    [flights, selectedFlightId],
+  );
   const completedFC = useMemo(
     () => buildCompleted(flights, selectedFlightId),
     [flights, selectedFlightId],
   );
 
-  // Initialise the MapLibre instance once. Two line sources: the FLOWN track
-  // (origin → recorded positions → current, drawn solid) and the REMAINING
-  // route (current → destination, drawn dashed). For flights that haven't
-  // started yet, only the remaining line is drawn — from origin → destination.
+  // Initialise the MapLibre instance once. Four line sources:
+  //   - completed       (arrived/cancelled): great-circle origin→dest, grey
+  //   - estimated-past  (we have observed positions): great-circle from
+  //                     origin → first observed fix, dashed. Represents what
+  //                     we think the plane did before we picked it up. Kept
+  //                     separate from the observed track so the two visually
+  //                     distinguish hypothesis from data.
+  //   - flown           (solid): the actually-observed positions joined as
+  //                     straight segments.
+  //   - remaining       (dashed): great-circle from latest fix (or origin
+  //                     when there's no fix yet) → destination.
   useEffect(() => {
     if (!containerRef.current) return;
     const map = new maplibregl.Map({
@@ -63,6 +74,7 @@ export default function FlightMap() {
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.on('load', () => {
       map.addSource('completed', { type: 'geojson', data: emptyFC() });
+      map.addSource('estimated-past', { type: 'geojson', data: emptyFC() });
       map.addSource('flown', { type: 'geojson', data: emptyFC() });
       map.addSource('remaining', { type: 'geojson', data: emptyFC() });
       // Completed routes underneath everything else: a muted grey great-
@@ -76,6 +88,20 @@ export default function FlightMap() {
         paint: {
           'line-color': ['case', ['get', 'selected'], '#d97706', '#9ca3af'],
           'line-width': ['case', ['get', 'selected'], 2.5, 2],
+          'line-opacity': 0.7,
+        },
+      });
+      // Estimated past + remaining future share the dashed style so the
+      // "unobserved hypothetical" visual reads consistently on both ends of
+      // the observed track.
+      map.addLayer({
+        id: 'estimated-past-line',
+        type: 'line',
+        source: 'estimated-past',
+        paint: {
+          'line-color': ['case', ['get', 'selected'], '#d97706', '#1f5fa8'],
+          'line-width': ['case', ['get', 'selected'], 2.5, 2],
+          'line-dasharray': [2, 1.5],
           'line-opacity': 0.7,
         },
       });
@@ -118,11 +144,14 @@ export default function FlightMap() {
     const apply = () => {
       (map.getSource('flown') as maplibregl.GeoJSONSource | undefined)?.setData(flownFC);
       (map.getSource('remaining') as maplibregl.GeoJSONSource | undefined)?.setData(remainingFC);
+      (map.getSource('estimated-past') as maplibregl.GeoJSONSource | undefined)?.setData(
+        estimatedPastFC,
+      );
       (map.getSource('completed') as maplibregl.GeoJSONSource | undefined)?.setData(completedFC);
     };
     if (map.isStyleLoaded()) apply();
     else map.once('load', apply);
-  }, [flownFC, remainingFC, completedFC]);
+  }, [flownFC, remainingFC, estimatedPastFC, completedFC]);
 
   // Auto-fit the map when the set of renderable flights changes — keeps newly
   // added flights from being off-screen. Skipped if the user has a flight
@@ -342,11 +371,17 @@ function emptyFC(): GeoJSON.FeatureCollection {
   return { type: 'FeatureCollection', features: [] };
 }
 
-// buildFlown returns one feature per flight: a MultiLineString joining
-// origin → first-tracked-point (via great-circle samples) → subsequent
-// tracked points linearly → latest_position. Flights that haven't produced
-// any position fix yet are skipped — their pre-departure route is rendered
-// by buildRemaining instead.
+// buildFlown returns one feature per flight: a straight-segment polyline
+// joining the observed positions (track + latest_position). Two
+// consecutive points whose longitudes differ by more than 180° split into
+// separate segments so the line doesn't smear across the antimeridian.
+//
+// We deliberately do NOT synthesise the origin → first-observed segment
+// here. Real flights rarely follow textbook great-circles (jet stream,
+// ATC reroutes, weather), so drawing one for the unobserved past would
+// disagree with the first real fix and produce a visible "backtrack" at
+// the join. The dashed origin → first-fix arc — clearly labelled as a
+// hypothesis — is produced by buildEstimatedPast instead.
 function buildFlown(flights: Flight[], selectedId: number | null): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const f of flights) {
@@ -354,7 +389,6 @@ function buildFlown(flights: Flight[], selectedId: number | null): GeoJSON.Featu
     const latest = f.latest_position;
     if (track.length === 0 && !latest) continue;
 
-    const haveOrigin = f.origin_lat != null && f.origin_lon != null;
     const segments: [number, number][][] = [];
     let current: [number, number][] = [];
 
@@ -367,23 +401,8 @@ function buildFlown(flights: Flight[], selectedId: number | null): GeoJSON.Featu
       current.push([lon, lat]);
     };
 
-    // Stitch origin → first sample with a great-circle so the line follows
-    // the planned route until ADS-B kicks in.
-    const firstSample = track[0] ?? latest;
-    if (haveOrigin && firstSample) {
-      const gc = greatCircle(f.origin_lat!, f.origin_lon!, firstSample.lat, firstSample.lon);
-      const parts = toMultiLine(gc);
-      for (const part of parts) {
-        for (const [lon, lat] of part) pushPoint(lon, lat);
-        if (current.length > 1) {
-          segments.push(current);
-          current = [];
-        }
-      }
-    }
-
-    // Then the recorded positions as straight segments — they're close
-    // enough in time (~1 min apart) that linear interpolation is fine.
+    // Recorded positions as straight segments — they're close enough in
+    // time (~1 min apart) that linear interpolation is fine.
     for (const p of track) {
       pushPoint(p.lon, p.lat);
     }
@@ -402,6 +421,42 @@ function buildFlown(flights: Flight[], selectedId: number | null): GeoJSON.Featu
         segments.length === 1
           ? { type: 'LineString', coordinates: segments[0] }
           : { type: 'MultiLineString', coordinates: segments },
+    });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+// buildEstimatedPast returns one feature per flight that has at least one
+// observed position: a dashed great-circle from the origin airport to the
+// first observed fix (or to latest_position when no track samples exist
+// yet). It's the "past hypothesis" counterpart to buildRemaining's "future
+// hypothesis" — same dashed visual vocabulary, opposite end of the trip.
+//
+// Skipped for arrived/cancelled flights (buildCompleted handles them with
+// a single origin→dest great-circle) and for flights with no observed
+// position yet (in that case buildRemaining draws origin→dest dashed).
+function buildEstimatedPast(
+  flights: Flight[],
+  selectedId: number | null,
+): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const f of flights) {
+    if (f.status === 'Arrived' || f.status === 'Cancelled') continue;
+    if (f.origin_lat == null || f.origin_lon == null) continue;
+    const firstSample = (f.track && f.track.length > 0 ? f.track[0] : null) ?? f.latest_position;
+    if (!firstSample) continue;
+
+    const gc = greatCircle(f.origin_lat, f.origin_lon, firstSample.lat, firstSample.lon);
+    const parts = toMultiLine(gc);
+    if (parts.length === 0) continue;
+
+    features.push({
+      type: 'Feature',
+      properties: { id: f.id, selected: f.id === selectedId },
+      geometry:
+        parts.length === 1
+          ? { type: 'LineString', coordinates: parts[0] }
+          : { type: 'MultiLineString', coordinates: parts },
     });
   }
   return { type: 'FeatureCollection', features };
