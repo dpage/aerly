@@ -150,7 +150,7 @@ describe('refreshFlights / refreshUsers error branches', () => {
 });
 
 describe('flight mutations', () => {
-  it('createFlight appends and sorts by scheduled_out', async () => {
+  it('createFlight upserts and sorts by scheduled_out', async () => {
     useStore.setState({ flights: [flight({ id: 1, scheduled_out: '2024-01-02T00:00:00Z' })] });
     mockApi.createFlight.mockResolvedValue(
       flight({ id: 2, scheduled_out: '2024-01-01T00:00:00Z' }),
@@ -163,6 +163,24 @@ describe('flight mutations', () => {
       dest_iata: 'B',
     });
     expect(useStore.getState().flights.map((f) => f.id)).toEqual([2, 1]);
+  });
+
+  // The server publishes a flight.updated SSE event before it returns the
+  // HTTP response; if the SSE arrives first, applyFlightUpdate has already
+  // inserted the flight by the time createFlight resolves. createFlight must
+  // upsert (not append) so the list doesn't show duplicates.
+  it('createFlight is idempotent when the SSE event landed first', async () => {
+    const f = flight({ id: 7, ident: 'BA1' });
+    useStore.setState({ flights: [f] });
+    mockApi.createFlight.mockResolvedValue(f);
+    await useStore.getState().createFlight({
+      ident: 'BA1',
+      scheduled_out: 'a',
+      scheduled_in: 'b',
+      origin_iata: 'A',
+      dest_iata: 'B',
+    });
+    expect(useStore.getState().flights).toHaveLength(1);
   });
 
   it('updateFlight replaces by id', async () => {

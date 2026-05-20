@@ -97,7 +97,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   async createFlight(input) {
     const flight = await api.createFlight(input);
-    set((s) => ({ flights: [...s.flights, flight].sort(byScheduledOut) }));
+    // The server publishes a flight.updated SSE event before it returns
+    // the HTTP response, so the SSE listener may have already inserted
+    // this flight by the time we get here. Upsert by id instead of
+    // appending blindly to avoid showing the same flight twice.
+    get().applyFlightUpdate(flight);
   },
   async updateFlight(id, patch) {
     const updated = await api.updateFlight(id, patch);
