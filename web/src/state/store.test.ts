@@ -289,6 +289,30 @@ describe('setShowAll', () => {
     expect(useStore.getState().showAll).toBe(false);
     expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: false });
   });
+
+  // Some privacy modes / SSR shims throw on every localStorage access. The
+  // persist helper swallows that so flipping the toggle still updates state
+  // and triggers a refetch.
+  it('swallows localStorage errors and still updates state', async () => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: () => {
+          throw new Error('blocked');
+        },
+        setItem: () => {
+          throw new Error('blocked');
+        },
+        removeItem: () => {
+          throw new Error('blocked');
+        },
+      },
+    });
+    mockApi.listFlights.mockResolvedValue([]);
+    await useStore.getState().setShowAll(true);
+    expect(useStore.getState().showAll).toBe(true);
+    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: true });
+  });
 });
 
 describe('user mutations', () => {
