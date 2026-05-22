@@ -218,9 +218,19 @@ func legBlockHTML(intro, chipLabel, chipBG, chipFG string, rows []legRow) string
 	return sb.String()
 }
 
-// Send pipes an RFC822 message through `sendmailPath -t`.
-func Send(ctx context.Context, sendmailPath, message string) error {
-	cmd := exec.CommandContext(ctx, sendmailPath, "-t")
+// Send pipes an RFC822 message through `sendmailPath -t -f <envelopeSender>`.
+//
+// The envelope sender (the address Postfix will use as the SMTP MAIL FROM)
+// must align with the visible From: header's domain so DMARC with strict
+// aSPF can pass via SPF as well as DKIM. An empty envelopeSender omits the
+// -f flag and falls back to sendmail's default (typically the local Unix
+// user), which won't align — pass the configured EMAIL_INGEST_ADDRESS.
+func Send(ctx context.Context, sendmailPath, envelopeSender, message string) error {
+	args := []string{"-t"}
+	if envelopeSender != "" {
+		args = append(args, "-f", envelopeSender)
+	}
+	cmd := exec.CommandContext(ctx, sendmailPath, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err

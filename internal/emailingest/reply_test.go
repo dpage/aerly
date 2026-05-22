@@ -16,6 +16,10 @@ func TestBuildReply_AllAdded(t *testing.T) {
 		PublicURL: "https://flights.example",
 	}
 	body := BuildReply(in)
+	// QP soft-line-breaks (=\r\n) get inserted into the HTML body part by
+	// the quoted-printable encoder; strip them so substring assertions
+	// don't accidentally straddle a wrap.
+	stripped := strings.ReplaceAll(body, "=\r\n", "")
 	for _, want := range []string{
 		"From: flights@flights.example",
 		"To: devrim@example.com",
@@ -35,7 +39,7 @@ func TestBuildReply_AllAdded(t *testing.T) {
 		">added<",
 		">TK1980<",
 	} {
-		if !strings.Contains(body, want) {
+		if !strings.Contains(stripped, want) {
 			t.Errorf("body missing %q\n%s", want, body)
 		}
 	}
@@ -52,12 +56,14 @@ func TestBuildReply_HTMLEscapesUserContent(t *testing.T) {
 	})
 	// User-supplied content is fine to appear raw in the text/plain
 	// part — escaping only matters in the HTML part. Slice from
-	// "<!doctype html>" onward to scope the check.
+	// "<!doctype html>" onward to scope the check, and strip QP soft
+	// line breaks so the escaped-substring assertions don't straddle
+	// a wrap.
 	htmlIdx := strings.Index(body, "<!doctype html>")
 	if htmlIdx < 0 {
 		t.Fatalf("HTML part missing:\n%s", body)
 	}
-	htmlPart := body[htmlIdx:]
+	htmlPart := strings.ReplaceAll(body[htmlIdx:], "=\r\n", "")
 	for _, evil := range []string{"<script>", "<b>oops</b>"} {
 		if strings.Contains(htmlPart, evil) {
 			t.Errorf("unescaped %q present in HTML part:\n%s", evil, htmlPart)
@@ -150,8 +156,58 @@ func TestBuildReply_ManualNote(t *testing.T) {
 }
 
 func TestSend_BinaryDoesNotExist(t *testing.T) {
-	err := Send(context.Background(), "/tmp/does-not-exist-aerly", "From: a\r\n\r\n")
+	err := Send(context.Background(), "/tmp/does-not-exist-aerly", "x@example.com", "From: a\r\n\r\n")
 	if err == nil {
 		t.Error("expected error when sendmail binary doesn't exist")
+	}
+}
+
+// TestBuildReply_NoLineExceeds998 guards against the
+// "DKIM body hash broken by Postfix's >998-byte soft-wrap" bug.
+// RFC 5321 §4.5.3.1.6 caps SMTP lines at 998 octets; any compliant MTA
+// rewrites longer lines with CRLF<SP>, which happens *after* opendkim
+// signs and invalidates the body hash at the receiver. The worst-case
+// payload is a reply with several flight rows — legBlockHTML concatenates
+// row HTML without newlines, so the entire body becomes one logical line.
+func TestBuildReply_NoLineExceeds998(t *testing.T) {
+	in := ReplyInput{
+		FromAddr:  "flights@aerly.me",
+		ToAddr:    "user@example.com",
+		InReplyTo: "<msg@example.com>",
+		Subject:   "Fwd: lots of flights",
+		PublicURL: "https://aerly.me",
+		Added: []ReplyLeg{
+			{Ident: "TK1980", Date: "2026-06-12"},
+			{Ident: "BA286", Date: "2026-06-13"},
+			{Ident: "AF1234", Date: "2026-06-14", ManualNote: true},
+			{Ident: "LH456", Date: "2026-06-15"},
+			{Ident: "UA900", Date: "2026-06-16", ManualNote: true},
+			{Ident: "EK203", Date: "2026-06-17"},
+		},
+		Failed: []ReplyFailure{
+			{Ident: "XX9999", Date: "2026-06-18", Reason: "no schedule found in resolver"},
+			{Ident: "YY1111", Date: "2026-06-19", Reason: "ident not recognised by AeroDataBox"},
+		},
+	}
+	mustHaveShortLines(t, BuildReply(in))
+}
+
+func TestBuildVerifyEmail_NoLineExceeds998(t *testing.T) {
+	msg := BuildVerifyEmail(VerifyInput{
+		FromAddr:  "flights@aerly.me",
+		ToAddr:    "user@example.com",
+		PublicURL: "https://aerly.me",
+		Token:     "demo-token-1234567890abcdef",
+	})
+	mustHaveShortLines(t, msg)
+}
+
+func mustHaveShortLines(t *testing.T, msg string) {
+	t.Helper()
+	for i, line := range strings.Split(msg, "\r\n") {
+		if len(line) > 998 {
+			t.Fatalf("line %d is %d bytes (>998), will be rewritten by any RFC-compliant MTA:\n%s",
+				i, len(line), line)
+		}
 	}
 }

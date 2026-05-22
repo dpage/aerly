@@ -206,7 +206,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 		Failed:    failed,
 		PublicURL: s.Cfg.PublicURL,
 	})
-	if err := Send(ctx, s.Cfg.SendmailPath, msg); err != nil {
+	if err := Send(ctx, s.Cfg.SendmailPath, s.Cfg.IngestAddress, msg); err != nil {
 		slog.Warn("emailingest: send reply", "err", err)
 		// We still consider the message processed — flights were added (or
 		// the audit row was written). Don't loop on send failures.

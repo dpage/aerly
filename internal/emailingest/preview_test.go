@@ -6,6 +6,8 @@
 package emailingest
 
 import (
+	"io"
+	"mime/quotedprintable"
 	"os"
 	"strings"
 	"testing"
@@ -21,7 +23,15 @@ func extractHTML(msg string) string {
 	if j < 0 {
 		return rest
 	}
-	return rest[:j+len("</html>")]
+	qp := rest[:j+len("</html>")]
+	// The HTML part ships as quoted-printable so SMTP can't soft-wrap
+	// long lines and break the DKIM body hash. Decode it back here so
+	// the preview file renders in a browser.
+	decoded, err := io.ReadAll(quotedprintable.NewReader(strings.NewReader(qp)))
+	if err != nil {
+		return qp
+	}
+	return string(decoded)
 }
 
 func writePreview(t *testing.T, name, html string) {

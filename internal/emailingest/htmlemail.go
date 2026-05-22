@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+	"io"
+	"mime/quotedprintable"
 	"net/url"
 	"strings"
 )
@@ -73,10 +75,18 @@ const brandLinkStyle = "color:" + brandColor + ";text-decoration:none;"
 // parts) and returns the Content-Type header value and the body. The
 // text/plain part comes first; text/html last, so MIME-aware clients
 // prefer the HTML alternative (RFC 2046 §5.1.4).
+//
+// The text/html part is sent as quoted-printable so every line stays
+// under the 76-column convention — well below the 998-octet SMTP line
+// limit (RFC 5321 §4.5.3.1.6). Without this, our inline-CSS HTML body
+// would emit one logical line per major block and an RFC-compliant MTA
+// would soft-wrap it with CRLF<SP> after opendkim signed, breaking the
+// DKIM body hash at the receiver. The text/plain part stays as 8bit
+// because every line we emit there is already short.
 func multipartBody(plain, htmlBody string) (contentType, body string) {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
-	boundary := "ft-" + hex.EncodeToString(b)
+	boundary := "ae-" + hex.EncodeToString(b)
 
 	var sb strings.Builder
 	sb.WriteString("This is a multipart message in MIME format.\r\n\r\n")
@@ -89,12 +99,23 @@ func multipartBody(plain, htmlBody string) (contentType, body string) {
 	}
 	fmt.Fprintf(&sb, "\r\n--%s\r\n", boundary)
 	sb.WriteString("Content-Type: text/html; charset=utf-8\r\n")
-	sb.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
-	sb.WriteString(htmlBody)
-	if !strings.HasSuffix(htmlBody, "\r\n") {
+	sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n\r\n")
+	sb.WriteString(quotedPrintable(htmlBody))
+	if !strings.HasSuffix(sb.String(), "\r\n") {
 		sb.WriteString("\r\n")
 	}
 	fmt.Fprintf(&sb, "\r\n--%s--\r\n", boundary)
 
 	return fmt.Sprintf("multipart/alternative; boundary=\"%s\"", boundary), sb.String()
+}
+
+// quotedPrintable encodes s with RFC 2045 quoted-printable transfer
+// encoding. Go's mime/quotedprintable.Writer wraps lines at 76 chars
+// with soft line breaks (=\r\n).
+func quotedPrintable(s string) string {
+	var buf strings.Builder
+	w := quotedprintable.NewWriter(&buf)
+	_, _ = io.WriteString(w, s)
+	_ = w.Close()
+	return buf.String()
 }

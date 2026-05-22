@@ -73,9 +73,13 @@ func TestBuildVerifyEmail_TrimsPublicURLTrailingSlash(t *testing.T) {
 	}
 }
 
+// mustContain asserts that `want` appears in `got`. Quoted-printable soft
+// line breaks (=\r\n) inside the message body are stripped before matching
+// so substring assertions on HTML content survive QP's 76-column wrapping.
 func mustContain(t *testing.T, got, want string) {
 	t.Helper()
-	if !strings.Contains(got, want) {
+	stripped := strings.ReplaceAll(got, "=\r\n", "")
+	if !strings.Contains(stripped, want) {
 		t.Errorf("missing %q in:\n%s", want, got)
 	}
 }

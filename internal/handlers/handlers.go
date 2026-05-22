@@ -41,7 +41,7 @@ func (a *API) defaultSendVerifyEmail(ctx context.Context, to, token string) erro
 		PublicURL: a.Config.PublicURL,
 		Token:     token,
 	})
-	return emailingest.Send(ctx, a.Config.EmailIngestSendmail, msg)
+	return emailingest.Send(ctx, a.Config.EmailIngestSendmail, a.Config.EmailIngestAddress, msg)
 }
 
 // Register attaches every /api/* route. All routes require an authenticated
