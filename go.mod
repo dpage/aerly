@@ -1,4 +1,4 @@
-module github.com/dpage/flight-tracker
+module github.com/dpage/aerly
 
 go 1.26.1
 

@@ -172,6 +172,6 @@ describe('AppShell', () => {
   it('renders fallback avatar initial when me is null', () => {
     h.state.me = null;
     render(<AppShell />);
-    expect(screen.getByText('Flight Tracker')).toBeInTheDocument();
+    expect(screen.getByText('Aerly')).toBeInTheDocument();
   });
 });

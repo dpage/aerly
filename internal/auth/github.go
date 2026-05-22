@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/store"
 )
 
 const (
@@ -210,7 +210,7 @@ func (h *Handler) fetchProfile(ctx context.Context, token string) (store.GitHubP
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "flight-tracker")
+	req.Header.Set("User-Agent", "aerly")
 
 	resp, err := h.HTTP.Do(req)
 	if err != nil {
@@ -245,7 +245,7 @@ func (h *Handler) fetchPrimaryEmail(ctx context.Context, token string) (string, 
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "flight-tracker")
+	req.Header.Set("User-Agent", "aerly")
 
 	resp, err := h.HTTP.Do(req)
 	if err != nil {

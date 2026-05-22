@@ -11,10 +11,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/api"
-	"github.com/dpage/flight-tracker/internal/providers"
-	"github.com/dpage/flight-tracker/internal/sse"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/sse"
+	"github.com/dpage/aerly/internal/store"
 )
 
 type Poller struct {

@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dpage/flight-tracker/internal/store"
-	"github.com/dpage/flight-tracker/internal/testsupport"
+	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/testsupport"
 )
 
 func newTestHandler(t *testing.T) (*Handler, *pgxpool.Pool) {

@@ -30,7 +30,7 @@ func TestBuildReply_AllAdded(t *testing.T) {
 		// html part
 		"Content-Type: text/html; charset=utf-8",
 		"<!doctype html>",
-		"Flight Tracker",
+		"Aerly",
 		"#1f5fa8",
 		">added<",
 		">TK1980<",
@@ -150,7 +150,7 @@ func TestBuildReply_ManualNote(t *testing.T) {
 }
 
 func TestSend_BinaryDoesNotExist(t *testing.T) {
-	err := Send(context.Background(), "/tmp/does-not-exist-flight-tracker", "From: a\r\n\r\n")
+	err := Send(context.Background(), "/tmp/does-not-exist-aerly", "From: a\r\n\r\n")
 	if err == nil {
 		t.Error("expected error when sendmail binary doesn't exist")
 	}

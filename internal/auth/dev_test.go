@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/dpage/flight-tracker/internal/testsupport"
+	"github.com/dpage/aerly/internal/testsupport"
 )
 
 func TestDevSyntheticIDNegativeAndStable(t *testing.T) {

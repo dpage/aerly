@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/store"
 )
 
 func ptrF(v float64) *float64 { return &v }

@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // VerifyEmail consumes a verification token from the query string and
@@ -33,7 +33,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><title>Email verified</title>
 <body style="font-family:system-ui;max-width:36rem;margin:4rem auto;padding:0 1rem">
 <h1>Email verified</h1>
-<p>Your address is now registered with flight-tracker. You can close this tab.</p>
+<p>Your address is now registered with Aerly. You can close this tab.</p>
 <p><a href="/">Back to home</a></p></body>`)
 }
 

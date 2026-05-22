@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/geo"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/geo"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // DeadReckoner wraps an inner Tracker and synthesises a position when the

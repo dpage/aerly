@@ -57,8 +57,8 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           go build -trimpath -ldflags='-s -w' \
-            -o flight-tracker-linux-amd64 ./cmd/server
-          ls -lh flight-tracker-linux-amd64
+            -o aerly-linux-amd64 ./cmd/server
+          ls -lh aerly-linux-amd64
 
       - name: Compute release tag
         id: meta
@@ -73,7 +73,7 @@ jobs:
           echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Generate sha256
-        run: sha256sum flight-tracker-linux-amd64 > flight-tracker-linux-amd64.sha256
+        run: sha256sum aerly-linux-amd64 > aerly-linux-amd64.sha256
 
       - name: Create GitHub release
         env:
@@ -83,10 +83,10 @@ jobs:
           notes=$(cat <<EOF
           Auto-built from \`${{ steps.meta.outputs.short }}\` (${{ steps.meta.outputs.sha }}).
 
-          - **flight-tracker-linux-amd64** — single static binary, SPA + migrations embedded.
-          - **flight-tracker-linux-amd64.sha256** — sha256 checksum.
+          - **aerly-linux-amd64** — single static binary, SPA + migrations embedded.
+          - **aerly-linux-amd64.sha256** — sha256 checksum.
 
-          Deploy by fetching the binary, replacing \`/opt/flight-tracker/flight-tracker\`,
+          Deploy by fetching the binary, replacing \`/opt/aerly/aerly\`,
           and restarting the systemd unit.
           EOF
           )
@@ -95,8 +95,8 @@ jobs:
             flags="--prerelease"
           fi
           gh release create "${{ steps.meta.outputs.tag }}" \
-            flight-tracker-linux-amd64 \
-            flight-tracker-linux-amd64.sha256 \
+            aerly-linux-amd64 \
+            aerly-linux-amd64.sha256 \
             --title "${{ steps.meta.outputs.tag }}" \
             --notes "$notes" \
             $flags

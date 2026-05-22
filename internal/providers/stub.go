@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/geo"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/geo"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // Stub is an in-memory Tracker that synthesises a plausible position from the

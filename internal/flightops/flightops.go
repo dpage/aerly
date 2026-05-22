@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/airports"
-	"github.com/dpage/flight-tracker/internal/providers"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // Deps bundles the collaborators Create needs. Pass nil Resolver to disable

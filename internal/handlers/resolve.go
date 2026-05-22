@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/airports"
+	"github.com/dpage/aerly/internal/airports"
 )
 
 type resolveReq struct {

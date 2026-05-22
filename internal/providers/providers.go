@@ -16,7 +16,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // ErrFlightNotFound is returned by Resolver.Resolve (and helpers) when the

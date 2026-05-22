@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/flightops"
-	"github.com/dpage/flight-tracker/internal/providers"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/flightops"
+	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // Config controls the ingest service. All fields are required.

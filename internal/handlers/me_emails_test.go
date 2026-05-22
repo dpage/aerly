@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/dpage/flight-tracker/internal/api"
-	"github.com/dpage/flight-tracker/internal/config"
+	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/config"
 )
 
 func TestListMyEmails_Empty(t *testing.T) {

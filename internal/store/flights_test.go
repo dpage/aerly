@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/testsupport"
+	"github.com/dpage/aerly/internal/testsupport"
 )
 
 func newStore(t *testing.T) *Store {

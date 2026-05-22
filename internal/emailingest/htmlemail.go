@@ -46,7 +46,7 @@ func htmlShell(title, body, publicURL string) string {
 <td valign="middle" style="padding-right:12px;">
 <div style="width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.18);color:#ffffff;font-size:20px;line-height:36px;text-align:center;font-family:Arial,sans-serif;">&#9992;&#xFE0E;</div>
 </td>
-<td valign="middle" style="color:#ffffff;font-size:18px;font-weight:600;letter-spacing:0.2px;">Flight Tracker</td>
+<td valign="middle" style="color:#ffffff;font-size:18px;font-weight:600;letter-spacing:0.2px;">Aerly</td>
 </tr>
 </table>
 </td></tr>
@@ -54,7 +54,7 @@ func htmlShell(title, body, publicURL string) string {
 ` + body + `
 </td></tr>
 <tr><td style="padding:14px 24px;background:#fafafa;border-top:1px solid #eaeaea;color:#666;font-size:12px;line-height:1.4;">
-Sent by Flight Tracker · <a href="` + safeSite + `" style="color:` + brandColor + `;text-decoration:none;">` + safeHost + `</a>
+Sent by Aerly · <a href="` + safeSite + `" style="color:` + brandColor + `;text-decoration:none;">` + safeHost + `</a>
 </td></tr>
 </table>
 </td></tr>

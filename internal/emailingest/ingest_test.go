@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/emailingest"
-	"github.com/dpage/flight-tracker/internal/flightops"
-	"github.com/dpage/flight-tracker/internal/providers"
-	"github.com/dpage/flight-tracker/internal/store"
-	"github.com/dpage/flight-tracker/internal/testsupport"
+	"github.com/dpage/aerly/internal/emailingest"
+	"github.com/dpage/aerly/internal/flightops"
+	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/testsupport"
 )
 
 // fakeLLM returns a fixed JSON response and records the docs it received.

@@ -1,6 +1,6 @@
 # Go
 /bin/
-flight-tracker
+aerly
 *.test
 *.out
 coverage.txt
@@ -29,3 +29,4 @@ web/coverage/
 # Claude working files
 .claude/plans/
 .claude/specs/
+.claude/worktrees/

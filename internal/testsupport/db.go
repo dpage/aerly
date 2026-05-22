@@ -15,8 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dpage/flight-tracker/internal/db"
-	"github.com/dpage/flight-tracker/migrations"
+	"github.com/dpage/aerly/internal/db"
+	"github.com/dpage/aerly/migrations"
 )
 
 var counter atomic.Int64
@@ -27,13 +27,13 @@ func adminURL() string {
 	if v := os.Getenv("TEST_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://flight_tracker:flight_tracker@127.0.0.1:5432/postgres?sslmode=disable"
+	return "postgres://aerly:aerly@127.0.0.1:5432/postgres?sslmode=disable"
 }
 
 // NewPool creates a fresh, migrated database and returns a connected pool.
 // The database is dropped when the test finishes. If PostgreSQL is not
 // reachable the test is skipped (so `go test ./...` stays green in
-// environments without a database), unless FT_REQUIRE_DB=1 is set.
+// environments without a database), unless AERLY_REQUIRE_DB=1 is set.
 func NewPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
@@ -116,7 +116,7 @@ func NewDatabaseURL(t *testing.T) string {
 
 func skipOrFatal(t *testing.T, msg string) {
 	t.Helper()
-	if os.Getenv("FT_REQUIRE_DB") == "1" {
+	if os.Getenv("AERLY_REQUIRE_DB") == "1" {
 		t.Fatalf("DB required but unavailable: %s", msg)
 	}
 	t.Skipf("skipping DB-backed test: %s", msg)

@@ -58,7 +58,7 @@ export default function AppShell() {
         <Toolbar variant="dense">
           <FlightTakeoffIcon color="primary" sx={{ mr: 1 }} />
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Flight Tracker
+            Aerly
           </Typography>
           <Button
             startIcon={<AddIcon />}

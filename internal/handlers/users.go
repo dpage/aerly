@@ -3,9 +3,9 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/dpage/flight-tracker/internal/api"
-	"github.com/dpage/flight-tracker/internal/auth"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/auth"
+	"github.com/dpage/aerly/internal/store"
 )
 
 func (a *API) listUsers(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,6 @@
 package providers
 
-import "github.com/dpage/flight-tracker/internal/airports"
+import "github.com/dpage/aerly/internal/airports"
 
 // LookupIATA is a thin re-export of airports.Lookup, kept here so callers
 // inside this package don't need to import a second one.

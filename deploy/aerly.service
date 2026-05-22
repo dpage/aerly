@@ -1,0 +1,22 @@
+[Unit]
+Description=Aerly (Go + Vite SPA)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=aerly
+Group=aerly
+WorkingDirectory=/opt/aerly
+EnvironmentFile=/etc/aerly.env
+ExecStart=/opt/aerly/aerly
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/aerly
+
+[Install]
+WantedBy=multi-user.target

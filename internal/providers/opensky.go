@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // OpenSky is a Tracker backed by the OpenSky Network's public state-vectors
@@ -82,7 +82,7 @@ func (o *OpenSky) Track(ctx context.Context, f *store.Flight, _ time.Time) (*sto
 		req.SetBasicAuth(o.Username, o.Password)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "flight-tracker (https://github.com/dpage/flight-tracker)")
+	req.Header.Set("User-Agent", "aerly (https://github.com/dpage/aerly)")
 
 	resp, err := o.HTTP.Do(req)
 	if err != nil {

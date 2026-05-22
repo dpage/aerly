@@ -13,22 +13,22 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: flight_tracker
-          POSTGRES_PASSWORD: flight_tracker
+          POSTGRES_USER: aerly
+          POSTGRES_PASSWORD: aerly
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U flight_tracker"
+          --health-cmd "pg_isready -U aerly"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
 
     env:
       # testsupport connects here to CREATE/DROP an isolated DB per test.
-      TEST_DATABASE_URL: postgres://flight_tracker:flight_tracker@127.0.0.1:5432/postgres?sslmode=disable
+      TEST_DATABASE_URL: postgres://aerly:aerly@127.0.0.1:5432/postgres?sslmode=disable
       # Fail (don't skip) DB-backed tests if Postgres is unreachable.
-      FT_REQUIRE_DB: "1"
+      AERLY_REQUIRE_DB: "1"
 
     steps:
       - uses: actions/checkout@v6

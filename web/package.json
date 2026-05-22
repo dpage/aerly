@@ -1,8 +1,8 @@
 {
-  "name": "flight-tracker-web",
+  "name": "aerly-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Frontend for flight-tracker — list of friends' flights with live positions on a map.",
+  "description": "Frontend for Aerly — list of friends' flights with live positions on a map.",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"

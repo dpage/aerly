@@ -15,7 +15,7 @@ func TestBuildVerifyEmail_HeadersAndBody(t *testing.T) {
 
 	mustContain(t, got, "From: flights@example.com\r\n")
 	mustContain(t, got, "To: alice@example.com\r\n")
-	mustContain(t, got, "Subject: Verify your email for flight-tracker\r\n")
+	mustContain(t, got, "Subject: Verify your email for Aerly\r\n")
 	mustContain(t, got, "MIME-Version: 1.0\r\n")
 	mustContain(t, got, "Content-Type: multipart/alternative; boundary=")
 	// Both parts present.
@@ -26,7 +26,7 @@ func TestBuildVerifyEmail_HeadersAndBody(t *testing.T) {
 	mustContain(t, got, "24 hours")
 	// HTML part: brand mark, header, button.
 	mustContain(t, got, "<!doctype html>")
-	mustContain(t, got, "Flight Tracker") // wordmark in shell
+	mustContain(t, got, "Aerly") // wordmark in shell
 	mustContain(t, got, "#1f5fa8")        // brand colour
 	mustContain(t, got, ">Verify email<") // button label
 }

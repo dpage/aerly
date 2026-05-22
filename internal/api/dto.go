@@ -6,8 +6,8 @@ package api
 import (
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/airports"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/store"
 )
 
 type UserDTO struct {

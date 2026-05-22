@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/dpage/flight-tracker/internal/airports"
+	"github.com/dpage/aerly/internal/airports"
 )
 
 const flightColumns = `id, ident, scheduled_out, scheduled_in,

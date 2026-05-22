@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dpage/flight-tracker/internal/api"
-	"github.com/dpage/flight-tracker/internal/auth"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/auth"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // emailIngestDisabledMsg is the error body returned by /api/me/emails

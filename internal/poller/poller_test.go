@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/providers"
-	"github.com/dpage/flight-tracker/internal/sse"
-	"github.com/dpage/flight-tracker/internal/store"
-	"github.com/dpage/flight-tracker/internal/testsupport"
+	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/sse"
+	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/testsupport"
 )
 
 type mockTracker struct {

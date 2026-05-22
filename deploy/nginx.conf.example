@@ -1,4 +1,4 @@
-# Example nginx config for flight-tracker behind a Let's Encrypt cert.
+# Example nginx config for Aerly behind a Let's Encrypt cert.
 # Place under /etc/nginx/sites-available/ and symlink into sites-enabled.
 #
 # Notes:
@@ -9,10 +9,10 @@
 
 server {
     listen 443 ssl http2;
-    server_name flights.example.com;
+    server_name aerly.me;
 
-    ssl_certificate     /etc/letsencrypt/live/flights.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/flights.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/aerly.me/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/aerly.me/privkey.pem;
 
     # Standard reverse-proxy block.
     location / {
@@ -42,6 +42,6 @@ server {
 
 server {
     listen 80;
-    server_name flights.example.com;
+    server_name aerly.me;
     return 301 https://$host$request_uri;
 }

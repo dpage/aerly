@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/dpage/flight-tracker/internal/auth"
-	"github.com/dpage/flight-tracker/internal/config"
-	"github.com/dpage/flight-tracker/internal/emailingest"
-	"github.com/dpage/flight-tracker/internal/providers"
-	"github.com/dpage/flight-tracker/internal/sse"
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/auth"
+	"github.com/dpage/aerly/internal/config"
+	"github.com/dpage/aerly/internal/emailingest"
+	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/sse"
+	"github.com/dpage/aerly/internal/store"
 )
 
 type API struct {

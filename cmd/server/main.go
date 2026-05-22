@@ -1,4 +1,4 @@
-// Command server is the flight-tracker HTTP server.
+// Command server is the Aerly HTTP server.
 //
 // It serves the React SPA, exposes the JSON API, handles GitHub OAuth, runs
 // the flight-tracking poller (OpenSky / stub + dead-reckoning), and
@@ -17,18 +17,18 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/dpage/flight-tracker/internal/auth"
-	"github.com/dpage/flight-tracker/internal/config"
-	"github.com/dpage/flight-tracker/internal/db"
-	"github.com/dpage/flight-tracker/internal/emailingest"
-	"github.com/dpage/flight-tracker/internal/flightops"
-	"github.com/dpage/flight-tracker/internal/handlers"
-	"github.com/dpage/flight-tracker/internal/poller"
-	"github.com/dpage/flight-tracker/internal/providers"
-	"github.com/dpage/flight-tracker/internal/sse"
-	"github.com/dpage/flight-tracker/internal/store"
-	"github.com/dpage/flight-tracker/migrations"
-	"github.com/dpage/flight-tracker/web"
+	"github.com/dpage/aerly/internal/auth"
+	"github.com/dpage/aerly/internal/config"
+	"github.com/dpage/aerly/internal/db"
+	"github.com/dpage/aerly/internal/emailingest"
+	"github.com/dpage/aerly/internal/flightops"
+	"github.com/dpage/aerly/internal/handlers"
+	"github.com/dpage/aerly/internal/poller"
+	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/sse"
+	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/migrations"
+	"github.com/dpage/aerly/web"
 )
 
 func main() {

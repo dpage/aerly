@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dpage/flight-tracker/internal/store"
-	"github.com/dpage/flight-tracker/internal/testsupport"
+	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/testsupport"
 )
 
 func newAuthHandler(t *testing.T) (*Handler, *store.Store) {

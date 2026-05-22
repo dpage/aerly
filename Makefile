@@ -5,7 +5,7 @@ GO        ?= go
 NPM       ?= npm
 WEB_DIR   := web
 BIN_DIR   := bin
-BIN_NAME  := flight-tracker
+BIN_NAME  := aerly
 
 .PHONY: build build-go build-web run dev test test-go test-web cover-go \
         cover-web lint lint-go lint-web typecheck-web fmt-web clean tidy

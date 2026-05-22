@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/dpage/flight-tracker/internal/api"
-	"github.com/dpage/flight-tracker/internal/auth"
+	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/auth"
 )
 
 func (a *API) getMe(w http.ResponseWriter, r *http.Request) {

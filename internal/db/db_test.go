@@ -7,9 +7,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/dpage/flight-tracker/internal/db"
-	"github.com/dpage/flight-tracker/internal/testsupport"
-	"github.com/dpage/flight-tracker/migrations"
+	"github.com/dpage/aerly/internal/db"
+	"github.com/dpage/aerly/internal/testsupport"
+	"github.com/dpage/aerly/migrations"
 )
 
 // openErrFS makes fs.ReadDir(".") fail (Open always errors).

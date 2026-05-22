@@ -29,7 +29,7 @@ func BuildVerifyEmail(in VerifyInput) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "From: %s\r\n", in.FromAddr)
 	fmt.Fprintf(&sb, "To: %s\r\n", in.ToAddr)
-	sb.WriteString("Subject: Verify your email for flight-tracker\r\n")
+	sb.WriteString("Subject: Verify your email for Aerly\r\n")
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&sb, "Content-Type: %s\r\n\r\n", contentType)
 	sb.WriteString(body)
@@ -37,15 +37,15 @@ func BuildVerifyEmail(in VerifyInput) string {
 }
 
 func verifyPlainBody(link string) string {
-	return "Click the link below to verify this email address for flight-tracker:\r\n\r\n" +
+	return "Click the link below to verify this email address for Aerly:\r\n\r\n" +
 		"  " + link + "\r\n\r\n" +
 		"This link expires in 24 hours. If you didn't ask for it, you can ignore this message.\r\n\r\n" +
-		"— flight-tracker\r\n"
+		"— Aerly\r\n"
 }
 
 func verifyHTMLBody(link string) string {
 	safe := htmlEscape(link)
-	return `<p style="margin:0 0 16px;font-size:15px;">Click the button below to verify this email address for Flight Tracker.</p>
+	return `<p style="margin:0 0 16px;font-size:15px;">Click the button below to verify this email address for Aerly.</p>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px;">
 <tr><td style="border-radius:8px;background:` + brandColor + `;">
 <a href="` + safe + `" style="display:inline-block;padding:12px 22px;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;">Verify email</a>

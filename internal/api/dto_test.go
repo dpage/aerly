@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dpage/flight-tracker/internal/store"
+	"github.com/dpage/aerly/internal/store"
 )
 
 func TestToUserDTO(t *testing.T) {

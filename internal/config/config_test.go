@@ -176,7 +176,7 @@ func emailIngestBase(t *testing.T) {
 	t.Helper()
 	base(t)
 	t.Setenv("EMAIL_INGEST_ENABLED", "1")
-	t.Setenv("EMAIL_INGEST_MAILDIR", "/var/spool/flight-tracker/Maildir")
+	t.Setenv("EMAIL_INGEST_MAILDIR", "/var/spool/aerly/Maildir")
 	t.Setenv("EMAIL_INGEST_ADDRESS", "flights@flights.example")
 	t.Setenv("LLM_API_KEY", "sk-test")
 }

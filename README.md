@@ -1,6 +1,6 @@
-# flight-tracker
+# Aerly
 
-[![CI](https://github.com/dpage/flight-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/dpage/flight-tracker/actions/workflows/ci.yml)
+[![CI](https://github.com/dpage/aerly/actions/workflows/ci.yml/badge.svg)](https://github.com/dpage/aerly/actions/workflows/ci.yml)
 
 Single-binary Go + React app that tracks your friends' flights on a live world map.
 Built for the small ritual of "who's already in the air to PostgreSQL Conference Europe?"
@@ -21,7 +21,7 @@ Prerequisites: Go ≥ 1.26, Node ≥ 20, a running PostgreSQL with a database fo
 
 ```bash
 # 1. Create a Postgres database.
-createdb flight_tracker
+createdb aerly
 
 # 2. Configure environment.
 cp .env.example .env
@@ -104,12 +104,12 @@ Postfix:
 
 ```text
 # /etc/aliases (or your virtual map equivalent)
-flights: flight-tracker
+flights: aerly
 # Then:
 newaliases
 ```
 
-The `flight-tracker` local user must own a Maildir at the configured
+The `aerly` local user must own a Maildir at the configured
 path. opendkim (or equivalent) must be in postfix's `smtpd_milters`
 chain and must stamp `Authentication-Results:` headers on inbound mail,
 otherwise `EMAIL_INGEST_REQUIRE_DKIM=1` will reject every message.
@@ -196,13 +196,13 @@ The Go binary embeds the SPA and runs the poller in the same process, so deploym
 ```bash
 # On the dev machine:
 GOOS=linux GOARCH=amd64 make build
-scp bin/flight-tracker  user@host:/opt/flight-tracker/flight-tracker
-scp deploy/flight-tracker.service user@host:/etc/systemd/system/flight-tracker.service
-# Create /etc/flight-tracker.env with the env vars from .env.example.
+scp bin/aerly  user@host:/opt/aerly/aerly
+scp deploy/aerly.service user@host:/etc/systemd/system/aerly.service
+# Create /etc/aerly.env with the env vars from .env.example.
 
 # On the host:
 systemctl daemon-reload
-systemctl enable --now flight-tracker
+systemctl enable --now aerly
 ```
 
 Then drop `deploy/nginx.conf.example` into `/etc/nginx/sites-available/`, adjust the hostname, symlink into `sites-enabled`, and reload nginx. The SSE endpoint needs `proxy_buffering off` — that block is already in the example.

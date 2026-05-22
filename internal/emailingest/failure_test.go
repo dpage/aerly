@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dpage/flight-tracker/internal/providers"
+	"github.com/dpage/aerly/internal/providers"
 )
 
 func TestFailureReason_UnscheduledFlight(t *testing.T) {

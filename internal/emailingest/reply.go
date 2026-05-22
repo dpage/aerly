@@ -121,7 +121,7 @@ func replyPlainBody(in ReplyInput, link string) string {
 	default:
 		fmt.Fprintf(&sb, "I couldn't find any flight information in this email — please add it manually at %s/ .\r\n", link)
 	}
-	sb.WriteString("\r\n— flight-tracker\r\n")
+	sb.WriteString("\r\n— Aerly\r\n")
 	return sb.String()
 }
 
