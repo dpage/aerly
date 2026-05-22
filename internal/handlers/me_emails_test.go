@@ -142,3 +142,51 @@ func TestAddMyEmail_DisabledReturns503(t *testing.T) {
 		t.Errorf("status = %d, want 503", w.Code)
 	}
 }
+
+func TestResendMyEmail_HappyPath(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	row, _, _ := e.store.InsertUnverifiedEmail(context.Background(), uid, "alice@example.com")
+
+	var sentToken string
+	e.api.SendVerifyEmail = func(_ context.Context, _, token string) error {
+		sentToken = token
+		return nil
+	}
+
+	w := e.req(t, "POST", "/api/me/emails/"+itoa(row.ID)+"/resend", nil, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if sentToken == "" {
+		t.Error("verification email not sent on resend")
+	}
+}
+
+func TestResendMyEmail_AlreadyVerified(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	if err := e.store.UpsertVerifiedEmail(context.Background(), uid, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := e.store.EmailsByUser(context.Background(), uid)
+	e.api.SendVerifyEmail = func(context.Context, string, string) error { return nil }
+
+	w := e.req(t, "POST", "/api/me/emails/"+itoa(rows[0].ID)+"/resend", nil, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestResendMyEmail_NotMine(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	other := e.user(t, "bob", false)
+	row, _, _ := e.store.InsertUnverifiedEmail(context.Background(), other, "bob@example.com")
+	e.api.SendVerifyEmail = func(context.Context, string, string) error { return nil }
+
+	w := e.req(t, "POST", "/api/me/emails/"+itoa(row.ID)+"/resend", nil, uid)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}

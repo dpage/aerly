@@ -68,3 +68,30 @@ func (a *API) addMyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, api.ToUserEmailDTO(row))
 }
+
+func (a *API) resendMyEmail(w http.ResponseWriter, r *http.Request) {
+	if a.Config == nil || !a.Config.EmailIngestEnabled {
+		writeError(w, http.StatusServiceUnavailable, emailIngestDisabledMsg)
+		return
+	}
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	u := auth.UserFrom(r.Context())
+	row, token, err := a.Store.ResendVerification(r.Context(), u.ID, id)
+	switch {
+	case errors.Is(err, store.ErrAlreadyVerified):
+		writeError(w, http.StatusBadRequest, "address already verified")
+		return
+	case err != nil:
+		handleStoreErr(w, err)
+		return
+	}
+	if err := a.SendVerifyEmail(r.Context(), row.Address, token); err != nil {
+		writeError(w, http.StatusBadGateway, "could not send verification email")
+		return
+	}
+	writeJSON(w, http.StatusOK, api.ToUserEmailDTO(row))
+}
