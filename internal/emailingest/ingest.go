@@ -191,12 +191,20 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	return outcome{kind: outcomeOK}
 }
 
+// maxDocBytes caps each document we forward to the LLM. Anthropic accepts
+// PDFs up to ~32 MiB; this leaves headroom and prevents an oversized
+// attachment from causing the provider to reject the whole request — which
+// would otherwise loop in `new/` as a transient extractor failure.
+const maxDocBytes = 25 * 1024 * 1024
+
 // buildPrompt returns the text body to put in the LLM prompt and the list
 // of document attachments (PDFs) to pass alongside it. Plain text + HTML
 // are concatenated into the prompt with section dividers; PDFs are
-// passed natively as Document blocks rather than text-extracted.
+// passed natively as Document blocks rather than text-extracted. PDFs
+// larger than maxDocBytes are dropped with a warning.
 //
-// max truncates only the text portion; documents are passed in full.
+// max truncates only the text portion; documents within the per-doc cap
+// are passed in full.
 func buildPrompt(p *Parsed, max int) (string, []Document) {
 	var sb strings.Builder
 	if p.TextBody != "" {
@@ -215,6 +223,11 @@ func buildPrompt(p *Parsed, max int) (string, []Document) {
 	}
 	docs := make([]Document, 0, len(p.PDFs))
 	for i, pdfBytes := range p.PDFs {
+		if len(pdfBytes) > maxDocBytes {
+			slog.Warn("emailingest: dropping oversized PDF attachment",
+				"index", i+1, "bytes", len(pdfBytes), "cap", maxDocBytes)
+			continue
+		}
 		docs = append(docs, Document{
 			Data:      pdfBytes,
 			MediaType: "application/pdf",

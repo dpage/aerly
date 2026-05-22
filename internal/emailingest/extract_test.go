@@ -1,6 +1,7 @@
 package emailingest
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -128,15 +129,22 @@ func TestExtract_PromptIncludesToday(t *testing.T) {
 
 func TestExtract_PassesDocsThrough(t *testing.T) {
 	x, l := newExtractor(`{"flights":[]}`)
-	docs := []Document{{Data: []byte("%PDF-1.4"), MediaType: "application/pdf", Filename: "ticket.pdf"}}
-	if _, err := x.Extract(context.Background(), "body", docs); err != nil {
+	want := Document{Data: []byte("%PDF-1.4 content"), MediaType: "application/pdf", Filename: "ticket.pdf"}
+	if _, err := x.Extract(context.Background(), "body", []Document{want}); err != nil {
 		t.Fatal(err)
 	}
 	if len(l.lastDocs) != 1 {
 		t.Fatalf("docs not forwarded: %+v", l.lastDocs)
 	}
-	if l.lastDocs[0].Filename != "ticket.pdf" {
-		t.Errorf("filename = %q", l.lastDocs[0].Filename)
+	got := l.lastDocs[0]
+	if got.Filename != want.Filename {
+		t.Errorf("filename = %q, want %q", got.Filename, want.Filename)
+	}
+	if got.MediaType != want.MediaType {
+		t.Errorf("mediaType = %q, want %q", got.MediaType, want.MediaType)
+	}
+	if !bytes.Equal(got.Data, want.Data) {
+		t.Errorf("data mismatch")
 	}
 }
 

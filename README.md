@@ -81,8 +81,10 @@ verified** address on sign-in.
    - Looks up the sender by `From:` against the user's verified email
      addresses (the one fetched from GitHub OAuth at sign-in).
    - Requires a DKIM pass on the sender's domain (configurable).
-   - Sends the body, HTML, and any PDF text to the configured LLM with a
-     strict JSON schema asking for `{ident, date}` per leg.
+   - Sends the body and HTML to the configured LLM with a strict JSON
+     schema asking for `{ident, date}` per leg. Any attached PDFs are
+     passed as native document blocks (provider must support documents —
+     see "PDF attachments" below).
    - Resolves each leg via the existing flight resolver and creates the
      flight with the forwarder as the sole passenger.
 3. The server replies with a summary of what was added or skipped. If the
