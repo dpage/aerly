@@ -130,6 +130,9 @@ func TestGetMeAndConfig(t *testing.T) {
 	if _, ok := caps["poll_interval_sec"]; !ok {
 		t.Errorf("poll_interval_sec missing from /api/config response: %v", caps)
 	}
+	if _, ok := caps["email_ingest_enabled"]; !ok {
+		t.Errorf("email_ingest_enabled missing from /api/config response: %v", caps)
+	}
 
 	// No resolver / nil config → false. Address omitted when ingest disabled.
 	e2 := setup(t, nil, &config.Config{})
@@ -142,13 +145,17 @@ func TestGetMeAndConfig(t *testing.T) {
 		t.Error("email_ingest_address should be omitted when ingest is disabled")
 	}
 
-	// Ingest enabled → address is exposed verbatim.
+	// Ingest enabled → both flags are exposed.
 	e3 := setup(t, nil, &config.Config{
 		EmailIngestEnabled: true,
 		EmailIngestAddress: "flights@example.test",
 	})
 	w = e3.req(t, "GET", "/api/config", nil, e3.user(t, "u2", false))
-	if got := decodeBody[map[string]any](t, w)["email_ingest_address"]; got != "flights@example.test" {
+	caps3 := decodeBody[map[string]any](t, w)
+	if caps3["email_ingest_enabled"] != true {
+		t.Error("email_ingest_enabled should be true when EmailIngestEnabled is set")
+	}
+	if got := caps3["email_ingest_address"]; got != "flights@example.test" {
 		t.Errorf("email_ingest_address = %v, want flights@example.test", got)
 	}
 }

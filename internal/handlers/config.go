@@ -7,11 +7,13 @@ import "net/http"
 // wired up, which lets the Add Flight dialog drop to its minimal "ident +
 // date" form. PollIntervalSec is the configured poll cadence in seconds,
 // used by the UI to show a "next update in N seconds" countdown.
+// EmailIngestEnabled gates the "Email addresses" menu entry.
 // EmailIngestAddress is the forwarding address users can mail itineraries
 // to; empty (and omitted from JSON) when email ingest is disabled.
 type CapabilitiesDTO struct {
 	ResolverAvailable  bool   `json:"resolver_available"`
 	PollIntervalSec    int    `json:"poll_interval_sec"`
+	EmailIngestEnabled bool   `json:"email_ingest_enabled"`
 	EmailIngestAddress string `json:"email_ingest_address,omitempty"`
 }
 
@@ -21,6 +23,7 @@ func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
 	if a.Config != nil {
 		out.ResolverAvailable = a.Config.ResolverAvailable()
 		out.PollIntervalSec = int(a.Config.PollInterval.Seconds())
+		out.EmailIngestEnabled = a.Config.EmailIngestEnabled
 		if a.Config.EmailIngestEnabled {
 			out.EmailIngestAddress = a.Config.EmailIngestAddress
 		}
