@@ -106,7 +106,7 @@ function persistShowOld(v: boolean): void {
 export const useStore = create<AppState>((set, get) => ({
   auth: 'loading',
   me: null,
-  capabilities: { resolver_available: false, poll_interval_sec: 60 },
+  capabilities: { resolver_available: false, poll_interval_sec: 60, email_ingest_enabled: false },
   flights: [],
   users: [],
   selectedFlightId: null,
@@ -218,7 +218,7 @@ export const useStore = create<AppState>((set, get) => ({
       flights: [],
       users: [],
       selectedFlightId: null,
-      capabilities: { resolver_available: false, poll_interval_sec: 60 },
+      capabilities: { resolver_available: false, poll_interval_sec: 60, email_ingest_enabled: false },
       lastUpdateAt: null,
     });
   },

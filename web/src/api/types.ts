@@ -25,8 +25,18 @@ export interface Capabilities {
   resolver_available: boolean;
   /** Poll cadence in seconds; drives the "next update in N" footer. */
   poll_interval_sec: number;
+  /** When true, the avatar menu shows the "Email addresses…" entry. */
+  email_ingest_enabled: boolean;
   /** Forwarding address for email-ingest; absent when disabled. */
   email_ingest_address?: string;
+}
+
+export interface UserEmail {
+  id: number;
+  address: string;
+  verified: boolean;
+  verified_at?: string;
+  created_at: string;
 }
 
 export interface ResolveFlightInput {
