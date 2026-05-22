@@ -22,10 +22,50 @@ func TestBuildReply_AllAdded(t *testing.T) {
 		"In-Reply-To: <msg1@example.com>",
 		"References: <msg1@example.com>",
 		"Subject: Re: Fwd: TK1980 confirmation",
+		"MIME-Version: 1.0",
+		"Content-Type: multipart/alternative; boundary=",
+		// plain part
+		"Content-Type: text/plain; charset=utf-8",
 		"TK1980 on 2026-06-12",
+		// html part
+		"Content-Type: text/html; charset=utf-8",
+		"<!doctype html>",
+		"Flight Tracker",
+		"#1f5fa8",
+		">added<",
+		">TK1980<",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q\n%s", want, body)
+		}
+	}
+}
+
+func TestBuildReply_HTMLEscapesUserContent(t *testing.T) {
+	body := BuildReply(ReplyInput{
+		FromAddr: "x", ToAddr: "y", PublicURL: "https://flights.example",
+		Failed: []ReplyFailure{{
+			Ident:  "AA<script>",
+			Date:   "2026-06-13",
+			Reason: "no schedule <b>oops</b>",
+		}},
+	})
+	// User-supplied content is fine to appear raw in the text/plain
+	// part — escaping only matters in the HTML part. Slice from
+	// "<!doctype html>" onward to scope the check.
+	htmlIdx := strings.Index(body, "<!doctype html>")
+	if htmlIdx < 0 {
+		t.Fatalf("HTML part missing:\n%s", body)
+	}
+	htmlPart := body[htmlIdx:]
+	for _, evil := range []string{"<script>", "<b>oops</b>"} {
+		if strings.Contains(htmlPart, evil) {
+			t.Errorf("unescaped %q present in HTML part:\n%s", evil, htmlPart)
+		}
+	}
+	for _, want := range []string{"AA&lt;script&gt;", "&lt;b&gt;oops&lt;/b&gt;"} {
+		if !strings.Contains(htmlPart, want) {
+			t.Errorf("expected escaped %q in HTML part:\n%s", want, htmlPart)
 		}
 	}
 }
