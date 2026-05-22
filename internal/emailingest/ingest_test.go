@@ -17,13 +17,15 @@ import (
 	"github.com/dpage/flight-tracker/internal/testsupport"
 )
 
-// fakeLLM returns a fixed JSON response.
+// fakeLLM returns a fixed JSON response and records the docs it received.
 type fakeLLM struct {
-	resp string
-	err  error
+	resp    string
+	err     error
+	gotDocs int
 }
 
-func (f *fakeLLM) Complete(ctx context.Context, prompt string) (string, error) {
+func (f *fakeLLM) Complete(ctx context.Context, prompt string, docs []emailingest.Document) (string, error) {
+	f.gotDocs = len(docs)
 	return f.resp, f.err
 }
 

@@ -124,20 +124,25 @@ otherwise `EMAIL_INGEST_REQUIRE_DKIM=1` will reject every message.
 `EMAIL_INGEST_ENABLED=1` requires `AERODATABOX_RAPIDAPI_KEY` (the
 resolver is what turns `{ident, date}` into a full flight record).
 
+### PDF attachments
+
+When an email has PDF attachments, they're passed natively to the LLM as
+document content blocks (no Go-side text extraction), so image-only
+ticket PDFs work as well as text-layer ones.
+
+This currently requires `LLM_PROVIDER` to be one that supports document
+blocks: `anthropic` or `gemini`. If you set `LLM_PROVIDER=openai` or
+`ollama`, the provider rejects the document blocks and `RealLLM.Complete`
+silently retries text-only — the visible body still gets parsed, but
+attached PDFs are skipped.
+
 ### Limitations
 
 - v1 only matches the sender against their **GitHub primary email**.
   A UI for adding secondary addresses (with click-through verification)
   is on the roadmap; the schema already accommodates it.
-- PDF text extraction uses [`ledongthuc/pdf`][lpdf]. Image-only PDFs
-  (i.e. scans) won't extract text and the flight falls through to a
-  "please add manually" reply. Native PDF passthrough to the model is
-  [tracked upstream][pdf-issue].
 - The `.failed/` directory accumulates poisonous messages; the operator
   decides when to inspect and delete.
-
-[lpdf]: https://github.com/ledongthuc/pdf
-[pdf-issue]: https://github.com/pgEdge/pgedge-go-llm-lib/issues/1
 
 ## Tracker and resolver modes
 

@@ -145,8 +145,8 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 		return outcome{kind: outcomeTransient}
 	}
 
-	body := buildBodyText(parsed, s.Cfg.MaxBodyBytes)
-	legs, err := s.Extractor.Extract(ctx, body)
+	body, docs := buildPrompt(parsed, s.Cfg.MaxBodyBytes)
+	legs, err := s.Extractor.Extract(ctx, body, docs)
 	if err != nil {
 		// Treat any extractor failure as transient: drain loop will retry.
 		slog.Warn("emailingest: extractor", "err", err)
@@ -191,9 +191,13 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	return outcome{kind: outcomeOK}
 }
 
-// buildBodyText concatenates the text body, HTML body, and any
-// PDF-extracted text into a single string, truncated to max bytes.
-func buildBodyText(p *Parsed, max int) string {
+// buildPrompt returns the text body to put in the LLM prompt and the list
+// of document attachments (PDFs) to pass alongside it. Plain text + HTML
+// are concatenated into the prompt with section dividers; PDFs are
+// passed natively as Document blocks rather than text-extracted.
+//
+// max truncates only the text portion; documents are passed in full.
+func buildPrompt(p *Parsed, max int) (string, []Document) {
 	var sb strings.Builder
 	if p.TextBody != "" {
 		sb.WriteString("--- text/plain ---\n")
@@ -205,20 +209,19 @@ func buildBodyText(p *Parsed, max int) string {
 		sb.WriteString(p.HTMLBody)
 		sb.WriteString("\n")
 	}
+	body := sb.String()
+	if max > 0 && len(body) > max {
+		body = body[:max]
+	}
+	docs := make([]Document, 0, len(p.PDFs))
 	for i, pdfBytes := range p.PDFs {
-		text, err := ExtractPDFText(pdfBytes)
-		if err != nil {
-			continue
-		}
-		fmt.Fprintf(&sb, "--- pdf attachment %d ---\n", i+1)
-		sb.WriteString(text)
-		sb.WriteString("\n")
+		docs = append(docs, Document{
+			Data:      pdfBytes,
+			MediaType: "application/pdf",
+			Filename:  fmt.Sprintf("attachment-%d.pdf", i+1),
+		})
 	}
-	out := sb.String()
-	if max > 0 && len(out) > max {
-		out = out[:max]
-	}
-	return out
+	return body, docs
 }
 
 func shortErr(err error) string {
