@@ -90,8 +90,8 @@ func TestAeroDataBoxRetryHidesTransient429(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`[{"number":"BA286","codeshareStatus":"IsOperator",
-			"departure":{"airport":{"iata":"LHR"}},
-			"arrival":{"airport":{"iata":"SFO"}}}]`))
+			"departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-19T08:30Z"}},
+			"arrival":{"airport":{"iata":"SFO"},"scheduledTime":{"utc":"2026-05-19T19:45Z"}}}]`))
 	})
 	rf, err := a.Resolve(context.Background(), "BA286", time.Now())
 	if err != nil {
@@ -188,8 +188,47 @@ func TestAeroDataBoxPicksOperatorAndBuilds(t *testing.T) {
 	}
 }
 
+// AeroDataBox sometimes returns a flight record for a known ident on a
+// known route, but with no scheduledTime — typical for future flights
+// whose specific-date schedule hasn't been published by the airline yet.
+// We must surface that as ErrFlightUnscheduled, not let zero times reach
+// the store (where they trigger the cryptic "scheduled_out and
+// scheduled_in required" error).
+func TestAeroDataBoxFlightWithoutSchedule(t *testing.T) {
+	body := `[{"number":"EZY2824","codeshareStatus":"IsOperator",
+	  "departure":{"airport":{"iata":"BRS"}},
+	  "arrival":{"airport":{"iata":"PMI"}}}]`
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	_, err := a.Resolve(context.Background(), "EZY2824", time.Now())
+	if err == nil {
+		t.Fatal("expected error when AeroDataBox returns a flight without schedule")
+	}
+	if !errors.Is(err, ErrFlightUnscheduled) {
+		t.Errorf("err = %v; want errors.Is(ErrFlightUnscheduled)", err)
+	}
+}
+
+// One leg of a return journey may be scheduled while the other isn't.
+// We must catch the half-scheduled case the same way.
+func TestAeroDataBoxFlightWithOnlyDepartureTime(t *testing.T) {
+	body := `[{"number":"EZY2824","codeshareStatus":"IsOperator",
+	  "departure":{"airport":{"iata":"BRS"},"scheduledTime":{"utc":"2027-01-25T08:00Z"}},
+	  "arrival":{"airport":{"iata":"PMI"}}}]`
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	_, err := a.Resolve(context.Background(), "EZY2824", time.Now())
+	if !errors.Is(err, ErrFlightUnscheduled) {
+		t.Errorf("err = %v; want errors.Is(ErrFlightUnscheduled)", err)
+	}
+}
+
 func TestAeroDataBoxFirstWhenNoOperator(t *testing.T) {
-	body := `[{"number":"","codeshareStatus":"Unknown","departure":{"airport":{"iata":"AAA"}},"arrival":{"airport":{"iata":"BBB"}}}]`
+	body := `[{"number":"","codeshareStatus":"Unknown",
+		"departure":{"airport":{"iata":"AAA"},"scheduledTime":{"utc":"2026-05-19T08:30Z"}},
+		"arrival":{"airport":{"iata":"BBB"},"scheduledTime":{"utc":"2026-05-19T09:30Z"}}}]`
 	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(body))
 	})
@@ -348,8 +387,8 @@ func TestAeroDataBoxResolveTriesPaddedVariants(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/BA0087/"):
 			_, _ = w.Write([]byte(`[{"number":"BA0087","codeshareStatus":"IsOperator",
-				"departure":{"airport":{"iata":"LHR"}},
-				"arrival":{"airport":{"iata":"YVR"}}}]`))
+				"departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-19T08:30Z"}},
+				"arrival":{"airport":{"iata":"YVR"},"scheduledTime":{"utc":"2026-05-19T19:45Z"}}}]`))
 		default:
 			w.WriteHeader(http.StatusNoContent)
 		}

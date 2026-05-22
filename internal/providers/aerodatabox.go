@@ -95,9 +95,24 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 		}
 		switch status {
 		case http.StatusOK:
+			if rf.ScheduledOut.IsZero() || rf.ScheduledIn.IsZero() {
+				// AeroDataBox knows the ident on this date but hasn't
+				// returned a usable schedule for it — typically a future
+				// flight whose specific-date schedule isn't published yet,
+				// or a malformed time value we couldn't parse. Surface as
+				// ErrFlightUnscheduled rather than letting zero times
+				// reach the store.
+				slog.Info("aerodatabox: flight returned with no schedule",
+					"ident", ident, "date", date,
+					"out_zero", rf.ScheduledOut.IsZero(),
+					"in_zero", rf.ScheduledIn.IsZero(),
+					"body", truncate(body, 400))
+				return nil, ErrFlightUnscheduled
+			}
 			slog.Info("aerodatabox resolved", "ident", ident, "date", date,
 				"resolved_ident", rf.Ident, "origin", rf.OriginIATA,
-				"dest", rf.DestIATA, "icao24", rf.ICAO24)
+				"dest", rf.DestIATA, "icao24", rf.ICAO24,
+				"scheduled_out", rf.ScheduledOut.Format(time.RFC3339))
 			return rf, nil
 		case http.StatusNotFound, http.StatusNoContent:
 			slog.Info("aerodatabox not found", "ident", ident, "date", date,

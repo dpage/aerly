@@ -25,6 +25,14 @@ import (
 // pad-length variants of the same ident before giving up.
 var ErrFlightNotFound = errors.New("flight not found")
 
+// ErrFlightUnscheduled is returned when the upstream knows the flight
+// number for the requested date but has not published a schedule for it
+// yet (or returned schedule fields we can't parse). Distinct from
+// ErrFlightNotFound so the caller can surface a clearer
+// "schedule not available" message than the store's bare
+// "scheduled_out required".
+var ErrFlightUnscheduled = errors.New("flight has no published schedule for that date yet")
+
 // Tracker fetches (or fabricates) a single positional fix for one flight at
 // the given wall-clock time. Implementations should return:
 //

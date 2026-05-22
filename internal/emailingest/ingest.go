@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dpage/flight-tracker/internal/flightops"
+	"github.com/dpage/flight-tracker/internal/providers"
 	"github.com/dpage/flight-tracker/internal/store"
 )
 
@@ -157,7 +158,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	failed := []ReplyFailure{}
 	for _, leg := range legs {
 		if _, err := flightops.Create(ctx, s.FlightDeps, u.ID, leg.Ident, leg.Date); err != nil {
-			failed = append(failed, ReplyFailure{Ident: leg.Ident, Date: leg.Date, Reason: shortErr(err)})
+			failed = append(failed, ReplyFailure{Ident: leg.Ident, Date: leg.Date, Reason: failureReason(err)})
 			continue
 		}
 		added = append(added, ReplyLeg{Ident: leg.Ident, Date: leg.Date})
@@ -237,7 +238,16 @@ func buildPrompt(p *Parsed, max int) (string, []Document) {
 	return body, docs
 }
 
-func shortErr(err error) string {
+// failureReason renders a per-leg ReplyFailure.Reason string, recognising
+// the well-known sentinel errors from the resolver so the user sees a
+// terse, actionable message instead of a stack of wrapped errors.
+func failureReason(err error) string {
+	switch {
+	case errors.Is(err, providers.ErrFlightUnscheduled):
+		return "the airline hasn't published a schedule for that date yet — try again closer to the departure date"
+	case errors.Is(err, providers.ErrFlightNotFound):
+		return "no matching flight found for that ident on that date"
+	}
 	s := err.Error()
 	if len(s) > 200 {
 		s = s[:200] + "…"
