@@ -19,6 +19,7 @@ import (
 	"github.com/dpage/flight-tracker/internal/sse"
 	"github.com/dpage/flight-tracker/internal/store"
 	"github.com/dpage/flight-tracker/internal/testsupport"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var sessKey = []byte("handlers-test-session-key-32chars!!")
@@ -37,6 +38,7 @@ type testEnv struct {
 	store *store.Store
 	cfg   *config.Config
 	hub   *sse.Hub
+	pool  *pgxpool.Pool
 }
 
 func setup(t *testing.T, resolver providers.Resolver, cfg *config.Config) *testEnv {
@@ -51,7 +53,7 @@ func setup(t *testing.T, resolver providers.Resolver, cfg *config.Config) *testE
 	api := New(s, a, hub, cfg, resolver)
 	mux := http.NewServeMux()
 	api.Register(mux)
-	return &testEnv{mux: mux, store: s, cfg: cfg, hub: hub}
+	return &testEnv{mux: mux, store: s, cfg: cfg, hub: hub, pool: pool}
 }
 
 func (e *testEnv) req(t *testing.T, method, path string, body any, asUser int64) *httptest.ResponseRecorder {
@@ -577,6 +579,39 @@ func TestVisibilityFiltering(t *testing.T) {
 		map[string]any{"notes": "ok"}, admin); w.Code != http.StatusOK {
 		t.Errorf("admin PATCH = %d, want 200", w.Code)
 	}
+
+	// Old-flight filter: seed a private flight for bob whose scheduled_in
+	// is 25h in the past. CreateFlight rejects backwards scheduling, so we
+	// insert via raw SQL.
+	if _, err := e.pool.Exec(context.Background(), `
+		INSERT INTO flights (ident, scheduled_out, scheduled_in,
+			origin_iata, origin_lat, origin_lon,
+			dest_iata, dest_lat, dest_lon,
+			status, created_by, is_public)
+		VALUES ('OLD1', NOW() - INTERVAL '48 hours', NOW() - INTERVAL '25 hours',
+			'LHR', 51.4775, -0.4614, 'JFK', 40.6413, -73.7781,
+			'Arrived', $1, FALSE)`, bob); err != nil {
+		t.Fatalf("seed old flight: %v", err)
+	}
+
+	if got := idents(bob, ""); contains(got, "OLD1") {
+		t.Errorf("bob default list should hide OLD1, got %v", got)
+	}
+	if got := idents(bob, "?show_old=1"); !contains(got, "OLD1") {
+		t.Errorf("bob show_old=1 should include OLD1, got %v", got)
+	}
+	if got := idents(bob, "?show_old=true"); !contains(got, "OLD1") {
+		t.Errorf("bob show_old=true should include OLD1, got %v", got)
+	}
+	// show_old is NOT superuser-gated: a regular user can opt in to the
+	// archive of flights they're already allowed to see.
+	if got := idents(carol, "?show_old=1"); contains(got, "OLD1") {
+		t.Errorf("carol cannot see bob's flight even with show_old, got %v", got)
+	}
+	// Bogus values fall through as false.
+	if got := idents(bob, "?show_old=banana"); contains(got, "OLD1") {
+		t.Errorf("bob show_old=banana should be treated as false, got %v", got)
+	}
 }
 
 func TestShareEndpoints(t *testing.T) {
@@ -647,6 +682,15 @@ func sameStrings(got, want []string) bool {
 		}
 	}
 	return true
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWriteHelpers(t *testing.T) {

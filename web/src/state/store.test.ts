@@ -277,7 +277,7 @@ describe('setShowAll', () => {
     await useStore.getState().setShowAll(true);
     expect(window.localStorage.getItem('ft.show_all')).toBe('1');
     expect(useStore.getState().showAll).toBe(true);
-    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: true });
+    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: true, showOld: false });
     expect(useStore.getState().flights.map((f) => f.id)).toEqual([99]);
   });
 
@@ -287,7 +287,7 @@ describe('setShowAll', () => {
     await useStore.getState().setShowAll(false);
     expect(window.localStorage.getItem('ft.show_all')).toBeNull();
     expect(useStore.getState().showAll).toBe(false);
-    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: false });
+    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: false, showOld: false });
   });
 
   // Some privacy modes / SSR shims throw on every localStorage access. The
@@ -311,8 +311,83 @@ describe('setShowAll', () => {
     mockApi.listFlights.mockResolvedValue([]);
     await useStore.getState().setShowAll(true);
     expect(useStore.getState().showAll).toBe(true);
-    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: true });
+    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: true, showOld: false });
   });
+});
+
+describe('setShowOld', () => {
+  let store: Record<string, string>;
+
+  beforeEach(() => {
+    store = {};
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k: string) => (k in store ? store[k] : null),
+        setItem: (k: string, v: string) => {
+          store[k] = String(v);
+        },
+        removeItem: (k: string) => {
+          delete store[k];
+        },
+        clear: () => {
+          store = {};
+        },
+        key: (i: number) => Object.keys(store)[i] ?? null,
+        get length() {
+          return Object.keys(store).length;
+        },
+      },
+    });
+  });
+
+  it('persists true to localStorage and refetches flights with showOld', async () => {
+    mockApi.listFlights.mockResolvedValue([flight({ id: 77 })]);
+    await useStore.getState().setShowOld(true);
+
+    expect(useStore.getState().showOld).toBe(true);
+    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: false, showOld: true });
+    expect(window.localStorage.getItem('ft.show_old')).toBe('1');
+  });
+
+  it('clears localStorage when set to false', async () => {
+    window.localStorage.setItem('ft.show_old', '1');
+    mockApi.listFlights.mockResolvedValue([]);
+    await useStore.getState().setShowOld(false);
+
+    expect(useStore.getState().showOld).toBe(false);
+    expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: false, showOld: false });
+    expect(window.localStorage.getItem('ft.show_old')).toBeNull();
+  });
+
+  it('swallows localStorage errors and still updates state', async () => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem() {
+          throw new Error('blocked');
+        },
+        setItem() {
+          throw new Error('blocked');
+        },
+        removeItem() {
+          throw new Error('blocked');
+        },
+      },
+    });
+    mockApi.listFlights.mockResolvedValue([]);
+    await useStore.getState().setShowOld(true);
+    expect(useStore.getState().showOld).toBe(true);
+    await useStore.getState().setShowOld(false);
+    expect(useStore.getState().showOld).toBe(false);
+  });
+});
+
+it('refreshFlights passes both showAll and showOld', async () => {
+  useStore.setState({ showAll: true, showOld: true }, false);
+  mockApi.listFlights.mockResolvedValue([]);
+  await useStore.getState().refreshFlights();
+  expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: true, showOld: true });
 });
 
 describe('user mutations', () => {

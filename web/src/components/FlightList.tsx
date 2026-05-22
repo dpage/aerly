@@ -16,6 +16,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 
 import { useStore } from '../state/store';
+import { useVisibleFlights } from '../state/visibleFlights';
 import type { Flight, FlightStatus, User } from '../api/types';
 import { fmtDateTime, fmtRelative } from '../lib/format';
 import FlightDetailPanel from './FlightDetailPanel';
@@ -25,7 +26,7 @@ interface Props {
 }
 
 export default function FlightList({ onEditFlight }: Props) {
-  const flights = useStore((s) => s.flights);
+  const flights = useVisibleFlights();
   const users = useStore((s) => s.users);
   const me = useStore((s) => s.me);
   const selectedFlightId = useStore((s) => s.selectedFlightId);
@@ -33,23 +34,43 @@ export default function FlightList({ onEditFlight }: Props) {
   const deleteFlight = useStore((s) => s.deleteFlight);
   const showAll = useStore((s) => s.showAll);
   const setShowAll = useStore((s) => s.setShowAll);
+  const showOld = useStore((s) => s.showOld);
+  const setShowOld = useStore((s) => s.setShowOld);
 
   const usersById = new Map(users.map((u) => [u.id, u]));
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-      {me?.is_superuser && (
-        <Box
-          sx={{
-            px: 2,
-            py: 0.5,
-            borderBottom: 1,
-            borderColor: 'divider',
-            bgcolor: 'background.default',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
+      <Box
+        sx={{
+          px: 2,
+          py: 0.5,
+          borderBottom: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.default',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Tooltip title="Include flights that landed more than 24 hours ago.">
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showOld}
+                onChange={(e) => void setShowOld(e.target.checked)}
+                size="small"
+              />
+            }
+            label={
+              <Typography variant="caption" color="text.secondary">
+                Show old flights
+              </Typography>
+            }
+          />
+        </Tooltip>
+        {me?.is_superuser && (
           <Tooltip title="Superuser-only: include every flight in the list, not just yours and ones shared with you.">
             <FormControlLabel
               control={
@@ -66,8 +87,8 @@ export default function FlightList({ onEditFlight }: Props) {
               }
             />
           </Tooltip>
-        </Box>
-      )}
+        )}
+      </Box>
       <Box sx={{ flexGrow: 1 }}>
         {flights.length === 0 ? (
           <Box sx={{ p: 3 }}>

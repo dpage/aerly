@@ -443,7 +443,7 @@ func TestVisibilityHelpers(t *testing.T) {
 	}, alice)
 
 	listIdents := func(uid int64, showAll bool) []string {
-		fs, err := s.ListVisibleFlights(ctx, uid, showAll)
+		fs, err := s.ListVisibleFlights(ctx, uid, showAll, false)
 		if err != nil {
 			t.Fatalf("ListVisibleFlights: %v", err)
 		}
@@ -516,5 +516,91 @@ func TestVisibilityHelpers(t *testing.T) {
 	}
 	if len(ids) != 2 {
 		t.Errorf("VisibleUserIDs len = %d, want 2: %v", len(ids), ids)
+	}
+}
+
+// TestListVisibleFlights_ShowOldFilter verifies that the showOld parameter
+// gates flights whose effective arrival (COALESCE actual_in, estimated_in,
+// scheduled_in) is more than 24h in the past. The boundary uses >= so a
+// flight that arrived exactly 24h ago is still visible.
+func TestListVisibleFlights_ShowOldFilter(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	alice := testsupport.InsertUser(t, s.pool, "old-alice", false, true)
+
+	// Create flights owned by alice, then backdate their arrival timestamps
+	// directly so we can test each fallback in the COALESCE.
+	_, _ = s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "FRESH", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, alice)
+	_, _ = s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "STALE", ScheduledOut: now.Add(-48 * time.Hour), ScheduledIn: now.Add(-25 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, alice)
+	// "boundary" has scheduled_in 1 minute inside the 24h window so it
+	// stays visible even accounting for the small gap between Go's now and
+	// the Postgres NOW() evaluated when the query runs.
+	_, _ = s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "BOUND", ScheduledOut: now.Add(-48 * time.Hour), ScheduledIn: now.Add(-24*time.Hour + time.Minute),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, alice)
+	// Stale by actual_in even though scheduled_in is recent — exercises the
+	// COALESCE picking actual_in first.
+	actualStale, _ := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "ACTSTL", ScheduledOut: now.Add(-30 * time.Hour), ScheduledIn: now.Add(-time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, alice)
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE flights SET actual_in = $1 WHERE id = $2`,
+		now.Add(-25*time.Hour), actualStale.ID); err != nil {
+		t.Fatalf("backdate actual_in: %v", err)
+	}
+	// Stale by estimated_in even though actual_in is NULL and scheduled_in is
+	// recent — exercises the middle COALESCE branch.
+	estStale, _ := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "ESTSTL", ScheduledOut: now.Add(-30 * time.Hour), ScheduledIn: now.Add(-time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, alice)
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE flights SET estimated_in = $1 WHERE id = $2`,
+		now.Add(-25*time.Hour), estStale.ID); err != nil {
+		t.Fatalf("backdate estimated_in: %v", err)
+	}
+
+	idents := func(showOld bool) map[string]bool {
+		fs, err := s.ListVisibleFlights(ctx, alice, false, showOld)
+		if err != nil {
+			t.Fatalf("ListVisibleFlights: %v", err)
+		}
+		out := map[string]bool{}
+		for _, f := range fs {
+			out[f.Ident] = true
+		}
+		return out
+	}
+
+	got := idents(false)
+	if !got["FRESH"] {
+		t.Errorf("showOld=false: FRESH should be visible, got %v", got)
+	}
+	if got["STALE"] {
+		t.Errorf("showOld=false: STALE should be hidden, got %v", got)
+	}
+	if !got["BOUND"] {
+		t.Errorf("showOld=false: BOUND (exactly 24h) should be visible, got %v", got)
+	}
+	if got["ACTSTL"] {
+		t.Errorf("showOld=false: ACTSTL (actual_in 25h ago) should be hidden, got %v", got)
+	}
+	if got["ESTSTL"] {
+		t.Errorf("showOld=false: ESTSTL (estimated_in 25h ago) should be hidden, got %v", got)
+	}
+
+	got = idents(true)
+	for _, id := range []string{"FRESH", "STALE", "BOUND", "ACTSTL", "ESTSTL"} {
+		if !got[id] {
+			t.Errorf("showOld=true: %s should be visible, got %v", id, got)
+		}
 	}
 }

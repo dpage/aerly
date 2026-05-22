@@ -43,12 +43,15 @@ type userIDReq struct {
 }
 
 // listFlights returns flights the caller can see. Superusers may opt into
-// an "all flights" view with ?show_all=1; the param is silently ignored
-// for non-superusers.
+// an "all flights" view with ?show_all=1 (the param is silently ignored
+// for non-superusers). Any authenticated caller may opt into the archive
+// of flights whose effective arrival is more than 24 hours ago with
+// ?show_old=1.
 func (a *API) listFlights(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	showAll := wantsShowAll(r, me)
-	flights, err := a.Store.ListVisibleFlights(r.Context(), me.ID, showAll)
+	showOld := wantsShowOld(r)
+	flights, err := a.Store.ListVisibleFlights(r.Context(), me.ID, showAll, showOld)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
@@ -331,6 +334,14 @@ func wantsShowAll(r *http.Request, u *store.User) bool {
 		return false
 	}
 	v := r.URL.Query().Get("show_all")
+	return v == "1" || v == "true"
+}
+
+// wantsShowOld returns true when the caller asked to include flights whose
+// effective arrival is more than 24 hours ago. Available to every
+// authenticated user — there is no superuser gate, unlike wantsShowAll.
+func wantsShowOld(r *http.Request) bool {
+	v := r.URL.Query().Get("show_old")
 	return v == "1" || v == "true"
 }
 

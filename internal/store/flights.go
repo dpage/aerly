@@ -434,18 +434,30 @@ func (s *Store) VisibleUserIDs(ctx context.Context, flightID int64) ([]int64, er
 // is_public OR (showAllForSuperuser AND caller is superuser). The
 // superuser-show-all branch is gated by the caller — pass true only when
 // the request actually originated from a superuser session that opted in.
-func (s *Store) ListVisibleFlights(ctx context.Context, viewerID int64, showAllForSuperuser bool) ([]*Flight, error) {
+//
+// When showOld is false the result excludes flights whose effective
+// arrival (COALESCE actual_in, estimated_in, scheduled_in) is more than
+// 24 hours in the past. The age filter applies independently of the
+// visibility branch — superusers viewing show-all still get the archive
+// hidden unless they also pass showOld.
+func (s *Store) ListVisibleFlights(ctx context.Context, viewerID int64, showAllForSuperuser, showOld bool) ([]*Flight, error) {
 	q := `SELECT ` + flightColumns + ` FROM flights`
 	args := []any{}
+	conds := []string{}
 	if !showAllForSuperuser {
-		q += `
-			WHERE is_public = TRUE
-			   OR created_by = $1
-			   OR EXISTS (SELECT 1 FROM flight_passengers
-			              WHERE flight_id = flights.id AND user_id = $1)
-			   OR EXISTS (SELECT 1 FROM flight_shares
-			              WHERE flight_id = flights.id AND user_id = $1)`
+		conds = append(conds, `(is_public = TRUE
+		   OR created_by = $1
+		   OR EXISTS (SELECT 1 FROM flight_passengers
+		              WHERE flight_id = flights.id AND user_id = $1)
+		   OR EXISTS (SELECT 1 FROM flight_shares
+		              WHERE flight_id = flights.id AND user_id = $1))`)
 		args = append(args, viewerID)
+	}
+	if !showOld {
+		conds = append(conds, `COALESCE(actual_in, estimated_in, scheduled_in) >= NOW() - INTERVAL '24 hours'`)
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
 	}
 	q += ` ORDER BY scheduled_out ASC`
 	rows, err := s.pool.Query(ctx, q, args...)

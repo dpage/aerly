@@ -14,6 +14,7 @@ import type {
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
 const SHOW_ALL_KEY = 'ft.show_all';
+const SHOW_OLD_KEY = 'ft.show_old';
 
 interface AppState {
   auth: AuthStatus;
@@ -29,6 +30,12 @@ interface AppState {
    * Non-superusers see the flag stay false; the server ignores show_all
    * for them in any case. */
   showAll: boolean;
+  /** When true, the flight list includes flights whose effective arrival
+   * is more than 24 hours in the past. SSE delivery is not gated by age;
+   * the client's render-time filter (useVisibleFlights) handles ageing.
+   * Available to every signed-in user; persisted to localStorage so it
+   * survives reloads. */
+  showOld: boolean;
   error: string | null;
 
   init: () => Promise<void>;
@@ -51,6 +58,7 @@ interface AppState {
   logout: () => Promise<void>;
   selectFlight: (id: number | null) => void;
   setShowAll: (v: boolean) => Promise<void>;
+  setShowOld: (v: boolean) => Promise<void>;
   applyFlightUpdate: (f: Flight) => void;
   /** Drop a flight from local state in response to a flight.deleted SSE
    * event. Idempotent: no-op if the id isn't present (we may have already
@@ -77,6 +85,24 @@ function persistShowAll(v: boolean): void {
   }
 }
 
+function loadShowOld(): boolean {
+  try {
+    return window.localStorage.getItem(SHOW_OLD_KEY) === '1';
+  } catch {
+    // SSR / privacy modes that throw on localStorage access — treat as off.
+    return false;
+  }
+}
+
+function persistShowOld(v: boolean): void {
+  try {
+    if (v) window.localStorage.setItem(SHOW_OLD_KEY, '1');
+    else window.localStorage.removeItem(SHOW_OLD_KEY);
+  } catch {
+    // ignore — best effort
+  }
+}
+
 export const useStore = create<AppState>((set, get) => ({
   auth: 'loading',
   me: null,
@@ -86,6 +112,7 @@ export const useStore = create<AppState>((set, get) => ({
   selectedFlightId: null,
   lastUpdateAt: null,
   showAll: loadShowAll(),
+  showOld: loadShowOld(),
   error: null,
 
   async init() {
@@ -108,7 +135,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   async refreshFlights() {
     try {
-      const flights = await api.listFlights({ showAll: get().showAll });
+      const flights = await api.listFlights({
+        showAll: get().showAll,
+        showOld: get().showOld,
+      });
       set({ flights });
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -203,6 +233,16 @@ export const useStore = create<AppState>((set, get) => ({
     // Refetch flights to immediately reflect the new visibility scope; the
     // SSE connection is re-established by App.tsx because showAll is in its
     // useEffect dependency list.
+    await get().refreshFlights();
+  },
+
+  async setShowOld(v) {
+    persistShowOld(v);
+    set({ showOld: v });
+    // Refetch flights to immediately reflect the new age scope. Unlike
+    // setShowAll, no SSE reconnect is needed — the hub doesn't filter by
+    // age; the client's render-time filter (useVisibleFlights, Task 5)
+    // handles flights that age out while the page is open.
     await get().refreshFlights();
   },
 

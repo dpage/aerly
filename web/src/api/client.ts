@@ -52,8 +52,13 @@ export const api = {
   getMe: () => request<User>('GET', '/api/me'),
   getConfig: () => request<Capabilities>('GET', '/api/config'),
 
-  listFlights: (opts?: { showAll?: boolean }) =>
-    request<Flight[]>('GET', opts?.showAll ? '/api/flights?show_all=1' : '/api/flights'),
+  listFlights: (opts?: { showAll?: boolean; showOld?: boolean }) => {
+    const params = new URLSearchParams();
+    if (opts?.showAll) params.set('show_all', '1');
+    if (opts?.showOld) params.set('show_old', '1');
+    const qs = params.toString();
+    return request<Flight[]>('GET', qs ? `/api/flights?${qs}` : '/api/flights');
+  },
   getFlight: (id: number) => request<Flight>('GET', `/api/flights/${id}`),
   createFlight: (input: CreateFlightInput) => request<Flight>('POST', '/api/flights', input),
   resolveFlight: (input: ResolveFlightInput) =>

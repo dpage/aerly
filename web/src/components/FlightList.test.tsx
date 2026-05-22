@@ -7,6 +7,7 @@ import type { Flight, User } from '../api/types';
 const selectFlight = vi.fn();
 const deleteFlight = vi.fn();
 const setShowAll = vi.fn();
+const setShowOld = vi.fn();
 
 const state = {
   flights: [] as Flight[],
@@ -18,9 +19,11 @@ const state = {
   capabilities: { resolver_available: false, poll_interval_sec: 60 },
   lastUpdateAt: null as number | null,
   showAll: false,
+  showOld: false,
   selectFlight,
   deleteFlight,
   setShowAll,
+  setShowOld,
 };
 
 vi.mock('../state/store', () => ({
@@ -63,6 +66,13 @@ function user(over: Partial<User> = {}): User {
   };
 }
 
+function futureIso() {
+  return new Date(Date.now() + 60 * 60 * 1000).toISOString();
+}
+function hoursAgoIso(h: number) {
+  return new Date(Date.now() - h * 60 * 60 * 1000).toISOString();
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   state.flights = [];
@@ -70,6 +80,7 @@ beforeEach(() => {
   state.me = null;
   state.selectedFlightId = null;
   state.showAll = false;
+  state.showOld = true;
 });
 
 describe('FlightList', () => {
@@ -372,5 +383,45 @@ describe('FlightList', () => {
     // last_polled_at set → "Last polled" row shows a relative duration, not "never".
     expect(panel).toHaveTextContent(/Last polled/);
     expect(panel).not.toHaveTextContent(/never/);
+  });
+
+  it('renders the Show old flights toggle even for non-superusers', () => {
+    state.me = user({ is_superuser: false });
+    render(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.getByLabelText(/show old flights/i)).toBeInTheDocument();
+  });
+
+  it('hides the Show all flights toggle for non-superusers', () => {
+    state.me = user({ is_superuser: false });
+    render(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.queryByLabelText(/show all flights/i)).toBeNull();
+  });
+
+  it('still renders the Show all flights toggle for superusers', () => {
+    state.me = user({ is_superuser: true });
+    render(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.getByLabelText(/show all flights/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/show old flights/i)).toBeInTheDocument();
+  });
+
+  it('clicking the Show old flights toggle calls setShowOld(true)', async () => {
+    state.showOld = false;
+    render(<FlightList onEditFlight={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText(/show old flights/i));
+    expect(setShowOld).toHaveBeenCalledWith(true);
+  });
+
+  it('hides old flights by default and shows them when showOld is true', () => {
+    const fresh = flight({ id: 11, ident: 'FRESH', scheduled_in: futureIso() });
+    const old = flight({ id: 12, ident: 'OLD', actual_in: hoursAgoIso(30) });
+    state.flights = [fresh, old];
+    state.showOld = false;
+    const { rerender } = render(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.getByText('FRESH')).toBeInTheDocument();
+    expect(screen.queryByText('OLD')).toBeNull();
+
+    state.showOld = true;
+    rerender(<FlightList onEditFlight={vi.fn()} />);
+    expect(screen.getByText('OLD')).toBeInTheDocument();
   });
 });

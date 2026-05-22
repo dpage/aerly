@@ -131,6 +131,22 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(last()[0]).toBe('/api/flights');
   });
 
+  it('listFlights with showAll passes show_all=1', async () => {
+    await api.listFlights({ showAll: true });
+    expect(last()[0]).toBe('/api/flights?show_all=1');
+  });
+
+  it('listFlights with showOld passes show_old=1', async () => {
+    await api.listFlights({ showOld: true });
+    expect(last()[0]).toBe('/api/flights?show_old=1');
+  });
+
+  it('listFlights with both flags combines them', async () => {
+    await api.listFlights({ showAll: true, showOld: true });
+    // URLSearchParams preserves insertion order: show_all first, show_old second.
+    expect(last()[0]).toBe('/api/flights?show_all=1&show_old=1');
+  });
+
   it('getFlight', async () => {
     await api.getFlight(42);
     expect(last()[0]).toBe('/api/flights/42');

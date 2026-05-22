@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
     flights: [] as Flight[],
     selectedFlightId: null as number | null,
     selectFlight: vi.fn(),
+    showOld: false,
   },
 }));
 
@@ -55,6 +56,7 @@ beforeEach(() => {
   resetMaplibreMock();
   h.state.flights = [];
   h.state.selectedFlightId = null;
+  h.state.showOld = true;
 });
 
 describe('FlightMap lifecycle', () => {
@@ -357,6 +359,41 @@ describe('marker sync', () => {
     expect(el.style.opacity).toBe('1');
     const path = el.querySelector('path')!;
     expect(path.getAttribute('fill')).toBe('currentColor');
+  });
+
+  it('omits markers for old flights when showOld is false', () => {
+    h.state.flights = [
+      flight({
+        id: 21,
+        scheduled_out: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        scheduled_in: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+        latest_position: pos({ lat: 50, lon: 0 }),
+      }),
+      flight({
+        id: 22,
+        actual_in: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+        latest_position: pos({ lat: 51, lon: 1 }),
+      }),
+    ];
+    h.state.showOld = false;
+    render(<FlightMap />);
+    // Only the fresh flight gets a marker; the 30h-old one is filtered out.
+    expect(FakeMarker.instances).toHaveLength(1);
+    expect(FakeMarker.instances[0].lngLat).toEqual([0, 50]);
+  });
+
+  it('includes markers for old flights when showOld is true', () => {
+    h.state.flights = [
+      flight({
+        id: 22,
+        actual_in: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+        latest_position: pos({ lat: 51, lon: 1 }),
+      }),
+    ];
+    h.state.showOld = true;
+    render(<FlightMap />);
+    expect(FakeMarker.instances).toHaveLength(1);
+    expect(FakeMarker.instances[0].lngLat).toEqual([1, 51]);
   });
 });
 

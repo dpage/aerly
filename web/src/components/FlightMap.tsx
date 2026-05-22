@@ -7,6 +7,7 @@ import maplibregl, {
 import { Box } from '@mui/material';
 
 import { useStore } from '../state/store';
+import { useVisibleFlights } from '../state/visibleFlights';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { fmtRelative } from '../lib/format';
 import type { Flight, Position } from '../api/types';
@@ -27,7 +28,7 @@ const STYLE: StyleSpecification = {
 };
 
 export default function FlightMap() {
-  const flights = useStore((s) => s.flights);
+  const flights = useVisibleFlights();
   const selectedFlightId = useStore((s) => s.selectedFlightId);
   const selectFlight = useStore((s) => s.selectFlight);
 
