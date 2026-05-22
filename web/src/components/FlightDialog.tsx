@@ -283,6 +283,15 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
         </Box>
       )}
       <DialogContent dividers>
+        {!editing && capabilities.email_ingest_address && (
+          <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
+            You can also email your itinerary to{' '}
+            <Link href={`mailto:${capabilities.email_ingest_address}`}>
+              {capabilities.email_ingest_address}
+            </Link>{' '}
+            and the flight will be added automatically.
+          </Alert>
+        )}
         {useMinimal ? (
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>

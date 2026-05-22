@@ -131,11 +131,25 @@ func TestGetMeAndConfig(t *testing.T) {
 		t.Errorf("poll_interval_sec missing from /api/config response: %v", caps)
 	}
 
-	// No resolver / nil config → false.
+	// No resolver / nil config → false. Address omitted when ingest disabled.
 	e2 := setup(t, nil, &config.Config{})
 	w = e2.req(t, "GET", "/api/config", nil, e2.user(t, "u", false))
-	if decodeBody[map[string]any](t, w)["resolver_available"] != false {
+	body := decodeBody[map[string]any](t, w)
+	if body["resolver_available"] != false {
 		t.Error("resolver_available should be false")
+	}
+	if _, ok := body["email_ingest_address"]; ok {
+		t.Error("email_ingest_address should be omitted when ingest is disabled")
+	}
+
+	// Ingest enabled → address is exposed verbatim.
+	e3 := setup(t, nil, &config.Config{
+		EmailIngestEnabled: true,
+		EmailIngestAddress: "flights@example.test",
+	})
+	w = e3.req(t, "GET", "/api/config", nil, e3.user(t, "u2", false))
+	if got := decodeBody[map[string]any](t, w)["email_ingest_address"]; got != "flights@example.test" {
+		t.Errorf("email_ingest_address = %v, want flights@example.test", got)
 	}
 }
 

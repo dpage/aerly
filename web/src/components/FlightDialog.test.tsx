@@ -498,6 +498,34 @@ describe('FlightDialog - closed/no-op', () => {
   });
 });
 
+describe('FlightDialog - email ingest tip', () => {
+  it('shows the email-itinerary tip with a mailto: link when an address is configured', () => {
+    h.state.capabilities = {
+      resolver_available: true,
+      email_ingest_address: 'flights@example.test',
+    } as Capabilities;
+    render(<FlightDialog open editId={null} onClose={vi.fn()} />);
+    const link = screen.getByRole('link', { name: 'flights@example.test' });
+    expect(link).toHaveAttribute('href', 'mailto:flights@example.test');
+  });
+
+  it('hides the tip when no address is configured', () => {
+    h.state.capabilities = { resolver_available: true } as Capabilities;
+    render(<FlightDialog open editId={null} onClose={vi.fn()} />);
+    expect(screen.queryByText(/email your itinerary/i)).toBeNull();
+  });
+
+  it('hides the tip when editing an existing flight', () => {
+    h.state.capabilities = {
+      resolver_available: true,
+      email_ingest_address: 'flights@example.test',
+    } as Capabilities;
+    h.state.flights = [flight({ id: 7 })];
+    render(<FlightDialog open editId={7} onClose={vi.fn()} />);
+    expect(screen.queryByText(/email your itinerary/i)).toBeNull();
+  });
+});
+
 function fireChange(el: HTMLElement, value: string) {
   const input = el as HTMLInputElement;
   const setter = Object.getOwnPropertyDescriptor(

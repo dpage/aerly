@@ -25,6 +25,8 @@ export interface Capabilities {
   resolver_available: boolean;
   /** Poll cadence in seconds; drives the "next update in N" footer. */
   poll_interval_sec: number;
+  /** Forwarding address for email-ingest; absent when disabled. */
+  email_ingest_address?: string;
 }
 
 export interface ResolveFlightInput {
