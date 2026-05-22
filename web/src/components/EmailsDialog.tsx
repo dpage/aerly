@@ -83,23 +83,31 @@ export default function EmailsDialog({ open, onClose }: Props) {
       <DialogTitle>Manage emails</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={3}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <TextField
-              label="Email address"
-              size="small"
-              fullWidth
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              helperText="We'll send a verification link to confirm you own this address."
-            />
-            <Button
-              variant="contained"
-              onClick={() => void handleAdd()}
-              disabled={busy || address.trim() === ''}
+          <Box>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <TextField
+                label="Email address"
+                size="small"
+                fullWidth
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+              />
+              <Button
+                variant="contained"
+                onClick={() => void handleAdd()}
+                disabled={busy || address.trim() === ''}
+              >
+                Add
+              </Button>
+            </Stack>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', mt: 0.5, ml: 1.75 }}
             >
-              Add
-            </Button>
-          </Stack>
+              We'll send a verification link to confirm you own this address.
+            </Typography>
+          </Box>
 
           {emails.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
