@@ -8,7 +8,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound        = errors.New("not found")
+	ErrAddressTaken    = errors.New("address already registered")
+	ErrAlreadyVerified = errors.New("address already verified")
+)
 
 const userColumns = `id, github_id, github_login, name, avatar_url,
 	is_superuser, is_active, last_login_at, created_at, updated_at`
