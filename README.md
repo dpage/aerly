@@ -140,9 +140,12 @@ attached PDFs are skipped.
 
 ### Limitations
 
-- v1 only matches the sender against their **GitHub primary email**.
-  A UI for adding secondary addresses (with click-through verification)
-  is on the roadmap; the schema already accommodates it.
+- The sender's address is matched against any **verified** email on
+  the user's account. The GitHub primary is added on sign-in; users can
+  add and verify additional addresses (click-through link, 24h expiry)
+  from the avatar menu's **Email addresses** dialog. Both the menu
+  entry and the underlying `/api/me/emails/*` routes are gated on
+  `EMAIL_INGEST_ENABLED=1` because they share the sendmail pipe.
 - The `.failed/` directory accumulates poisonous messages; the operator
   decides when to inspect and delete.
 
