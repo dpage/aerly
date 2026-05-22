@@ -8,6 +8,7 @@ import type {
   UpdateFlightInput,
   UpdateUserInput,
   User,
+  UserEmail,
 } from './types';
 
 class ApiError extends Error {
@@ -80,6 +81,13 @@ export const api = {
   updateUser: (id: number, patch: UpdateUserInput) =>
     request<User>('PATCH', `/api/users/${id}`, patch),
   deleteUser: (id: number) => request<void>('DELETE', `/api/users/${id}`),
+
+  listMyEmails: () => request<UserEmail[]>('GET', '/api/me/emails'),
+  addMyEmail: (address: string) =>
+    request<UserEmail>('POST', '/api/me/emails', { address }),
+  resendMyEmail: (id: number) =>
+    request<UserEmail>('POST', `/api/me/emails/${id}/resend`),
+  deleteMyEmail: (id: number) => request<void>('DELETE', `/api/me/emails/${id}`),
 
   logout: () =>
     fetch('/auth/logout', { method: 'POST', credentials: 'include' }).then(() => undefined),
