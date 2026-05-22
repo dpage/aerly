@@ -145,8 +145,8 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 		return outcome{kind: outcomeTransient}
 	}
 
-	body := buildBodyText(parsed, s.Cfg.MaxBodyBytes)
-	legs, err := s.Extractor.Extract(ctx, body)
+	body, docs := buildPrompt(parsed, s.Cfg.MaxBodyBytes)
+	legs, err := s.Extractor.Extract(ctx, body, docs)
 	if err != nil {
 		// Treat any extractor failure as transient: drain loop will retry.
 		slog.Warn("emailingest: extractor", "err", err)
@@ -191,9 +191,21 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	return outcome{kind: outcomeOK}
 }
 
-// buildBodyText concatenates the text body, HTML body, and any
-// PDF-extracted text into a single string, truncated to max bytes.
-func buildBodyText(p *Parsed, max int) string {
+// maxDocBytes caps each document we forward to the LLM. Anthropic accepts
+// PDFs up to ~32 MiB; this leaves headroom and prevents an oversized
+// attachment from causing the provider to reject the whole request — which
+// would otherwise loop in `new/` as a transient extractor failure.
+const maxDocBytes = 25 * 1024 * 1024
+
+// buildPrompt returns the text body to put in the LLM prompt and the list
+// of document attachments (PDFs) to pass alongside it. Plain text + HTML
+// are concatenated into the prompt with section dividers; PDFs are
+// passed natively as Document blocks rather than text-extracted. PDFs
+// larger than maxDocBytes are dropped with a warning.
+//
+// max truncates only the text portion; documents within the per-doc cap
+// are passed in full.
+func buildPrompt(p *Parsed, max int) (string, []Document) {
 	var sb strings.Builder
 	if p.TextBody != "" {
 		sb.WriteString("--- text/plain ---\n")
@@ -205,20 +217,24 @@ func buildBodyText(p *Parsed, max int) string {
 		sb.WriteString(p.HTMLBody)
 		sb.WriteString("\n")
 	}
+	body := sb.String()
+	if max > 0 && len(body) > max {
+		body = body[:max]
+	}
+	docs := make([]Document, 0, len(p.PDFs))
 	for i, pdfBytes := range p.PDFs {
-		text, err := ExtractPDFText(pdfBytes)
-		if err != nil {
+		if len(pdfBytes) > maxDocBytes {
+			slog.Warn("emailingest: dropping oversized PDF attachment",
+				"index", i+1, "bytes", len(pdfBytes), "cap", maxDocBytes)
 			continue
 		}
-		fmt.Fprintf(&sb, "--- pdf attachment %d ---\n", i+1)
-		sb.WriteString(text)
-		sb.WriteString("\n")
+		docs = append(docs, Document{
+			Data:      pdfBytes,
+			MediaType: "application/pdf",
+			Filename:  fmt.Sprintf("attachment-%d.pdf", i+1),
+		})
 	}
-	out := sb.String()
-	if max > 0 && len(out) > max {
-		out = out[:max]
-	}
-	return out
+	return body, docs
 }
 
 func shortErr(err error) string {

@@ -1,6 +1,7 @@
 package emailingest
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -9,13 +10,15 @@ import (
 )
 
 type fakeLLM struct {
-	response string
-	err      error
+	response   string
+	err        error
 	lastPrompt string
+	lastDocs   []Document
 }
 
-func (f *fakeLLM) Complete(ctx context.Context, prompt string) (string, error) {
+func (f *fakeLLM) Complete(ctx context.Context, prompt string, docs []Document) (string, error) {
 	f.lastPrompt = prompt
+	f.lastDocs = docs
 	return f.response, f.err
 }
 
@@ -32,7 +35,7 @@ func newExtractor(resp string) (*Extractor, *fakeLLM) {
 
 func TestExtract_Valid(t *testing.T) {
 	x, _ := newExtractor(`{"flights":[{"ident":"TK1980","date":"2026-06-12","confidence":"high"}],"notes":""}`)
-	legs, err := x.Extract(context.Background(), "body text here")
+	legs, err := x.Extract(context.Background(), "body text here", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -49,7 +52,7 @@ func TestExtract_DropsLowConfidence(t *testing.T) {
 		{"ident":"TK1980","date":"2026-06-12","confidence":"high"},
 		{"ident":"XX9","date":"2026-06-13","confidence":"low"}
 	]}`)
-	legs, err := x.Extract(context.Background(), "body")
+	legs, err := x.Extract(context.Background(), "body", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +66,7 @@ func TestExtract_DropsRegexFailures(t *testing.T) {
 		{"ident":"not-an-ident","date":"2026-06-12","confidence":"high"},
 		{"ident":"TK1980","date":"06/12/2026","confidence":"high"}
 	]}`)
-	legs, err := x.Extract(context.Background(), "body")
+	legs, err := x.Extract(context.Background(), "body", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +80,7 @@ func TestExtract_DropsOutOfWindowDates(t *testing.T) {
 		{"ident":"TK1980","date":"2020-01-01","confidence":"high"},
 		{"ident":"TK1981","date":"2099-01-01","confidence":"high"}
 	]}`)
-	legs, err := x.Extract(context.Background(), "body")
+	legs, err := x.Extract(context.Background(), "body", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +91,7 @@ func TestExtract_DropsOutOfWindowDates(t *testing.T) {
 
 func TestExtract_BadJSON(t *testing.T) {
 	x, _ := newExtractor("this is not json")
-	_, err := x.Extract(context.Background(), "body")
+	_, err := x.Extract(context.Background(), "body", nil)
 	if err == nil {
 		t.Error("expected JSON error")
 	}
@@ -97,7 +100,7 @@ func TestExtract_BadJSON(t *testing.T) {
 func TestExtract_LLMError(t *testing.T) {
 	x, l := newExtractor("")
 	l.err = errors.New("boom")
-	_, err := x.Extract(context.Background(), "body")
+	_, err := x.Extract(context.Background(), "body", nil)
 	if err == nil {
 		t.Error("expected LLM error to propagate")
 	}
@@ -105,7 +108,7 @@ func TestExtract_LLMError(t *testing.T) {
 
 func TestExtract_StripsCodeFences(t *testing.T) {
 	x, _ := newExtractor("```json\n{\"flights\":[{\"ident\":\"TK1980\",\"date\":\"2026-06-12\",\"confidence\":\"high\"}]}\n```")
-	legs, err := x.Extract(context.Background(), "body")
+	legs, err := x.Extract(context.Background(), "body", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -116,11 +119,32 @@ func TestExtract_StripsCodeFences(t *testing.T) {
 
 func TestExtract_PromptIncludesToday(t *testing.T) {
 	x, l := newExtractor(`{"flights":[]}`)
-	if _, err := x.Extract(context.Background(), "body"); err != nil {
+	if _, err := x.Extract(context.Background(), "body", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(l.lastPrompt, "2026-05-22") {
 		t.Errorf("prompt missing today's date: %q", l.lastPrompt)
+	}
+}
+
+func TestExtract_PassesDocsThrough(t *testing.T) {
+	x, l := newExtractor(`{"flights":[]}`)
+	want := Document{Data: []byte("%PDF-1.4 content"), MediaType: "application/pdf", Filename: "ticket.pdf"}
+	if _, err := x.Extract(context.Background(), "body", []Document{want}); err != nil {
+		t.Fatal(err)
+	}
+	if len(l.lastDocs) != 1 {
+		t.Fatalf("docs not forwarded: %+v", l.lastDocs)
+	}
+	got := l.lastDocs[0]
+	if got.Filename != want.Filename {
+		t.Errorf("filename = %q, want %q", got.Filename, want.Filename)
+	}
+	if got.MediaType != want.MediaType {
+		t.Errorf("mediaType = %q, want %q", got.MediaType, want.MediaType)
+	}
+	if !bytes.Equal(got.Data, want.Data) {
+		t.Errorf("data mismatch")
 	}
 }
 
