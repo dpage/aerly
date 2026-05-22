@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   state: {
     me: null as User | null,
     logout: vi.fn(),
+    capabilities: { resolver_available: false, poll_interval_sec: 60, email_ingest_enabled: false },
   },
 }));
 
@@ -44,6 +45,15 @@ vi.mock('./AdminDialog', () => ({
       <div>
         ADMIN_DIALOG
         <button onClick={onClose}>CLOSE_ADMIN_DIALOG</button>
+      </div>
+    ) : null,
+}));
+vi.mock('./EmailsDialog', () => ({
+  default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? (
+      <div>
+        EMAILS_DIALOG
+        <button onClick={onClose}>CLOSE_EMAILS_DIALOG</button>
       </div>
     ) : null,
 }));
@@ -101,14 +111,36 @@ describe('AppShell', () => {
     expect(screen.getByText(/FLIGHT_DIALOG editId=42/)).toBeInTheDocument();
   });
 
-  it('logs out via the logout button', async () => {
+  it('logs out from the avatar menu', async () => {
     render(<AppShell />);
-    // The logout IconButton is the one inside the user tooltip.
-    const buttons = screen.getAllByRole('button');
-    // Last button is the sidebar toggle; logout is the small icon next to avatar.
-    const logoutBtn = buttons.find((b) => b.querySelector('[data-testid="LogoutIcon"]'));
-    await userEvent.click(logoutBtn!);
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /sign out/i }));
     expect(h.state.logout).toHaveBeenCalled();
+  });
+
+  it('does not show Email addresses when ingest is disabled', async () => {
+    h.state.capabilities = {
+      resolver_available: false,
+      poll_interval_sec: 60,
+      email_ingest_enabled: false,
+    };
+    render(<AppShell />);
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(screen.queryByRole('menuitem', { name: /email addresses/i })).not.toBeInTheDocument();
+  });
+
+  it('opens EmailsDialog from the avatar menu when ingest is enabled', async () => {
+    h.state.capabilities = {
+      resolver_available: false,
+      poll_interval_sec: 60,
+      email_ingest_enabled: true,
+    };
+    render(<AppShell />);
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /email addresses/i }));
+    expect(screen.getByText('EMAILS_DIALOG')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'CLOSE_EMAILS_DIALOG' }));
+    expect(screen.queryByText('EMAILS_DIALOG')).not.toBeInTheDocument();
   });
 
   it('toggles the sidebar', async () => {

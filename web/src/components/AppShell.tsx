@@ -4,8 +4,11 @@ import {
   Avatar,
   Box,
   Button,
+  Divider,
   IconButton,
-  Stack,
+  ListItemIcon,
+  Menu,
+  MenuItem,
   Toolbar,
   Tooltip,
   Typography,
@@ -13,6 +16,7 @@ import {
   useTheme,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import EmailIcon from '@mui/icons-material/EmailOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
@@ -24,10 +28,12 @@ import FlightList from './FlightList';
 import FlightMap from './FlightMap';
 import FlightDialog from './FlightDialog';
 import AdminDialog from './AdminDialog';
+import EmailsDialog from './EmailsDialog';
 
 export default function AppShell() {
   const me = useStore((s) => s.me);
   const logout = useStore((s) => s.logout);
+  const capabilities = useStore((s) => s.capabilities);
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
   const [flightDialog, setFlightDialog] = useState<{ open: boolean; editId: number | null }>({
@@ -35,14 +41,16 @@ export default function AppShell() {
     editId: null,
   });
   const [adminOpen, setAdminOpen] = useState(false);
+  const [emailsOpen, setEmailsOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrow);
 
-  // After the sidebar finishes its width transition, fire a window resize so
-  // MapLibre re-measures and the map fills the available space cleanly.
   useEffect(() => {
     const t = window.setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
     return () => window.clearTimeout(t);
   }, [sidebarOpen]);
+
+  const closeMenu = () => setMenuAnchor(null);
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -67,16 +75,57 @@ export default function AppShell() {
               </IconButton>
             </Tooltip>
           )}
-          <Tooltip title={me ? `${me.github_login} — sign out` : 'Sign out'}>
-            <Stack direction="row" alignItems="center" spacing={1}>
+          <Tooltip title="Account menu">
+            <IconButton
+              size="small"
+              onClick={(e) => setMenuAnchor(e.currentTarget)}
+              aria-label="Account menu"
+            >
               <Avatar src={me?.avatar_url} sx={{ width: 28, height: 28 }}>
                 {me?.github_login.charAt(0).toUpperCase()}
               </Avatar>
-              <IconButton size="small" onClick={() => void logout()}>
-                <LogoutIcon fontSize="small" />
-              </IconButton>
-            </Stack>
+            </IconButton>
           </Tooltip>
+          <Menu
+            anchorEl={menuAnchor}
+            open={menuAnchor !== null}
+            onClose={closeMenu}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            {me && (
+              <MenuItem disabled sx={{ opacity: '1 !important' }}>
+                <Typography variant="caption" color="text.secondary">
+                  Signed in as {me.github_login}
+                </Typography>
+              </MenuItem>
+            )}
+            <Divider />
+            {capabilities.email_ingest_enabled && (
+              <MenuItem
+                onClick={() => {
+                  closeMenu();
+                  setEmailsOpen(true);
+                }}
+              >
+                <ListItemIcon>
+                  <EmailIcon fontSize="small" />
+                </ListItemIcon>
+                Email addresses…
+              </MenuItem>
+            )}
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                void logout();
+              }}
+            >
+              <ListItemIcon>
+                <LogoutIcon fontSize="small" />
+              </ListItemIcon>
+              Sign out
+            </MenuItem>
+          </Menu>
         </Toolbar>
       </AppBar>
 
@@ -132,6 +181,7 @@ export default function AppShell() {
         onClose={() => setFlightDialog({ open: false, editId: null })}
       />
       <AdminDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
+      <EmailsDialog open={emailsOpen} onClose={() => setEmailsOpen(false)} />
     </Box>
   );
 }
