@@ -34,6 +34,24 @@ func ToUserDTO(u *store.User) UserDTO {
 	}
 }
 
+type UserEmailDTO struct {
+	ID         int64      `json:"id"`
+	Address    string     `json:"address"`
+	Verified   bool       `json:"verified"`
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+func ToUserEmailDTO(e *store.UserEmail) UserEmailDTO {
+	return UserEmailDTO{
+		ID:         e.ID,
+		Address:    e.Address,
+		Verified:   e.Verified,
+		VerifiedAt: e.VerifiedAt,
+		CreatedAt:  e.CreatedAt,
+	}
+}
+
 type PositionDTO struct {
 	Ts            time.Time `json:"ts"`
 	Lat           float64   `json:"lat"`
