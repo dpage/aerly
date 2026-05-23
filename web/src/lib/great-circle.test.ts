@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { greatCircle, toMultiLine } from './great-circle';
+import { greatCircle, greatCircleMiles, toMultiLine } from './great-circle';
 
 describe('greatCircle', () => {
   it('returns a single point for (near-)identical endpoints (Δ<1e-9 early return)', () => {
@@ -66,5 +66,24 @@ describe('toMultiLine', () => {
   it('returns [] when nothing has more than one point', () => {
     expect(toMultiLine([[1, 1]])).toEqual([]);
     expect(toMultiLine([])).toEqual([]);
+  });
+});
+
+describe('greatCircleMiles', () => {
+  it('returns 0 for identical points', () => {
+    expect(greatCircleMiles(51.47, -0.45, 51.47, -0.45)).toBe(0);
+  });
+
+  it('matches the LHR → JFK reference distance within 1%', () => {
+    // LHR (51.4700, -0.4543) → JFK (40.6413, -73.7781) ≈ 3,451 mi
+    const got = greatCircleMiles(51.47, -0.4543, 40.6413, -73.7781);
+    expect(got).toBeGreaterThan(3420);
+    expect(got).toBeLessThan(3480);
+  });
+
+  it('is symmetric', () => {
+    const ab = greatCircleMiles(51.47, -0.4543, 40.6413, -73.7781);
+    const ba = greatCircleMiles(40.6413, -73.7781, 51.47, -0.4543);
+    expect(Math.abs(ab - ba)).toBeLessThan(0.001);
   });
 });
