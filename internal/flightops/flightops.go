@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dpage/aerly/internal/airports"
@@ -40,8 +41,14 @@ func Create(ctx context.Context, deps Deps, userID int64, ident, date string) (*
 	if err != nil {
 		return nil, fmt.Errorf("resolve %s on %s: %w", ident, date, err)
 	}
+	// Preserve the caller-provided ident rather than rf.Ident: AeroDataBox
+	// returns the operating-carrier's number (e.g. U22823 for easyJet UK),
+	// but the user knows the flight by what's on their booking (EZY2823 in
+	// that case). Canonicalise to upper-case + no whitespace so we get a
+	// stable form regardless of how the extractor punctuated it.
+	storedIdent := strings.ToUpper(strings.Join(strings.Fields(ident), ""))
 	f, err := deps.Store.CreateFlight(ctx, store.CreateFlightPayload{
-		Ident:        rf.Ident,
+		Ident:        storedIdent,
 		ScheduledOut: rf.ScheduledOut,
 		ScheduledIn:  rf.ScheduledIn,
 		OriginIATA:   rf.OriginIATA,

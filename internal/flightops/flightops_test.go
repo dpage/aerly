@@ -59,6 +59,31 @@ func TestCreate_ResolvesAndCreates(t *testing.T) {
 	}
 }
 
+// TestCreate_PreservesCallerIdent guards the booking-vs-operating-carrier
+// case: when the resolver canonicalises EZY2823 (marketing/ICAO) to U22823
+// (operating carrier IATA), we should still store what the caller asked for
+// so the user sees the ident that's on their booking. Whitespace is
+// stripped and the ident is upper-cased to give a stable canonical form
+// regardless of upstream extractor formatting.
+func TestCreate_PreservesCallerIdent(t *testing.T) {
+	ctx, s, uid := ctxAndStore(t)
+	r := &fakeResolver{out: &providers.ResolvedFlight{
+		Ident:        "U22823", // resolver swaps marketing → operating carrier
+		ScheduledOut: time.Date(2027, 1, 15, 10, 25, 0, 0, time.UTC),
+		ScheduledIn:  time.Date(2027, 1, 15, 16, 20, 0, 0, time.UTC),
+		OriginIATA:   "BRS",
+		DestIATA:     "SID",
+	}}
+
+	f, err := flightops.Create(ctx, flightops.Deps{Store: s, Resolver: r}, uid, "ezy 2823", "2027-01-15")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if f.Ident != "EZY2823" {
+		t.Errorf("ident = %q, want EZY2823 (caller form, canonicalised)", f.Ident)
+	}
+}
+
 func TestCreate_BadDateRejected(t *testing.T) {
 	ctx, s, uid := ctxAndStore(t)
 	_, err := flightops.Create(ctx,
