@@ -2,6 +2,7 @@ package emailingest_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"github.com/dpage/aerly/internal/emailingest"
 	"github.com/dpage/aerly/internal/flightops"
 	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 	"github.com/dpage/aerly/internal/testsupport"
 )
@@ -79,6 +81,7 @@ type harness struct {
 	sendmailOut string
 	maildir     string
 	store       *store.Store
+	hub         *sse.Hub
 }
 
 // newHarness builds a Service wired to a real DB, a fake LLM, a fake resolver,
@@ -92,6 +95,7 @@ func newHarness(t *testing.T, llmResp string, resolverErr error, requireDKIM boo
 	sendmailOut := filepath.Join(t.TempDir(), "sent.txt")
 	t.Setenv("SENDMAIL_OUT", sendmailOut)
 
+	hub := sse.NewHub()
 	svc := &emailingest.Service{
 		Cfg: emailingest.Config{
 			MaildirPath:   maildir,
@@ -102,14 +106,15 @@ func newHarness(t *testing.T, llmResp string, resolverErr error, requireDKIM boo
 			SendmailPath:  buildTestSendmail(t),
 			PublicURL:     "https://flights.example",
 		},
-		Store: s,
-		Extractor: emailingest.NewExtractor(&fakeLLM{resp: llmResp}, "test"),
+		Store:      s,
+		Extractor:  emailingest.NewExtractor(&fakeLLM{resp: llmResp}, "test"),
 		FlightDeps: flightops.Deps{Store: s, Resolver: fakeResolver{err: resolverErr}},
+		Hub:        hub,
 	}
 	if err := svc.EnsureDirs(); err != nil {
 		t.Fatal(err)
 	}
-	return &harness{svc: svc, sendmailOut: sendmailOut, maildir: maildir, store: s}
+	return &harness{svc: svc, sendmailOut: sendmailOut, maildir: maildir, store: s, hub: hub}
 }
 
 // runUntilProcessed runs svc.Run in a goroutine and waits up to timeout for
@@ -319,5 +324,87 @@ func TestIngest_MalformedMessage_Poison(t *testing.T) {
 	state := h.runUntilProcessed(t, "7", 5*time.Second)
 	if state != "failed" {
 		t.Errorf("expected .failed/, got %s", state)
+	}
+}
+
+// TestIngest_PublishesSSEOnInsert exercises the resolver-backed create path
+// (flightops.Create) and asserts a flight.updated SSE event is broadcast to
+// the user who owns the newly-inserted flight. Without this, connected SPA
+// clients wouldn't learn about the new flight until they manually refresh.
+func TestIngest_PublishesSSEOnInsert(t *testing.T) {
+	depDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
+	h := newHarness(t,
+		`{"flights":[{"ident":"TK1980","date":"`+depDate+`","confidence":"high"}]}`,
+		nil, false)
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{GitHubLogin: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	events, unsub := h.hub.Subscribe(sse.Subscription{ViewerID: u.ID})
+	defer unsub()
+
+	writeMessage(t, h.maildir, "20", goodMessage)
+	if state := h.runUntilProcessed(t, "20", 5*time.Second); state != "removed" {
+		t.Fatalf("expected removed, got %s", state)
+	}
+
+	select {
+	case ev := <-events:
+		if ev.Type != "flight.updated" {
+			t.Errorf("event type = %q, want flight.updated", ev.Type)
+		}
+		var got struct {
+			Ident        string  `json:"ident"`
+			PassengerIDs []int64 `json:"passenger_ids"`
+		}
+		if err := json.Unmarshal(ev.Data, &got); err != nil {
+			t.Fatalf("unmarshal event: %v", err)
+		}
+		if got.Ident != "TK1980" {
+			t.Errorf("event ident = %q, want TK1980", got.Ident)
+		}
+		if len(got.PassengerIDs) != 1 || got.PassengerIDs[0] != u.ID {
+			t.Errorf("event passenger_ids = %v, want [%d]", got.PassengerIDs, u.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected flight.updated SSE event after email-ingest insert")
+	}
+}
+
+// TestIngest_ManualFallback_PublishesSSE covers the same publish behavior on
+// the manual-fallback path (flightops.CreateManual) used when the resolver
+// has no record but the email itself spells out the schedule.
+func TestIngest_ManualFallback_PublishesSSE(t *testing.T) {
+	depDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
+	arrDate := time.Now().AddDate(0, 1, 0).AddDate(0, 0, 1).Format("2006-01-02")
+	llmResp := `{"flights":[{
+		"ident":"TK1980","date":"` + depDate + `","confidence":"high",
+		"origin_iata":"IST","dest_iata":"LHR",
+		"depart_time":"22:30","arrive_date":"` + arrDate + `","arrive_time":"01:15"
+	}]}`
+	h := newHarness(t, llmResp, providers.ErrFlightUnscheduled, false)
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{GitHubLogin: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	events, unsub := h.hub.Subscribe(sse.Subscription{ViewerID: u.ID})
+	defer unsub()
+
+	writeMessage(t, h.maildir, "21", goodMessage)
+	if state := h.runUntilProcessed(t, "21", 5*time.Second); state != "removed" {
+		t.Fatalf("expected removed, got %s", state)
+	}
+
+	select {
+	case ev := <-events:
+		if ev.Type != "flight.updated" {
+			t.Errorf("event type = %q, want flight.updated", ev.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected flight.updated SSE event after manual-fallback insert")
 	}
 }

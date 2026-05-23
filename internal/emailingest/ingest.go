@@ -2,6 +2,7 @@ package emailingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/flightops"
 	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -32,6 +35,10 @@ type Service struct {
 	Store      *store.Store
 	Extractor  *Extractor
 	FlightDeps flightops.Deps
+	// Hub is the SSE broadcast hub. Optional — when nil, ingested flights
+	// are still inserted but connected clients won't learn of them until
+	// they refresh. Wired in production; tests opt in via newHarness.
+	Hub *sse.Hub
 }
 
 type outcomeKind int
@@ -157,14 +164,15 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	added := []ReplyLeg{}
 	failed := []ReplyFailure{}
 	for _, leg := range legs {
-		if _, err := flightops.Create(ctx, s.FlightDeps, u.ID, leg.Ident, leg.Date); err != nil {
+		f, err := flightops.Create(ctx, s.FlightDeps, u.ID, leg.Ident, leg.Date)
+		if err != nil {
 			// If the provider just doesn't know about this flight yet but
 			// the email itself spells out the schedule, fall back to a
 			// manual add so we don't make the user re-enter what we
 			// already extracted. Reserved for the two "no upstream data"
 			// sentinels — transient/auth errors still surface as failures.
 			if isResolverGap(err) && leg.HasManualDetails() {
-				if _, mErr := flightops.CreateManual(ctx, s.FlightDeps, u.ID, flightops.ManualCreatePayload{
+				if mf, mErr := flightops.CreateManual(ctx, s.FlightDeps, u.ID, flightops.ManualCreatePayload{
 					Ident:           leg.Ident,
 					DepartDate:      leg.Date,
 					DepartTimeLocal: leg.DepartTimeLocal,
@@ -175,6 +183,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 					Notes:           "Added from email — schedule not yet published by airline; please verify times.",
 				}); mErr == nil {
 					added = append(added, ReplyLeg{Ident: leg.Ident, Date: leg.Date, ManualNote: true})
+					s.publishFlight(ctx, mf.ID)
 					continue
 				} else {
 					slog.Warn("emailingest: manual fallback insert failed", "err", mErr, "ident", leg.Ident)
@@ -184,6 +193,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 			continue
 		}
 		added = append(added, ReplyLeg{Ident: leg.Ident, Date: leg.Date})
+		s.publishFlight(ctx, f.ID)
 	}
 
 	status := "accepted"
@@ -286,6 +296,38 @@ func failureReason(err error) string {
 		s = s[:200] + "…"
 	}
 	return s
+}
+
+// publishFlight broadcasts a flight.updated SSE event for the just-inserted
+// flight so connected clients can drop it into their list without waiting
+// for the next page refresh. Mirrors the assembly logic in the position
+// poller — assembles the full FlightDTO and scopes the broadcast to the
+// flight's visibility set. Silent no-op when Hub is nil.
+func (s *Service) publishFlight(ctx context.Context, id int64) {
+	if s.Hub == nil {
+		return
+	}
+	f, err := s.Store.FlightByID(ctx, id)
+	if err != nil {
+		slog.Warn("emailingest: publishFlight refetch", "err", err, "id", id)
+		return
+	}
+	passengers, _ := s.Store.PassengersByFlight(ctx, []int64{id})
+	shares, _ := s.Store.SharedUserIDsByFlight(ctx, []int64{id})
+	dto := api.ToFlightDTO(f, passengers[id], shares[id], nil, nil)
+	payload, err := json.Marshal(dto)
+	if err != nil {
+		slog.Error("emailingest: publishFlight marshal", "err", err, "id", id)
+		return
+	}
+	var visible []int64
+	if !f.IsPublic {
+		visible, err = s.Store.VisibleUserIDs(ctx, f.ID)
+		if err != nil {
+			slog.Warn("emailingest: publishFlight visibility", "err", err, "id", id)
+		}
+	}
+	s.Hub.Publish(sse.Event{Type: "flight.updated", Data: payload, VisibleTo: visible})
 }
 
 func (s *Service) logIngest(ctx context.Context, msgID, from, subject string, dkimPass bool, userID *int64, status string, added, failed int, errMsg string) {

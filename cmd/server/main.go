@@ -123,6 +123,7 @@ func run() error {
 			Store:      s,
 			Extractor:  emailingest.NewExtractor(llmClient, cfg.LLMModel),
 			FlightDeps: flightops.Deps{Store: s, Resolver: resolver},
+			Hub:        hub,
 		}
 		go func() {
 			if err := svc.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {
