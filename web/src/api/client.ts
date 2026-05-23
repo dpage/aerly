@@ -53,6 +53,24 @@ export const api = {
   getMe: () => request<User>('GET', '/api/me'),
   getConfig: () => request<Capabilities>('GET', '/api/config'),
 
+  // Probes the dev-only DEV_AUTH_BYPASS endpoint. Returns true when the
+  // backend is running with DEV_AUTH_BYPASS=1 (the route only exists then),
+  // false otherwise (404, network error, non-OK response). The login page
+  // uses this to decide whether to render the dev-login form.
+  async getDevAuthBypassEnabled(): Promise<boolean> {
+    try {
+      const res = await fetch('/auth/dev-info', {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) return false;
+      const j = (await res.json()) as { enabled?: boolean };
+      return j.enabled === true;
+    } catch {
+      return false;
+    }
+  },
+
   listFlights: (opts?: { showAll?: boolean; showOld?: boolean }) => {
     const params = new URLSearchParams();
     if (opts?.showAll) params.set('show_all', '1');

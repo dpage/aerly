@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"hash/fnv"
 	"log/slog"
 	"net/http"
@@ -13,11 +14,22 @@ import (
 // GitHub identity and creates a session — bypassing OAuth entirely. It is the
 // caller's responsibility to gate this on DEV_AUTH_BYPASS + localhost.
 //
+// Also attaches GET /auth/dev-info — an unauthenticated probe the SPA's login
+// page uses to decide whether to render the dev-login form. When dev bypass is
+// off the route isn't registered and the probe 404s.
+//
 // Synthetic GitHub IDs are negative (real ones are positive) so dev users
 // never collide with real GitHub accounts.
 func (h *Handler) RegisterDevLogin(mux *http.ServeMux) {
 	slog.Warn("DEV_AUTH_BYPASS enabled — /auth/dev-login active. Do not use in production.")
 	mux.HandleFunc("GET /auth/dev-login", h.devLogin)
+	mux.HandleFunc("GET /auth/dev-info", h.devInfo)
+}
+
+func (h *Handler) devInfo(w http.ResponseWriter, r *http.Request) {
+	_ = r
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"enabled": true})
 }
 
 func (h *Handler) devLogin(w http.ResponseWriter, r *http.Request) {

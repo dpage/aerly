@@ -250,3 +250,26 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(s.mock.calls[0][1]?.method).toBe('POST');
   });
 });
+
+describe('api.getDevAuthBypassEnabled', () => {
+  it('returns true when /auth/dev-info responds with enabled=true', async () => {
+    const spy = mockFetch(() => jsonResponse({ enabled: true }));
+    await expect(api.getDevAuthBypassEnabled()).resolves.toBe(true);
+    expect(spy.mock.calls[0][0]).toBe('/auth/dev-info');
+  });
+
+  it('returns false on 404 (route only registered when DEV_AUTH_BYPASS=1)', async () => {
+    mockFetch(() => jsonResponse({}, 404));
+    await expect(api.getDevAuthBypassEnabled()).resolves.toBe(false);
+  });
+
+  it('returns false when the JSON body lacks enabled=true', async () => {
+    mockFetch(() => jsonResponse({ enabled: false }));
+    await expect(api.getDevAuthBypassEnabled()).resolves.toBe(false);
+  });
+
+  it('returns false when fetch rejects (network down)', async () => {
+    mockFetch(() => Promise.reject(new Error('boom')));
+    await expect(api.getDevAuthBypassEnabled()).resolves.toBe(false);
+  });
+});

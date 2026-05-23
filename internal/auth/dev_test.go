@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/dpage/aerly/internal/testsupport"
@@ -31,6 +32,23 @@ func TestRegisterDevLoginRoute(t *testing.T) {
 	mux.ServeHTTP(w, httptest.NewRequest("GET", "/auth/dev-login?login=alice", nil))
 	if w.Code != http.StatusFound {
 		t.Errorf("dev-login code = %d, want 302", w.Code)
+	}
+}
+
+func TestDevInfoRoute(t *testing.T) {
+	h, _ := newTestHandler(t)
+	mux := http.NewServeMux()
+	h.RegisterDevLogin(mux)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/auth/dev-info", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("dev-info code = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("dev-info Content-Type = %q, want application/json", got)
+	}
+	if body := strings.TrimSpace(w.Body.String()); body != `{"enabled":true}` {
+		t.Errorf("dev-info body = %q, want %q", body, `{"enabled":true}`)
 	}
 }
 

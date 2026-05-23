@@ -1,8 +1,31 @@
-import { Box, Button, Paper, Stack, Typography } from '@mui/material';
+import { useEffect, useState } from 'react';
+import {
+  Box,
+  Button,
+  Divider,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 
+import { api } from '../api/client';
+
 export default function Login() {
+  const [devBypass, setDevBypass] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.getDevAuthBypassEnabled().then((enabled) => {
+      if (!cancelled) setDevBypass(enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <Box
       sx={{
@@ -32,6 +55,36 @@ export default function Login() {
           <Typography variant="caption" color="text.secondary">
             Access is restricted to invited users.
           </Typography>
+          {devBypass && (
+            <>
+              <Divider flexItem>DEV</Divider>
+              {/* Plain GET form: the browser navigates to
+                  /auth/dev-login?login=<value>, the server sets the session
+                  cookie and 302s back to /. */}
+              <Stack
+                component="form"
+                action="/auth/dev-login"
+                method="GET"
+                spacing={1.5}
+                sx={{ alignSelf: 'stretch' }}
+              >
+                <TextField
+                  name="login"
+                  label="GitHub login"
+                  size="small"
+                  required
+                  autoComplete="off"
+                  inputProps={{ 'aria-label': 'dev login github handle' }}
+                />
+                <Button type="submit" variant="outlined">
+                  Sign in as dev user
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  DEV_AUTH_BYPASS is enabled. Do not use in production.
+                </Typography>
+              </Stack>
+            </>
+          )}
         </Stack>
       </Paper>
     </Box>
