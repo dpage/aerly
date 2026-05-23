@@ -16,12 +16,13 @@ import {
   useTheme,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import EmailIcon from '@mui/icons-material/EmailOutlined';
-import LogoutIcon from '@mui/icons-material/Logout';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import EmailIcon from '@mui/icons-material/EmailOutlined';
+import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
+import LogoutIcon from '@mui/icons-material/Logout';
 
 import { useStore } from '../state/store';
 import FlightList from './FlightList';
@@ -29,6 +30,7 @@ import FlightMap from './FlightMap';
 import FlightDialog from './FlightDialog';
 import AdminDialog from './AdminDialog';
 import EmailsDialog from './EmailsDialog';
+import StatsDialog from './StatsDialog';
 
 export default function AppShell() {
   const me = useStore((s) => s.me);
@@ -42,6 +44,7 @@ export default function AppShell() {
   });
   const [adminOpen, setAdminOpen] = useState(false);
   const [emailsOpen, setEmailsOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrow);
 
@@ -117,6 +120,17 @@ export default function AppShell() {
             <MenuItem
               onClick={() => {
                 closeMenu();
+                setStatsOpen(true);
+              }}
+            >
+              <ListItemIcon>
+                <BarChartIcon fontSize="small" />
+              </ListItemIcon>
+              Statistics…
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeMenu();
                 void logout();
               }}
             >
@@ -182,6 +196,7 @@ export default function AppShell() {
       />
       <AdminDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
       <EmailsDialog open={emailsOpen} onClose={() => setEmailsOpen(false)} />
+      <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} />
     </Box>
   );
 }

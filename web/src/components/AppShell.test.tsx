@@ -57,6 +57,15 @@ vi.mock('./EmailsDialog', () => ({
       </div>
     ) : null,
 }));
+vi.mock('./StatsDialog', () => ({
+  default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? (
+      <div>
+        STATS_DIALOG
+        <button onClick={onClose}>CLOSE_STATS_DIALOG</button>
+      </div>
+    ) : null,
+}));
 
 import AppShell from './AppShell';
 
@@ -173,5 +182,14 @@ describe('AppShell', () => {
     h.state.me = null;
     render(<AppShell />);
     expect(screen.getByText('Aerly')).toBeInTheDocument();
+  });
+
+  it('opens the Stats dialog from the avatar menu', async () => {
+    render(<AppShell />);
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /statistics/i }));
+    expect(screen.getByText('STATS_DIALOG')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'CLOSE_STATS_DIALOG' }));
+    expect(screen.queryByText('STATS_DIALOG')).not.toBeInTheDocument();
   });
 });
