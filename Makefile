@@ -28,12 +28,23 @@ run:
 		$(BIN_DIR)/$(BIN_NAME)
 
 ## dev: start the Go API on :8080 and the Vite dev server on :5173.
+##      Waits for /healthz before launching Vite so the SPA's first /api/*
+##      calls don't race the ~10s `go run` compile + migration startup and
+##      surface as a 500 snackbar on the login page.
 ##      Vite proxies /api, /auth, /healthz to :8080 so frontend can hot-reload.
 dev:
 	@if [ ! -f .env ]; then echo "Create .env first (copy .env.example)"; exit 1; fi
-	@bash -c "set -a; source ./.env; set +a; \
-		($(GO) run ./cmd/server &) && \
-		cd $(WEB_DIR) && $(NPM) run dev"
+	@bash -c 'set -a; source ./.env; set +a; \
+		($(GO) run ./cmd/server &); \
+		echo "waiting for backend on :8080..."; \
+		ready=0; \
+		for i in $$(seq 1 60); do \
+			if curl -sf http://localhost:8080/healthz >/dev/null 2>&1; then ready=1; break; fi; \
+			sleep 1; \
+		done; \
+		if [ $$ready -ne 1 ]; then echo "backend did not respond within 60s" >&2; exit 1; fi; \
+		echo "backend ready"; \
+		cd $(WEB_DIR) && $(NPM) run dev'
 
 ## test: run the Go and web test suites.
 test: test-go test-web
