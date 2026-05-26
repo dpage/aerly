@@ -71,24 +71,34 @@ func run() error {
 	authH := auth.NewHandler(cfg.GitHubID, cfg.GitHubSecret, cfg.SessionKey, cfg.PublicURL, s)
 	hub := sse.NewHub()
 
-	var resolver providers.Resolver
+	// Two resolver handles share one upstream AeroDataBox client. The
+	// cached wrapper sits in front of the handler-driven paths (Add Flight
+	// dialog, email ingest, flightops) where the 24h TTL hides repeated
+	// lookups for the same ident/date. The poller bypasses the cache and
+	// uses the raw resolver instead, because (a) it needs fresh airframe
+	// data on the day of departure to catch swaps, and (b) it has its own
+	// per-flight throttle via last_resolved_at.
+	var resolver, rawResolver providers.Resolver
 	if cfg.AeroDataBoxKey != "" {
-		resolver = providers.NewCachedResolver(
-			providers.NewAeroDataBox(cfg.AeroDataBoxKey),
-			24*time.Hour,
-		)
-		slog.Info("resolver: aerodatabox (cached, ttl=24h)")
+		rawResolver = providers.NewAeroDataBox(cfg.AeroDataBoxKey)
+		resolver = providers.NewCachedResolver(rawResolver, 24*time.Hour)
+		slog.Info("resolver: aerodatabox (cached, ttl=24h; poller uses uncached)")
 	}
 	api := handlers.New(s, authH, hub, cfg, resolver)
 
 	// Pick the upstream tracker. OpenSky if credentials are configured (or
-	// anonymous OpenSky if requested), otherwise the in-memory stub. Either
-	// way we wrap with DeadReckoner so coverage gaps fall back to an
-	// extrapolation from the last real fix.
+	// anonymous OpenSky if requested), otherwise the in-memory stub. The
+	// OpenSky path is gated through a SpeedGate first — OpenSky's
+	// /states/all?icao24=… happily returns the wrong aircraft when an
+	// airframe is reused for a different sector, and the resulting
+	// teleport would otherwise pollute the stored track. Either tracker is
+	// then wrapped with DeadReckoner so coverage gaps (and gate rejections)
+	// fall back to an extrapolation.
 	var inner providers.Tracker
 	switch {
 	case cfg.UseOpenSky():
-		inner = providers.NewOpenSky(cfg.OpenSkyUsername, cfg.OpenSkyPassword)
+		inner = providers.NewSpeedGate(
+			providers.NewOpenSky(cfg.OpenSkyUsername, cfg.OpenSkyPassword), s)
 		slog.Info("tracker: opensky",
 			"authed", cfg.OpenSkyUsername != "")
 	default:
@@ -97,9 +107,10 @@ func run() error {
 	}
 	tracker := providers.NewDeadReckoner(inner, s)
 	p := poller.New(s, tracker, hub, cfg.PollInterval)
-	// Give the poller the resolver too so it can backfill missing metadata
-	// on flights that were added manually with blanks.
-	p.Resolver = resolver
+	// Give the poller the *uncached* resolver so its day-of refresh sees
+	// fresh AeroDataBox state (last_resolved_at handles throttling). Falls
+	// back to the cached one when no upstream is configured (i.e. nil).
+	p.Resolver = rawResolver
 	go p.Run(rootCtx)
 
 	if cfg.EmailIngestEnabled {

@@ -329,9 +329,9 @@ func TestRefreshBackfillNotFoundLeavesFlightAlone(t *testing.T) {
 	}
 }
 
-// A flight that already has full metadata should NOT trigger a resolver
-// call on every tick — it would burn quota for nothing.
-func TestRefreshSkipsBackfillWhenComplete(t *testing.T) {
+// A flight that already has full metadata AND was resolved recently must
+// NOT trigger another resolver call — last_resolved_at is the throttle.
+func TestRefreshSkipsResolveWhenFresh(t *testing.T) {
 	tr := &mockTracker{}
 	p, s, _ := newPoller(t, tr, time.Minute)
 	fr := &fakeResolver{rf: &providers.ResolvedFlight{}}
@@ -339,9 +339,8 @@ func TestRefreshSkipsBackfillWhenComplete(t *testing.T) {
 	ctx := context.Background()
 	uid := seedUser(t, s)
 	now := time.Now()
-	// Created with both IATAs filled in already.
 	icao := "abc123"
-	_, _ = s.CreateFlight(ctx, store.CreateFlightPayload{
+	f, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
 		Ident:        "PL9",
 		ScheduledOut: now.Add(-time.Hour),
 		ScheduledIn:  now.Add(time.Hour),
@@ -349,11 +348,114 @@ func TestRefreshSkipsBackfillWhenComplete(t *testing.T) {
 		DestIATA:     "JFK",
 		ICAO24:       icao,
 	}, uid)
+	// Pretend we just resolved this flight a moment ago.
+	if err := s.RefreshFlightAirframe(ctx, f.ID, "", ""); err != nil {
+		t.Fatalf("seed last_resolved_at: %v", err)
+	}
 
 	p.tick(ctx)
 
 	if fr.calls != 0 {
-		t.Errorf("resolver should not be called when metadata is complete, got %d calls", fr.calls)
+		t.Errorf("resolver should not be called when last_resolved_at is fresh, got %d calls", fr.calls)
+	}
+}
+
+// Late refresh: a flight that has icao24 set but was last resolved long
+// ago (or never) should trigger a fresh resolver call when close to
+// departure, and the new icao24 / callsign must overwrite whatever's
+// stored — that's how we catch day-of airframe swaps that produce the
+// "wrong aircraft" tracks we saw with LH493.
+func TestLateRefreshOverwritesStaleAirframe(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident:      "LH493",
+		OriginIATA: "YVR", DestIATA: "FRA",
+		ICAO24:   "3c4a8c", // the day-of correct airframe
+		Callsign: "DLH493",
+	}}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	old := "3c4a8b" // wrong airframe stored at booking time
+	f, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident:        "LH493",
+		ScheduledOut: now.Add(-time.Hour), // already enroute
+		ScheduledIn:  now.Add(time.Hour),
+		OriginIATA:   "YVR", DestIATA: "FRA",
+		ICAO24: old,
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.ICAO24 == nil || *got.ICAO24 != "3c4a8c" {
+		t.Errorf("icao24 should have been overwritten by late-refresh: %v", got.ICAO24)
+	}
+	if got.Callsign == nil || *got.Callsign != "DLH493" {
+		t.Errorf("callsign should have been written by late-refresh: %v", got.Callsign)
+	}
+	if got.LastResolvedAt == nil {
+		t.Error("last_resolved_at should have been bumped")
+	}
+}
+
+// Late refresh must not fire for a flight that's still far in the future —
+// AeroDataBox won't have an airframe assigned yet and there's no value in
+// burning quota.
+func TestLateRefreshSkipsFarFuture(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	fr := &fakeResolver{rf: &providers.ResolvedFlight{
+		OriginIATA: "LHR", DestIATA: "JFK", ICAO24: "abc123",
+	}}
+	p.Resolver = fr
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	icao := "abc123"
+	// 24h before departure: ActiveFlights still won't pick it up, but if
+	// the late-refresh window is mis-tuned we'd otherwise see calls here.
+	_, _ = s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident:        "PL10",
+		ScheduledOut: now.Add(24 * time.Hour),
+		ScheduledIn:  now.Add(30 * time.Hour),
+		OriginIATA:   "LHR", DestIATA: "JFK", ICAO24: icao,
+	}, uid)
+
+	p.tick(ctx)
+
+	if fr.calls != 0 {
+		t.Errorf("late-refresh should not fire for a flight a day out, got %d calls", fr.calls)
+	}
+}
+
+// Late refresh on a resolver error / not-found must still bump
+// last_resolved_at so we throttle the retry interval — otherwise an
+// unresolvable flight would burn a resolver call on every tick.
+func TestLateRefreshStampsEvenOnNotFound(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	p.Resolver = &fakeResolver{err: providers.ErrFlightNotFound}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident:        "ZZ404",
+		ScheduledOut: now.Add(-time.Hour),
+		ScheduledIn:  now.Add(time.Hour),
+		OriginIATA:   "LHR", DestIATA: "JFK",
+		ICAO24: "abc123",
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.LastResolvedAt == nil {
+		t.Error("last_resolved_at should be bumped even when the resolver returned not-found")
+	}
+	if got.ICAO24 == nil || *got.ICAO24 != "abc123" {
+		t.Errorf("not-found must NOT blank existing icao24: %v", got.ICAO24)
 	}
 }
 

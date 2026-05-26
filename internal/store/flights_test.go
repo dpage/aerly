@@ -385,6 +385,127 @@ func TestPositions(t *testing.T) {
 	if len(pf2) != 1 {
 		t.Errorf("PositionsForFlight limit not applied: %d", len(pf2))
 	}
+
+	any, err := s.LatestPosition(ctx, f.ID)
+	if err != nil || any == nil {
+		t.Fatalf("LatestPosition should return the newest row regardless of is_estimated: %v %v", any, err)
+	}
+	if any.Lat != 2 || !any.IsEstimated {
+		t.Errorf("LatestPosition expected estimated i=2 (lat=2), got %+v", any)
+	}
+}
+
+// BackfillFlight should populate callsign the same way it populates
+// icao24 — only when the column is currently NULL — and a refreshed row
+// must expose Callsign + LastResolvedAt through Flight.
+func TestBackfillFillsCallsign(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	f := mkFlight(t, s, "LH493", now, now.Add(time.Hour))
+	if err := s.BackfillFlight(ctx, f.ID, BackfillPayload{
+		ICAO24:   "3C4A8C",
+		Callsign: "DLH493",
+	}); err != nil {
+		t.Fatalf("BackfillFlight: %v", err)
+	}
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.ICAO24 == nil || *got.ICAO24 != "3c4a8c" {
+		t.Errorf("icao24 not backfilled: %v", got.ICAO24)
+	}
+	if got.Callsign == nil || *got.Callsign != "DLH493" {
+		t.Errorf("callsign not backfilled: %v", got.Callsign)
+	}
+	if got.LastResolvedAt != nil {
+		t.Errorf("BackfillFlight should NOT bump last_resolved_at (that's RefreshFlightAirframe's job); got %v", got.LastResolvedAt)
+	}
+}
+
+// Existing values must not be overwritten by BackfillFlight — same
+// "first-wins" semantics as the other backfilled columns.
+func TestBackfillCallsignPreservesExisting(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	f := mkFlight(t, s, "LH493", now, now.Add(time.Hour))
+	if err := s.BackfillFlight(ctx, f.ID, BackfillPayload{Callsign: "ORIGINAL"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := s.BackfillFlight(ctx, f.ID, BackfillPayload{Callsign: "REPLACED"}); err != nil {
+		t.Fatalf("BackfillFlight: %v", err)
+	}
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.Callsign == nil || *got.Callsign != "ORIGINAL" {
+		t.Errorf("callsign should not be overwritten by second backfill: %v", got.Callsign)
+	}
+}
+
+// RefreshFlightAirframe is the day-of refresh hook the poller calls when
+// it's close to departure: it OVERWRITES icao24 and callsign (unlike
+// BackfillFlight) so airframe swaps land in the DB, and it bumps
+// last_resolved_at unconditionally so the poller can throttle itself.
+func TestRefreshFlightAirframeOverwritesAndStamps(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	f := mkFlight(t, s, "LH493", now, now.Add(time.Hour))
+	// Seed: pretend the initial backfill set these from a far-out schedule.
+	if err := s.BackfillFlight(ctx, f.ID, BackfillPayload{
+		ICAO24: "3C4A8B", Callsign: "DLH493",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Day-of: AeroDataBox now reports a different airframe.
+	if err := s.RefreshFlightAirframe(ctx, f.ID, "3C4A8C", "DLH493"); err != nil {
+		t.Fatalf("RefreshFlightAirframe: %v", err)
+	}
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.ICAO24 == nil || *got.ICAO24 != "3c4a8c" {
+		t.Errorf("icao24 not overwritten: %v", got.ICAO24)
+	}
+	if got.Callsign == nil || *got.Callsign != "DLH493" {
+		t.Errorf("callsign = %v", got.Callsign)
+	}
+	if got.LastResolvedAt == nil {
+		t.Fatal("last_resolved_at should be set")
+	}
+	if time.Since(*got.LastResolvedAt) > 5*time.Second {
+		t.Errorf("last_resolved_at not bumped to NOW(): %v ago", time.Since(*got.LastResolvedAt))
+	}
+}
+
+// Empty inputs to RefreshFlightAirframe still bump last_resolved_at so the
+// poller doesn't thrash retrying a resolver that has nothing new to say,
+// but they must NOT blank out an existing icao24/callsign.
+func TestRefreshFlightAirframeEmptyValuesTouchOnly(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	f := mkFlight(t, s, "LH493", now, now.Add(time.Hour))
+	if err := s.BackfillFlight(ctx, f.ID, BackfillPayload{
+		ICAO24: "3C4A8B", Callsign: "DLH493",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := s.RefreshFlightAirframe(ctx, f.ID, "", ""); err != nil {
+		t.Fatalf("RefreshFlightAirframe: %v", err)
+	}
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.ICAO24 == nil || *got.ICAO24 != "3c4a8b" {
+		t.Errorf("empty icao24 should preserve existing: %v", got.ICAO24)
+	}
+	if got.Callsign == nil || *got.Callsign != "DLH493" {
+		t.Errorf("empty callsign should preserve existing: %v", got.Callsign)
+	}
+	if got.LastResolvedAt == nil {
+		t.Error("last_resolved_at should still be bumped even when nothing changed")
+	}
+}
+
+func TestLatestPositionNoRows(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	f := mkFlight(t, s, "LP1", now, now.Add(time.Hour))
+	got, err := s.LatestPosition(ctx, f.ID)
+	if err != nil || got != nil {
+		t.Errorf("no rows → (nil, nil); got %+v %v", got, err)
+	}
 }
 
 func TestShares(t *testing.T) {

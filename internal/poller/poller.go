@@ -81,14 +81,20 @@ func (p *Poller) tick(ctx context.Context) {
 }
 
 func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
-	// Opportunistic metadata backfill: when a Resolver is configured and the
-	// flight is missing airport / airframe data (typically because it was
-	// added manually with the full form), try to fetch it once. Only the
-	// empty fields are written, so user-typed values are never clobbered.
-	// The resolver's cache short-circuits subsequent attempts for a known-
-	// missing flight, so this can't burn quota on repeated polls.
-	if p.Resolver != nil && needsBackfill(f) {
-		if fresh, err := p.backfillMetadata(ctx, f); err == nil && fresh != nil {
+	// Resolver work, two overlapping triggers:
+	//   - needsBackfill: airports / airframe are blank (manual add, never
+	//     resolved), so we want to fill them in once.
+	//   - needsLateRefresh: the flight is close to departure (or enroute)
+	//     and last_resolved_at is stale. AeroDataBox only firms up the
+	//     operating airframe within ~24h of departure, and airlines swap
+	//     metal on the day; without this, we'd keep polling OpenSky for
+	//     the airframe that was scheduled at booking time, not the one
+	//     actually in the air.
+	// last_resolved_at is bumped on every resolve attempt — success,
+	// not-found, or transport error — so a doomed lookup doesn't burn
+	// quota on every tick.
+	if p.Resolver != nil && (needsBackfill(f) || needsLateRefresh(f, now)) {
+		if fresh, err := p.resolveAndUpdate(ctx, f, now); err == nil && fresh != nil {
 			f = fresh
 		}
 	}
@@ -141,30 +147,69 @@ func needsBackfill(f *store.Flight) bool {
 	return f.OriginIATA == "" || f.DestIATA == "" || f.ICAO24 == nil
 }
 
-// backfillMetadata calls the Resolver for the flight's ident + departure
-// date and writes whichever fields are currently empty. Returns the
-// refetched Flight on success so the caller can continue with up-to-date
-// state, or nil + error otherwise.
-func (p *Poller) backfillMetadata(ctx context.Context, f *store.Flight) (*store.Flight, error) {
+// lateRefreshWindow is how close to scheduled departure we start re-asking
+// the resolver about the operating airframe. AeroDataBox doesn't reliably
+// publish modeS / callSign until ~24h out, but airlines also swap metal
+// closer in than that, so the cheap thing is to keep poking from here.
+const lateRefreshWindow = 12 * time.Hour
+
+// lateRefreshInterval throttles how often we re-resolve while inside the
+// window — covers the "every tick for an enroute flight" case. AeroDataBox
+// BASIC tier allows a few hundred calls/day; one call per active flight
+// per ~4h is well under that.
+const lateRefreshInterval = 4 * time.Hour
+
+// needsLateRefresh is true when the flight is in (or close to) its active
+// window and we haven't asked the resolver recently. It complements
+// needsBackfill: backfill cares about *which fields are empty*, this
+// cares about *how stale the data is*.
+func needsLateRefresh(f *store.Flight, now time.Time) bool {
+	if now.Before(f.ScheduledOut.Add(-lateRefreshWindow)) {
+		return false
+	}
+	if f.Status == "Arrived" || f.Status == "Cancelled" || f.Status == "Diverted" {
+		return false
+	}
+	if f.LastResolvedAt == nil {
+		return true
+	}
+	return now.Sub(*f.LastResolvedAt) >= lateRefreshInterval
+}
+
+// resolveAndUpdate calls the Resolver and persists the result through both
+// the empty-fill path (BackfillFlight, which protects user-typed values)
+// and the day-of overwrite path (RefreshFlightAirframe, which catches
+// airframe swaps and bumps last_resolved_at). On error or not-found we
+// still bump last_resolved_at via an empty Refresh so the next tick
+// throttles instead of retrying immediately.
+func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time.Time) (*store.Flight, error) {
 	rf, err := p.Resolver.Resolve(ctx, f.Ident, f.ScheduledOut)
 	if err != nil {
 		if !errors.Is(err, providers.ErrFlightNotFound) {
-			slog.Warn("poller: backfill resolve failed",
+			slog.Warn("poller: resolve failed",
 				"ident", f.Ident, "id", f.ID, "err", err)
+		}
+		if touchErr := p.Store.RefreshFlightAirframe(ctx, f.ID, "", ""); touchErr != nil {
+			slog.Error("poller: stamp last_resolved_at failed", "id", f.ID, "err", touchErr)
 		}
 		return nil, err
 	}
 	if err := p.Store.BackfillFlight(ctx, f.ID, store.BackfillPayload{
 		OriginIATA: rf.OriginIATA, OriginLat: rf.OriginLat, OriginLon: rf.OriginLon,
 		DestIATA: rf.DestIATA, DestLat: rf.DestLat, DestLon: rf.DestLon,
-		ICAO24: rf.ICAO24,
-		Notes:  rf.Notes,
+		ICAO24: rf.ICAO24, Callsign: rf.Callsign,
+		Notes: rf.Notes,
 	}); err != nil {
 		slog.Error("poller: backfill write failed", "id", f.ID, "err", err)
 		return nil, err
 	}
-	slog.Info("poller: backfilled metadata",
+	if err := p.Store.RefreshFlightAirframe(ctx, f.ID, rf.ICAO24, rf.Callsign); err != nil {
+		slog.Error("poller: refresh airframe failed", "id", f.ID, "err", err)
+		return nil, err
+	}
+	slog.Info("poller: resolved",
 		"ident", f.Ident, "id", f.ID,
-		"origin", rf.OriginIATA, "dest", rf.DestIATA, "icao24", rf.ICAO24)
+		"origin", rf.OriginIATA, "dest", rf.DestIATA,
+		"icao24", rf.ICAO24, "callsign", rf.Callsign)
 	return p.Store.FlightByID(ctx, f.ID)
 }

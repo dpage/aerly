@@ -15,7 +15,8 @@ const flightColumns = `id, ident, scheduled_out, scheduled_in,
 	estimated_out, estimated_in, actual_out, actual_in,
 	origin_iata, origin_lat, origin_lon,
 	dest_iata, dest_lat, dest_lon,
-	status, icao24, last_polled_at, created_by, notes, is_public,
+	status, icao24, callsign, last_polled_at, last_resolved_at,
+	created_by, notes, is_public,
 	created_at, updated_at`
 
 func scanFlight(row pgx.Row) (*Flight, error) {
@@ -25,7 +26,8 @@ func scanFlight(row pgx.Row) (*Flight, error) {
 		&f.EstimatedOut, &f.EstimatedIn, &f.ActualOut, &f.ActualIn,
 		&f.OriginIATA, &f.OriginLat, &f.OriginLon,
 		&f.DestIATA, &f.DestLat, &f.DestLon,
-		&f.Status, &f.ICAO24, &f.LastPolledAt, &f.CreatedBy, &f.Notes, &f.IsPublic,
+		&f.Status, &f.ICAO24, &f.Callsign, &f.LastPolledAt, &f.LastResolvedAt,
+		&f.CreatedBy, &f.Notes, &f.IsPublic,
 		&f.CreatedAt, &f.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -242,6 +244,7 @@ type BackfillPayload struct {
 	DestLat    float64
 	DestLon    float64
 	ICAO24     string
+	Callsign   string
 	Notes      string
 }
 
@@ -251,6 +254,7 @@ type BackfillPayload struct {
 // metadata backfill — see (*Poller).backfillMetadata.
 func (s *Store) BackfillFlight(ctx context.Context, id int64, in BackfillPayload) error {
 	icao24 := strings.ToLower(strings.TrimSpace(in.ICAO24))
+	callsign := strings.ToUpper(strings.TrimSpace(in.Callsign))
 	var originLat, originLon, destLat, destLon *float64
 	if in.OriginLat != 0 || in.OriginLon != 0 {
 		originLat, originLon = &in.OriginLat, &in.OriginLon
@@ -267,13 +271,34 @@ func (s *Store) BackfillFlight(ctx context.Context, id int64, in BackfillPayload
 			dest_lat    = COALESCE(dest_lat, $6),
 			dest_lon    = COALESCE(dest_lon, $7),
 			icao24      = COALESCE(icao24, NULLIF($8, '')),
+			callsign    = COALESCE(callsign, NULLIF($10, '')),
 			notes       = CASE WHEN notes = '' AND $9 <> '' THEN $9 ELSE notes END,
 			updated_at  = NOW()
 		WHERE id = $1`,
 		id,
 		strings.ToUpper(in.OriginIATA), originLat, originLon,
 		strings.ToUpper(in.DestIATA), destLat, destLon,
-		icao24, in.Notes)
+		icao24, in.Notes, callsign)
+	return err
+}
+
+// RefreshFlightAirframe is the day-of counterpart to BackfillFlight: it
+// always bumps last_resolved_at (so the poller can throttle re-resolves),
+// and overwrites icao24 / callsign when the supplied values are non-empty.
+// An empty input preserves the existing column rather than blanking it —
+// resolvers can legitimately omit the airframe (far-future schedules,
+// transient outages) and we'd rather keep stale-but-plausible data than
+// lose it.
+func (s *Store) RefreshFlightAirframe(ctx context.Context, id int64, icao24, callsign string) error {
+	icao24 = strings.ToLower(strings.TrimSpace(icao24))
+	callsign = strings.ToUpper(strings.TrimSpace(callsign))
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flights SET
+			icao24           = COALESCE(NULLIF($2, ''), icao24),
+			callsign         = COALESCE(NULLIF($3, ''), callsign),
+			last_resolved_at = NOW(),
+			updated_at       = NOW()
+		WHERE id = $1`, id, icao24, callsign)
 	return err
 }
 
@@ -581,6 +606,28 @@ func (s *Store) RecentTracks(ctx context.Context, flightIDs []int64, perFlight i
 		out[p.FlightID] = append(out[p.FlightID], &p)
 	}
 	return out, rows.Err()
+}
+
+// LatestPosition returns the most recent position for a single flight,
+// regardless of whether it's real or dead-reckoned. Returns (nil, nil) when
+// the flight has no positions yet.
+func (s *Store) LatestPosition(ctx context.Context, flightID int64) (*Position, error) {
+	var p Position
+	err := s.pool.QueryRow(ctx, `
+		SELECT flight_id, ts, lat, lon, altitude_ft, groundspeed_kt, heading_deg, is_estimated
+		FROM positions
+		WHERE flight_id = $1
+		ORDER BY ts DESC
+		LIMIT 1`, flightID,
+	).Scan(&p.FlightID, &p.Ts, &p.Lat, &p.Lon,
+		&p.AltitudeFt, &p.GroundspeedKt, &p.HeadingDeg, &p.IsEstimated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil //nolint:nilnil // genuine "no data yet"
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 // LatestPositions returns the latest position per flight for the given IDs.

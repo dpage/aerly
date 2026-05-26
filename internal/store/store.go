@@ -45,9 +45,17 @@ type Flight struct {
 	DestLon      *float64
 	Status       string
 	ICAO24       *string
+	// Callsign is the ICAO radio identifier (e.g. "DLH493") used by the
+	// aircraft's transponder. Populated by the resolver alongside ICAO24
+	// once an airframe has been assigned to the leg; NULL until then.
+	Callsign     *string
 	LastPolledAt *time.Time
-	CreatedBy    *int64
-	Notes        string
+	// LastResolvedAt records the most recent successful or attempted
+	// resolver call for this flight. The poller uses it to throttle
+	// late-refresh attempts so we don't hammer AeroDataBox every tick.
+	LastResolvedAt *time.Time
+	CreatedBy      *int64
+	Notes          string
 	// IsPublic makes the flight visible to every authenticated user,
 	// independent of the creator / passenger / share-list membership.
 	IsPublic  bool

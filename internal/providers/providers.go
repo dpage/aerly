@@ -59,6 +59,7 @@ type ResolvedFlight struct {
 	DestLat      float64
 	DestLon      float64
 	ICAO24       string // 24-bit Mode-S hex address (lowercase) when known
+	Callsign     string // ICAO radio callsign (e.g. "DLH493"); empty when not yet assigned
 	Notes        string // free-text summary — typically airline + aircraft model
 }
 

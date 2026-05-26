@@ -194,6 +194,26 @@ func TestAeroDataBoxPicksOperatorAndBuilds(t *testing.T) {
 // We must surface that as ErrFlightUnscheduled, not let zero times reach
 // the store (where they trigger the cryptic "scheduled_out and
 // scheduled_in required" error).
+// AeroDataBox returns the ICAO radio callsign as `callSign` (e.g. "DLH493"
+// for Lufthansa LH493). The resolver should pass it through, trimming
+// whitespace; far-future flights return without a callSign and that's fine.
+func TestAeroDataBoxCarriesCallsign(t *testing.T) {
+	body := `[{"number":"LH 493","codeshareStatus":"IsOperator","callSign":" DLH493 ",
+	  "departure":{"airport":{"iata":"YVR"},"scheduledTime":{"utc":"2026-05-25 23:15Z"}},
+	  "arrival":{"airport":{"iata":"FRA"},"scheduledTime":{"utc":"2026-05-26T09:00Z"}},
+	  "aircraft":{"modeS":"3C4A8C","model":"Boeing 747"}}]`
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	rf, err := a.Resolve(context.Background(), "LH493", time.Now())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if rf.Callsign != "DLH493" {
+		t.Errorf("callsign = %q, want DLH493 (trimmed)", rf.Callsign)
+	}
+}
+
 func TestAeroDataBoxFlightWithoutSchedule(t *testing.T) {
 	body := `[{"number":"EZY2824","codeshareStatus":"IsOperator",
 	  "departure":{"airport":{"iata":"BRS"}},
