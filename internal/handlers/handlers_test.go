@@ -754,6 +754,54 @@ func TestCreateFlight_UnknownDestBackfilledFromResolver(t *testing.T) {
 	}
 }
 
+func TestUpdateFlight_UnknownDestBackfilledFromResolver(t *testing.T) {
+	cfg := &config.Config{AeroDataBoxKey: "k"}
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident:      "BA286",
+		OriginIATA: "LHR", OriginLat: 51.4775, OriginLon: -0.4614,
+		DestIATA: "ZZZ", DestLat: 12.3456, DestLon: -34.5678,
+	}}
+	e := setup(t, resolver, cfg)
+	uid := e.user(t, "pilot", false)
+	now := time.Now()
+
+	// Seed with both IATAs known so the create path does NOT call the
+	// resolver — that way the call count assertion below is unambiguous.
+	body := map[string]any{
+		"ident":         "BA286",
+		"scheduled_out": now.Add(-time.Hour),
+		"scheduled_in":  now.Add(time.Hour),
+		"origin_iata":   "LHR",
+		"dest_iata":     "JFK",
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("seed create = %d %s", w.Code, w.Body.String())
+	}
+	created := decodeBody[map[string]any](t, w)
+	fid := int64(created["id"].(float64))
+	if resolver.calls != 0 {
+		t.Fatalf("seed should not have called resolver (both IATAs known): calls=%d", resolver.calls)
+	}
+
+	// Patch the destination to something unknown.
+	patch := map[string]any{"dest_iata": "ZZZ"}
+	w = e.req(t, "PATCH", fmt.Sprintf("/api/flights/%d", fid), patch, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update = %d %s", w.Code, w.Body.String())
+	}
+	if resolver.calls != 1 {
+		t.Errorf("resolver calls after update = %d, want 1", resolver.calls)
+	}
+	got := decodeBody[map[string]any](t, w)
+	if got["dest_lat"] == nil {
+		t.Fatalf("dest_lat should be populated from resolver after update; got %v", got)
+	}
+	if dl := got["dest_lat"].(float64); dl != 12.3456 {
+		t.Errorf("dest_lat = %v, want 12.3456", dl)
+	}
+}
+
 func TestWriteHelpers(t *testing.T) {
 	w := httptest.NewRecorder()
 	writeJSON(w, http.StatusTeapot, map[string]int{"a": 1})

@@ -181,12 +181,19 @@ func (s *Store) UpdateFlight(ctx context.Context, id int64, in UpdateFlightPaylo
 	originIATA := upperPtr(in.OriginIATA)
 	destIATA := upperPtr(in.DestIATA)
 	// When an IATA changes, re-resolve coordinates from the airport table.
-	// nil-pointers leave the existing values untouched via COALESCE.
+	// nil-pointers mean the caller didn't supply that leg, so leave the
+	// existing value untouched via CASE. When an IATA IS supplied but isn't
+	// in the embedded table, lookupCoords returns nil/nil — we want to write
+	// NULL to the coord columns so the handler's backfillCoordsIfNeeded
+	// helper can detect the gap and fetch them from the Resolver. Using
+	// COALESCE here would silently preserve stale coords from a prior IATA.
 	var originLat, originLon, destLat, destLon *float64
-	if originIATA != nil {
+	originIATASupplied := originIATA != nil
+	destIATASupplied := destIATA != nil
+	if originIATASupplied {
 		originLat, originLon = lookupCoords(*originIATA)
 	}
-	if destIATA != nil {
+	if destIATASupplied {
 		destLat, destLon = lookupCoords(*destIATA)
 	}
 	// When the caller does NOT supply a status, derive it from the (possibly
@@ -206,11 +213,11 @@ func (s *Store) UpdateFlight(ctx context.Context, id int64, in UpdateFlightPaylo
 			scheduled_out = COALESCE($2, scheduled_out),
 			scheduled_in  = COALESCE($3, scheduled_in),
 			origin_iata   = COALESCE($4, origin_iata),
-			origin_lat    = COALESCE($5, origin_lat),
-			origin_lon    = COALESCE($6, origin_lon),
+			origin_lat    = CASE WHEN $15::boolean THEN $5 ELSE origin_lat END,
+			origin_lon    = CASE WHEN $15::boolean THEN $6 ELSE origin_lon END,
 			dest_iata     = COALESCE($7, dest_iata),
-			dest_lat      = COALESCE($8, dest_lat),
-			dest_lon      = COALESCE($9, dest_lon),
+			dest_lat      = CASE WHEN $16::boolean THEN $8 ELSE dest_lat END,
+			dest_lon      = CASE WHEN $16::boolean THEN $9 ELSE dest_lon END,
 			icao24        = CASE WHEN $12::boolean THEN $13 ELSE icao24 END,
 			notes         = COALESCE($10, notes),
 			is_public     = COALESCE($14, is_public),
@@ -228,7 +235,8 @@ func (s *Store) UpdateFlight(ctx context.Context, id int64, in UpdateFlightPaylo
 		destIATA, destLat, destLon,
 		in.Notes, in.Status,
 		in.ICAO24 != nil, icao24Arg,
-		in.IsPublic))
+		in.IsPublic,
+		originIATASupplied, destIATASupplied))
 }
 
 // BackfillPayload carries optional resolver-supplied metadata for a flight

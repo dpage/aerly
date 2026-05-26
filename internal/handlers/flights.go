@@ -185,6 +185,7 @@ func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	f = a.backfillCoordsIfNeeded(r.Context(), f)
 	passengers, _ := a.Store.PassengersByFlight(r.Context(), []int64{id})
 	shares, _ := a.Store.SharedUserIDsByFlight(r.Context(), []int64{id})
 	latest, _ := a.Store.LatestPositions(r.Context(), []int64{id})
@@ -454,7 +455,7 @@ func needsCoordBackfill(f *store.Flight) bool {
 // a.Resolver and writes any coords / airframe / notes the resolver
 // returned through Store.BackfillFlight, which only fills empty columns
 // so user-typed values survive. On any error the row stays as-is and we
-// return f unchanged — the create request still succeeds, just with a
+// return f unchanged — the create or update request still succeeds, just with a
 // "no map" pill until the poller catches up later. Mirrors the path the
 // poller uses at poller.resolveAndUpdate.
 func (a *API) backfillCoordsIfNeeded(ctx context.Context, f *store.Flight) *store.Flight {
