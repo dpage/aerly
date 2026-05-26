@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -86,6 +87,132 @@ func TestSweep_NoNullRowsIsNoOp(t *testing.T) {
 		t.Errorf("no-op sweep should not publish; got %s", e.Type)
 	case <-time.After(100 * time.Millisecond):
 		// good — no event.
+	}
+}
+
+func TestSweep_ResolverFillsUnknownIATA(t *testing.T) {
+	p, s, hub := newPoller(t, &mockTracker{}, time.Minute)
+	// Resolver returns SID coords; sweep should pick them up.
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident:      "EZY2823",
+		OriginIATA: "BRS", OriginLat: 51.3827, OriginLon: -2.7191,
+		DestIATA: "ZZZ", DestLat: 12.3456, DestLon: -34.5678,
+	}}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "ZZZ", // dest not in table
+	}, uid)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	events, unsub := hub.Subscribe(sse.Subscription{ViewerID: uid, IsSuperuser: true, ShowAll: true})
+	defer unsub()
+
+	p.Sweep(ctx)
+
+	got, err := s.FlightByID(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("refetch: %v", err)
+	}
+	if resolver.calls != 1 {
+		t.Errorf("resolver.calls = %d, want 1", resolver.calls)
+	}
+	if got.DestLat == nil || *got.DestLat != 12.3456 {
+		t.Errorf("dest_lat = %v, want 12.3456 (resolver-supplied)", got.DestLat)
+	}
+	if got.LastResolvedAt == nil {
+		t.Errorf("last_resolved_at should be bumped after resolver call")
+	}
+	select {
+	case <-events:
+		// good
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("expected SSE event")
+	}
+}
+
+func TestSweep_ResolverNotFoundLeavesNull(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	resolver := &fakeResolver{err: providers.ErrFlightNotFound}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "XX9999", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "ZZZ",
+	}, uid)
+
+	p.Sweep(ctx)
+
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.DestLat != nil {
+		t.Errorf("dest_lat should remain NULL on resolver-not-found; got %v", got.DestLat)
+	}
+	if resolver.calls != 1 {
+		t.Errorf("resolver.calls = %d, want 1", resolver.calls)
+	}
+	if got.LastResolvedAt == nil {
+		t.Errorf("last_resolved_at should be bumped even on not-found")
+	}
+}
+
+func TestSweep_ThrottleHoldsRecentRow(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "EZY2823", OriginIATA: "BRS", DestIATA: "ZZZ",
+		DestLat: 12.3456, DestLon: -34.5678,
+	}}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "ZZZ",
+	}, uid)
+
+	// Stamp last_resolved_at to "right now" so the throttle blocks the
+	// resolver call on the next sweep. RefreshFlightAirframe with empty
+	// strings bumps the timestamp without touching airframe columns.
+	if err := s.RefreshFlightAirframe(ctx, f.ID, "", ""); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+
+	p.Sweep(ctx)
+
+	got, _ := s.FlightByID(ctx, f.ID)
+	if resolver.calls != 0 {
+		t.Errorf("resolver should not have been called (throttled); calls = %d", resolver.calls)
+	}
+	if got.DestLat != nil {
+		t.Errorf("dest_lat should remain NULL (resolver throttled); got %v", got.DestLat)
+	}
+}
+
+func TestSweep_NoResolverConfiguredTableOnly(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p.Resolver = nil // explicit
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "ZZZ",
+	}, uid)
+
+	// Should not panic even with no resolver. Dest remains NULL (table
+	// doesn't know ZZZ, resolver path skipped).
+	p.Sweep(ctx)
+
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.DestLat != nil {
+		t.Errorf("dest_lat should remain NULL with no resolver and unknown IATA; got %v", got.DestLat)
 	}
 }
 

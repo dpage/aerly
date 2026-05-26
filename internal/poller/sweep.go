@@ -48,25 +48,57 @@ func (p *Poller) Sweep(ctx context.Context) {
 	}
 }
 
-// sweepOne runs the table + (later) resolver passes for a single flight
-// row. Extracted so a failure on one row doesn't unwind the whole loop.
-// The now parameter is unused in this commit; it's reserved for the
-// upcoming resolver throttle check that compares against f.LastResolvedAt.
+// sweepOne runs the table + resolver passes for a single flight row.
+// Extracted so a failure on one row doesn't unwind the whole loop.
+// The now parameter feeds the resolver throttle: a recent
+// last_resolved_at suppresses repeat API calls for rows that the
+// resolver couldn't satisfy last time.
 func (p *Poller) sweepOne(ctx context.Context, f *store.Flight, now time.Time) {
 	var update store.BackfillPayload
 	changed := false
+	stillMissing := false
 
 	// Table fast path.
 	if f.OriginLat == nil && f.OriginIATA != "" {
 		if lat, lon, ok := airports.Lookup(f.OriginIATA); ok {
 			update.OriginIATA, update.OriginLat, update.OriginLon = f.OriginIATA, lat, lon
 			changed = true
+		} else {
+			stillMissing = true
 		}
 	}
 	if f.DestLat == nil && f.DestIATA != "" {
 		if lat, lon, ok := airports.Lookup(f.DestIATA); ok {
 			update.DestIATA, update.DestLat, update.DestLon = f.DestIATA, lat, lon
 			changed = true
+		} else {
+			stillMissing = true
+		}
+	}
+
+	// Resolver slow path — only when something the table can't satisfy
+	// remains, a resolver is configured, and the throttle allows it.
+	if stillMissing && p.Resolver != nil && throttleAllowed(f, now) {
+		rf, rerr := p.Resolver.Resolve(ctx, f.Ident, f.ScheduledOut)
+		if rerr == nil {
+			update.OriginIATA, update.DestIATA = rf.OriginIATA, rf.DestIATA
+			update.OriginLat, update.OriginLon = rf.OriginLat, rf.OriginLon
+			update.DestLat, update.DestLon = rf.DestLat, rf.DestLon
+			update.ICAO24, update.Callsign = rf.ICAO24, rf.Callsign
+			update.Notes = rf.Notes
+			changed = true
+		} else {
+			slog.Warn("sweep: resolve failed", "ident", f.Ident, "id", f.ID, "err", rerr)
+		}
+		// Always bump last_resolved_at so unreachable flights don't burn
+		// API quota on every sweep tick. On error we still want the
+		// throttle — empty strings here mean "don't overwrite airframe".
+		icao24, callsign := "", ""
+		if rerr == nil {
+			icao24, callsign = rf.ICAO24, rf.Callsign
+		}
+		if terr := p.Store.RefreshFlightAirframe(ctx, f.ID, icao24, callsign); terr != nil {
+			slog.Error("sweep: bump last_resolved_at", "id", f.ID, "err", terr)
 		}
 	}
 
@@ -78,6 +110,16 @@ func (p *Poller) sweepOne(ctx context.Context, f *store.Flight, now time.Time) {
 		return
 	}
 	p.publishFlightChange(ctx, f.ID)
+}
+
+// throttleAllowed reports whether enough time has passed since the last
+// resolver attempt for this flight to merit another one. nil means the
+// row has never been resolved, so the answer is yes.
+func throttleAllowed(f *store.Flight, now time.Time) bool {
+	if f.LastResolvedAt == nil {
+		return true
+	}
+	return now.Sub(*f.LastResolvedAt) >= sweepInterval
 }
 
 // publishFlightChange rebuilds the full FlightDTO for a row that just
