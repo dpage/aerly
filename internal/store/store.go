@@ -15,6 +15,11 @@ func New(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+// Pool returns the underlying connection pool. Intended for cross-package
+// test setup that needs direct SQL access — production code should use
+// the typed query methods on *Store instead.
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
+
 type User struct {
 	ID          int64
 	GitHubID    *int64
