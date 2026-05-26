@@ -27,13 +27,13 @@ var sessKey = []byte("handlers-test-session-key-32chars!!")
 type fakeResolver struct {
 	rf  *providers.ResolvedFlight
 	err error
-	// Calls counts how many times Resolve was invoked. Tests assert on
-	// this to verify the known-IATA fast path doesn't hit the resolver.
-	Calls int
+	// calls is incremented on every Resolve invocation so tests can
+	// assert the known-IATA fast path bypasses the resolver entirely.
+	calls int
 }
 
 func (f *fakeResolver) Resolve(context.Context, string, time.Time) (*providers.ResolvedFlight, error) {
-	f.Calls++
+	f.calls++
 	return f.rf, f.err
 }
 
