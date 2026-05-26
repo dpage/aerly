@@ -27,9 +27,13 @@ var sessKey = []byte("handlers-test-session-key-32chars!!")
 type fakeResolver struct {
 	rf  *providers.ResolvedFlight
 	err error
+	// Calls counts how many times Resolve was invoked. Tests assert on
+	// this to verify the known-IATA fast path doesn't hit the resolver.
+	Calls int
 }
 
-func (f fakeResolver) Resolve(context.Context, string, time.Time) (*providers.ResolvedFlight, error) {
+func (f *fakeResolver) Resolve(context.Context, string, time.Time) (*providers.ResolvedFlight, error) {
+	f.Calls++
 	return f.rf, f.err
 }
 
@@ -107,7 +111,7 @@ func TestRequiresAuth(t *testing.T) {
 
 func TestGetMeAndConfig(t *testing.T) {
 	cfg := &config.Config{AeroDataBoxKey: "k"} // ResolverAvailable → true
-	e := setup(t, fakeResolver{}, cfg)
+	e := setup(t, &fakeResolver{}, cfg)
 	uid := e.user(t, "me", false)
 
 	w := e.req(t, "GET", "/api/me", nil, uid)
@@ -433,7 +437,7 @@ func TestResolveFlight(t *testing.T) {
 		Ident: "BA286", OriginIATA: "LHR", DestIATA: "SFO",
 		ScheduledOut: time.Now(), ScheduledIn: time.Now().Add(11 * time.Hour),
 	}
-	e2 := setup(t, fakeResolver{rf: rf}, nil)
+	e2 := setup(t, &fakeResolver{rf: rf}, nil)
 	u2 := e2.user(t, "u2", false)
 
 	if w := e2.req(t, "POST", "/api/flights/resolve", "??", u2); w.Code != 400 {
@@ -451,7 +455,7 @@ func TestResolveFlight(t *testing.T) {
 	}
 
 	// Resolver returns an error → 422.
-	e3 := setup(t, fakeResolver{err: errors.New("not found upstream")}, nil)
+	e3 := setup(t, &fakeResolver{err: errors.New("not found upstream")}, nil)
 	u3 := e3.user(t, "u3", false)
 	if w := e3.req(t, "POST", "/api/flights/resolve", map[string]any{"ident": "ZZ9", "date": "2026-05-19"}, u3); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("resolver error = %d, want 422", w.Code)
