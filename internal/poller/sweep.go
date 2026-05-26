@@ -56,7 +56,7 @@ func (p *Poller) Sweep(ctx context.Context) {
 func (p *Poller) sweepOne(ctx context.Context, f *store.Flight, now time.Time) {
 	var update store.BackfillPayload
 	changed := false
-	stillMissing := false
+	var originNeedsResolver, destNeedsResolver bool
 
 	// Table fast path.
 	if f.OriginLat == nil && f.OriginIATA != "" {
@@ -64,7 +64,7 @@ func (p *Poller) sweepOne(ctx context.Context, f *store.Flight, now time.Time) {
 			update.OriginIATA, update.OriginLat, update.OriginLon = f.OriginIATA, lat, lon
 			changed = true
 		} else {
-			stillMissing = true
+			originNeedsResolver = true
 		}
 	}
 	if f.DestLat == nil && f.DestIATA != "" {
@@ -72,18 +72,31 @@ func (p *Poller) sweepOne(ctx context.Context, f *store.Flight, now time.Time) {
 			update.DestIATA, update.DestLat, update.DestLon = f.DestIATA, lat, lon
 			changed = true
 		} else {
-			stillMissing = true
+			destNeedsResolver = true
 		}
 	}
 
 	// Resolver slow path — only when something the table can't satisfy
 	// remains, a resolver is configured, and the throttle allows it.
-	if stillMissing && p.Resolver != nil && throttleAllowed(f, now) {
+	if (originNeedsResolver || destNeedsResolver) && p.Resolver != nil && throttleAllowed(f, now) {
 		rf, rerr := p.Resolver.Resolve(ctx, f.Ident, f.ScheduledOut)
 		if rerr == nil {
-			update.OriginIATA, update.DestIATA = rf.OriginIATA, rf.DestIATA
-			update.OriginLat, update.OriginLon = rf.OriginLat, rf.OriginLon
-			update.DestLat, update.DestLon = rf.DestLat, rf.DestLon
+			// Merge only the legs the table couldn't fill. The
+			// table-derived coord on a satisfied leg must NOT be
+			// clobbered — BackfillFlight's "only fill empty columns"
+			// rule is enforced at the DB layer, but it also short-
+			// circuits the write entirely if BOTH lat and lon for a
+			// leg are zero in the payload. If the resolver returns
+			// zero coords for a table-known leg we'd lose the table
+			// value entirely.
+			if originNeedsResolver {
+				update.OriginIATA = rf.OriginIATA
+				update.OriginLat, update.OriginLon = rf.OriginLat, rf.OriginLon
+			}
+			if destNeedsResolver {
+				update.DestIATA = rf.DestIATA
+				update.DestLat, update.DestLon = rf.DestLat, rf.DestLon
+			}
 			update.ICAO24, update.Callsign = rf.ICAO24, rf.Callsign
 			update.Notes = rf.Notes
 			changed = true

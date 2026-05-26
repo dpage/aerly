@@ -277,6 +277,49 @@ func TestSweep_MixedBatchPerRowIsolation(t *testing.T) {
 	}
 }
 
+func TestSweep_PartiallyUnknownPreservesTableFilledLeg(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	// Resolver returns DELIBERATELY-WRONG origin coords (99.0) — if the
+	// merge clobbered the table-derived BRS value (51.3827), we'd see
+	// 99.0 in the result. The fix must skip overwriting the leg that
+	// the table already satisfied.
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident:      "EZY2823",
+		OriginIATA: "BRS", OriginLat: 99.0, OriginLon: 99.0,
+		DestIATA: "ZZZ", DestLat: 12.3456, DestLon: -34.5678,
+	}}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Seed with origin=BRS (in table) and dest=ZZZ (not in table). The
+	// create-time helper fills origin coords, dest stays NULL.
+	f, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "ZZZ",
+	}, uid)
+	// Wipe origin coords too so the sweep's table pass has to refill
+	// them — this exercises the "table fills one leg, resolver fills
+	// the other" code path.
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flights SET origin_lat = NULL, origin_lon = NULL WHERE id = $1`, f.ID); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	p.Sweep(ctx)
+
+	got, _ := s.FlightByID(ctx, f.ID)
+	if got.OriginLat == nil {
+		t.Fatalf("origin_lat should be table-filled (51.3827), got nil")
+	}
+	if *got.OriginLat != 51.3827 {
+		t.Errorf("origin_lat = %v, want 51.3827 (BRS table value, NOT resolver's 99.0)", *got.OriginLat)
+	}
+	if got.DestLat == nil || *got.DestLat != 12.3456 {
+		t.Errorf("dest_lat = %v, want 12.3456 (resolver-supplied)", got.DestLat)
+	}
+}
+
 // resolveByIdent is a Resolver double that only returns success for one
 // specific ident. Used by the mixed-batch test.
 type resolveByIdent struct {
