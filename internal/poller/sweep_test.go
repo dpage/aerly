@@ -216,3 +216,81 @@ func TestSweep_NoResolverConfiguredTableOnly(t *testing.T) {
 	}
 }
 
+func TestSweep_MixedBatchPerRowIsolation(t *testing.T) {
+	p, s, hub := newPoller(t, &mockTracker{}, time.Minute)
+	// Resolver returns coords ONLY for ident "RESOLVE-ME"; everything
+	// else gets ErrFlightNotFound. This lets one row depend on the
+	// table, one on the resolver, and one on neither.
+	resolver := &resolveByIdent{
+		match: "RESOLVE-ME",
+		rf: &providers.ResolvedFlight{
+			Ident: "RESOLVE-ME", OriginIATA: "BRS", OriginLat: 51.3827, OriginLon: -2.7191,
+			DestIATA: "ZZZ", DestLat: 12.3456, DestLon: -34.5678,
+		},
+	}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+
+	// (a) Table-fillable: BRS → SID (both in table); seeded with
+	// dest_lat NULL via direct SQL to simulate the "deploy added SID"
+	// case.
+	a, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "TABLE-ME", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "SID",
+	}, uid)
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flights SET dest_lat = NULL, dest_lon = NULL WHERE id = $1`, a.ID); err != nil {
+		t.Fatalf("setup a: %v", err)
+	}
+
+	// (b) Resolver-fillable: ident matches the fake resolver's match.
+	b, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "RESOLVE-ME", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "ZZZ",
+	}, uid)
+
+	// (c) Unfillable: ident the resolver returns ErrFlightNotFound for,
+	// dest IATA not in the table.
+	c, _ := s.CreateFlight(ctx, store.CreateFlightPayload{
+		Ident: "UNFILL-ME", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "QQQ",
+	}, uid)
+
+	_, unsub := hub.Subscribe(sse.Subscription{ViewerID: uid, IsSuperuser: true, ShowAll: true})
+	defer unsub()
+
+	p.Sweep(ctx)
+
+	gotA, _ := s.FlightByID(ctx, a.ID)
+	if gotA.DestLat == nil || *gotA.DestLat != 16.7414 {
+		t.Errorf("table-fillable row: dest_lat = %v, want 16.7414", gotA.DestLat)
+	}
+	gotB, _ := s.FlightByID(ctx, b.ID)
+	if gotB.DestLat == nil || *gotB.DestLat != 12.3456 {
+		t.Errorf("resolver-fillable row: dest_lat = %v, want 12.3456", gotB.DestLat)
+	}
+	gotC, _ := s.FlightByID(ctx, c.ID)
+	if gotC.DestLat != nil {
+		t.Errorf("unfillable row: dest_lat = %v, want nil", gotC.DestLat)
+	}
+}
+
+// resolveByIdent is a Resolver double that only returns success for one
+// specific ident. Used by the mixed-batch test.
+type resolveByIdent struct {
+	match string
+	rf    *providers.ResolvedFlight
+	calls int
+}
+
+func (r *resolveByIdent) Resolve(_ context.Context, ident string, _ time.Time) (*providers.ResolvedFlight, error) {
+	r.calls++
+	if ident == r.match {
+		c := *r.rf
+		return &c, nil
+	}
+	return nil, providers.ErrFlightNotFound
+}
+
