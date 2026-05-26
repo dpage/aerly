@@ -820,3 +820,139 @@ func TestWriteHelpers(t *testing.T) {
 		t.Errorf("generic err → %d, want 500", w.Code)
 	}
 }
+
+func TestCreateFlight_KnownIATAsBypassResolver(t *testing.T) {
+	cfg := &config.Config{AeroDataBoxKey: "k"}
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
+		// Deliberately wrong — if the helper runs we'd notice via wrong
+		// coord values. But it shouldn't run at all, so calls == 0.
+		DestIATA: "JFK", DestLat: 999, DestLon: 999,
+	}}
+	e := setup(t, resolver, cfg)
+	uid := e.user(t, "pilot", false)
+	now := time.Now()
+
+	body := map[string]any{
+		"ident":         "BA286",
+		"scheduled_out": now.Add(-time.Hour),
+		"scheduled_in":  now.Add(time.Hour),
+		"origin_iata":   "LHR", "dest_iata": "JFK",
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", w.Code, w.Body.String())
+	}
+	if resolver.calls != 0 {
+		t.Errorf("known-IATA create should not call resolver; calls = %d", resolver.calls)
+	}
+}
+
+func TestCreateFlight_ResolverNotFoundLeavesNullCoords(t *testing.T) {
+	cfg := &config.Config{AeroDataBoxKey: "k"}
+	resolver := &fakeResolver{err: providers.ErrFlightNotFound}
+	e := setup(t, resolver, cfg)
+	uid := e.user(t, "pilot", false)
+	now := time.Now()
+
+	body := map[string]any{
+		"ident":         "XX0000",
+		"scheduled_out": now.Add(-time.Hour),
+		"scheduled_in":  now.Add(time.Hour),
+		"origin_iata":   "LHR", "dest_iata": "ZZZ",
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", w.Code, w.Body.String())
+	}
+	if resolver.calls != 1 {
+		t.Errorf("resolver should have been called once; calls = %d", resolver.calls)
+	}
+	got := decodeBody[map[string]any](t, w)
+	if got["dest_lat"] != nil {
+		t.Errorf("dest_lat should remain null when resolver returns not-found; got %v", got["dest_lat"])
+	}
+}
+
+func TestCreateFlight_ResolverTransportErrorLeavesNullCoords(t *testing.T) {
+	cfg := &config.Config{AeroDataBoxKey: "k"}
+	resolver := &fakeResolver{err: errors.New("rapidapi: 502 bad gateway")}
+	e := setup(t, resolver, cfg)
+	uid := e.user(t, "pilot", false)
+	now := time.Now()
+
+	body := map[string]any{
+		"ident":         "BA286",
+		"scheduled_out": now.Add(-time.Hour),
+		"scheduled_in":  now.Add(time.Hour),
+		"origin_iata":   "LHR", "dest_iata": "ZZZ",
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", w.Code, w.Body.String())
+	}
+	got := decodeBody[map[string]any](t, w)
+	if got["dest_lat"] != nil {
+		t.Errorf("dest_lat should remain null on transport error; got %v", got["dest_lat"])
+	}
+}
+
+func TestCreateFlight_NoResolverLeavesNullCoords(t *testing.T) {
+	// nil resolver — caller has not configured AeroDataBox at all.
+	e := setup(t, nil, nil)
+	uid := e.user(t, "pilot", false)
+	now := time.Now()
+
+	body := map[string]any{
+		"ident":         "BA286",
+		"scheduled_out": now.Add(-time.Hour),
+		"scheduled_in":  now.Add(time.Hour),
+		"origin_iata":   "LHR", "dest_iata": "ZZZ",
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", w.Code, w.Body.String())
+	}
+	got := decodeBody[map[string]any](t, w)
+	if got["dest_lat"] != nil {
+		t.Errorf("dest_lat should remain null with no resolver; got %v", got["dest_lat"])
+	}
+}
+
+func TestUpdateFlight_BothLegsUnknownToKnownSkipsResolver(t *testing.T) {
+	cfg := &config.Config{AeroDataBoxKey: "k"}
+	// Seed with both IATAs unknown so the create call uses the resolver
+	// once. After that we PATCH both legs to known IATAs (LHR/JFK) — the
+	// store's lookupCoords fills the row during UPDATE, needsCoordBackfill
+	// returns false on the post-update row, and the helper must not run.
+	resolver := &fakeResolver{err: providers.ErrFlightNotFound}
+	e := setup(t, resolver, cfg)
+	uid := e.user(t, "pilot", false)
+	now := time.Now()
+
+	seed := map[string]any{
+		"ident":         "BA286",
+		"scheduled_out": now.Add(-time.Hour),
+		"scheduled_in":  now.Add(time.Hour),
+		"origin_iata":   "QQQ", "dest_iata": "ZZZ",
+	}
+	w := e.req(t, "POST", "/api/flights", seed, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("seed = %d %s", w.Code, w.Body.String())
+	}
+	fid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
+	priorCalls := resolver.calls // 1 (the create-time fallback fired and returned not-found)
+
+	patch := map[string]any{"origin_iata": "LHR", "dest_iata": "JFK"}
+	w = e.req(t, "PATCH", fmt.Sprintf("/api/flights/%d", fid), patch, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update = %d %s", w.Code, w.Body.String())
+	}
+	if resolver.calls != priorCalls {
+		t.Errorf("resolver calls delta = %d after both-legs-now-known update, want 0",
+			resolver.calls-priorCalls)
+	}
+	got := decodeBody[map[string]any](t, w)
+	if got["origin_lat"] == nil || got["dest_lat"] == nil {
+		t.Fatalf("both coords should be table-filled post-update; got %v", got)
+	}
+}
