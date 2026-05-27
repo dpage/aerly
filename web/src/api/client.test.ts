@@ -251,6 +251,39 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
   });
 });
 
+describe('api.getAuthProviders', () => {
+  it('returns the providers array on 200', async () => {
+    const spy = mockFetch(() =>
+      jsonResponse({
+        providers: [
+          { name: 'github', label: 'GitHub' },
+          { name: 'google', label: 'Google' },
+        ],
+      }),
+    );
+    await expect(api.getAuthProviders()).resolves.toEqual([
+      { name: 'github', label: 'GitHub' },
+      { name: 'google', label: 'Google' },
+    ]);
+    expect(spy.mock.calls[0][0]).toBe('/auth/providers');
+  });
+
+  it('returns an empty list on non-ok responses', async () => {
+    mockFetch(() => jsonResponse({}, 500));
+    await expect(api.getAuthProviders()).resolves.toEqual([]);
+  });
+
+  it('returns an empty list when the body lacks providers', async () => {
+    mockFetch(() => jsonResponse({}));
+    await expect(api.getAuthProviders()).resolves.toEqual([]);
+  });
+
+  it('returns an empty list when fetch rejects (network down)', async () => {
+    mockFetch(() => Promise.reject(new Error('boom')));
+    await expect(api.getAuthProviders()).resolves.toEqual([]);
+  });
+});
+
 describe('api.getDevAuthBypassEnabled', () => {
   it('returns true when /auth/dev-info responds with enabled=true', async () => {
     const spy = mockFetch(() => jsonResponse({ enabled: true }));
