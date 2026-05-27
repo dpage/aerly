@@ -70,26 +70,28 @@ func Load() (*Config, error) {
 	}
 	cfg.SessionKey = []byte(sessKey)
 
-	var missing []string
+	// Collect every configuration problem we can detect so the operator
+	// sees them all in one go rather than fixing them one restart at a time.
+	var problems []string
 	if cfg.DatabaseURL == "" {
-		missing = append(missing, "DATABASE_URL")
+		problems = append(problems, "DATABASE_URL must be set")
 	}
 	// OAuth: each provider is optional, but at least one must be fully
 	// configured (or DEV_AUTH_BYPASS must be on). A half-configured
 	// provider — ID without secret or vice versa — is an error since the
 	// flow would 500 on first sign-in.
 	if (cfg.GitHubID == "") != (cfg.GitHubSecret == "") {
-		return nil, fmt.Errorf("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set together")
+		problems = append(problems, "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set together")
 	}
 	if (cfg.GoogleID == "") != (cfg.GoogleSecret == "") {
-		return nil, fmt.Errorf("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together")
+		problems = append(problems, "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together")
 	}
 	if !cfg.DevAuthBypass && cfg.GitHubID == "" && cfg.GoogleID == "" {
-		return nil, fmt.Errorf("at least one OAuth provider must be configured " +
+		problems = append(problems, "at least one OAuth provider must be configured "+
 			"(set GITHUB_CLIENT_ID+SECRET and/or GOOGLE_CLIENT_ID+SECRET)")
 	}
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("missing required env: %s", strings.Join(missing, ", "))
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("invalid configuration:\n  - %s", strings.Join(problems, "\n  - "))
 	}
 	if cfg.DevAuthBypass && !strings.HasPrefix(cfg.PublicURL, "http://localhost") &&
 		!strings.HasPrefix(cfg.PublicURL, "http://127.0.0.1") {

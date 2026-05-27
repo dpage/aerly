@@ -53,10 +53,10 @@ type Handler struct {
 	Store      *store.Store
 	HTTP       *http.Client
 
-	// providers is keyed by Name; the order is preserved for the login UI.
-	providers      map[string]*Provider
-	providerOrder  []string
-	devProvider    *Provider // synthetic provider used by RegisterDevLogin
+	// providers is keyed by Name; providerOrder preserves registration
+	// order so the login UI renders buttons in a deterministic sequence.
+	providers     map[string]*Provider
+	providerOrder []string
 }
 
 func NewHandler(sessionKey []byte, publicURL string, s *store.Store) *Handler {
@@ -115,9 +115,9 @@ type providerDTO struct {
 }
 
 func (h *Handler) listProviders(w http.ResponseWriter, _ *http.Request) {
-	out := make([]providerDTO, 0, len(h.providerOrder))
-	for _, n := range h.providerOrder {
-		p := h.providers[n]
+	ps := h.Providers()
+	out := make([]providerDTO, 0, len(ps))
+	for _, p := range ps {
 		out = append(out, providerDTO{Name: p.Name, Label: p.Label})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -125,7 +125,6 @@ func (h *Handler) listProviders(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request, p *Provider) {
-	_ = r
 	state := randomToken(24)
 	expires := time.Now().Add(StateTTL)
 	stateVal := SignSession(h.SessionKey, 0, expires) + ":" + state
