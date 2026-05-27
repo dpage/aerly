@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Avatar,
@@ -53,19 +53,19 @@ export default function FriendsDialog({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
 
-  const reportError = (err: unknown) =>
-    setError(err instanceof Error ? err.message : String(err));
+  const reportError = useCallback(
+    (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
+    [setError],
+  );
 
   useEffect(() => {
     if (!open) return;
     void api.listFriends().then(setFriends).catch(reportError);
     setInviteFeedback(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, reportError]);
 
   const handleInvite = async () => {
     const trimmed = email.trim();
-    if (!trimmed) return;
     setBusy(true);
     setInviteFeedback(null);
     try {

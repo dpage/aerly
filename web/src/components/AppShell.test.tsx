@@ -165,6 +165,15 @@ describe('AppShell', () => {
     expect(screen.queryByText('EMAILS_DIALOG')).not.toBeInTheDocument();
   });
 
+  it('opens FriendsDialog from the avatar menu', async () => {
+    render(<AppShell />);
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /^friends/i }));
+    expect(screen.getByText('FRIENDS_DIALOG')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'CLOSE_FRIENDS_DIALOG' }));
+    expect(screen.queryByText('FRIENDS_DIALOG')).not.toBeInTheDocument();
+  });
+
   it('toggles the sidebar', async () => {
     render(<AppShell />);
     const toggle = screen.getByRole('button', { name: /hide flight list/i });

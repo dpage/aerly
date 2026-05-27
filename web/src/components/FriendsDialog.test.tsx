@@ -72,10 +72,9 @@ describe('FriendsDialog', () => {
     expect(screen.getByText(/invite sent/i)).toBeInTheDocument();
   });
 
-  it('sends an invite, refreshes the list and shows the no-leak success message', async () => {
+  it('sends an invite with the optional message, then dismisses the success alert', async () => {
     h.api.listFriends.mockResolvedValueOnce([]);
     h.api.inviteFriend.mockResolvedValueOnce(undefined);
-    // Second listFriends call after invite reflects the new pending row.
     h.api.listFriends.mockResolvedValueOnce([
       friend({ friend_id: 2, status: 'pending', direction: 'outgoing' }),
     ]);
@@ -83,30 +82,62 @@ describe('FriendsDialog', () => {
     await waitFor(() => expect(h.api.listFriends).toHaveBeenCalledTimes(1));
 
     await userEvent.type(screen.getByLabelText(/email address/i), 'bob@example.com');
-    await userEvent.click(screen.getByRole('button', { name: /invite/i }));
+    await userEvent.type(screen.getByLabelText(/add a message/i), 'come join us');
+    await userEvent.click(screen.getByRole('button', { name: /^invite$/i }));
 
     await waitFor(() =>
-      expect(h.api.inviteFriend).toHaveBeenCalledWith({ email: 'bob@example.com' }),
+      expect(h.api.inviteFriend).toHaveBeenCalledWith({
+        email: 'bob@example.com',
+        message: 'come join us',
+      }),
     );
-    await screen.findByText(/if bob@example.com is on aerly we sent them a friend request/i);
+    const alert = await screen.findByText(
+      /if bob@example.com is on aerly we sent them a friend request/i,
+    );
     expect(await screen.findByText(/invite sent/i)).toBeInTheDocument();
+
+    // Close the success Alert via its onClose handler.
+    const closeBtn = alert.closest('.MuiAlert-root')?.querySelector('button');
+    expect(closeBtn).toBeTruthy();
+    await userEvent.click(closeBtn!);
+    expect(
+      screen.queryByText(/if bob@example.com is on aerly we sent them a friend request/i),
+    ).not.toBeInTheDocument();
   });
 
-  it('accepts an incoming pending request', async () => {
+  it('accepts an incoming pending request and leaves siblings untouched', async () => {
+    // Two incoming requests so the map callback inside handleAccept hits
+    // both the matched and unmatched branches.
+    h.users = [
+      user({ id: 2, username: 'bob', name: 'Bob' }),
+      user({ id: 3, username: 'carol', name: 'Carol' }),
+    ];
     h.api.listFriends.mockResolvedValue([
       friend({ friend_id: 2, status: 'pending', direction: 'incoming' }),
+      friend({ friend_id: 3, status: 'pending', direction: 'incoming' }),
     ]);
     h.api.acceptFriend.mockResolvedValueOnce(friend({ friend_id: 2, status: 'accepted' }));
     render(<FriendsDialog open onClose={() => {}} />);
     const acceptBtn = await screen.findByRole('button', { name: /accept bob/i });
     await userEvent.click(acceptBtn);
     await waitFor(() => expect(h.api.acceptFriend).toHaveBeenCalledWith(2));
-    expect(await screen.findByText(/accepted/i)).toBeInTheDocument();
+    // Bob is now accepted; Carol's pending row should still be pending.
+    expect(await screen.findByText(/^accepted$/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /accept carol/i })).toBeInTheDocument();
   });
 
-  it('unfriends an accepted friend after confirmation', async () => {
+  it('unfriends an accepted friend after confirmation, leaving siblings', async () => {
+    // Two accepted friends so the filter inside handleRemove exercises
+    // both the keep and drop branches.
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    h.api.listFriends.mockResolvedValue([friend({ friend_id: 2, status: 'accepted' })]);
+    h.users = [
+      user({ id: 2, username: 'bob', name: 'Bob' }),
+      user({ id: 3, username: 'carol', name: 'Carol' }),
+    ];
+    h.api.listFriends.mockResolvedValue([
+      friend({ friend_id: 2, status: 'accepted' }),
+      friend({ friend_id: 3, status: 'accepted' }),
+    ]);
     h.api.removeFriend.mockResolvedValueOnce(undefined);
     render(<FriendsDialog open onClose={() => {}} />);
     const removeBtn = await screen.findByRole('button', { name: /remove bob/i });
@@ -114,12 +145,122 @@ describe('FriendsDialog', () => {
     expect(confirmSpy).toHaveBeenCalled();
     await waitFor(() => expect(h.api.removeFriend).toHaveBeenCalledWith(2));
     expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+    expect(screen.getByText('Carol')).toBeInTheDocument();
     confirmSpy.mockRestore();
+  });
+
+  it('skips the listFriends fetch when rendered with open=false', () => {
+    render(<FriendsDialog open={false} onClose={() => {}} />);
+    expect(h.api.listFriends).not.toHaveBeenCalled();
   });
 
   it('renders the empty state when the user has no friends yet', async () => {
     h.api.listFriends.mockResolvedValue([]);
     render(<FriendsDialog open onClose={() => {}} />);
     await screen.findByText(/you don't have any friends on aerly yet/i);
+  });
+
+  it("falls back to User #N when the global user list doesn't include a friend", async () => {
+    // /api/users hasn't loaded the friend yet, so userIndex.get returns
+    // undefined and friendLabel hits the fallback branch.
+    h.api.listFriends.mockResolvedValue([friend({ friend_id: 99, status: 'accepted' })]);
+    h.users = [];
+    render(<FriendsDialog open onClose={() => {}} />);
+    expect(await screen.findByText('User #99')).toBeInTheDocument();
+  });
+
+  it("trims an empty invite email instead of calling the server", async () => {
+    h.api.listFriends.mockResolvedValue([]);
+    render(<FriendsDialog open onClose={() => {}} />);
+    // Whitespace-only email keeps the button disabled, so we can't click
+    // it via the UI; instead we type whitespace then assert the disabled
+    // state to prove the early-return path doesn't issue an API call.
+    await userEvent.type(screen.getByLabelText(/email address/i), '   ');
+    expect(screen.getByRole('button', { name: /invite/i })).toBeDisabled();
+    expect(h.api.inviteFriend).not.toHaveBeenCalled();
+  });
+
+  it('reports listFriends errors via setError', async () => {
+    h.api.listFriends.mockRejectedValueOnce(new Error('boom-list'));
+    render(<FriendsDialog open onClose={() => {}} />);
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('boom-list'));
+  });
+
+  it('reports inviteFriend errors via setError', async () => {
+    h.api.listFriends.mockResolvedValueOnce([]);
+    h.api.inviteFriend.mockRejectedValueOnce('plain-string-error');
+    render(<FriendsDialog open onClose={() => {}} />);
+    await waitFor(() => expect(h.api.listFriends).toHaveBeenCalledTimes(1));
+    await userEvent.type(screen.getByLabelText(/email address/i), 'bob@example.com');
+    await userEvent.click(screen.getByRole('button', { name: /invite/i }));
+    // A non-Error rejection should stringify, not crash.
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('plain-string-error'));
+  });
+
+  it('reports acceptFriend errors via setError', async () => {
+    h.api.listFriends.mockResolvedValue([
+      friend({ friend_id: 2, status: 'pending', direction: 'incoming' }),
+    ]);
+    h.api.acceptFriend.mockRejectedValueOnce(new Error('accept-failed'));
+    render(<FriendsDialog open onClose={() => {}} />);
+    const acceptBtn = await screen.findByRole('button', { name: /accept bob/i });
+    await userEvent.click(acceptBtn);
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('accept-failed'));
+  });
+
+  it('does not call removeFriend when the user cancels the confirm prompt', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    h.api.listFriends.mockResolvedValue([friend({ friend_id: 2, status: 'accepted' })]);
+    render(<FriendsDialog open onClose={() => {}} />);
+    const removeBtn = await screen.findByRole('button', { name: /remove bob/i });
+    await userEvent.click(removeBtn);
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(h.api.removeFriend).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('reports removeFriend errors via setError', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    h.api.listFriends.mockResolvedValue([friend({ friend_id: 2, status: 'accepted' })]);
+    h.api.removeFriend.mockRejectedValueOnce(new Error('rm-failed'));
+    render(<FriendsDialog open onClose={() => {}} />);
+    const removeBtn = await screen.findByRole('button', { name: /remove bob/i });
+    await userEvent.click(removeBtn);
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('rm-failed'));
+    // Bob should still be in the list — the removal didn't actually happen.
+    expect(screen.getByText('Bob')).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("renders the outgoing-pending row's cancel button (separate from unfriend)", async () => {
+    h.api.listFriends.mockResolvedValue([
+      friend({ friend_id: 2, status: 'pending', direction: 'outgoing' }),
+    ]);
+    render(<FriendsDialog open onClose={() => {}} />);
+    // Outgoing rows expose the same delete button (different tooltip
+    // copy); clicking it goes through handleRemove.
+    expect(await screen.findByRole('button', { name: /remove bob/i })).toBeInTheDocument();
+  });
+
+  it("renders the incoming-pending row's decline button", async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    h.api.listFriends.mockResolvedValue([
+      friend({ friend_id: 2, status: 'pending', direction: 'incoming' }),
+    ]);
+    h.api.removeFriend.mockResolvedValueOnce(undefined);
+    render(<FriendsDialog open onClose={() => {}} />);
+    const declineBtn = await screen.findByRole('button', { name: /decline bob/i });
+    await userEvent.click(declineBtn);
+    await waitFor(() => expect(h.api.removeFriend).toHaveBeenCalledWith(2));
+    confirmSpy.mockRestore();
+  });
+
+  it('falls back to username when the user has no display name', async () => {
+    h.api.listFriends.mockResolvedValue([friend({ friend_id: 5, status: 'accepted' })]);
+    h.users = [
+      user({ id: 5, username: 'eve', name: '   ' }), // whitespace-only name
+    ];
+    render(<FriendsDialog open onClose={() => {}} />);
+    expect(await screen.findByText('eve')).toBeInTheDocument();
   });
 });

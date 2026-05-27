@@ -14,14 +14,11 @@ import (
 	"github.com/dpage/aerly/internal/store"
 )
 
-// inviteFriendResponse is intentionally shaped to leak as little as
-// possible about the target email: every path returns the same JSON body
-// (HTTP 202 Accepted) so a caller can't enumerate registered users by
-// observing the response.
-type inviteFriendResponse struct {
-	Status string `json:"status"`
-}
-
+// inviteFriendAcceptedBody is the response every successful POST to
+// /api/friends/invite returns, regardless of whether the email matched a
+// verified user, queued a pending sign-up invite, or self-matched. Keeping
+// the body byte-identical across the three paths is the no-enumeration
+// guarantee — see TestInviteFriendResponseIdenticalForKnownAndUnknown.
 const inviteFriendAcceptedBody = `{"status":"accepted"}` + "\n"
 
 func (a *API) listFriends(w http.ResponseWriter, r *http.Request) {
@@ -202,9 +199,3 @@ func (a *API) removeFriend(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// inviteFriendResponseFor returns the canonical "accepted" body. Exported
-// only so a future test can assert the exact shape without re-implementing
-// the JSON encoding.
-func inviteFriendResponseFor() inviteFriendResponse {
-	return inviteFriendResponse{Status: "accepted"}
-}

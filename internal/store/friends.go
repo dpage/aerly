@@ -67,8 +67,10 @@ func (s *Store) FriendshipBetween(ctx context.Context, a, b int64) (*Friendship,
 }
 
 // ListFriendships returns every friendship row involving viewerID,
-// regardless of status, ordered by accepted-then-pending and most recent
-// activity first.
+// regardless of status. Pending rows come first ('p' > 'a' alphabetically
+// under status DESC) so the UI surfaces action items (incoming requests)
+// above the already-accepted list, then each group is sorted by most
+// recent activity first.
 func (s *Store) ListFriendships(ctx context.Context, viewerID int64) ([]*Friendship, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT user_low, user_high, status, requested_by, requested_at, accepted_at
