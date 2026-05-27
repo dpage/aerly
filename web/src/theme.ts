@@ -25,29 +25,13 @@ export function createAppTheme(mode: ThemeMode): Theme {
 }
 
 export function loadPreference(): ThemePreference {
-  try {
-    const raw = localStorage.getItem(THEME_STORAGE_KEY);
-    if (raw === 'light' || raw === 'dark' || raw === 'system') return raw;
-  } catch {
-    // localStorage may be unavailable (private mode, SSR); fall through.
-  }
+  const raw = localStorage.getItem(THEME_STORAGE_KEY);
+  if (raw === 'light' || raw === 'dark' || raw === 'system') return raw;
   return 'system';
 }
 
-function savePreference(p: ThemePreference): void {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, p);
-  } catch {
-    // best-effort persistence.
-  }
-}
-
 function systemPrefersDark(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  );
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
 export function resolveMode(preference: ThemePreference, systemDark: boolean): ThemeMode {
@@ -70,7 +54,7 @@ function getPreference(): ThemePreference {
 
 export function setThemePreference(p: ThemePreference): void {
   currentPreference = p;
-  savePreference(p);
+  localStorage.setItem(THEME_STORAGE_KEY, p);
   for (const l of listeners) l(p);
 }
 
@@ -91,15 +75,10 @@ export function useThemeMode(): {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const mql = window.matchMedia('(prefers-color-scheme: dark)');
     const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    if (typeof mql.addEventListener === 'function') {
-      mql.addEventListener('change', onChange);
-      return () => mql.removeEventListener('change', onChange);
-    }
-    mql.addListener(onChange);
-    return () => mql.removeListener(onChange);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
   }, []);
 
   return {
