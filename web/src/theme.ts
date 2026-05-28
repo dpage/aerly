@@ -22,34 +22,46 @@ export function createAppTheme(mode: ThemeMode): Theme {
         'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     },
     components: {
-      // Safari draws the focused outline straight through the floating
-      // label on some outlined inputs (notably multiline TextFields,
-      // Autocomplete renderInput, and certain size="small" fields).
-      // The MUI variant that opens the fieldset's notch when the label
-      // is shrunk (sets `max-width: 100%` on the legend) doesn't always
-      // get applied by Safari's CSS engine — leaving the notch closed
-      // even though the visible InputLabel has floated up.
-      //
-      // Force the notch open whenever the label is in its shrunk state,
-      // using an adjacent-sibling rule that's specific enough to win
-      // over MUI's default variant. Also widen the legend's invisible
-      // span padding so any residual sub-pixel font-metric drift can't
-      // cause the visible label to spill past the notch edges.
-      MuiFormControl: {
+      // Safari renders the outlined-input notch unreliably: the legend
+      // sometimes stays at max-width:0.01px even when the label is
+      // shrunk, so the focused border draws straight through the label.
+      // Trying to coax MUI's variant matching into agreement is brittle
+      // (font-metric drift, sibling-selector mismatches inside Autocomplete,
+      // etc.). Skip that whole song-and-dance:
+      //   - Collapse the fieldset's legend to zero width so it never
+      //     opens a notch. The border is then continuous along the top.
+      //   - Give the shrunk InputLabel a solid background that matches
+      //     the input's container, plus a hair of horizontal padding,
+      //     so the label sits ON TOP of the border and visually covers
+      //     the line behind it. The "notch" effect is now painted, not
+      //     measured.
+      // This matches the workaround used in the pgEdge AI DBA Workbench
+      // codebase, which hit the same Safari behaviour.
+      MuiOutlinedInput: {
         styleOverrides: {
-          root: {
-            '& .MuiInputLabel-shrink + .MuiInputBase-root > .MuiOutlinedInput-notchedOutline > legend': {
-              maxWidth: '100%',
+          notchedOutline: {
+            '& legend': {
+              width: 0,
             },
           },
         },
       },
-      MuiOutlinedInput: {
+      MuiInputLabel: {
         styleOverrides: {
-          notchedOutline: {
-            '& legend > span': {
-              paddingLeft: 8,
-              paddingRight: 8,
+          root: {
+            '&.MuiInputLabel-shrink.MuiInputLabel-outlined': {
+              backgroundColor:
+                mode === 'dark' ? '#161b22' : '#ffffff',
+              // In dark mode, the surrounding Dialog/Paper paints
+              // background.paper plus an elevation-24 white overlay
+              // (alpha 0.165) — match it so the label blends in.
+              ...(mode === 'dark' && {
+                backgroundImage:
+                  'linear-gradient(rgba(255, 255, 255, 0.165), rgba(255, 255, 255, 0.165))',
+              }),
+              paddingLeft: 4,
+              paddingRight: 4,
+              marginLeft: -2,
             },
           },
         },
