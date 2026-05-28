@@ -56,6 +56,12 @@ func setup(t *testing.T, resolver providers.Resolver, cfg *config.Config) *testE
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
+	// Ensure the Config's SessionKey matches the test signing key so that
+	// handlers that call auth.VerifyFriendAcceptToken(a.Config.SessionKey, ...)
+	// can authenticate tokens minted with sessKey.
+	if len(cfg.SessionKey) == 0 {
+		cfg.SessionKey = sessKey
+	}
 	api := New(s, a, hub, cfg, resolver)
 	mux := http.NewServeMux()
 	api.Register(mux)

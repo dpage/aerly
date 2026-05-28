@@ -2,13 +2,16 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -527,5 +530,111 @@ func TestRemovePendingPublishesNotifications(t *testing.T) {
 	}
 	if !got {
 		t.Error("recipient did not see a notifications.updated event after cancel")
+	}
+}
+
+func mintTestToken(t *testing.T, recipient, inviter int64, ttl time.Duration) string {
+	t.Helper()
+	return auth.MintFriendAcceptToken(sessKey, recipient, inviter, time.Now().Add(ttl))
+}
+
+func TestAcceptFriendTokenHappyPath(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	if _, err := e.store.RequestFriendship(context.Background(), alice, bob, ""); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	tok := mintTestToken(t, bob, alice, time.Hour)
+
+	ch, unsub := e.hub.Subscribe(sse.Subscription{ViewerID: bob})
+	defer unsub()
+
+	w := e.req(t, "POST", "/api/friends/accept-token",
+		map[string]any{"token": tok}, bob)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Friendship *api.FriendshipDTO `json:"friendship"`
+		Already    bool               `json:"already"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Already {
+		t.Error("already should be false on first accept")
+	}
+	if resp.Friendship == nil || resp.Friendship.Status != "accepted" {
+		t.Errorf("friendship dto = %+v", resp.Friendship)
+	}
+	var sawNotif bool
+	for _, ev := range drainEvents(ch) {
+		if ev.Type == "notifications.updated" {
+			sawNotif = true
+		}
+	}
+	if !sawNotif {
+		t.Error("expected notifications.updated event after token accept")
+	}
+}
+
+func TestAcceptFriendTokenAlreadyAccepted(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	// No pending row exists — token-accept should report already=true.
+	tok := mintTestToken(t, bob, alice, time.Hour)
+	w := e.req(t, "POST", "/api/friends/accept-token",
+		map[string]any{"token": tok}, bob)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"already":true`) {
+		t.Errorf("body should report already=true: %s", w.Body.String())
+	}
+}
+
+func TestAcceptFriendTokenWrongRecipient(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	mallory := e.user(t, "mallory", false)
+	if _, err := e.store.RequestFriendship(context.Background(), alice, bob, ""); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	tok := mintTestToken(t, bob, alice, time.Hour)
+	w := e.req(t, "POST", "/api/friends/accept-token",
+		map[string]any{"token": tok}, mallory)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("code = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestAcceptFriendTokenExpired(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	tok := auth.MintFriendAcceptToken(sessKey, bob, alice, time.Now().Add(-time.Second))
+	w := e.req(t, "POST", "/api/friends/accept-token",
+		map[string]any{"token": tok}, bob)
+	if w.Code != http.StatusGone {
+		t.Errorf("code = %d, want 410; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestAcceptFriendTokenMalformed(t *testing.T) {
+	e := setup(t, nil, nil)
+	bob := e.user(t, "bob", false)
+	for _, body := range []map[string]any{
+		{},
+		{"token": ""},
+		{"token": "garbage"},
+		{"token": "still.garbage"},
+	} {
+		w := e.req(t, "POST", "/api/friends/accept-token", body, bob)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("token=%v -> code=%d want 400 (body=%s)", body, w.Code, w.Body.String())
+		}
 	}
 }

@@ -265,3 +265,54 @@ func (a *API) cancelOutgoingInvite(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type acceptFriendTokenReq struct {
+	Token string `json:"token"`
+}
+
+type acceptFriendTokenResp struct {
+	Friendship *api.FriendshipDTO `json:"friendship,omitempty"`
+	Already    bool               `json:"already,omitempty"`
+}
+
+func (a *API) acceptFriendToken(w http.ResponseWriter, r *http.Request) {
+	var in acceptFriendTokenReq
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "bad request body")
+		return
+	}
+	if strings.TrimSpace(in.Token) == "" {
+		writeError(w, http.StatusBadRequest, "token required")
+		return
+	}
+	recipientID, inviterID, err := auth.VerifyFriendAcceptToken(a.Config.SessionKey, in.Token)
+	switch {
+	case errors.Is(err, auth.ErrExpiredAcceptToken):
+		writeError(w, http.StatusGone, "invitation link expired — ask the sender to resend")
+		return
+	case err != nil:
+		writeError(w, http.StatusBadRequest, "invalid invitation link")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if me.ID != recipientID {
+		writeError(w, http.StatusForbidden, "this invitation isn't for your account")
+		return
+	}
+
+	f, err := a.Store.AcceptFriendship(r.Context(), me.ID, inviterID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		// No pending row to accept. The recipient may already be friends
+		// with the inviter, or the inviter cancelled the request. Surface
+		// as a quiet "already" so the SPA shows an informational toast.
+		writeJSON(w, http.StatusOK, acceptFriendTokenResp{Already: true})
+		return
+	case err != nil:
+		handleStoreErr(w, err)
+		return
+	}
+	a.publishNotifications(r.Context(), me.ID)
+	dto := api.ToFriendshipDTO(f, me.ID)
+	writeJSON(w, http.StatusOK, acceptFriendTokenResp{Friendship: &dto})
+}
+
