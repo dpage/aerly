@@ -166,6 +166,54 @@ The tracker decides where the poller gets a position for each flight; the resolv
 
 Mix and match as you like — e.g. AeroDataBox to autofill + stub for positions during development, then OpenSky once you want real tracking.
 
+## Data sources and limitations
+
+### OpenSky Network — live position tracking
+
+[OpenSky](https://opensky-network.org/) is a crowdsourced network of volunteer-operated,
+ground-based ADS-B receivers. Aircraft broadcast their position, altitude, and velocity via
+an ADS-B OUT transponder; any receiver within radio range picks up the signal and uploads it
+to OpenSky's servers.
+
+**Limitations:**
+
+- **Ground receiver coverage required.** If there is no receiver within roughly 200–400 km
+  (line-of-sight) of the aircraft, no position is available. This means:
+  - Oceanic routes (North Atlantic, Pacific, polar) will typically have no live fix for hours
+    at a time.
+  - Remote or sparsely populated continental areas may have gaps too.
+  - Low-altitude departures and arrivals (below ~2 000 ft AGL) may disappear momentarily
+    while still in a receiver's shadow.
+- **ADS-B OUT required.** Older aircraft using only Mode-C or Mode-S transponders do not
+  broadcast position data and will not appear at all. ADS-B equipage is now mandatory in
+  most controlled airspace, but some charter, cargo, and older regional aircraft may be
+  exempt.
+- **Rate limits.** Anonymous access is heavily rate-limited by OpenSky. An authenticated
+  account (`OPENSKY_USERNAME` / `OPENSKY_PASSWORD`) raises the limit but is still a shared,
+  free service — Aerly backs off automatically on `429` responses.
+- **Dead-reckoner fallback.** When a live fix is unavailable (coverage gap, rate-limited
+  response, or aircraft not ADS-B-equipped), the dead-reckoner extrapolates from the last
+  known fix toward the destination along a great-circle. Estimated positions are flagged and
+  rendered with reduced opacity and a dashed outline in the UI.
+
+### AeroDataBox via RapidAPI — flight schedule and metadata
+
+[AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox/) provides scheduled
+departure/arrival times, origin/destination airports with coordinates, aircraft type, and
+the ICAO24 (Mode-S hex) address needed to track a flight on OpenSky.
+
+**Limitations:**
+
+- **Schedule availability.** Flights are often not in AeroDataBox's database until a day or
+  two before departure (sometimes less). Resolving a flight booked far in advance may return
+  no results; try again closer to the travel date.
+- **Pay-per-call.** Each `/api/flights/resolve` call consumes one RapidAPI credit.
+  Aerly caches successful responses for 24 hours to avoid duplicate charges.
+- **ICAO24 accuracy.** The aircraft assigned to a flight can change (equipment swap, wet
+  lease, last-minute sub). AeroDataBox reports the currently scheduled airframe, which may
+  differ from the one that actually operates. If OpenSky's live positions seem wrong, the
+  ICAO24 field can be corrected manually in the flight edit form.
+
 ## Architecture
 
 ```
