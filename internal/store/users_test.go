@@ -39,6 +39,19 @@ func TestInviteAndQueryUsers(t *testing.T) {
 	}
 }
 
+func TestInviteUserDuplicateUsername(t *testing.T) {
+	s := newStore(t)
+	if _, err := s.InviteUser(ctx, InvitePayload{Username: "Alice"}); err != nil {
+		t.Fatalf("first invite: %v", err)
+	}
+	// Case-insensitive collision on the lower(username) unique index — the
+	// store should surface ErrUsernameTaken rather than the raw pg error.
+	_, err := s.InviteUser(ctx, InvitePayload{Username: "alice"})
+	if !errors.Is(err, ErrUsernameTaken) {
+		t.Errorf("duplicate invite → got %v, want ErrUsernameTaken", err)
+	}
+}
+
 func TestListUsersOrdered(t *testing.T) {
 	s := newStore(t)
 	if us, err := s.ListUsers(ctx); err != nil || len(us) != 0 {
@@ -113,7 +126,7 @@ func githubProfile(id, login, name, avatar, email string) OAuthProfile {
 
 func TestLinkLoginBootstrapFirstUser(t *testing.T) {
 	s := newStore(t)
-	u, err := s.LinkLogin(ctx, githubProfile("1001", "boss", "Boss", "a.png", ""), true)
+	u, _, err := s.LinkLogin(ctx, githubProfile("1001", "boss", "Boss", "a.png", ""), true)
 	if err != nil {
 		t.Fatalf("LinkLogin bootstrap: %v", err)
 	}
@@ -133,7 +146,7 @@ func TestLinkLoginNotOnAllowlist(t *testing.T) {
 	s := newStore(t)
 	// Seed one user so this isn't bootstrap.
 	_, _ = s.InviteUser(ctx, InvitePayload{Username: "someone"})
-	_, err := s.LinkLogin(ctx, githubProfile("7", "stranger", "", "", ""), false)
+	_, _, err := s.LinkLogin(ctx, githubProfile("7", "stranger", "", "", ""), false)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("uninvited login → ErrNotFound, got %v", err)
 	}
@@ -146,13 +159,16 @@ func TestLinkLoginInvitedUserGetsLinked(t *testing.T) {
 		t.Fatal("invited user should start with no identities")
 	}
 	// First sign-in matches by lower(username); identity row created.
-	u, err := s.LinkLogin(ctx,
+	u, outcome, err := s.LinkLogin(ctx,
 		githubProfile("2002", "invitee", "Real Name", "x", ""), false)
 	if err != nil {
 		t.Fatalf("LinkLogin invited: %v", err)
 	}
 	if u.ID != inv.ID {
 		t.Errorf("invited user not linked: got id=%d, want %d", u.ID, inv.ID)
+	}
+	if outcome != LinkOutcomeInviteeLinked {
+		t.Errorf("first sign-in outcome = %v, want LinkOutcomeInviteeLinked", outcome)
 	}
 	if u.Name != "Real Name" {
 		t.Errorf("profile name should overwrite: %q", u.Name)
@@ -163,7 +179,7 @@ func TestLinkLoginInvitedUserGetsLinked(t *testing.T) {
 	}
 
 	// Second sign-in: now found by identity row; empty name keeps existing.
-	u2, err := s.LinkLogin(ctx,
+	u2, _, err := s.LinkLogin(ctx,
 		githubProfile("2002", "invitee", "", "", ""), false)
 	if err != nil {
 		t.Fatalf("LinkLogin second: %v", err)
@@ -178,7 +194,7 @@ func TestLinkLoginInactiveRejected(t *testing.T) {
 	inv, _ := s.InviteUser(ctx, InvitePayload{Username: "blocked"})
 	no := false
 	_, _ = s.UpdateUser(ctx, inv.ID, UpdateUserPayload{IsActive: &no})
-	_, err := s.LinkLogin(ctx,
+	_, _, err := s.LinkLogin(ctx,
 		githubProfile("3003", "blocked", "", "", ""), false)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("inactive invited user → ErrNotFound, got %v", err)
@@ -187,7 +203,7 @@ func TestLinkLoginInactiveRejected(t *testing.T) {
 
 func TestLinkLoginUpsertsEmail_Bootstrap(t *testing.T) {
 	s := newStore(t)
-	u, err := s.LinkLogin(ctx,
+	u, _, err := s.LinkLogin(ctx,
 		githubProfile("5005", "first", "", "", "first@example.com"), true)
 	if err != nil {
 		t.Fatalf("LinkLogin: %v", err)
@@ -204,12 +220,12 @@ func TestLinkLoginUpsertsEmail_Bootstrap(t *testing.T) {
 func TestLinkLoginUpsertsEmail_ExistingUser(t *testing.T) {
 	s := newStore(t)
 	// First login bootstraps without an email.
-	u, _ := s.LinkLogin(ctx, githubProfile("6006", "later", "", "", ""), true)
+	u, _, _ := s.LinkLogin(ctx, githubProfile("6006", "later", "", "", ""), true)
 	if emails, _ := s.EmailsByUser(ctx, u.ID); len(emails) != 0 {
 		t.Fatalf("expected no emails initially, got %d", len(emails))
 	}
 	// Second login carries an email; it should land in user_emails.
-	_, err := s.LinkLogin(ctx,
+	_, _, err := s.LinkLogin(ctx,
 		githubProfile("6006", "later", "", "", "later@example.com"), false)
 	if err != nil {
 		t.Fatalf("second LinkLogin: %v", err)
@@ -221,7 +237,7 @@ func TestLinkLoginUpsertsEmail_ExistingUser(t *testing.T) {
 
 func TestLinkLoginEmptyEmailIsNoop(t *testing.T) {
 	s := newStore(t)
-	u, err := s.LinkLogin(ctx, githubProfile("7007", "noemail", "", "", ""), true)
+	u, _, err := s.LinkLogin(ctx, githubProfile("7007", "noemail", "", "", ""), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,10 +249,10 @@ func TestLinkLoginEmptyEmailIsNoop(t *testing.T) {
 
 func TestLinkLoginKnownInactiveRejected(t *testing.T) {
 	s := newStore(t)
-	u, _ := s.LinkLogin(ctx, githubProfile("4004", "known", "", "", ""), true)
+	u, _, _ := s.LinkLogin(ctx, githubProfile("4004", "known", "", "", ""), true)
 	no := false
 	_, _ = s.UpdateUser(ctx, u.ID, UpdateUserPayload{IsActive: &no})
-	_, err := s.LinkLogin(ctx, githubProfile("4004", "known", "", "", ""), false)
+	_, _, err := s.LinkLogin(ctx, githubProfile("4004", "known", "", "", ""), false)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("known-but-inactive → ErrNotFound, got %v", err)
 	}
@@ -247,23 +263,39 @@ func TestLinkLoginKnownInactiveRejected(t *testing.T) {
 // identity row to the same user instead of creating a new account.
 func TestLinkLoginCrossProviderEmailMatch(t *testing.T) {
 	s := newStore(t)
-	gh, _ := s.LinkLogin(ctx,
+	gh, ghOutcome, _ := s.LinkLogin(ctx,
 		githubProfile("8008", "dpage", "Dave", "", "dave@example.com"), true)
+	if ghOutcome != LinkOutcomeBootstrap {
+		t.Errorf("first GitHub login: outcome = %v, want LinkOutcomeBootstrap", ghOutcome)
+	}
 
 	google := OAuthProfile{
 		Provider: "google", ProviderUserID: "g-12345",
 		Name: "Dave (Google)", Email: "dave@example.com",
 	}
-	u, err := s.LinkLogin(ctx, google, false)
+	u, outcome, err := s.LinkLogin(ctx, google, false)
 	if err != nil {
 		t.Fatalf("LinkLogin via google: %v", err)
 	}
 	if u.ID != gh.ID {
 		t.Errorf("cross-provider should link to same user: got %d, want %d", u.ID, gh.ID)
 	}
+	if outcome != LinkOutcomeCrossProvider {
+		t.Errorf("outcome = %v, want LinkOutcomeCrossProvider", outcome)
+	}
 	ids, _ := s.IdentitiesByUser(ctx, u.ID)
 	if len(ids) != 2 {
 		t.Fatalf("expected 2 identities, got %d: %+v", len(ids), ids)
+	}
+
+	// Signing in again with the same Google identity now goes through the
+	// fast-path: outcome should report LinkOutcomeExisting.
+	_, outcome2, err := s.LinkLogin(ctx, google, false)
+	if err != nil {
+		t.Fatalf("repeat LinkLogin: %v", err)
+	}
+	if outcome2 != LinkOutcomeExisting {
+		t.Errorf("repeat outcome = %v, want LinkOutcomeExisting", outcome2)
 	}
 }
 
@@ -275,7 +307,7 @@ func TestLinkLoginGoogleBootstrap(t *testing.T) {
 		Provider: "google", ProviderUserID: "g-1",
 		Name: "Boss", Email: "boss@example.com",
 	}
-	u, err := s.LinkLogin(ctx, p, true)
+	u, _, err := s.LinkLogin(ctx, p, true)
 	if err != nil {
 		t.Fatalf("LinkLogin: %v", err)
 	}

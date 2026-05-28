@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -53,6 +54,18 @@ type Handler struct {
 	Store      *store.Store
 	HTTP       *http.Client
 
+	// Outbound mail wiring for side-channel notifications (currently:
+	// "a new sign-in method was linked to your account via verified
+	// email"). When MailFromAddress is empty the notification is skipped
+	// with a warning log — the sign-in flow itself never blocks on email
+	// delivery.
+	MailFromAddress string
+	SendmailPath    string
+
+	// SendNotification dispatches an assembled RFC822 message. Defaulted
+	// to mailer.Send; tests override.
+	SendNotification func(ctx context.Context, sendmailPath, envelopeSender, message string) error
+
 	// providers is keyed by Name; providerOrder preserves registration
 	// order so the login UI renders buttons in a deterministic sequence.
 	providers     map[string]*Provider
@@ -61,12 +74,13 @@ type Handler struct {
 
 func NewHandler(sessionKey []byte, publicURL string, s *store.Store) *Handler {
 	return &Handler{
-		SessionKey: sessionKey,
-		PublicURL:  strings.TrimRight(publicURL, "/"),
-		Secure:     strings.HasPrefix(publicURL, "https://"),
-		Store:      s,
-		HTTP:       &http.Client{Timeout: 15 * time.Second},
-		providers:  make(map[string]*Provider),
+		SessionKey:       sessionKey,
+		PublicURL:        strings.TrimRight(publicURL, "/"),
+		Secure:           strings.HasPrefix(publicURL, "https://"),
+		Store:            s,
+		HTTP:             &http.Client{Timeout: 15 * time.Second},
+		SendNotification: mailer.Send,
+		providers:        make(map[string]*Provider),
 	}
 }
 
@@ -204,7 +218,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 		renderLoginError(w, "database error")
 		return
 	}
-	user, err := h.Store.LinkLogin(r.Context(), profile, count == 0)
+	user, outcome, err := h.Store.LinkLogin(r.Context(), profile, count == 0)
 	if errors.Is(err, store.ErrNotFound) {
 		who := profile.Username
 		if who == "" {
@@ -222,6 +236,13 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 		slog.Error("link login failed", "err", err)
 		renderLoginError(w, "database error")
 		return
+	}
+
+	// Heads-up email when a new sign-in method gets attached to an
+	// existing account via the verified-email match path. Best-effort:
+	// failures are logged, never blocking the sign-in flow itself.
+	if outcome == store.LinkOutcomeCrossProvider {
+		h.notifyIdentityLinked(r.Context(), user, p, profile.Email)
 	}
 
 	SetSessionCookie(w, h.SessionKey, user.ID, h.Secure)

@@ -51,7 +51,7 @@ func (h *Handler) devLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	user, err := h.Store.LinkLogin(r.Context(), profile, count == 0)
+	user, _, err := h.Store.LinkLogin(r.Context(), profile, count == 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return

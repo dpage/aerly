@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/dpage/aerly/internal/api"
@@ -38,7 +39,11 @@ func (a *API) inviteUser(w http.ResponseWriter, r *http.Request) {
 		Name:        in.Name,
 		IsSuperuser: in.IsSuperuser,
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, store.ErrUsernameTaken):
+		writeError(w, http.StatusConflict, "username already registered")
+		return
+	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

@@ -388,6 +388,11 @@ func TestUserAdminEndpoints(t *testing.T) {
 	}
 	newbie := int64(decodeBody[map[string]any](t, w)["id"].(float64))
 
+	// Duplicate username should surface as 409, not the raw pg error.
+	if w := e.req(t, "POST", "/api/users", map[string]any{"username": "newbie"}, super); w.Code != http.StatusConflict {
+		t.Errorf("duplicate invite = %d, want 409 (body=%s)", w.Code, w.Body.String())
+	}
+
 	// update: bad id, bad body, not found, self-guards, success.
 	if w := e.req(t, "PATCH", "/api/users/x", map[string]any{}, super); w.Code != 400 {
 		t.Errorf("update bad id = %d", w.Code)

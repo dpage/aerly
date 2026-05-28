@@ -69,6 +69,8 @@ func run() error {
 
 	s := store.New(pool)
 	authH := auth.NewHandler(cfg.SessionKey, cfg.PublicURL, s)
+	authH.MailFromAddress = cfg.MailFromAddress
+	authH.SendmailPath = cfg.SendmailPath
 	if cfg.GitHubID != "" {
 		authH.AddProvider(auth.NewGitHubProvider(cfg.GitHubID, cfg.GitHubSecret))
 		slog.Info("auth provider: github")

@@ -24,6 +24,18 @@ type Config struct {
 	PollInterval    time.Duration
 	DevAuthBypass   bool
 
+	// Outbound mail (optional). Used for side-channel notifications such
+	// as "a new sign-in method was linked to your account". When
+	// MailFromAddress is empty the notifications are skipped and a
+	// warning is logged — the rest of the app keeps working.
+	//
+	// MailFromAddress doubles as the SMTP envelope sender, so its domain
+	// should match the address used in the From: header so DMARC/SPF can
+	// align. SendmailPath defaults to the distro-standard
+	// /usr/sbin/sendmail when MAIL_SENDMAIL_PATH is empty.
+	MailFromAddress string
+	SendmailPath    string
+
 	// Email ingest (optional). All EmailIngest* fields are zero when
 	// EmailIngestEnabled is false. When enabled, the rest are populated
 	// from env vars with the defaults documented in README.
@@ -62,6 +74,8 @@ func Load() (*Config, error) {
 		AeroDataBoxKey:  os.Getenv("AERODATABOX_RAPIDAPI_KEY"),
 		PollInterval:    pollInterval,
 		DevAuthBypass:   os.Getenv("DEV_AUTH_BYPASS") == "1",
+		MailFromAddress: os.Getenv("MAIL_FROM_ADDRESS"),
+		SendmailPath:    getenv("MAIL_SENDMAIL_PATH", "/usr/sbin/sendmail"),
 	}
 
 	sessKey := os.Getenv("SESSION_KEY")

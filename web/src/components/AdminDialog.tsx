@@ -45,17 +45,17 @@ export default function AdminDialog({ open, onClose }: Props) {
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
 
-  const [login, setLogin] = useState('');
+  const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [makeAdmin, setMakeAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const doInvite = async () => {
-    if (!login.trim()) return;
+    if (!username.trim()) return;
     setBusy(true);
     try {
-      await inviteUser({ username: login.trim(), name: name.trim(), is_superuser: makeAdmin });
-      setLogin('');
+      await inviteUser({ username: username.trim(), name: name.trim(), is_superuser: makeAdmin });
+      setUsername('');
       setName('');
       setMakeAdmin(false);
     } catch (err) {
@@ -90,8 +90,8 @@ export default function AdminDialog({ open, onClose }: Props) {
           >
             <TextField
               label="Username"
-              value={login}
-              onChange={(e) => setLogin(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               size="small"
               fullWidth={isNarrow}
             />
@@ -116,7 +116,7 @@ export default function AdminDialog({ open, onClose }: Props) {
               />
               <Button
                 variant="contained"
-                disabled={busy || !login.trim()}
+                disabled={busy || !username.trim()}
                 onClick={() => void doInvite()}
               >
                 Invite

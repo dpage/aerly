@@ -6,12 +6,14 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (
 	ErrNotFound        = errors.New("not found")
 	ErrAddressTaken    = errors.New("address already registered")
 	ErrAlreadyVerified = errors.New("address already verified")
+	ErrUsernameTaken   = errors.New("username already registered")
 )
 
 const userColumns = `id, username, name, avatar_url,
@@ -83,11 +85,22 @@ func (s *Store) InviteUser(ctx context.Context, in InvitePayload) (*User, error)
 	if username == "" {
 		return nil, errors.New("username required")
 	}
-	return scanUser(s.pool.QueryRow(ctx, `
+	u, err := scanUser(s.pool.QueryRow(ctx, `
 		INSERT INTO users (username, name, is_superuser, is_active)
 		VALUES ($1, $2, $3, TRUE)
 		RETURNING `+userColumns,
 		username, in.Name, in.IsSuperuser))
+	if err != nil {
+		// Surface the unique-violation on lower(username) as ErrUsernameTaken
+		// so the handler can return a clean 409 rather than leaking pg
+		// internals to the API client.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, ErrUsernameTaken
+		}
+		return nil, err
+	}
+	return u, nil
 }
 
 type UpdateUserPayload struct {
@@ -199,6 +212,29 @@ func linkIdentityTx(ctx context.Context, tx pgx.Tx, userID int64, provider, prov
 	return err
 }
 
+// LinkOutcome tells the caller which branch of LinkLogin matched. The auth
+// handler inspects this to decide whether to send a side-channel
+// notification — specifically, LinkOutcomeCrossProvider is the case where
+// a new sign-in method gets attached to an existing account via a
+// verified-email match (Step 2), which the account holder ought to know
+// about so they can react if it wasn't them.
+type LinkOutcome int
+
+const (
+	// LinkOutcomeExisting — the (provider, provider_user_id) was already
+	// known. A normal repeat sign-in.
+	LinkOutcomeExisting LinkOutcome = iota
+	// LinkOutcomeBootstrap — no users existed; this profile created the
+	// very first user (promoted to superuser).
+	LinkOutcomeBootstrap
+	// LinkOutcomeInviteeLinked — an invitee row matched by username and a
+	// fresh identity row was attached to it.
+	LinkOutcomeInviteeLinked
+	// LinkOutcomeCrossProvider — an existing user was located via a
+	// verified-email match and a new identity row was attached.
+	LinkOutcomeCrossProvider
+)
+
 // LinkLogin records a successful OAuth sign-in. Lookup order:
 //  1. existing identity row matching (Provider, ProviderUserID) — known user,
 //     fall through and refresh profile fields.
@@ -213,26 +249,38 @@ func linkIdentityTx(ctx context.Context, tx pgx.Tx, userID int64, provider, prov
 //
 // Returns ErrNotFound for both "no allowlist match" and "matched user is
 // inactive" — the caller surfaces the same allowlist error to the user.
-func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperuser bool) (*User, error) {
+//
+// The returned LinkOutcome tells the caller which step matched so it can
+// trigger side effects (e.g. notifying the account holder of a new linked
+// identity).
+func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperuser bool) (*User, LinkOutcome, error) {
 	if p.Provider == "" || p.ProviderUserID == "" {
-		return nil, errors.New("provider and provider_user_id required")
+		return nil, 0, errors.New("provider and provider_user_id required")
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer tx.Rollback(ctx)
 
-	u, newIdentity, err := s.findUserForLogin(ctx, tx, p)
+	u, step, err := s.findUserForLogin(ctx, tx, p)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	outcome := LinkOutcomeExisting
+	switch step {
+	case findStepEmailMatch:
+		outcome = LinkOutcomeCrossProvider
+	case findStepInviteeMatch:
+		outcome = LinkOutcomeInviteeLinked
 	}
 
 	if u == nil {
 		// No match anywhere — bootstrap path.
 		if !bootstrapAsSuperuser {
-			return nil, ErrNotFound
+			return nil, 0, ErrNotFound
 		}
 		username := p.Username
 		if username == "" {
@@ -253,12 +301,12 @@ func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperu
 		u = &User{}
 		if err := row.Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		newIdentity = true
+		outcome = LinkOutcomeBootstrap
 	} else {
 		if !u.IsActive {
-			return nil, ErrNotFound
+			return nil, 0, ErrNotFound
 		}
 		err = tx.QueryRow(ctx, `
 			UPDATE users SET
@@ -272,37 +320,45 @@ func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperu
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
-	if newIdentity {
-		if err := linkIdentityTx(ctx, tx, u.ID, p.Provider, p.ProviderUserID); err != nil {
-			return nil, err
-		}
-	} else {
-		// Existing identity row matched in step 1; bump last_used_at.
+	if outcome == LinkOutcomeExisting {
+		// Step 1 path: identity row already exists; just bump last_used_at.
 		if _, err := tx.Exec(ctx,
 			`UPDATE user_identities SET last_used_at = NOW()
 			 WHERE provider = $1 AND provider_user_id = $2`,
 			p.Provider, p.ProviderUserID); err != nil {
-			return nil, err
+			return nil, 0, err
+		}
+	} else {
+		if err := linkIdentityTx(ctx, tx, u.ID, p.Provider, p.ProviderUserID); err != nil {
+			return nil, 0, err
 		}
 	}
 	if err := upsertEmailTx(ctx, tx, u.ID, p.Email); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return u, nil
+	return u, outcome, nil
 }
 
+// findStep encodes which branch in findUserForLogin matched.
+type findStep int
+
+const (
+	findStepNone findStep = iota
+	findStepIdentityMatch
+	findStepEmailMatch
+	findStepInviteeMatch
+)
+
 // findUserForLogin runs the three lookup steps documented on LinkLogin and
-// returns (user, newIdentity, err). newIdentity is true when the match came
-// from step 2 or 3 (cross-provider link or invitee), false when step 1 found
-// an existing identity row, and (nil, false, nil) when no row matched.
-func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile) (*User, bool, error) {
+// returns (user, step, err). step is findStepNone only when user is nil.
+func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile) (*User, findStep, error) {
 	// Step 1: existing identity row.
 	u := &User{}
 	err := tx.QueryRow(ctx, `
@@ -314,10 +370,10 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 	).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt)
 	if err == nil {
-		return u, false, nil
+		return u, findStepIdentityMatch, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, false, err
+		return nil, findStepNone, err
 	}
 
 	// Step 2: cross-provider match by verified email.
@@ -333,10 +389,10 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt)
 		if err == nil {
-			return u, true, nil
+			return u, findStepEmailMatch, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, false, err
+			return nil, findStepNone, err
 		}
 	}
 
@@ -354,14 +410,14 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt)
 		if err == nil {
-			return u, true, nil
+			return u, findStepInviteeMatch, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, false, err
+			return nil, findStepNone, err
 		}
 	}
 
-	return nil, false, nil
+	return nil, findStepNone, nil
 }
 
 // prefixed prepends `prefix` to each comma-separated column in `cols` so
