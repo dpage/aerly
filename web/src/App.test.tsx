@@ -21,6 +21,8 @@ const state = h.state;
 vi.mock('./sse', () => ({ connectSSE: h.connectSSE }));
 vi.mock('./components/AppShell', () => ({ default: () => <div>APP_SHELL</div> }));
 vi.mock('./components/Login', () => ({ default: () => <div>LOGIN</div> }));
+vi.mock('./components/PrivacyPolicy', () => ({ default: () => <div>PRIVACY_POLICY</div> }));
+vi.mock('./components/TermsOfService', () => ({ default: () => <div>TERMS_OF_SERVICE</div> }));
 vi.mock('./state/store', () => ({
   useStore: (sel: (s: typeof h.state) => unknown) => sel(h.state),
 }));
@@ -31,6 +33,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.auth = 'loading';
   state.error = null;
+  window.history.pushState({}, '', '/');
 });
 
 describe('App', () => {
@@ -69,6 +72,38 @@ describe('App', () => {
     const closeBtn = screen.getByRole('button', { name: /close/i });
     await userEvent.click(closeBtn);
     expect(state.setError).toHaveBeenCalledWith(null);
+  });
+
+  it('renders PrivacyPolicy at /privacy without waiting for auth', () => {
+    window.history.pushState({}, '', '/privacy');
+    state.auth = 'loading';
+    render(<App />);
+    expect(screen.getByText('PRIVACY_POLICY')).toBeInTheDocument();
+    expect(document.querySelector('.MuiCircularProgress-root')).toBeNull();
+  });
+
+  it('renders TermsOfService at /terms without waiting for auth', () => {
+    window.history.pushState({}, '', '/terms');
+    state.auth = 'loading';
+    render(<App />);
+    expect(screen.getByText('TERMS_OF_SERVICE')).toBeInTheDocument();
+    expect(document.querySelector('.MuiCircularProgress-root')).toBeNull();
+  });
+
+  it('renders PrivacyPolicy at /privacy even when authenticated', () => {
+    window.history.pushState({}, '', '/privacy');
+    state.auth = 'authenticated';
+    render(<App />);
+    expect(screen.getByText('PRIVACY_POLICY')).toBeInTheDocument();
+    expect(screen.queryByText('APP_SHELL')).not.toBeInTheDocument();
+  });
+
+  it('renders TermsOfService at /terms even when authenticated', () => {
+    window.history.pushState({}, '', '/terms');
+    state.auth = 'authenticated';
+    render(<App />);
+    expect(screen.getByText('TERMS_OF_SERVICE')).toBeInTheDocument();
+    expect(screen.queryByText('APP_SHELL')).not.toBeInTheDocument();
   });
 
   it('Snackbar onClose fires setError(null) on autohide timeout', async () => {

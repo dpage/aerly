@@ -8,6 +8,8 @@ import { connectSSE } from './sse';
 import { createAppTheme, useThemeMode } from './theme';
 import Login from './components/Login';
 import AppShell from './components/AppShell';
+import PrivacyPolicy from './components/PrivacyPolicy';
+import TermsOfService from './components/TermsOfService';
 
 export default function App() {
   const auth = useStore((s) => s.auth);
@@ -35,8 +37,14 @@ export default function App() {
     );
   }, [auth, applyFlightUpdate, applyFlightDelete, showAll]);
 
+  // window.location.pathname is safe here because /privacy and /terms are only
+  // reached via full page loads — there is no client-side pushState navigation.
   let body;
-  if (auth === 'loading') {
+  if (window.location.pathname === '/privacy') {
+    body = <PrivacyPolicy />;
+  } else if (window.location.pathname === '/terms') {
+    body = <TermsOfService />;
+  } else if (auth === 'loading') {
     body = (
       <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
         <CircularProgress />
