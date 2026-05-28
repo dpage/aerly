@@ -237,6 +237,9 @@ func (a *API) addPassenger(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "user_id required")
 		return
 	}
+	if err := a.requireFriendOfCreator(r.Context(), fid, in.UserID, w); err != nil {
+		return
+	}
 	if err := a.Store.AddPassenger(r.Context(), fid, in.UserID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -285,6 +288,9 @@ func (a *API) addShare(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.UserID == 0 {
 		writeError(w, http.StatusBadRequest, "user_id required")
+		return
+	}
+	if err := a.requireFriendOfCreator(r.Context(), fid, in.UserID, w); err != nil {
 		return
 	}
 	if err := a.Store.AddShare(r.Context(), fid, in.UserID); err != nil {
@@ -380,6 +386,44 @@ func (a *API) requireEdit(ctx context.Context, id int64, u *store.User, w http.R
 	}
 	return nil
 }
+
+// requireFriendOfCreator writes a 400 response and returns a non-nil error
+// when target is neither the flight's creator nor an accepted friend of the
+// creator. Used to gate addPassenger / addShare / createFlight passenger and
+// share-list mutations so we never link a flight to a non-friend.
+//
+// The check is against the creator's friend graph, not the actor's — a
+// superuser editing on someone else's behalf still has to respect the
+// creator's friendships.
+func (a *API) requireFriendOfCreator(ctx context.Context, flightID, target int64, w http.ResponseWriter) error {
+	f, err := a.Store.FlightByID(ctx, flightID)
+	if err != nil {
+		handleStoreErr(w, err)
+		return err
+	}
+	if f.CreatedBy == nil {
+		// requireEdit precondition guarantees a non-nil creator on any flight
+		// reachable from this code path; a nil here means the flight was
+		// orphaned by some other path and there's no creator graph to consult.
+		writeError(w, http.StatusBadRequest, "flight has no creator")
+		return errors.New("flight has no creator")
+	}
+	if target == *f.CreatedBy {
+		return nil
+	}
+	ok, err := a.Store.AreAcceptedFriends(ctx, *f.CreatedBy, target)
+	if err != nil {
+		handleStoreErr(w, err)
+		return err
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, "target is not a friend of the flight creator")
+		return errNotFriend
+	}
+	return nil
+}
+
+var errNotFriend = errors.New("not a friend of creator")
 
 // flightViewers returns the visibility set for an existing flight, used by
 // publishers to scope SSE events. On any error (including the flight no

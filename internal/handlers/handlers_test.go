@@ -254,6 +254,13 @@ func TestFlightCRUD(t *testing.T) {
 	if w := e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid), map[string]any{"user_id": 0}, uid); w.Code != 400 {
 		t.Errorf("addPassenger user_id 0 = %d", w.Code)
 	}
+	// Befriend pax before adding them as a passenger.
+	if _, err := e.store.RequestFriendship(context.Background(), uid, pax); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(context.Background(), pax, uid); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
 	if w := e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid), map[string]any{"user_id": pax}, uid); w.Code != 204 {
 		t.Errorf("addPassenger = %d, want 204", w.Code)
 	}
@@ -332,7 +339,13 @@ func TestFlightWritesPublishSSE(t *testing.T) {
 		t.Errorf("update events = %+v, want one flight.updated", events)
 	}
 
-	// Adding a passenger publishes flight.updated.
+	// Adding a passenger publishes flight.updated. Befriend pax first.
+	if _, err := e.store.RequestFriendship(context.Background(), uid, pax); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(context.Background(), pax, uid); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
 	if w := e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid), map[string]any{"user_id": pax}, uid); w.Code != 204 {
 		t.Fatalf("addPassenger = %d", w.Code)
 	}
@@ -679,6 +692,13 @@ func TestShareEndpoints(t *testing.T) {
 		map[string]any{"user_id": carol}, bob); w.Code != http.StatusForbidden {
 		t.Errorf("bob add share = %d, want 403", w.Code)
 	}
+	// Befriend alice and bob before alice shares the flight with bob.
+	if _, err := e.store.RequestFriendship(context.Background(), alice, bob); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(context.Background(), bob, alice); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
 	// Alice shares with Bob.
 	if w := e.req(t, "POST", apiFlightPath(id)+"/shares",
 		map[string]any{"user_id": bob}, alice); w.Code != http.StatusNoContent {
@@ -972,6 +992,102 @@ func TestUpdateFlight_BothLegsUnknownToKnownSkipsResolver(t *testing.T) {
 	got := decodeBody[map[string]any](t, w)
 	if got["origin_lat"] == nil || got["dest_lat"] == nil {
 		t.Fatalf("both coords should be table-filled post-update; got %v", got)
+	}
+}
+
+func TestAddPassengerRequiresFriendship(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "creator-aps", false)
+	stranger := e.user(t, "stranger-aps", false)
+	now := time.Now()
+
+	// Create a flight as the creator (no passengers in the create payload to
+	// keep this test focused on the addPassenger endpoint).
+	body := map[string]any{
+		"ident":         "AP1",
+		"scheduled_out": now,
+		"scheduled_in":  now.Add(time.Hour),
+		"origin_iata":   "LHR",
+		"dest_iata":     "JFK",
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", w.Code, w.Body.String())
+	}
+	fid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
+
+	// Stranger is not a friend → 400.
+	w = e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid),
+		map[string]any{"user_id": stranger}, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("addPassenger non-friend = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "friend") {
+		t.Errorf("error body = %q, expected 'friend' in message", w.Body.String())
+	}
+
+	// Befriend → succeeds.
+	if _, err := e.store.RequestFriendship(context.Background(), uid, stranger); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(context.Background(), stranger, uid); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
+	w = e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid),
+		map[string]any{"user_id": stranger}, uid)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("addPassenger friend = %d, want 204", w.Code)
+	}
+
+	// Creator adding self is always allowed (the friendship check is skipped
+	// for target == creator).
+	w = e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid),
+		map[string]any{"user_id": uid}, uid)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("addPassenger self = %d, want 204", w.Code)
+	}
+}
+
+func TestAddShareRequiresFriendship(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "creator-ash", false)
+	stranger := e.user(t, "stranger-ash", false)
+	now := time.Now()
+
+	body := map[string]any{
+		"ident":         "AS1",
+		"scheduled_out": now,
+		"scheduled_in":  now.Add(time.Hour),
+		"origin_iata":   "LHR",
+		"dest_iata":     "JFK",
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", w.Code, w.Body.String())
+	}
+	fid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
+
+	// Non-friend → 400.
+	w = e.req(t, "POST", fmt.Sprintf("/api/flights/%d/shares", fid),
+		map[string]any{"user_id": stranger}, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("addShare non-friend = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "friend") {
+		t.Errorf("error body = %q, expected 'friend' in message", w.Body.String())
+	}
+
+	// Friend → 204.
+	if _, err := e.store.RequestFriendship(context.Background(), uid, stranger); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(context.Background(), stranger, uid); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
+	w = e.req(t, "POST", fmt.Sprintf("/api/flights/%d/shares", fid),
+		map[string]any{"user_id": stranger}, uid)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("addShare friend = %d, want 204", w.Code)
 	}
 }
 
