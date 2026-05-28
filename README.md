@@ -7,7 +7,7 @@ Built for the small ritual of "who's already in the air to PostgreSQL Conference
 
 - **Backend**: Go 1.26, `net/http`, `pgx/v5`, GitHub OAuth, Server-Sent Events.
 - **Frontend**: Vite + React 18 + TypeScript + MUI + Zustand + MapLibre GL.
-- **Data sources**:
+- **Data sources** (see [APIs.md](APIs.md) for full comparison and alternatives):
   - [OpenSky Network](https://opensky-network.org/) for live ADS-B positions (free for non-commercial use; rate-limited).
   - [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox/) on RapidAPI for schedule + airport + airframe lookups (cheap pay-per-call).
   - An in-memory **stub** that interpolates positions along a great-circle when nothing is configured — useful for demos with no external dependencies.
@@ -167,6 +167,9 @@ The tracker decides where the poller gets a position for each flight; the resolv
 Mix and match as you like — e.g. AeroDataBox to autofill + stub for positions during development, then OpenSky once you want real tracking.
 
 ## Data sources and limitations
+
+> For a full comparison of current and alternative APIs — including unified APIs that handle
+> both scheduling and positioning — see [APIs.md](APIs.md).
 
 ### OpenSky Network — live position tracking
 
