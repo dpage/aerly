@@ -24,6 +24,7 @@ vi.mock('../api/client', async () => {
       inviteUser: vi.fn(),
       updateUser: vi.fn(),
       deleteUser: vi.fn(),
+      getNotifications: vi.fn(),
       logout: vi.fn(),
     },
   };
@@ -567,5 +568,53 @@ describe('logout / selectFlight / applyFlightUpdate / setError', () => {
     expect(useStore.getState().error).toBe('oops');
     useStore.getState().setError(null);
     expect(useStore.getState().error).toBeNull();
+  });
+});
+
+describe('notifications + notice slice', () => {
+  it('init also fetches notifications and writes them to state', async () => {
+    mockApi.getMe.mockResolvedValue(user());
+    mockApi.getConfig.mockResolvedValue({ resolver_available: false });
+    mockApi.listFlights.mockResolvedValue([]);
+    mockApi.listUsers.mockResolvedValue([]);
+    mockApi.getNotifications.mockResolvedValue({ friend_requests_pending: 3 });
+    await useStore.getState().init();
+    expect(useStore.getState().notifications.friend_requests_pending).toBe(3);
+  });
+
+  it('refreshNotifications swallows errors and leaves state untouched', async () => {
+    useStore.setState({ notifications: { friend_requests_pending: 5 } });
+    mockApi.getNotifications.mockRejectedValue(new Error('boom'));
+    await useStore.getState().refreshNotifications();
+    // Count survives the failure; no error written.
+    expect(useStore.getState().notifications.friend_requests_pending).toBe(5);
+    expect(useStore.getState().error).toBeNull();
+  });
+
+  it('applyNotificationsUpdate overwrites notifications state', () => {
+    useStore.setState({ notifications: { friend_requests_pending: 0 } });
+    useStore.getState().applyNotificationsUpdate({ friend_requests_pending: 7 });
+    expect(useStore.getState().notifications.friend_requests_pending).toBe(7);
+  });
+
+  it('setNotice sets and clears the notice', () => {
+    useStore.getState().setNotice({ message: 'hi', severity: 'success' });
+    expect(useStore.getState().notice).toEqual({ message: 'hi', severity: 'success' });
+    useStore.getState().setNotice(null);
+    expect(useStore.getState().notice).toBeNull();
+  });
+
+  it('logout resets notifications and notice', async () => {
+    useStore.setState({
+      me: user(),
+      auth: 'authenticated',
+      notifications: { friend_requests_pending: 4 },
+      notice: { message: 'x', severity: 'info' },
+    });
+    mockApi.logout.mockResolvedValue(undefined);
+    await useStore.getState().logout();
+    const s = useStore.getState();
+    expect(s.notifications.friend_requests_pending).toBe(0);
+    expect(s.notice).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const h = vi.hoisted(() => ({
   api: {
@@ -77,6 +78,74 @@ describe('Login', () => {
     const termsLink = screen.getByRole('link', { name: /terms of service/i });
     expect(privacyLink).toHaveAttribute('href', '/privacy');
     expect(termsLink).toHaveAttribute('href', '/terms');
+  });
+
+  it('falls back to the generic LoginIcon for an unknown provider', async () => {
+    h.api.getAuthProviders.mockResolvedValue([{ name: 'okta', label: 'Okta' }]);
+    h.api.getDevAuthBypassEnabled.mockResolvedValue(false);
+    render(<Login />);
+    // The button exists and points at the provider — what we're proving here
+    // is just that the iconFor default branch doesn't blow up.
+    const link = await screen.findByRole('link', { name: /sign in with okta/i });
+    expect(link).toHaveAttribute('href', '/auth/okta/login');
+  });
+
+  it('stashes ?friend_accept=<token> in sessionStorage when a provider link is clicked', async () => {
+    h.api.getDevAuthBypassEnabled.mockResolvedValue(false);
+    window.history.pushState({}, '', '/?friend_accept=tok-LOGIN');
+    window.sessionStorage.removeItem('aerly.pending_friend_accept');
+    render(<Login />);
+    const link = await screen.findByRole('link', { name: /sign in with github/i });
+    // Prevent the actual navigation so jsdom doesn't reload.
+    link.addEventListener('click', (e) => e.preventDefault(), { once: true });
+    await userEvent.click(link);
+    expect(window.sessionStorage.getItem('aerly.pending_friend_accept')).toBe('tok-LOGIN');
+    // Cleanup so other tests don't see the stash.
+    window.sessionStorage.removeItem('aerly.pending_friend_accept');
+    window.history.pushState({}, '', '/');
+  });
+
+  it('does not stash when no friend_accept token is in the URL', async () => {
+    h.api.getDevAuthBypassEnabled.mockResolvedValue(false);
+    window.history.pushState({}, '', '/');
+    window.sessionStorage.removeItem('aerly.pending_friend_accept');
+    render(<Login />);
+    const link = await screen.findByRole('link', { name: /sign in with github/i });
+    link.addEventListener('click', (e) => e.preventDefault(), { once: true });
+    await userEvent.click(link);
+    expect(window.sessionStorage.getItem('aerly.pending_friend_accept')).toBeNull();
+  });
+
+  it('silently drops the stash when sessionStorage throws', async () => {
+    h.api.getDevAuthBypassEnabled.mockResolvedValue(false);
+    window.history.pushState({}, '', '/?friend_accept=tok-X');
+    const originalStorage = window.sessionStorage;
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      value: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('blocked');
+        },
+        removeItem: () => {},
+        clear: () => {},
+        key: () => null,
+        length: 0,
+      },
+    });
+    try {
+      render(<Login />);
+      const link = await screen.findByRole('link', { name: /sign in with github/i });
+      link.addEventListener('click', (e) => e.preventDefault(), { once: true });
+      // Should not throw despite sessionStorage.setItem rejecting.
+      await userEvent.click(link);
+    } finally {
+      Object.defineProperty(window, 'sessionStorage', {
+        configurable: true,
+        value: originalStorage,
+      });
+      window.history.pushState({}, '', '/');
+    }
   });
 
   it('shows a loading placeholder until /auth/providers resolves', async () => {

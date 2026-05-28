@@ -71,12 +71,41 @@ describe('App', () => {
     render(<App />);
     expect(screen.getByText('APP_SHELL')).toBeInTheDocument();
     expect(connectSSE).toHaveBeenCalledTimes(1);
-    // The SSE handlers should forward to applyFlightUpdate / applyFlightDelete.
+    // All three SSE handlers should forward to the matching store action.
     const handlers = connectSSE.mock.calls[0][0];
     handlers.onFlight({ id: 7 });
     expect(state.applyFlightUpdate).toHaveBeenCalledWith({ id: 7 });
     handlers.onDelete(7);
     expect(state.applyFlightDelete).toHaveBeenCalledWith(7);
+    handlers.onNotifications({ friend_requests_pending: 2 });
+    expect(state.applyNotificationsUpdate).toHaveBeenCalledWith({ friend_requests_pending: 2 });
+  });
+
+  it('renders the success-notice snackbar and clears it via the close button', async () => {
+    state.auth = 'anonymous';
+    state.notice = { message: 'cheer', severity: 'success' };
+    render(<App />);
+    expect(screen.getByText('cheer')).toBeInTheDocument();
+    // Two MUI Snackbars are mounted (error + notice); pick the close button
+    // that lives inside the Alert wrapping our notice text.
+    const noticeAlert = screen.getByText('cheer').closest('.MuiAlert-root');
+    expect(noticeAlert).not.toBeNull();
+    const closeBtn = noticeAlert!.querySelector('button[aria-label="Close"]') as HTMLElement;
+    expect(closeBtn).not.toBeNull();
+    await userEvent.click(closeBtn);
+    expect(state.setNotice).toHaveBeenCalledWith(null);
+  });
+
+  it('Snackbar onClose fires setNotice(null) on autohide timeout', async () => {
+    vi.useFakeTimers();
+    state.auth = 'anonymous';
+    state.notice = { message: 'temp', severity: 'info' };
+    render(<App />);
+    await act(async () => {
+      vi.advanceTimersByTime(6500);
+    });
+    vi.useRealTimers();
+    expect(state.setNotice).toHaveBeenCalledWith(null);
   });
 
   it('shows an error snackbar and clears it via the Alert close button', async () => {
@@ -198,5 +227,125 @@ describe('friend-accept token bootstrap', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(h.api.acceptFriendToken).toHaveBeenCalledWith('stashed-tok');
     expect(window.sessionStorage.getItem('aerly.pending_friend_accept')).toBeNull();
+  });
+
+  it('uses "them" when accept-token returns a friendship but the friend is unknown', async () => {
+    h.api.acceptFriendToken.mockResolvedValueOnce({
+      friendship: { friend_id: 999, status: 'accepted', direction: '', requested_at: '' },
+    });
+    state.auth = 'authenticated';
+    state.users = []; // friend_id 999 won't resolve
+    window.history.pushState({}, '', '/?friend_accept=tokU');
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.setNotice).toHaveBeenCalledWith({
+      message: "You're now friends with them.",
+      severity: 'success',
+    });
+  });
+
+  it('uses "them" when neither friendship nor already is returned', async () => {
+    h.api.acceptFriendToken.mockResolvedValueOnce({});
+    state.auth = 'authenticated';
+    window.history.pushState({}, '', '/?friend_accept=tokE');
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.setNotice).toHaveBeenCalledWith({
+      message: "You're now friends with them.",
+      severity: 'success',
+    });
+  });
+
+  it('falls back to "them" when the friend has no display name', async () => {
+    h.api.acceptFriendToken.mockResolvedValueOnce({
+      friendship: { friend_id: 11, status: 'accepted', direction: '', requested_at: '' },
+    });
+    state.auth = 'authenticated';
+    state.users = [{ id: 11, name: '   ' }]; // whitespace name → trim() to ''
+    window.history.pushState({}, '', '/?friend_accept=tokWS');
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.setNotice).toHaveBeenCalledWith({
+      message: "You're now friends with them.",
+      severity: 'success',
+    });
+  });
+
+  it('stringifies non-Error rejections via setError', async () => {
+    h.api.acceptFriendToken.mockRejectedValueOnce('plain-string-failure');
+    state.auth = 'authenticated';
+    window.history.pushState({}, '', '/?friend_accept=tokS');
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.setError).toHaveBeenCalledWith('plain-string-failure');
+  });
+
+  it('preserves other query params when stripping friend_accept from the URL', async () => {
+    h.api.acceptFriendToken.mockResolvedValueOnce({ already: true });
+    state.auth = 'authenticated';
+    window.history.pushState({}, '', '/?friend_accept=tokQ&foo=bar');
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(window.location.search).toBe('?foo=bar');
+  });
+
+  it('treats sessionStorage.getItem throws as no token', async () => {
+    state.auth = 'authenticated';
+    window.history.pushState({}, '', '/');
+    const originalStorage = window.sessionStorage;
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      value: {
+        getItem: () => {
+          throw new Error('blocked');
+        },
+        setItem: () => {},
+        removeItem: () => {},
+        clear: () => {},
+        key: () => null,
+        length: 0,
+      },
+    });
+    try {
+      render(<App />);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(h.api.acceptFriendToken).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, 'sessionStorage', {
+        configurable: true,
+        value: originalStorage,
+      });
+    }
+  });
+
+  it('silently drops the stash cleanup when sessionStorage.removeItem throws', async () => {
+    h.api.acceptFriendToken.mockResolvedValueOnce({ already: true });
+    state.auth = 'authenticated';
+    window.history.pushState({}, '', '/');
+    const originalStorage = window.sessionStorage;
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      value: {
+        getItem: () => 'stashed-tok',
+        setItem: () => {},
+        removeItem: () => {
+          throw new Error('blocked');
+        },
+        clear: () => {},
+        key: () => null,
+        length: 0,
+      },
+    });
+    try {
+      render(<App />);
+      await new Promise((r) => setTimeout(r, 0));
+      // The accept still ran; the removeItem failure was swallowed.
+      expect(h.api.acceptFriendToken).toHaveBeenCalledWith('stashed-tok');
+    } finally {
+      Object.defineProperty(window, 'sessionStorage', {
+        configurable: true,
+        value: originalStorage,
+      });
+    }
   });
 });
