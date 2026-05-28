@@ -322,3 +322,63 @@ func TestCancelOutgoingInviteNoMatchIsNoop(t *testing.T) {
 		t.Errorf("no-op cancel returned %v", err)
 	}
 }
+
+func TestCountIncomingFriendRequestsEmpty(t *testing.T) {
+	s := newStore(t)
+	me := mkUser(t, s)
+	n, err := s.CountIncomingFriendRequests(ctx, me)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("count = %d, want 0", n)
+	}
+}
+
+func TestCountIncomingFriendRequestsIgnoresOutgoingAndAccepted(t *testing.T) {
+	s := newStore(t)
+	me := mkUser(t, s)
+	otherA := mkUser(t, s)
+	otherB := mkUser(t, s)
+
+	// Outgoing pending: me requested otherA.
+	if _, err := s.RequestFriendship(ctx, me, otherA, ""); err != nil {
+		t.Fatalf("outgoing: %v", err)
+	}
+	// Accepted: cross-direction with otherB.
+	if _, err := s.RequestFriendship(ctx, me, otherB, ""); err != nil {
+		t.Fatalf("seed pending: %v", err)
+	}
+	if _, err := s.AcceptFriendship(ctx, otherB, me); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	n, err := s.CountIncomingFriendRequests(ctx, me)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("count = %d, want 0 (outgoing+accepted only)", n)
+	}
+}
+
+func TestCountIncomingFriendRequestsMultiple(t *testing.T) {
+	s := newStore(t)
+	me := mkUser(t, s)
+	inviter1 := mkUser(t, s)
+	inviter2 := mkUser(t, s)
+	if _, err := s.RequestFriendship(ctx, inviter1, me, ""); err != nil {
+		t.Fatalf("seed1: %v", err)
+	}
+	if _, err := s.RequestFriendship(ctx, inviter2, me, ""); err != nil {
+		t.Fatalf("seed2: %v", err)
+	}
+
+	n, err := s.CountIncomingFriendRequests(ctx, me)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("count = %d, want 2", n)
+	}
+}

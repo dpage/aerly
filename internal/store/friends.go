@@ -369,3 +369,20 @@ func consumePendingInvitesTx(ctx context.Context, tx pgx.Tx, userID int64) ([]in
 	}
 	return inviters, nil
 }
+
+// CountIncomingFriendRequests returns the number of friendships in
+// 'pending' state where viewerID is the recipient (not the requester).
+// Used by /api/notifications and the SSE notifications.updated payload.
+func (s *Store) CountIncomingFriendRequests(ctx context.Context, viewerID int64) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM friendships
+		WHERE status = 'pending'
+		  AND requested_by <> $1
+		  AND $1 IN (user_low, user_high)`,
+		viewerID).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
