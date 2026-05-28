@@ -225,7 +225,11 @@ func (a *API) acceptFriend(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	// Notify both ends: the accepter's pending count drops, and the
+	// inviter's friend list now has a new accepted edge so their open
+	// FriendsDialog (and the share/passenger pickers) refresh live.
 	a.publishNotifications(r.Context(), me.ID)
+	a.publishNotifications(r.Context(), otherID)
 	writeJSON(w, http.StatusOK, api.ToFriendshipDTO(f, me.ID))
 }
 
@@ -323,7 +327,11 @@ func (a *API) acceptFriendToken(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	// Notify both ends — same reason as acceptFriend: the inviter's
+	// FriendsDialog and share/passenger pickers refresh live off this
+	// event when they accept by email-link too.
 	a.publishNotifications(r.Context(), me.ID)
+	a.publishNotifications(r.Context(), inviterID)
 	dto := api.ToFriendshipDTO(f, me.ID)
 	writeJSON(w, http.StatusOK, acceptFriendTokenResp{Friendship: &dto})
 }

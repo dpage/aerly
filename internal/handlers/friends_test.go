@@ -476,7 +476,7 @@ func TestInviteKnownUserPublishesNotifications(t *testing.T) {
 	}
 }
 
-func TestAcceptPublishesNotificationsToAccepter(t *testing.T) {
+func TestAcceptPublishesNotificationsToBothSides(t *testing.T) {
 	e := setup(t, nil, nil)
 	alice := e.user(t, "alice", false)
 	bob := e.user(t, "bob", false)
@@ -486,21 +486,31 @@ func TestAcceptPublishesNotificationsToAccepter(t *testing.T) {
 		t.Fatalf("invite: %s", w.Body.String())
 	}
 
-	ch, unsub := e.hub.Subscribe(sse.Subscription{ViewerID: bob})
-	defer unsub()
+	bobCh, bobUnsub := e.hub.Subscribe(sse.Subscription{ViewerID: bob})
+	defer bobUnsub()
+	aliceCh, aliceUnsub := e.hub.Subscribe(sse.Subscription{ViewerID: alice})
+	defer aliceUnsub()
 
 	path := "/api/friends/" + strconv.FormatInt(alice, 10) + "/accept"
 	if w := e.req(t, "POST", path, nil, bob); w.Code != http.StatusOK {
 		t.Fatalf("accept: %s", w.Body.String())
 	}
-	var got bool
-	for _, ev := range drainEvents(ch) {
+	var bobSaw, aliceSaw bool
+	for _, ev := range drainEvents(bobCh) {
 		if ev.Type == "notifications.updated" {
-			got = true
+			bobSaw = true
 		}
 	}
-	if !got {
+	for _, ev := range drainEvents(aliceCh) {
+		if ev.Type == "notifications.updated" {
+			aliceSaw = true
+		}
+	}
+	if !bobSaw {
 		t.Error("accepter did not see a notifications.updated event")
+	}
+	if !aliceSaw {
+		t.Error("inviter did not see a notifications.updated event (live-update regression)")
 	}
 }
 
@@ -547,8 +557,10 @@ func TestAcceptFriendTokenHappyPath(t *testing.T) {
 	}
 	tok := mintTestToken(t, bob, alice, time.Hour)
 
-	ch, unsub := e.hub.Subscribe(sse.Subscription{ViewerID: bob})
-	defer unsub()
+	bobCh, bobUnsub := e.hub.Subscribe(sse.Subscription{ViewerID: bob})
+	defer bobUnsub()
+	aliceCh, aliceUnsub := e.hub.Subscribe(sse.Subscription{ViewerID: alice})
+	defer aliceUnsub()
 
 	w := e.req(t, "POST", "/api/friends/accept-token",
 		map[string]any{"token": tok}, bob)
@@ -568,14 +580,22 @@ func TestAcceptFriendTokenHappyPath(t *testing.T) {
 	if resp.Friendship == nil || resp.Friendship.Status != "accepted" {
 		t.Errorf("friendship dto = %+v", resp.Friendship)
 	}
-	var sawNotif bool
-	for _, ev := range drainEvents(ch) {
+	var bobSaw, aliceSaw bool
+	for _, ev := range drainEvents(bobCh) {
 		if ev.Type == "notifications.updated" {
-			sawNotif = true
+			bobSaw = true
 		}
 	}
-	if !sawNotif {
-		t.Error("expected notifications.updated event after token accept")
+	for _, ev := range drainEvents(aliceCh) {
+		if ev.Type == "notifications.updated" {
+			aliceSaw = true
+		}
+	}
+	if !bobSaw {
+		t.Error("expected notifications.updated event after token accept (accepter)")
+	}
+	if !aliceSaw {
+		t.Error("expected notifications.updated event after token accept (inviter)")
 	}
 }
 
