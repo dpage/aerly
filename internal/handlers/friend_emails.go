@@ -30,6 +30,7 @@ type friendRequestInput struct {
 	InviterName  string
 	InviterLogin string
 	Message      string
+	Token        string
 }
 
 func inviterLabel(name, login string) string {
@@ -73,11 +74,14 @@ func buildFriendInviteEmail(in friendInviteInput) string {
 func buildFriendRequestEmail(in friendRequestInput) string {
 	link := strings.TrimRight(in.PublicURL, "/")
 	inviter := inviterLabel(in.InviterName, in.InviterLogin)
+	acceptURL := link + "/?friend_accept=" + in.Token
+	reviewURL := link + "/friends"
 
 	plain := fmt.Sprintf(
 		"%s wants to add you as a friend on Aerly. Once you accept they'll be able to see your flights and you'll see theirs.\r\n\r\n"+
-			"Review the request at %s/friends .\r\n",
-		inviter, link)
+			"Accept this request with one click:\r\n  %s\r\n\r\n"+
+			"Or review the request at:\r\n  %s\r\n",
+		inviter, acceptURL, reviewURL)
 	if msg := strings.TrimSpace(in.Message); msg != "" {
 		plain += "\r\nMessage from " + inviter + ":\r\n  " + msg + "\r\n"
 	}
@@ -86,8 +90,13 @@ func buildFriendRequestEmail(in friendRequestInput) string {
 	htmlBody := fmt.Sprintf(
 		`<p style="margin:0 0 12px;font-size:15px;"><strong>%s</strong> wants to add you as a friend on Aerly.</p>`+
 			`<p style="margin:0 0 16px;font-size:15px;">Once you accept they'll be able to see your flights and you'll see theirs.</p>`+
-			`<p style="margin:0;"><a href="%s/friends" style="display:inline-block;padding:10px 18px;border-radius:6px;background:%s;color:#ffffff;font-weight:600;text-decoration:none;">Review the request</a></p>`,
-		mailer.HTMLEscape(inviter), mailer.HTMLEscape(link), mailer.BrandColor)
+			`<p style="margin:0;">`+
+			`<a href="%s" style="display:inline-block;padding:10px 18px;border-radius:6px;background:%s;color:#ffffff;font-weight:600;text-decoration:none;margin-right:8px;">Accept</a>`+
+			`<a href="%s" style="display:inline-block;padding:10px 18px;border-radius:6px;border:1px solid %s;color:%s;font-weight:600;text-decoration:none;">Review the request</a>`+
+			`</p>`,
+		mailer.HTMLEscape(inviter),
+		mailer.HTMLEscape(acceptURL), mailer.BrandColor,
+		mailer.HTMLEscape(reviewURL), mailer.BrandColor, mailer.BrandColor)
 	if msg := strings.TrimSpace(in.Message); msg != "" {
 		htmlBody += fmt.Sprintf(
 			`<p style="margin:18px 0 6px;font-size:13px;color:#666;">Message from %s:</p>`+

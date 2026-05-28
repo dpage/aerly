@@ -21,6 +21,12 @@ import (
 // but a hung send aborts at this deadline and the request returns.
 const friendEmailSendTimeout = 5 * time.Second
 
+// friendAcceptTokenTTL bounds how long the Accept button in the friend
+// request email remains clickable. The underlying pending friendship
+// row stays around longer — only the email link goes dead — so a
+// recipient can still accept in-app.
+const friendAcceptTokenTTL = 7 * 24 * time.Hour
+
 // inviteFriendAcceptedBody is the response every successful POST to
 // /api/friends/invite returns, regardless of whether the email matched a
 // verified user, queued a pending sign-up invite, or self-matched. Keeping
@@ -165,6 +171,11 @@ func (a *API) sendFriendRequestNotification(ctx context.Context, inviter, recipi
 		// Edge case: matched user has no verified email row anymore.
 		return
 	}
+	token := auth.MintFriendAcceptToken(
+		a.Config.SessionKey,
+		recipient.ID, inviter.ID,
+		time.Now().Add(friendAcceptTokenTTL),
+	)
 	msg := buildFriendRequestEmail(friendRequestInput{
 		FromAddr:     a.Config.MailFromAddress,
 		ToAddr:       to,
@@ -172,6 +183,7 @@ func (a *API) sendFriendRequestNotification(ctx context.Context, inviter, recipi
 		InviterName:  inviter.Name,
 		InviterLogin: inviter.Username,
 		Message:      message,
+		Token:        token,
 	})
 	sendCtx, cancel := context.WithTimeout(ctx, friendEmailSendTimeout)
 	defer cancel()
