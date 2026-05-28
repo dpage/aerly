@@ -21,6 +21,25 @@ export function createAppTheme(mode: ThemeMode): Theme {
       fontFamily:
         'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     },
+    components: {
+      // The outlined input's notch is sized from a hidden <legend> whose
+      // content uses font-size:0.75em while the visible <InputLabel> uses
+      // transform:scale(0.75). On some platforms (notably macOS rendering
+      // San Francisco) the two come out a few pixels different, so the
+      // visible label spills past the notch and the focused border draws
+      // through it. Widen the legend's invisible label padding to add
+      // slack — purely cosmetic, no effect on layout of anything visible.
+      MuiOutlinedInput: {
+        styleOverrides: {
+          notchedOutline: {
+            '& legend > span': {
+              paddingLeft: 8,
+              paddingRight: 8,
+            },
+          },
+        },
+      },
+    },
   });
 }
 
