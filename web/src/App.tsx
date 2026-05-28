@@ -1,8 +1,11 @@
-import { useEffect } from 'react';
-import { Alert, Box, CircularProgress, Snackbar } from '@mui/material';
+import { useEffect, useMemo } from 'react';
+import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
 
 import { useStore } from './state/store';
 import { connectSSE } from './sse';
+import { createAppTheme, useThemeMode } from './theme';
 import Login from './components/Login';
 import AppShell from './components/AppShell';
 
@@ -14,6 +17,8 @@ export default function App() {
   const applyFlightUpdate = useStore((s) => s.applyFlightUpdate);
   const applyFlightDelete = useStore((s) => s.applyFlightDelete);
   const showAll = useStore((s) => s.showAll);
+  const { mode } = useThemeMode();
+  const theme = useMemo(() => createAppTheme(mode), [mode]);
 
   useEffect(() => {
     void init();
@@ -44,18 +49,21 @@ export default function App() {
   }
 
   return (
-    <>
-      {body}
-      <Snackbar
-        open={error !== null}
-        autoHideDuration={6000}
-        onClose={() => setError(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity="error" variant="filled" onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      </Snackbar>
-    </>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <LocalizationProvider dateAdapter={AdapterDateFns}>
+        {body}
+        <Snackbar
+          open={error !== null}
+          autoHideDuration={6000}
+          onClose={() => setError(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert severity="error" variant="filled" onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        </Snackbar>
+      </LocalizationProvider>
+    </ThemeProvider>
   );
 }

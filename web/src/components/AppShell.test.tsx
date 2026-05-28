@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import type { User } from '../api/types';
 import { setMatchMedia } from '../test/setup';
+import { setThemePreference, THEME_STORAGE_KEY } from '../theme';
 
 const h = vi.hoisted(() => ({
   state: {
@@ -86,6 +87,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.state.me = user();
   setMatchMedia(false);
+  localStorage.clear();
+  setThemePreference('system');
+  localStorage.clear();
 });
 
 describe('AppShell', () => {
@@ -182,6 +186,21 @@ describe('AppShell', () => {
     h.state.me = null;
     render(<AppShell />);
     expect(screen.getByText('Aerly')).toBeInTheDocument();
+  });
+
+  it('persists the chosen appearance preference to localStorage', async () => {
+    render(<AppShell />);
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /^dark$/i }));
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+  });
+
+  it('exposes Light, Dark and System options in the appearance picker', async () => {
+    render(<AppShell />);
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(screen.getByRole('menuitem', { name: /^light$/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /^dark$/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /^system$/i })).toBeInTheDocument();
   });
 
   it('opens the Stats dialog from the avatar menu', async () => {

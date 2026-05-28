@@ -20,11 +20,15 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
 import EmailIcon from '@mui/icons-material/EmailOutlined';
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
+import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
+import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 
 import { useStore } from '../state/store';
+import { useThemeMode, type ThemePreference } from '../theme';
 import FlightList from './FlightList';
 import FlightMap from './FlightMap';
 import FlightDialog from './FlightDialog';
@@ -36,6 +40,7 @@ export default function AppShell() {
   const me = useStore((s) => s.me);
   const logout = useStore((s) => s.logout);
   const capabilities = useStore((s) => s.capabilities);
+  const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
   const [flightDialog, setFlightDialog] = useState<{ open: boolean; editId: number | null }>({
@@ -128,6 +133,34 @@ export default function AppShell() {
               </ListItemIcon>
               Statistics…
             </MenuItem>
+            <Divider />
+            <MenuItem disabled sx={{ opacity: '1 !important' }}>
+              <Typography variant="caption" color="text.secondary">
+                Appearance
+              </Typography>
+            </MenuItem>
+            {(
+              [
+                { value: 'light', label: 'Light', Icon: LightModeIcon },
+                { value: 'dark', label: 'Dark', Icon: DarkModeIcon },
+                { value: 'system', label: 'System', Icon: SettingsBrightnessIcon },
+              ] as const
+            ).map(({ value, label, Icon }) => (
+              <MenuItem
+                key={value}
+                selected={themePreference === value}
+                onClick={() => {
+                  setThemePreference(value as ThemePreference);
+                  closeMenu();
+                }}
+              >
+                <ListItemIcon>
+                  <Icon fontSize="small" />
+                </ListItemIcon>
+                {label}
+              </MenuItem>
+            ))}
+            <Divider />
             <MenuItem
               onClick={() => {
                 closeMenu();
@@ -183,7 +216,11 @@ export default function AppShell() {
                 '&:hover': { bgcolor: 'background.paper' },
               }}
             >
-              {sidebarOpen ? <ChevronLeftIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+              {sidebarOpen ? (
+                <ChevronLeftIcon fontSize="small" />
+              ) : (
+                <ChevronRightIcon fontSize="small" />
+              )}
             </IconButton>
           </Tooltip>
         </Box>
