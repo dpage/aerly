@@ -22,6 +22,7 @@ export default function App() {
   const refreshNotifications = useStore((s) => s.refreshNotifications);
   const refreshFriendships = useStore((s) => s.refreshFriendships);
   const refreshUsers = useStore((s) => s.refreshUsers);
+  const refreshFlights = useStore((s) => s.refreshFlights);
   const applyFlightUpdate = useStore((s) => s.applyFlightUpdate);
   const applyFlightDelete = useStore((s) => s.applyFlightDelete);
   const applyNotificationsUpdate = useStore((s) => s.applyNotificationsUpdate);
@@ -49,8 +50,15 @@ export default function App() {
           // friend list and the cached user records need to come along too,
           // or the share/passenger pickers and the friends dialog will keep
           // showing stale "User #N" entries for newly-accepted friends.
+          //
+          // Flights too: "Share with all friends" flights from a peer are
+          // visible via the friendship edge, so unfriending should make
+          // them disappear immediately. Without this refresh the server's
+          // visibility filter would drop them on the *next* list, but the
+          // client's cached list would keep showing them until reload.
           void refreshFriendships();
           void refreshUsers();
+          void refreshFlights();
         },
       },
       { showAll },
@@ -62,6 +70,7 @@ export default function App() {
     applyNotificationsUpdate,
     refreshFriendships,
     refreshUsers,
+    refreshFlights,
     showAll,
   ]);
 

@@ -22,6 +22,7 @@ const h = vi.hoisted(() => {
       refreshNotifications: vi.fn(),
       refreshFriendships: vi.fn(),
       refreshUsers: vi.fn(),
+      refreshFlights: vi.fn(),
       applyFlightUpdate: vi.fn(),
       applyFlightDelete: vi.fn(),
       applyNotificationsUpdate: vi.fn(),
@@ -84,9 +85,12 @@ describe('App', () => {
     // notifications.updated fires on any friendship state change for the
     // viewer — the friend list and the cached user records have to be
     // refreshed so newly-accepted friends show up in the share/passenger
-    // pickers and the friends dialog (instead of "User #N").
+    // pickers and the friends dialog (instead of "User #N"). Flights too:
+    // unfriending makes the peer's "Share with all friends" flights
+    // invisible, and we want the local list to drop them immediately.
     expect(state.refreshFriendships).toHaveBeenCalled();
     expect(state.refreshUsers).toHaveBeenCalled();
+    expect(state.refreshFlights).toHaveBeenCalled();
   });
 
   it('renders the success-notice snackbar and clears it via the close button', async () => {
