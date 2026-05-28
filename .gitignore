@@ -30,3 +30,4 @@ web/coverage/
 .claude/plans/
 .claude/specs/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
