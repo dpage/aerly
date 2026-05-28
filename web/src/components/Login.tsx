@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Divider,
+  Link,
   Paper,
   Stack,
   TextField,
@@ -88,6 +89,15 @@ export default function Login() {
           </Stack>
           <Typography variant="caption" color="text.secondary">
             Access is restricted to invited users.
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            <Link href="/privacy" color="inherit">
+              Privacy Policy
+            </Link>
+            {' · '}
+            <Link href="/terms" color="inherit">
+              Terms of Service
+            </Link>
           </Typography>
           {devBypass && (
             <>

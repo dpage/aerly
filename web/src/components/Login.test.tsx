@@ -69,6 +69,16 @@ describe('Login', () => {
     expect(input).toHaveAttribute('name', 'login');
   });
 
+  it('renders links to Privacy Policy and Terms of Service', async () => {
+    h.api.getDevAuthBypassEnabled.mockResolvedValue(false);
+    render(<Login />);
+    await waitFor(() => expect(h.api.getDevAuthBypassEnabled).toHaveBeenCalled());
+    const privacyLink = screen.getByRole('link', { name: /privacy policy/i });
+    const termsLink = screen.getByRole('link', { name: /terms of service/i });
+    expect(privacyLink).toHaveAttribute('href', '/privacy');
+    expect(termsLink).toHaveAttribute('href', '/terms');
+  });
+
   it('shows a loading placeholder until /auth/providers resolves', async () => {
     // Hold the providers fetch open so the first paint reflects loading.
     let resolveProviders!: (v: { name: string; label: string }[]) => void;
