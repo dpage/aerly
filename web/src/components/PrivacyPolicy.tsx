@@ -17,7 +17,7 @@ export default function PrivacyPolicy() {
         <Stack spacing={3}>
           <Stack spacing={1} alignItems="center" textAlign="center">
             <FlightTakeoffIcon color="primary" sx={{ fontSize: 56 }} />
-            <Typography variant="h4">Privacy Policy</Typography>
+            <Typography variant="h4" component="h1">Privacy Policy</Typography>
             <Typography variant="body2" color="text.secondary">
               Aerly
             </Typography>
