@@ -215,3 +215,11 @@ func ToFlightDTO(
 	}
 	return dto
 }
+
+// NotificationsDTO is the body of GET /api/notifications and the
+// payload of notifications.updated SSE events. It is intentionally an
+// open-shape struct: new notification kinds get added as new fields
+// with omitempty, so older clients ignoring them keep working.
+type NotificationsDTO struct {
+	FriendRequestsPending int `json:"friend_requests_pending"`
+}
