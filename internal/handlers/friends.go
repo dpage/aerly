@@ -35,9 +35,28 @@ func (a *API) listFriends(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
-	out := make([]api.FriendshipDTO, 0, len(rows))
+	pending, err := a.Store.ListOutgoingPendingInvites(r.Context(), me.ID)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	out := make([]api.FriendshipDTO, 0, len(rows)+len(pending))
+	// All pending friendships first (preserves internal order from SQL),
+	// then pending_friend_invites (also outgoing pending), then accepted.
+	// Without this split the email-only outgoing invites would land *after*
+	// accepted friendships, breaking the pending-precedes-accepted grouping.
 	for _, f := range rows {
-		out = append(out, api.ToFriendshipDTO(f, me.ID))
+		if f.Status == "pending" {
+			out = append(out, api.ToFriendshipDTO(f, me.ID))
+		}
+	}
+	for _, p := range pending {
+		out = append(out, api.OutgoingInviteToFriendshipDTO(p))
+	}
+	for _, f := range rows {
+		if f.Status == "accepted" {
+			out = append(out, api.ToFriendshipDTO(f, me.ID))
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -82,7 +101,7 @@ func (a *API) inviteFriend(w http.ResponseWriter, r *http.Request) {
 		// If they're trying to friend their own verified address, treat as
 		// success — no edge to create, but we don't expose the self-match.
 		if target.ID != me.ID {
-			a.inviteFriendByUserID(r.Context(), me, target, in.Message)
+			a.inviteFriendByUserID(r.Context(), me, target, addr, in.Message)
 		}
 	}
 
@@ -94,8 +113,8 @@ func (a *API) inviteFriend(w http.ResponseWriter, r *http.Request) {
 // inviteFriendByUserID issues (or no-ops on) a pending friendship and
 // emails the recipient. Errors are logged but never surfaced to the caller
 // — see inviteFriend's enumeration-leak comment.
-func (a *API) inviteFriendByUserID(ctx context.Context, me, target *store.User, message string) {
-	friendship, err := a.Store.RequestFriendship(ctx, me.ID, target.ID)
+func (a *API) inviteFriendByUserID(ctx context.Context, me, target *store.User, invitedEmail, message string) {
+	friendship, err := a.Store.RequestFriendship(ctx, me.ID, target.ID, invitedEmail)
 	if err != nil {
 		slog.Error("friend invite: request failed", "err", err, "from", me.ID, "to", target.ID)
 		return
@@ -206,6 +225,35 @@ func (a *API) removeFriend(w http.ResponseWriter, r *http.Request) {
 	if err := a.Store.RemoveFriendship(r.Context(), me.ID, otherID); err != nil {
 		handleStoreErr(w, err)
 		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type cancelOutgoingReq struct {
+	Email string `json:"email"`
+}
+
+func (a *API) cancelOutgoingInvite(w http.ResponseWriter, r *http.Request) {
+	var in cancelOutgoingReq
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	addr := strings.TrimSpace(in.Email)
+	if addr == "" {
+		writeError(w, http.StatusBadRequest, "email required")
+		return
+	}
+	parsed, err := mail.ParseAddress(addr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid email address")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if err := a.Store.CancelOutgoingInvite(r.Context(), me.ID, parsed.Address); err != nil {
+		// Don't surface store errors that would leak which path matched —
+		// log internally, return 204 either way.
+		slog.Error("cancel outgoing invite failed", "err", err, "by", me.ID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

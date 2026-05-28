@@ -37,12 +37,17 @@ func ToUserDTO(u *store.User) UserDTO {
 }
 
 // FriendshipDTO describes one row in /api/friends, oriented from the
-// viewer's perspective. FriendID is the *other* user in the pair, never
-// the viewer themselves. Direction is "outgoing" when the viewer initiated
+// viewer's perspective. Direction is "outgoing" when the viewer initiated
 // a pending request, "incoming" when the viewer needs to act on someone
 // else's pending request, and "" (empty) for accepted friendships.
 type FriendshipDTO struct {
-	FriendID    int64      `json:"friend_id"`
+	// FriendID is the *other* user in the pair. Omitted (zero on the wire)
+	// for outgoing pending invites — those expose only the typed email so
+	// the inviter never learns whether the target is a registered user.
+	FriendID int64 `json:"friend_id,omitempty"`
+	// Email is set only for outgoing pending invites and carries the
+	// inviter-typed address. Omitted otherwise.
+	Email       string     `json:"email,omitempty"`
 	Status      string     `json:"status"` // "pending" | "accepted"
 	Direction   string     `json:"direction,omitempty"`
 	RequestedAt time.Time  `json:"requested_at"`
@@ -53,7 +58,6 @@ type FriendshipDTO struct {
 // it for the wire. Callers must ensure viewerID is one of the pair.
 func ToFriendshipDTO(f *store.Friendship, viewerID int64) FriendshipDTO {
 	dto := FriendshipDTO{
-		FriendID:    f.FriendID(viewerID),
 		Status:      f.Status,
 		RequestedAt: f.RequestedAt,
 		AcceptedAt:  f.AcceptedAt,
@@ -61,11 +65,27 @@ func ToFriendshipDTO(f *store.Friendship, viewerID int64) FriendshipDTO {
 	if f.Status == "pending" {
 		if f.RequestedBy == viewerID {
 			dto.Direction = "outgoing"
-		} else {
-			dto.Direction = "incoming"
+			// No FriendID on the wire: it would let the inviter look up
+			// the target in /api/users.
+			dto.Email = f.InvitedEmail
+			return dto
 		}
+		dto.Direction = "incoming"
 	}
+	dto.FriendID = f.FriendID(viewerID)
 	return dto
+}
+
+// OutgoingInviteToFriendshipDTO renders a pending_friend_invites row as
+// an outgoing-pending FriendshipDTO. Used by the list handler to union
+// email-only invites (target not yet registered) with friendship rows.
+func OutgoingInviteToFriendshipDTO(p *store.PendingFriendInvite) FriendshipDTO {
+	return FriendshipDTO{
+		Email:       p.EmailLower,
+		Status:      "pending",
+		Direction:   "outgoing",
+		RequestedAt: p.CreatedAt,
+	}
 }
 
 type UserEmailDTO struct {

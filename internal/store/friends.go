@@ -14,12 +14,13 @@ import (
 // FriendID / Direction helpers, which orient the edge relative to the
 // viewer.
 type Friendship struct {
-	UserLow     int64
-	UserHigh    int64
-	Status      string // "pending" | "accepted"
-	RequestedBy int64
-	RequestedAt time.Time
-	AcceptedAt  *time.Time
+	UserLow      int64
+	UserHigh     int64
+	Status       string // "pending" | "accepted"
+	RequestedBy  int64
+	RequestedAt  time.Time
+	AcceptedAt   *time.Time
+	InvitedEmail string // empty for non-pending rows; the email the inviter typed
 }
 
 // FriendID returns the *other* user's ID, given the viewer.
@@ -61,7 +62,7 @@ func (s *Store) FriendshipBetween(ctx context.Context, a, b int64) (*Friendship,
 	}
 	low, high := pairOrder(a, b)
 	return scanFriendship(s.pool.QueryRow(ctx, `
-		SELECT user_low, user_high, status, requested_by, requested_at, accepted_at
+		SELECT user_low, user_high, status, requested_by, requested_at, accepted_at, invited_email
 		FROM friendships WHERE user_low = $1 AND user_high = $2`,
 		low, high))
 }
@@ -73,7 +74,7 @@ func (s *Store) FriendshipBetween(ctx context.Context, a, b int64) (*Friendship,
 // recent activity first.
 func (s *Store) ListFriendships(ctx context.Context, viewerID int64) ([]*Friendship, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT user_low, user_high, status, requested_by, requested_at, accepted_at
+		SELECT user_low, user_high, status, requested_by, requested_at, accepted_at, invited_email
 		FROM friendships
 		WHERE $1 IN (user_low, user_high)
 		ORDER BY status DESC,
@@ -94,14 +95,45 @@ func (s *Store) ListFriendships(ctx context.Context, viewerID int64) ([]*Friends
 	return out, rows.Err()
 }
 
+// ListOutgoingPendingInvites returns the pending_friend_invites rows
+// authored by inviterID — the email-only outgoing invites whose targets
+// haven't (yet) verified the address. The list endpoint unions these with
+// friendship rows so an outgoing pending invite looks identical regardless
+// of whether the target is already a registered user.
+func (s *Store) ListOutgoingPendingInvites(ctx context.Context, inviterID int64) ([]*PendingFriendInvite, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT email_lower, inviter_id, message, created_at
+		FROM pending_friend_invites
+		WHERE inviter_id = $1
+		ORDER BY created_at DESC`,
+		inviterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*PendingFriendInvite
+	for rows.Next() {
+		var p PendingFriendInvite
+		if err := rows.Scan(&p.EmailLower, &p.InviterID, &p.Message, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &p)
+	}
+	return out, rows.Err()
+}
+
 func scanFriendship(row pgx.Row) (*Friendship, error) {
 	var f Friendship
+	var invited *string
 	if err := row.Scan(&f.UserLow, &f.UserHigh, &f.Status,
-		&f.RequestedBy, &f.RequestedAt, &f.AcceptedAt); err != nil {
+		&f.RequestedBy, &f.RequestedAt, &f.AcceptedAt, &invited); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
+	}
+	if invited != nil {
+		f.InvitedEmail = *invited
 	}
 	return &f, nil
 }
@@ -121,10 +153,16 @@ func scanFriendship(row pgx.Row) (*Friendship, error) {
 // no-op / accept-cross-direction logic. Two simultaneous A→B and B→A
 // calls can no longer both miss the lock and one of them fail on the
 // PRIMARY KEY constraint.
-func (s *Store) RequestFriendship(ctx context.Context, requesterID, recipientID int64) (*Friendship, error) {
+func (s *Store) RequestFriendship(ctx context.Context, requesterID, recipientID int64, invitedEmail string) (*Friendship, error) {
 	if requesterID == recipientID {
 		return nil, errors.New("cannot friend yourself")
 	}
+	// Lowercase at the store boundary so the wire response can't leak
+	// target existence via casing: both this path (known target) and
+	// UpsertPendingFriendInvite (unknown target) must produce byte-identical
+	// output for the same typed email. Defensive against direct test callers
+	// and any future writer too.
+	invitedEmail = strings.ToLower(invitedEmail)
 	low, high := pairOrder(requesterID, recipientID)
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -136,11 +174,11 @@ func (s *Store) RequestFriendship(ctx context.Context, requesterID, recipientID 
 	// when another transaction already holds the row — fall through to
 	// the existing-row branch below.
 	inserted, err := scanFriendship(tx.QueryRow(ctx, `
-		INSERT INTO friendships (user_low, user_high, status, requested_by)
-		VALUES ($1, $2, 'pending', $3)
+		INSERT INTO friendships (user_low, user_high, status, requested_by, invited_email)
+		VALUES ($1, $2, 'pending', $3, $4)
 		ON CONFLICT (user_low, user_high) DO NOTHING
-		RETURNING user_low, user_high, status, requested_by, requested_at, accepted_at`,
-		low, high, requesterID))
+		RETURNING user_low, user_high, status, requested_by, requested_at, accepted_at, invited_email`,
+		low, high, requesterID, invitedEmail))
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
@@ -155,7 +193,7 @@ func (s *Store) RequestFriendship(ctx context.Context, requesterID, recipientID 
 	// accepted, or duplicate same-direction pending) and cross-direction
 	// implicit accept.
 	existing, err := scanFriendship(tx.QueryRow(ctx, `
-		SELECT user_low, user_high, status, requested_by, requested_at, accepted_at
+		SELECT user_low, user_high, status, requested_by, requested_at, accepted_at, invited_email
 		FROM friendships WHERE user_low = $1 AND user_high = $2
 		FOR UPDATE`,
 		low, high))
@@ -172,7 +210,7 @@ func (s *Store) RequestFriendship(ctx context.Context, requesterID, recipientID 
 		UPDATE friendships
 		SET status = 'accepted', accepted_at = NOW()
 		WHERE user_low = $1 AND user_high = $2
-		RETURNING user_low, user_high, status, requested_by, requested_at, accepted_at`,
+		RETURNING user_low, user_high, status, requested_by, requested_at, accepted_at, invited_email`,
 		low, high))
 	if err != nil {
 		return nil, err
@@ -194,7 +232,7 @@ func (s *Store) AcceptFriendship(ctx context.Context, viewerID, otherID int64) (
 		WHERE user_low = $1 AND user_high = $2
 		  AND status = 'pending'
 		  AND requested_by <> $3
-		RETURNING user_low, user_high, status, requested_by, requested_at, accepted_at`,
+		RETURNING user_low, user_high, status, requested_by, requested_at, accepted_at, invited_email`,
 		low, high, viewerID))
 }
 
@@ -235,6 +273,42 @@ func (s *Store) UpsertPendingFriendInvite(ctx context.Context, inviterID int64, 
 		return false, err
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// CancelOutgoingInvite removes whatever outgoing pending invite inviterID
+// has open for the given email — across both pending_friend_invites (for
+// unknown targets) and friendships (for known targets where the inviter
+// is requested_by). Returns nil even when nothing matched, so the handler
+// can serve an identical 204 regardless of whether the target email
+// belongs to a registered user.
+func (s *Store) CancelOutgoingInvite(ctx context.Context, inviterID int64, email string) error {
+	addr := strings.ToLower(strings.TrimSpace(email))
+	if addr == "" {
+		return errors.New("email required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM pending_friend_invites
+		 WHERE inviter_id = $1 AND email_lower = $2`,
+		inviterID, addr); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM friendships
+		 WHERE status = 'pending'
+		   AND requested_by = $1
+		   AND lower(invited_email) = $2`,
+		inviterID, addr); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 // consumePendingInvitesTx converts every pending_friend_invite addressed at

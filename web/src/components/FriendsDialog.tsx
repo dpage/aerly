@@ -42,6 +42,14 @@ function buildUserIndex(users: User[]): Map<number, User> {
   return m;
 }
 
+// Outgoing pending invites have no friend_id (the server omits it so the
+// inviter can't enumerate registered users), so they're keyed by email
+// instead. Every other row is keyed by friend_id as before.
+const rowKey = (f: Friendship) =>
+  f.direction === 'outgoing' && f.status === 'pending'
+    ? `outgoing:${f.email}`
+    : `friend:${f.friend_id}`;
+
 export default function FriendsDialog({ open, onClose }: Props) {
   const setError = useStore((s) => s.setError);
   const users = useStore((s) => s.users);
@@ -103,6 +111,20 @@ export default function FriendsDialog({ open, onClose }: Props) {
     try {
       await api.removeFriend(other);
       setFriends((rows) => rows.filter((r) => r.friend_id !== other));
+    } catch (err) {
+      reportError(err);
+    }
+  };
+
+  const handleCancelOutgoing = async (email: string) => {
+    if (!window.confirm(`Cancel the invite to ${email}?`)) return;
+    try {
+      await api.cancelOutgoingInvite(email);
+      setFriends((rows) =>
+        rows.filter(
+          (r) => !(r.direction === 'outgoing' && r.status === 'pending' && r.email === email),
+        ),
+      );
     } catch (err) {
       reportError(err);
     }
@@ -172,10 +194,52 @@ export default function FriendsDialog({ open, onClose }: Props) {
               </TableHead>
               <TableBody>
                 {friends.map((f) => {
-                  const label = friendLabel(f.friend_id);
-                  const user = userIndex.get(f.friend_id);
+                  // Outgoing pending invites are rendered by email — the
+                  // server intentionally omits friend_id for these rows so
+                  // the inviter can't tell whether the address belongs to
+                  // a registered user. Do NOT consult userIndex here.
+                  if (f.direction === 'outgoing' && f.status === 'pending') {
+                    const email = f.email ?? '';
+                    return (
+                      <TableRow key={rowKey(f)} hover>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Avatar sx={{ width: 24, height: 24 }}>
+                              {email.charAt(0).toUpperCase() || '?'}
+                            </Avatar>
+                            <span>{email}</span>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label="invite sent"
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Tooltip title="Cancel">
+                            <IconButton
+                              size="small"
+                              aria-label={`Cancel invite to ${email}`}
+                              onClick={() => void handleCancelOutgoing(email)}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+
+                  // Accepted + incoming pending rows render by friend_id
+                  // via the global user index (existing behavior).
+                  const friendId = f.friend_id!;
+                  const label = friendLabel(friendId);
+                  const user = userIndex.get(friendId);
                   return (
-                    <TableRow key={f.friend_id} hover>
+                    <TableRow key={rowKey(f)} hover>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Avatar
@@ -190,13 +254,6 @@ export default function FriendsDialog({ open, onClose }: Props) {
                       <TableCell align="center">
                         {f.status === 'accepted' ? (
                           <Chip label="accepted" size="small" color="success" variant="outlined" />
-                        ) : f.direction === 'outgoing' ? (
-                          <Chip
-                            label="invite sent"
-                            size="small"
-                            color="warning"
-                            variant="outlined"
-                          />
                         ) : (
                           <Chip
                             label="wants to friend you"
@@ -213,7 +270,7 @@ export default function FriendsDialog({ open, onClose }: Props) {
                               <IconButton
                                 size="small"
                                 aria-label={`Accept ${label}`}
-                                onClick={() => void handleAccept(f.friend_id)}
+                                onClick={() => void handleAccept(friendId)}
                               >
                                 <CheckIcon fontSize="small" />
                               </IconButton>
@@ -224,18 +281,18 @@ export default function FriendsDialog({ open, onClose }: Props) {
                               <IconButton
                                 size="small"
                                 aria-label={`Decline ${label}`}
-                                onClick={() => void handleRemove(f.friend_id, label)}
+                                onClick={() => void handleRemove(friendId, label)}
                               >
                                 <CloseIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           )}
-                          {(f.status === 'accepted' || f.direction === 'outgoing') && (
-                            <Tooltip title={f.status === 'accepted' ? 'Unfriend' : 'Cancel'}>
+                          {f.status === 'accepted' && (
+                            <Tooltip title="Unfriend">
                               <IconButton
                                 size="small"
                                 aria-label={`Remove ${label}`}
-                                onClick={() => void handleRemove(f.friend_id, label)}
+                                onClick={() => void handleRemove(friendId, label)}
                               >
                                 <DeleteOutlineIcon fontSize="small" />
                               </IconButton>

@@ -632,7 +632,7 @@ func TestVisibilityHelpers(t *testing.T) {
 
 	// Friend-of-creator visibility: turning carol into alice's friend
 	// should grant carol read access to PV without an explicit share row.
-	if _, err := s.RequestFriendship(ctx, alice, carol); err != nil {
+	if _, err := s.RequestFriendship(ctx, alice, carol, "test@example.com"); err != nil {
 		t.Fatalf("alice→carol request: %v", err)
 	}
 	if _, err := s.AcceptFriendship(ctx, carol, alice); err != nil {

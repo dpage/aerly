@@ -161,7 +161,12 @@ export type FriendshipStatus = 'pending' | 'accepted';
 export type FriendshipDirection = 'incoming' | 'outgoing' | '';
 
 export interface Friendship {
-  friend_id: number;
+  /** The other user in the pair. Absent (omitted on the wire) for outgoing
+   *  pending invites — the inviter must not learn whether the target email
+   *  belongs to a registered Aerly user. Present otherwise. */
+  friend_id?: number;
+  /** Inviter-typed email. Present only for outgoing pending invites. */
+  email?: string;
   status: FriendshipStatus;
   direction?: FriendshipDirection;
   requested_at: string;

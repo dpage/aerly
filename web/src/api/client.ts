@@ -139,6 +139,8 @@ export const api = {
   acceptFriend: (userId: number) =>
     request<Friendship>('POST', `/api/friends/${userId}/accept`),
   removeFriend: (userId: number) => request<void>('DELETE', `/api/friends/${userId}`),
+  cancelOutgoingInvite: (email: string) =>
+    request<void>('DELETE', '/api/friends/outgoing', { email }).then(() => undefined),
 
   listMyEmails: () => request<UserEmail[]>('GET', '/api/me/emails'),
   addMyEmail: (address: string) =>

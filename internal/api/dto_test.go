@@ -88,3 +88,53 @@ func TestToFlightDTONilsAndEmptyTrack(t *testing.T) {
 		t.Error("Track should be nil when empty")
 	}
 }
+
+func TestToFriendshipDTOOutgoingPendingOmitsFriendID(t *testing.T) {
+	f := &store.Friendship{
+		UserLow: 1, UserHigh: 2, Status: "pending",
+		RequestedBy: 1, InvitedEmail: "Typed@Example.com",
+		RequestedAt: time.Now(),
+	}
+	dto := ToFriendshipDTO(f, 1)
+	if dto.Direction != "outgoing" {
+		t.Errorf("Direction = %q, want outgoing", dto.Direction)
+	}
+	if dto.FriendID != 0 {
+		t.Errorf("FriendID = %d, want 0 (omitted)", dto.FriendID)
+	}
+	if dto.Email != "Typed@Example.com" {
+		t.Errorf("Email = %q, want %q", dto.Email, "Typed@Example.com")
+	}
+}
+
+func TestToFriendshipDTOIncomingPendingKeepsFriendID(t *testing.T) {
+	f := &store.Friendship{
+		UserLow: 1, UserHigh: 2, Status: "pending",
+		RequestedBy: 2, InvitedEmail: "Typed@Example.com",
+		RequestedAt: time.Now(),
+	}
+	dto := ToFriendshipDTO(f, 1)
+	if dto.Direction != "incoming" {
+		t.Errorf("Direction = %q, want incoming", dto.Direction)
+	}
+	if dto.FriendID != 2 {
+		t.Errorf("FriendID = %d, want 2", dto.FriendID)
+	}
+	if dto.Email != "" {
+		t.Errorf("Email = %q, want empty for incoming", dto.Email)
+	}
+}
+
+func TestPendingInviteToFriendshipDTO(t *testing.T) {
+	p := &store.PendingFriendInvite{
+		EmailLower: "stranger@example.com",
+		InviterID:  1,
+		Message:    "hi",
+		CreatedAt:  time.Now(),
+	}
+	dto := OutgoingInviteToFriendshipDTO(p)
+	if dto.FriendID != 0 || dto.Status != "pending" || dto.Direction != "outgoing" ||
+		dto.Email != "stranger@example.com" {
+		t.Errorf("unexpected DTO: %+v", dto)
+	}
+}

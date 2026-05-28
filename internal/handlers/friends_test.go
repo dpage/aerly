@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/dpage/aerly/internal/api"
@@ -182,7 +184,8 @@ func TestListFriendsReturnsViewerOrientedDTOs(t *testing.T) {
 		t.Fatalf("invite: %s", w.Body.String())
 	}
 
-	// From Alice's view the pending request is outgoing.
+	// From Alice's view the pending request is outgoing — the row carries
+	// the typed email, NOT Bob's user_id, so Alice can't enumerate.
 	w := e.req(t, "GET", "/api/friends", nil, alice)
 	if w.Code != http.StatusOK {
 		t.Fatalf("alice list: %d %s", w.Code, w.Body.String())
@@ -191,17 +194,18 @@ func TestListFriendsReturnsViewerOrientedDTOs(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("alice rows = %d, want 1", len(rows))
 	}
-	if rows[0].Direction != "outgoing" || rows[0].FriendID != bob {
+	if rows[0].Direction != "outgoing" || rows[0].FriendID != 0 || rows[0].Email != "bob@example.com" {
 		t.Errorf("alice DTO = %+v", rows[0])
 	}
 
-	// From Bob's view it's incoming.
+	// From Bob's view it's incoming, and he legitimately knows who's
+	// asking — so FriendID is set, Email is not.
 	w = e.req(t, "GET", "/api/friends", nil, bob)
 	rows = decodeBody[[]api.FriendshipDTO](t, w)
 	if len(rows) != 1 {
 		t.Fatalf("bob rows = %d", len(rows))
 	}
-	if rows[0].Direction != "incoming" || rows[0].FriendID != alice {
+	if rows[0].Direction != "incoming" || rows[0].FriendID != alice || rows[0].Email != "" {
 		t.Errorf("bob DTO = %+v", rows[0])
 	}
 }
@@ -217,5 +221,228 @@ func TestFriendshipDTOOmitsDirectionForAccepted(t *testing.T) {
 	}
 	if dto.FriendID != 1 {
 		t.Errorf("FriendID = %d, want 1", dto.FriendID)
+	}
+}
+
+func TestInviteFriendStoresTypedEmailOnFriendshipRow(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	target := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, target, "bob@example.com")
+
+	w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "Bob@Example.com"}, inviter)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("code = %d, want 202", w.Code)
+	}
+	f, err := e.store.FriendshipBetween(context.Background(), inviter, target)
+	if err != nil {
+		t.Fatalf("FriendshipBetween: %v", err)
+	}
+	// Stored lowercased so the wire response is byte-identical regardless
+	// of whether the target is registered — see no-enumeration invariant.
+	if f.InvitedEmail != "bob@example.com" {
+		t.Errorf("InvitedEmail = %q, want %q", f.InvitedEmail, "bob@example.com")
+	}
+}
+
+func TestListFriendsOutgoingPendingHidesIdentity(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	known := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, known, "bob@example.com")
+
+	// Known target: friendship row with invited_email.
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "Bob@Example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatalf("known invite code = %d", w.Code)
+	}
+	// Unknown target: pending_friend_invites row only.
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "ghost@example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatalf("unknown invite code = %d", w.Code)
+	}
+
+	w := e.req(t, "GET", "/api/friends", nil, inviter)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list code = %d", w.Code)
+	}
+	rows := decodeBody[[]api.FriendshipDTO](t, w)
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2: %+v", len(rows), rows)
+	}
+	emails := map[string]bool{}
+	for _, r := range rows {
+		if r.Direction != "outgoing" || r.Status != "pending" {
+			t.Errorf("row not outgoing-pending: %+v", r)
+		}
+		if r.FriendID != 0 {
+			t.Errorf("row leaks FriendID=%d for outgoing pending: %+v", r.FriendID, r)
+		}
+		if r.Email == "" {
+			t.Errorf("row missing Email: %+v", r)
+		}
+		emails[strings.ToLower(r.Email)] = true
+	}
+	if !emails["bob@example.com"] || !emails["ghost@example.com"] {
+		t.Errorf("emails = %+v, want both bob and ghost", emails)
+	}
+}
+
+func TestCancelOutgoingInviteKnownTarget(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	target := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, target, "bob@example.com")
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "bob@example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatal("seed invite failed")
+	}
+
+	w := e.req(t, "DELETE", "/api/friends/outgoing",
+		map[string]any{"email": "bob@example.com"}, inviter)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("code = %d, want 204; body=%s", w.Code, w.Body.String())
+	}
+	if _, err := e.store.FriendshipBetween(context.Background(), inviter, target); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("friendship still present: %v", err)
+	}
+}
+
+func TestCancelOutgoingInviteUnknownTarget(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "ghost@example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatal("seed invite failed")
+	}
+
+	w := e.req(t, "DELETE", "/api/friends/outgoing",
+		map[string]any{"email": "ghost@example.com"}, inviter)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("code = %d, want 204", w.Code)
+	}
+	var n int
+	if err := e.pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM pending_friend_invites WHERE inviter_id = $1`,
+		inviter).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("invite not deleted: %d remain", n)
+	}
+}
+
+func TestCancelOutgoingInviteNoMatch204(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	w := e.req(t, "DELETE", "/api/friends/outgoing",
+		map[string]any{"email": "nobody@example.com"}, inviter)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("no-match cancel = %d, want 204", w.Code)
+	}
+}
+
+func TestCancelOutgoingInviteBadInput(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	if w := e.req(t, "DELETE", "/api/friends/outgoing",
+		map[string]any{"email": ""}, inviter); w.Code != http.StatusBadRequest {
+		t.Errorf("empty email = %d, want 400", w.Code)
+	}
+	if w := e.req(t, "DELETE", "/api/friends/outgoing",
+		map[string]any{"email": "not-an-email"}, inviter); w.Code != http.StatusBadRequest {
+		t.Errorf("bad email = %d, want 400", w.Code)
+	}
+}
+
+func TestListFriendsOutgoingPendingDoesNotLeakViaCasing(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	known := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, known, "bob@example.com")
+
+	// Both invites use mixed-case input. The wire response must NOT echo
+	// the typed casing back, because that would let the inviter compare:
+	// "did the case come back unchanged → target is registered".
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "Bob@Example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatal("known invite failed")
+	}
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "Ghost@Example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatal("unknown invite failed")
+	}
+
+	w := e.req(t, "GET", "/api/friends", nil, inviter)
+	rows := decodeBody[[]api.FriendshipDTO](t, w)
+	if len(rows) != 2 {
+		t.Fatalf("len = %d, want 2", len(rows))
+	}
+	for _, r := range rows {
+		if r.Email != strings.ToLower(r.Email) {
+			t.Errorf("email %q is not lowercase — leaks via casing", r.Email)
+		}
+	}
+}
+
+func TestListFriendsPendingPrecedesAcceptedAcrossSources(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, bob, "bob@example.com")
+	// Existing accepted friendship between alice and bob.
+	if _, err := e.store.RequestFriendship(context.Background(), alice, bob, "bob@example.com"); err != nil {
+		t.Fatalf("seed pending: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(context.Background(), bob, alice); err != nil {
+		t.Fatalf("seed accept: %v", err)
+	}
+	// Alice invites an unknown email — only lands in pending_friend_invites.
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "ghost@example.com"}, alice); w.Code != http.StatusAccepted {
+		t.Fatal("ghost invite failed")
+	}
+
+	w := e.req(t, "GET", "/api/friends", nil, alice)
+	rows := decodeBody[[]api.FriendshipDTO](t, w)
+	// Expect 2 rows: the ghost (pending) and bob (accepted), in that order.
+	if len(rows) != 2 {
+		t.Fatalf("len = %d, want 2: %+v", len(rows), rows)
+	}
+	if rows[0].Status != "pending" {
+		t.Errorf("row 0 status = %q, want pending; got %+v", rows[0].Status, rows[0])
+	}
+	if rows[1].Status != "accepted" {
+		t.Errorf("row 1 status = %q, want accepted; got %+v", rows[1].Status, rows[1])
+	}
+}
+
+func TestListFriendsOutgoingPendingShapeIdentical(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	known := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, known, "bob@example.com")
+
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "bob@example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatal("known invite failed")
+	}
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "ghost@example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatal("unknown invite failed")
+	}
+	w := e.req(t, "GET", "/api/friends", nil, inviter)
+	rows := decodeBody[[]api.FriendshipDTO](t, w)
+	if len(rows) != 2 {
+		t.Fatalf("len = %d, want 2", len(rows))
+	}
+	for _, r := range rows {
+		if r.FriendID != 0 || r.AcceptedAt != nil {
+			t.Errorf("row carries leaky field: %+v", r)
+		}
+		if r.Status != "pending" || r.Direction != "outgoing" {
+			t.Errorf("row shape differs: %+v", r)
+		}
 	}
 }

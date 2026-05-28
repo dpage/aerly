@@ -9,7 +9,7 @@ import (
 func TestRequestFriendshipFreshPending(t *testing.T) {
 	s := newStore(t)
 	a, b := mkUser(t, s), mkUser(t, s)
-	f, err := s.RequestFriendship(ctx, a, b)
+	f, err := s.RequestFriendship(ctx, a, b, "test@example.com")
 	if err != nil {
 		t.Fatalf("RequestFriendship: %v", err)
 	}
@@ -24,11 +24,11 @@ func TestRequestFriendshipFreshPending(t *testing.T) {
 func TestRequestFriendshipCrossDirectionAccepts(t *testing.T) {
 	s := newStore(t)
 	a, b := mkUser(t, s), mkUser(t, s)
-	if _, err := s.RequestFriendship(ctx, a, b); err != nil {
+	if _, err := s.RequestFriendship(ctx, a, b, "test@example.com"); err != nil {
 		t.Fatalf("first request: %v", err)
 	}
 	// b initiating the reverse direction implicitly accepts a's pending.
-	got, err := s.RequestFriendship(ctx, b, a)
+	got, err := s.RequestFriendship(ctx, b, a, "test@example.com")
 	if err != nil {
 		t.Fatalf("reverse request: %v", err)
 	}
@@ -43,8 +43,8 @@ func TestRequestFriendshipCrossDirectionAccepts(t *testing.T) {
 func TestRequestFriendshipNoopOnDuplicate(t *testing.T) {
 	s := newStore(t)
 	a, b := mkUser(t, s), mkUser(t, s)
-	first, _ := s.RequestFriendship(ctx, a, b)
-	second, _ := s.RequestFriendship(ctx, a, b)
+	first, _ := s.RequestFriendship(ctx, a, b, "test@example.com")
+	second, _ := s.RequestFriendship(ctx, a, b, "test@example.com")
 	if first.Status != "pending" || second.Status != "pending" {
 		t.Errorf("status should stay pending: %+v / %+v", first, second)
 	}
@@ -56,7 +56,7 @@ func TestRequestFriendshipNoopOnDuplicate(t *testing.T) {
 func TestRequestFriendshipRejectsSelf(t *testing.T) {
 	s := newStore(t)
 	a := mkUser(t, s)
-	if _, err := s.RequestFriendship(ctx, a, a); err == nil {
+	if _, err := s.RequestFriendship(ctx, a, a, "x@y.com"); err == nil {
 		t.Error("self-friend should error")
 	}
 }
@@ -64,7 +64,7 @@ func TestRequestFriendshipRejectsSelf(t *testing.T) {
 func TestAcceptFriendshipRequiresOtherParty(t *testing.T) {
 	s := newStore(t)
 	a, b := mkUser(t, s), mkUser(t, s)
-	if _, err := s.RequestFriendship(ctx, a, b); err != nil {
+	if _, err := s.RequestFriendship(ctx, a, b, "test@example.com"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	// The requester themselves can't accept their own pending row.
@@ -80,7 +80,7 @@ func TestAcceptFriendshipRequiresOtherParty(t *testing.T) {
 func TestRemoveFriendshipDeletesPendingOrAccepted(t *testing.T) {
 	s := newStore(t)
 	a, b := mkUser(t, s), mkUser(t, s)
-	if _, err := s.RequestFriendship(ctx, a, b); err != nil {
+	if _, err := s.RequestFriendship(ctx, a, b, "test@example.com"); err != nil {
 		t.Fatalf("seed pending: %v", err)
 	}
 	if _, err := s.AcceptFriendship(ctx, b, a); err != nil {
@@ -102,15 +102,15 @@ func TestListFriendshipsOrientedAroundViewer(t *testing.T) {
 	a, b, c := mkUser(t, s), mkUser(t, s), mkUser(t, s)
 
 	// a outgoing → b (pending)
-	if _, err := s.RequestFriendship(ctx, a, b); err != nil {
+	if _, err := s.RequestFriendship(ctx, a, b, "test@example.com"); err != nil {
 		t.Fatalf("a→b: %v", err)
 	}
 	// c incoming ← a (pending, from a's view it's outgoing)
-	if _, err := s.RequestFriendship(ctx, a, c); err != nil {
+	if _, err := s.RequestFriendship(ctx, a, c, "test@example.com"); err != nil {
 		t.Fatalf("a→c: %v", err)
 	}
 	// b later sends request back (accepts a↔b)
-	if _, err := s.RequestFriendship(ctx, b, a); err != nil {
+	if _, err := s.RequestFriendship(ctx, b, a, "test@example.com"); err != nil {
 		t.Fatalf("b→a: %v", err)
 	}
 
@@ -204,6 +204,57 @@ func TestLinkLoginConsumesPendingInvites(t *testing.T) {
 	}
 }
 
+func TestListOutgoingPendingInvites(t *testing.T) {
+	s := newStore(t)
+	inviter := mkUser(t, s)
+	if _, err := s.UpsertPendingFriendInvite(ctx, inviter, "first@example.com", "hi"); err != nil {
+		t.Fatalf("seed first: %v", err)
+	}
+	if _, err := s.UpsertPendingFriendInvite(ctx, inviter, "Second@Example.COM", ""); err != nil {
+		t.Fatalf("seed second: %v", err)
+	}
+	other := mkUser(t, s)
+	if _, err := s.UpsertPendingFriendInvite(ctx, other, "other@example.com", ""); err != nil {
+		t.Fatalf("seed other: %v", err)
+	}
+
+	got, err := s.ListOutgoingPendingInvites(ctx, inviter)
+	if err != nil {
+		t.Fatalf("ListOutgoingPendingInvites: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	emails := map[string]bool{}
+	for _, p := range got {
+		emails[p.EmailLower] = true
+	}
+	if !emails["first@example.com"] || !emails["second@example.com"] {
+		t.Errorf("unexpected emails: %+v", emails)
+	}
+}
+
+func TestRequestFriendshipStoresInvitedEmail(t *testing.T) {
+	s := newStore(t)
+	a, b := mkUser(t, s), mkUser(t, s)
+	f, err := s.RequestFriendship(ctx, a, b, "Typed@Example.com")
+	if err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	// Store normalizes to lowercase so wire output can't leak target
+	// existence via casing (see no-enumeration invariant in friends.go).
+	if f.InvitedEmail != "typed@example.com" {
+		t.Errorf("InvitedEmail = %q, want %q", f.InvitedEmail, "typed@example.com")
+	}
+	got, err := s.FriendshipBetween(ctx, a, b)
+	if err != nil {
+		t.Fatalf("FriendshipBetween: %v", err)
+	}
+	if got.InvitedEmail != "typed@example.com" {
+		t.Errorf("re-read InvitedEmail = %q, want %q", got.InvitedEmail, "typed@example.com")
+	}
+}
+
 // Sanity: open signups default to non-superuser and a unique username when
 // the provider-supplied login collides via mixed case.
 func TestLinkLoginCaseInsensitiveUsernameCollision(t *testing.T) {
@@ -220,5 +271,54 @@ func TestLinkLoginCaseInsensitiveUsernameCollision(t *testing.T) {
 	}
 	if strings.EqualFold(u.Username, "alice") {
 		t.Errorf("expected suffix, got %q", u.Username)
+	}
+}
+
+func TestCancelOutgoingInviteKnownTarget(t *testing.T) {
+	s := newStore(t)
+	inviter, target := mkUser(t, s), mkUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, target, "target@example.com"); err != nil {
+		t.Fatalf("seed verified email: %v", err)
+	}
+	if _, err := s.RequestFriendship(ctx, inviter, target, "Target@Example.com"); err != nil {
+		t.Fatalf("seed friendship: %v", err)
+	}
+
+	if err := s.CancelOutgoingInvite(ctx, inviter, "Target@Example.com"); err != nil {
+		t.Fatalf("CancelOutgoingInvite: %v", err)
+	}
+	if _, err := s.FriendshipBetween(ctx, inviter, target); !errors.Is(err, ErrNotFound) {
+		t.Errorf("friendship should be gone, got %v", err)
+	}
+}
+
+func TestCancelOutgoingInviteUnknownTarget(t *testing.T) {
+	s := newStore(t)
+	inviter := mkUser(t, s)
+	if _, err := s.UpsertPendingFriendInvite(ctx, inviter, "stranger@example.com", "hi"); err != nil {
+		t.Fatalf("seed pending: %v", err)
+	}
+
+	if err := s.CancelOutgoingInvite(ctx, inviter, "STRANGER@example.com"); err != nil {
+		t.Fatalf("CancelOutgoingInvite: %v", err)
+	}
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM pending_friend_invites WHERE inviter_id = $1`,
+		inviter).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("pending invite not deleted: %d remain", n)
+	}
+}
+
+func TestCancelOutgoingInviteNoMatchIsNoop(t *testing.T) {
+	s := newStore(t)
+	inviter := mkUser(t, s)
+	// No row exists. Must return nil (the handler relies on the no-op being
+	// indistinguishable from a real cancellation).
+	if err := s.CancelOutgoingInvite(ctx, inviter, "nobody@example.com"); err != nil {
+		t.Errorf("no-op cancel returned %v", err)
 	}
 }

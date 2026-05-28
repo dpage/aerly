@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
     inviteFriend: vi.fn(),
     acceptFriend: vi.fn(),
     removeFriend: vi.fn(),
+    cancelOutgoingInvite: vi.fn(),
   },
   setError: vi.fn(),
   users: [] as User[],
@@ -56,7 +57,12 @@ describe('FriendsDialog', () => {
     h.api.listFriends.mockResolvedValue([
       friend({ friend_id: 2, status: 'accepted' }),
       friend({ friend_id: 3, status: 'pending', direction: 'incoming' }),
-      friend({ friend_id: 4, status: 'pending', direction: 'outgoing' }),
+      {
+        email: 'dan@example.com',
+        status: 'pending',
+        direction: 'outgoing',
+        requested_at: new Date().toISOString(),
+      },
     ]);
     h.users = [
       user({ id: 2, username: 'bob', name: 'Bob' }),
@@ -66,7 +72,7 @@ describe('FriendsDialog', () => {
     render(<FriendsDialog open onClose={() => {}} />);
     await screen.findByText('Bob');
     expect(screen.getByText('Carol')).toBeInTheDocument();
-    expect(screen.getByText('Dan')).toBeInTheDocument();
+    expect(screen.getByText('dan@example.com')).toBeInTheDocument();
     expect(screen.getByText(/accepted/i)).toBeInTheDocument();
     expect(screen.getByText(/wants to friend you/i)).toBeInTheDocument();
     expect(screen.getByText(/invite sent/i)).toBeInTheDocument();
@@ -76,7 +82,12 @@ describe('FriendsDialog', () => {
     h.api.listFriends.mockResolvedValueOnce([]);
     h.api.inviteFriend.mockResolvedValueOnce(undefined);
     h.api.listFriends.mockResolvedValueOnce([
-      friend({ friend_id: 2, status: 'pending', direction: 'outgoing' }),
+      {
+        email: 'bob@example.com',
+        status: 'pending',
+        direction: 'outgoing',
+        requested_at: new Date().toISOString(),
+      },
     ]);
     render(<FriendsDialog open onClose={() => {}} />);
     await waitFor(() => expect(h.api.listFriends).toHaveBeenCalledTimes(1));
@@ -234,12 +245,73 @@ describe('FriendsDialog', () => {
 
   it("renders the outgoing-pending row's cancel button (separate from unfriend)", async () => {
     h.api.listFriends.mockResolvedValue([
-      friend({ friend_id: 2, status: 'pending', direction: 'outgoing' }),
+      {
+        email: 'bob@example.com',
+        status: 'pending',
+        direction: 'outgoing',
+        requested_at: new Date().toISOString(),
+      },
     ]);
     render(<FriendsDialog open onClose={() => {}} />);
-    // Outgoing rows expose the same delete button (different tooltip
-    // copy); clicking it goes through handleRemove.
-    expect(await screen.findByRole('button', { name: /remove bob/i })).toBeInTheDocument();
+    // Outgoing rows expose a cancel button keyed by email, never by
+    // friend_id — the inviter must not learn the target user identity.
+    expect(
+      await screen.findByRole('button', { name: /cancel invite to bob@example\.com/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders outgoing pending rows by email, never the target user identity', async () => {
+    h.api.listFriends.mockResolvedValue([
+      {
+        email: 'ghost@example.com',
+        status: 'pending',
+        direction: 'outgoing',
+        requested_at: new Date().toISOString(),
+      },
+      {
+        email: 'bob@example.com',
+        status: 'pending',
+        direction: 'outgoing',
+        requested_at: new Date().toISOString(),
+      },
+    ]);
+    // The user "Bob" IS in the local user index (e.g., the inviter happens to
+    // be friends with another Bob already), but we must NOT render his name
+    // on the outgoing pending row.
+    h.users = [user({ id: 2, username: 'bob', name: 'Bob' })];
+
+    render(<FriendsDialog open onClose={() => {}} />);
+    await screen.findByText('bob@example.com');
+    expect(screen.getByText('ghost@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+    // Two "invite sent" chips, one per row.
+    expect(screen.getAllByText(/invite sent/i)).toHaveLength(2);
+  });
+
+  it('cancels an outgoing pending invite by calling cancelOutgoingInvite(email)', async () => {
+    h.api.listFriends.mockResolvedValue([
+      {
+        email: 'ghost@example.com',
+        status: 'pending',
+        direction: 'outgoing',
+        requested_at: new Date().toISOString(),
+      },
+    ]);
+    h.api.cancelOutgoingInvite.mockResolvedValueOnce(undefined);
+    // window.confirm — auto-accept for this test.
+    const origConfirm = window.confirm;
+    window.confirm = () => true;
+
+    render(<FriendsDialog open onClose={() => {}} />);
+    await screen.findByText('ghost@example.com');
+    const cancelBtn = screen.getByRole('button', { name: /cancel|remove/i });
+    await userEvent.click(cancelBtn);
+
+    await waitFor(() =>
+      expect(h.api.cancelOutgoingInvite).toHaveBeenCalledWith('ghost@example.com'),
+    );
+
+    window.confirm = origConfirm;
   });
 
   it("renders the incoming-pending row's decline button", async () => {
