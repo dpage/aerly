@@ -23,10 +23,10 @@ func TestGetNotificationsReportsCount(t *testing.T) {
 	me := e.user(t, "me", false)
 	a := e.user(t, "a", false)
 	b := e.user(t, "b", false)
-	if _, err := e.store.RequestFriendship(context.Background(), a, me); err != nil {
+	if _, err := e.store.RequestFriendship(context.Background(), a, me, ""); err != nil {
 		t.Fatalf("seed a→me: %v", err)
 	}
-	if _, err := e.store.RequestFriendship(context.Background(), b, me); err != nil {
+	if _, err := e.store.RequestFriendship(context.Background(), b, me, ""); err != nil {
 		t.Fatalf("seed b→me: %v", err)
 	}
 
@@ -48,7 +48,7 @@ func TestPublishNotificationsPushesToUser(t *testing.T) {
 	ch, unsub := e.hub.Subscribe(sse.Subscription{ViewerID: me})
 	defer unsub()
 
-	if _, err := e.store.RequestFriendship(context.Background(), inviter, me); err != nil {
+	if _, err := e.store.RequestFriendship(context.Background(), inviter, me, ""); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	e.api.publishNotifications(context.Background(), me)

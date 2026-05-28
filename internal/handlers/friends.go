@@ -125,6 +125,7 @@ func (a *API) inviteFriendByUserID(ctx context.Context, me, target *store.User, 
 		return
 	}
 	a.sendFriendRequestNotification(ctx, me, target, message)
+	a.publishNotifications(ctx, target.ID)
 }
 
 // inviteFriendByEmail queues a pending invite for an address that doesn't
@@ -212,6 +213,7 @@ func (a *API) acceptFriend(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishNotifications(r.Context(), me.ID)
 	writeJSON(w, http.StatusOK, api.ToFriendshipDTO(f, me.ID))
 }
 
@@ -226,6 +228,11 @@ func (a *API) removeFriend(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	// We don't know whether the removed row was an incoming pending,
+	// outgoing pending, or an accepted edge. Publishing to both sides is
+	// cheap; the count is authoritative on each end after the delete.
+	a.publishNotifications(r.Context(), me.ID)
+	a.publishNotifications(r.Context(), otherID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

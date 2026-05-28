@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -444,5 +445,87 @@ func TestListFriendsOutgoingPendingShapeIdentical(t *testing.T) {
 		if r.Status != "pending" || r.Direction != "outgoing" {
 			t.Errorf("row shape differs: %+v", r)
 		}
+	}
+}
+
+func TestInviteKnownUserPublishesNotifications(t *testing.T) {
+	e := setup(t, nil, nil)
+	inviter := e.user(t, "alice", false)
+	target := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, target, "bob@example.com")
+
+	ch, unsub := e.hub.Subscribe(sse.Subscription{ViewerID: target})
+	defer unsub()
+
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "bob@example.com"}, inviter); w.Code != http.StatusAccepted {
+		t.Fatalf("invite: %d %s", w.Code, w.Body.String())
+	}
+
+	var sawNotif bool
+	for _, ev := range drainEvents(ch) {
+		if ev.Type == "notifications.updated" {
+			sawNotif = true
+		}
+	}
+	if !sawNotif {
+		t.Error("recipient did not see a notifications.updated event after invite")
+	}
+}
+
+func TestAcceptPublishesNotificationsToAccepter(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, bob, "bob@example.com")
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "bob@example.com"}, alice); w.Code != http.StatusAccepted {
+		t.Fatalf("invite: %s", w.Body.String())
+	}
+
+	ch, unsub := e.hub.Subscribe(sse.Subscription{ViewerID: bob})
+	defer unsub()
+
+	path := "/api/friends/" + strconv.FormatInt(alice, 10) + "/accept"
+	if w := e.req(t, "POST", path, nil, bob); w.Code != http.StatusOK {
+		t.Fatalf("accept: %s", w.Body.String())
+	}
+	var got bool
+	for _, ev := range drainEvents(ch) {
+		if ev.Type == "notifications.updated" {
+			got = true
+		}
+	}
+	if !got {
+		t.Error("accepter did not see a notifications.updated event")
+	}
+}
+
+func TestRemovePendingPublishesNotifications(t *testing.T) {
+	e := setup(t, nil, nil)
+	alice := e.user(t, "alice", false)
+	bob := e.user(t, "bob", false)
+	seedVerifiedEmail(t, e, bob, "bob@example.com")
+	if w := e.req(t, "POST", "/api/friends/invite",
+		map[string]any{"email": "bob@example.com"}, alice); w.Code != http.StatusAccepted {
+		t.Fatalf("invite: %s", w.Body.String())
+	}
+
+	ch, unsub := e.hub.Subscribe(sse.Subscription{ViewerID: bob})
+	defer unsub()
+
+	// Alice cancels the outgoing pending request.
+	path := "/api/friends/" + strconv.FormatInt(bob, 10)
+	if w := e.req(t, "DELETE", path, nil, alice); w.Code != http.StatusNoContent {
+		t.Fatalf("remove: %d %s", w.Code, w.Body.String())
+	}
+	var got bool
+	for _, ev := range drainEvents(ch) {
+		if ev.Type == "notifications.updated" {
+			got = true
+		}
+	}
+	if !got {
+		t.Error("recipient did not see a notifications.updated event after cancel")
 	}
 }
