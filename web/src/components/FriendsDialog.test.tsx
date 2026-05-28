@@ -262,6 +262,34 @@ describe('FriendsDialog', () => {
     await waitFor(() => expect(useStore.getState().error).toBe('accept-failed'));
   });
 
+  it('warns about flight share revocation in the unfriend confirm prompt', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    h.api.listFriends.mockResolvedValue([friend({ friend_id: 2, status: 'accepted' })]);
+    render(<FriendsDialog open onClose={() => {}} />);
+    const removeBtn = await screen.findByRole('button', { name: /remove bob/i });
+    await userEvent.click(removeBtn);
+    expect(confirmSpy).toHaveBeenCalled();
+    const msg = confirmSpy.mock.calls[0][0] as string;
+    expect(msg).toMatch(/Unfriend Bob/);
+    expect(msg).toMatch(/access to each other's flights/);
+    expect(msg).toMatch(/revoked/);
+    confirmSpy.mockRestore();
+  });
+
+  it('uses a plain decline prompt (no share warning) for incoming pending', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    h.api.listFriends.mockResolvedValue([
+      friend({ friend_id: 2, status: 'pending', direction: 'incoming' }),
+    ]);
+    render(<FriendsDialog open onClose={() => {}} />);
+    const declineBtn = await screen.findByRole('button', { name: /decline bob/i });
+    await userEvent.click(declineBtn);
+    const msg = confirmSpy.mock.calls[0][0] as string;
+    expect(msg).toMatch(/Decline Bob/);
+    expect(msg).not.toMatch(/revoked/);
+    confirmSpy.mockRestore();
+  });
+
   it('does not call removeFriend when the user cancels the confirm prompt', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     h.api.listFriends.mockResolvedValue([friend({ friend_id: 2, status: 'accepted' })]);

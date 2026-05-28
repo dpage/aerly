@@ -112,8 +112,16 @@ export default function FriendsDialog({ open, onClose }: Props) {
     }
   };
 
-  const handleRemove = async (other: number, label: string) => {
-    if (!window.confirm(`Remove ${label} from your friends?`)) return;
+  const handleRemove = async (
+    other: number,
+    label: string,
+    kind: 'unfriend' | 'decline',
+  ) => {
+    const prompt =
+      kind === 'unfriend'
+        ? `Unfriend ${label}?\n\nYou will also lose access to each other's flights — passenger or share grants on flights either of you created will be revoked. Your own flights and your role on flights you both joined elsewhere are not affected.`
+        : `Decline ${label}'s friend request?`;
+    if (!window.confirm(prompt)) return;
     try {
       await api.removeFriend(other);
       await refreshFriendships();
@@ -282,7 +290,9 @@ export default function FriendsDialog({ open, onClose }: Props) {
                               <IconButton
                                 size="small"
                                 aria-label={`Decline ${label}`}
-                                onClick={() => void handleRemove(friendId, label)}
+                                onClick={() =>
+                                  void handleRemove(friendId, label, 'decline')
+                                }
                               >
                                 <CloseIcon fontSize="small" />
                               </IconButton>
@@ -293,7 +303,9 @@ export default function FriendsDialog({ open, onClose }: Props) {
                               <IconButton
                                 size="small"
                                 aria-label={`Remove ${label}`}
-                                onClick={() => void handleRemove(friendId, label)}
+                                onClick={() =>
+                                  void handleRemove(friendId, label, 'unfriend')
+                                }
                               >
                                 <DeleteOutlineIcon fontSize="small" />
                               </IconButton>

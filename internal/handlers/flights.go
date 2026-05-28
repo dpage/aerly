@@ -199,6 +199,11 @@ func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Snapshot the visibility BEFORE the update so we can fire
+	// flight.deleted at anyone whose access goes away — most often when
+	// is_public is toggled TRUE→FALSE, dropping the creator's friends
+	// from the audience.
+	before := a.flightViewers(r.Context(), id)
 	f, err := a.Store.UpdateFlight(r.Context(), id, store.UpdateFlightPayload{
 		ScheduledOut: in.ScheduledOut,
 		ScheduledIn:  in.ScheduledIn,
@@ -220,6 +225,7 @@ func (a *API) updateFlight(w http.ResponseWriter, r *http.Request) {
 	tracks, _ := a.Store.RecentTracks(r.Context(), []int64{id}, 200)
 	dto := api.ToFlightDTO(f, passengers[id], shares[id], latest[id], tracks[id])
 	a.publishFlightDTO(r.Context(), dto)
+	a.publishLostAccess(r.Context(), id, before)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -290,11 +296,13 @@ func (a *API) removePassenger(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad userId")
 		return
 	}
+	before := a.flightViewers(r.Context(), fid)
 	if err := a.Store.RemovePassenger(r.Context(), fid, uid); err != nil {
 		handleStoreErr(w, err)
 		return
 	}
 	a.publishFlightByID(r.Context(), fid)
+	a.publishLostAccess(r.Context(), fid, before)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -343,11 +351,13 @@ func (a *API) removeShare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad userId")
 		return
 	}
+	before := a.flightViewers(r.Context(), fid)
 	if err := a.Store.RemoveShare(r.Context(), fid, uid); err != nil {
 		handleStoreErr(w, err)
 		return
 	}
 	a.publishFlightByID(r.Context(), fid)
+	a.publishLostAccess(r.Context(), fid, before)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -548,6 +558,34 @@ func (a *API) backfillCoordsIfNeeded(ctx context.Context, f *store.Flight) *stor
 		return f
 	}
 	return fresh
+}
+
+// publishLostAccess fans a flight.deleted SSE event to the users in
+// beforeViewers who are no longer in the flight's visibility set after a
+// mutation. From their perspective the flight has vanished from their
+// audience — passenger removal, share removal, is_public toggled off,
+// friendship lost — and their cached copy must go. Caller is expected to
+// have already broadcast flight.updated to the remaining viewer set.
+// Safe to call after non-shrinking mutations too: when nobody lost
+// access the helper no-ops.
+func (a *API) publishLostAccess(ctx context.Context, id int64, beforeViewers []int64) {
+	if a.Hub == nil || len(beforeViewers) == 0 {
+		return
+	}
+	after := a.flightViewers(ctx, id)
+	keep := make(map[int64]struct{}, len(after))
+	for _, v := range after {
+		keep[v] = struct{}{}
+	}
+	var lost []int64
+	for _, v := range beforeViewers {
+		if _, ok := keep[v]; !ok {
+			lost = append(lost, v)
+		}
+	}
+	if len(lost) > 0 {
+		a.publishFlightDelete(id, lost)
+	}
 }
 
 // publishFlightDelete fans a flight.deleted SSE event so connected clients

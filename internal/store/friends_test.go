@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dpage/aerly/internal/testsupport"
 )
@@ -89,14 +91,130 @@ func TestRemoveFriendshipDeletesPendingOrAccepted(t *testing.T) {
 	if _, err := s.AcceptFriendship(ctx, b, a); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
-	if err := s.RemoveFriendship(ctx, b, a); err != nil {
+	if _, err := s.RemoveFriendship(ctx, b, a); err != nil {
 		t.Fatalf("remove accepted: %v", err)
 	}
 	if _, err := s.FriendshipBetween(ctx, a, b); !errors.Is(err, ErrNotFound) {
 		t.Errorf("after remove, FriendshipBetween should be ErrNotFound, got %v", err)
 	}
-	if err := s.RemoveFriendship(ctx, b, a); !errors.Is(err, ErrNotFound) {
+	if _, err := s.RemoveFriendship(ctx, b, a); !errors.Is(err, ErrNotFound) {
 		t.Errorf("double-remove → ErrNotFound, got %v", err)
+	}
+}
+
+func TestRemoveFriendshipDropsCrossSharesOnAcceptedEdge(t *testing.T) {
+	s := newStore(t)
+	a, b := mkUser(t, s), mkUser(t, s)
+	c := mkUser(t, s)
+
+	// Accepted friendship so the cleanup branch runs.
+	if _, err := s.RequestFriendship(ctx, a, b, ""); err != nil {
+		t.Fatalf("seed friendship: %v", err)
+	}
+	if _, err := s.AcceptFriendship(ctx, b, a); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	// Flight created by a, b is a passenger; flight created by b, a is
+	// a sharee; flight created by c with both a and b as passengers
+	// (not touched by the cleanup — it's a third party's flight).
+	now := time.Now().UTC().Truncate(time.Second)
+	soon := now.Add(time.Hour)
+	later := now.Add(3 * time.Hour)
+
+	makeFlight := func(creator int64, ident string) *Flight {
+		f, err := s.CreateFlight(ctx, CreateFlightPayload{
+			Ident: ident, ScheduledOut: soon, ScheduledIn: later,
+			OriginIATA: "LHR", DestIATA: "JFK",
+		}, creator)
+		if err != nil {
+			t.Fatalf("CreateFlight %s: %v", ident, err)
+		}
+		return f
+	}
+	fAB := makeFlight(a, "AB1") // a creates, b passenger
+	fBA := makeFlight(b, "BA1") // b creates, a sharee
+	fC := makeFlight(c, "CC1")  // c creates, a+b passengers
+
+	for _, op := range []struct {
+		add  func(ctx context.Context, fid, uid int64) error
+		fid  int64
+		uid  int64
+		name string
+	}{
+		{s.AddPassenger, fAB.ID, b, "fAB passenger b"},
+		{s.AddShare, fBA.ID, a, "fBA share a"},
+		{s.AddPassenger, fC.ID, a, "fC passenger a"},
+		{s.AddPassenger, fC.ID, b, "fC passenger b"},
+	} {
+		if err := op.add(ctx, op.fid, op.uid); err != nil {
+			t.Fatalf("%s: %v", op.name, err)
+		}
+	}
+
+	affected, err := s.RemoveFriendship(ctx, a, b)
+	if err != nil {
+		t.Fatalf("RemoveFriendship: %v", err)
+	}
+
+	// Expect fAB and fBA in affected (cross-pair rows removed); fC must
+	// NOT appear (third-party creator — both passengers stay).
+	gotAffected := map[int64]bool{}
+	for _, id := range affected {
+		gotAffected[id] = true
+	}
+	if !gotAffected[fAB.ID] || !gotAffected[fBA.ID] {
+		t.Errorf("affected = %v, want fAB=%d and fBA=%d included", affected, fAB.ID, fBA.ID)
+	}
+	if gotAffected[fC.ID] {
+		t.Errorf("affected = %v, must NOT include third-party flight fC=%d", affected, fC.ID)
+	}
+
+	// fAB now has no passengers; fBA has no shares; fC still has both.
+	if pax, _ := s.PassengersByFlight(ctx, []int64{fAB.ID}); len(pax[fAB.ID]) != 0 {
+		t.Errorf("fAB passengers after unfriend = %v, want empty", pax[fAB.ID])
+	}
+	if sh, _ := s.SharedUserIDsByFlight(ctx, []int64{fBA.ID}); len(sh[fBA.ID]) != 0 {
+		t.Errorf("fBA shares after unfriend = %v, want empty", sh[fBA.ID])
+	}
+	pax, _ := s.PassengersByFlight(ctx, []int64{fC.ID})
+	gotC := map[int64]bool{}
+	for _, uid := range pax[fC.ID] {
+		gotC[uid] = true
+	}
+	if !gotC[a] || !gotC[b] {
+		t.Errorf("fC passengers after unfriend = %v, want a and b retained", pax[fC.ID])
+	}
+}
+
+func TestRemoveFriendshipPendingLeavesGrantsAlone(t *testing.T) {
+	s := newStore(t)
+	a, b := mkUser(t, s), mkUser(t, s)
+	if _, err := s.RequestFriendship(ctx, a, b, ""); err != nil {
+		t.Fatalf("seed pending: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	f, err := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "PA1", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, a)
+	if err != nil {
+		t.Fatalf("flight: %v", err)
+	}
+	if err := s.AddPassenger(ctx, f.ID, b); err != nil {
+		t.Fatalf("AddPassenger: %v", err)
+	}
+
+	affected, err := s.RemoveFriendship(ctx, a, b)
+	if err != nil {
+		t.Fatalf("RemoveFriendship pending: %v", err)
+	}
+	if len(affected) != 0 {
+		t.Errorf("pending cancel must not touch grants: affected = %v", affected)
+	}
+	pax, _ := s.PassengersByFlight(ctx, []int64{f.ID})
+	if len(pax[f.ID]) != 1 || pax[f.ID][0] != b {
+		t.Errorf("passenger row should survive pending cancel: %v", pax[f.ID])
 	}
 }
 

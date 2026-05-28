@@ -355,12 +355,32 @@ func TestFlightWritesPublishSSE(t *testing.T) {
 		t.Errorf("addPassenger events = %+v, want one flight.updated", events)
 	}
 
-	// Removing a passenger publishes flight.updated.
+	// Removing a passenger now publishes both flight.updated (to the
+	// remaining audience) AND flight.deleted (to the removed passenger,
+	// whose access has gone away). The subscribe above uses ShowAll for
+	// a superuser, so this channel sees both events.
 	if w := e.req(t, "DELETE", fmt.Sprintf("/api/flights/%d/passengers/%d", fid, pax), nil, uid); w.Code != 204 {
 		t.Fatalf("removePassenger = %d", w.Code)
 	}
-	if events := drainEvents(ch); len(events) != 1 || events[0].Type != "flight.updated" {
-		t.Errorf("removePassenger events = %+v, want one flight.updated", events)
+	{
+		events := drainEvents(ch)
+		var sawUpdate, sawDelete bool
+		var deletedFor []int64
+		for _, ev := range events {
+			switch ev.Type {
+			case "flight.updated":
+				sawUpdate = true
+			case "flight.deleted":
+				sawDelete = true
+				deletedFor = ev.VisibleTo
+			}
+		}
+		if !sawUpdate || !sawDelete {
+			t.Errorf("removePassenger events = %+v, want flight.updated AND flight.deleted", events)
+		}
+		if len(deletedFor) != 1 || deletedFor[0] != pax {
+			t.Errorf("flight.deleted VisibleTo = %v, want [%d]", deletedFor, pax)
+		}
 	}
 
 	// Delete publishes flight.deleted carrying the id.

@@ -584,6 +584,22 @@ func (s *Store) CanView(ctx context.Context, flightID, viewerID int64, showAllFo
 	return ok, err
 }
 
+// CreatorOf returns the user id that created the flight, or
+// ErrNotFound if the flight doesn't exist or has no creator recorded
+// (rare; legacy data).
+func (s *Store) CreatorOf(ctx context.Context, flightID int64) (int64, error) {
+	var creator *int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT created_by FROM flights WHERE id = $1`, flightID).Scan(&creator)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && creator == nil) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	return *creator, nil
+}
+
 // CanEdit reports whether viewerID can mutate the flight (rename, change
 // schedule, add/remove passengers, add/remove shares, toggle public, or
 // delete). True iff viewerID is the creator. Superuser overrides live in

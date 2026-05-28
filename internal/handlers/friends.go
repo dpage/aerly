@@ -240,13 +240,55 @@ func (a *API) removeFriend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	me := auth.UserFrom(r.Context())
-	if err := a.Store.RemoveFriendship(r.Context(), me.ID, otherID); err != nil {
+
+	// Snapshot per-affected-flight visibility BEFORE the cleanup so we
+	// can fire flight.deleted at whoever loses access to each flight.
+	// We only need before-sets for flights that actually link the pair
+	// (passenger / share rows on flights one of them created) — those
+	// are what RemoveFriendship returns. For 'Share with all friends'
+	// flights with no explicit grant, the client refreshes its flight
+	// list off the notifications.updated event we already publish, and
+	// the server-side visibility filter drops them naturally.
+	beforeViewers := map[int64][]int64{}
+
+	affected, err := a.Store.RemoveFriendship(r.Context(), me.ID, otherID)
+	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
-	// We don't know whether the removed row was an incoming pending,
-	// outgoing pending, or an accepted edge. Publishing to both sides is
-	// cheap; the count is authoritative on each end after the delete.
+	// RemoveFriendship returns the IDs of flights whose passenger/share
+	// list was just modified. The cleanup already ran by the time we
+	// reach here, so the "before" view for each flight is reconstructed
+	// from the pair: whichever side wasn't the creator was the row that
+	// just got cleared, plus the current viewer set (anyone else still
+	// in via another path is unchanged).
+	for _, fid := range affected {
+		creator, err := a.Store.CreatorOf(r.Context(), fid)
+		if err != nil {
+			slog.Warn("removeFriend: CreatorOf", "err", err, "flight", fid)
+			continue
+		}
+		lost := otherID
+		if creator == otherID {
+			lost = me.ID
+		}
+		// Splice the now-removed user back into the visibility list so
+		// publishLostAccess can detect they've fallen out. The flight
+		// fan-out (publishFlightByID below) refreshes the remaining
+		// viewers' passenger/share lists.
+		viewers := append(a.flightViewers(r.Context(), fid), lost)
+		beforeViewers[fid] = viewers
+	}
+
+	for _, fid := range affected {
+		a.publishFlightByID(r.Context(), fid)
+		a.publishLostAccess(r.Context(), fid, beforeViewers[fid])
+	}
+
+	// Both sides get a notifications.updated so the friend list, user
+	// cache, and the flight list refresh. The flight list refresh also
+	// catches 'Share with all friends' flights that became invisible
+	// when the friendship row disappeared (no explicit grant to clean).
 	a.publishNotifications(r.Context(), me.ID)
 	a.publishNotifications(r.Context(), otherID)
 	w.WriteHeader(http.StatusNoContent)
