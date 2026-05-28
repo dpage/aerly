@@ -57,6 +57,9 @@ export const api = {
   // Lists the OAuth providers the backend has configured, so the login
   // page can render one button per provider. Returns an empty list on
   // network errors so the page can fall back to the dev-login form.
+  // The payload is shape-narrowed before we trust it — a malformed
+  // `providers` field (non-array, or entries missing name/label) is
+  // treated as empty rather than propagated to consumers.
   async getAuthProviders(): Promise<AuthProvider[]> {
     try {
       const res = await fetch('/auth/providers', {
@@ -64,8 +67,15 @@ export const api = {
         headers: { Accept: 'application/json' },
       });
       if (!res.ok) return [];
-      const j = (await res.json()) as { providers?: AuthProvider[] };
-      return j.providers ?? [];
+      const j = (await res.json()) as { providers?: unknown };
+      if (!Array.isArray(j.providers)) return [];
+      return j.providers.filter(
+        (p): p is AuthProvider =>
+          typeof p === 'object' &&
+          p !== null &&
+          typeof (p as { name?: unknown }).name === 'string' &&
+          typeof (p as { label?: unknown }).label === 'string',
+      );
     } catch {
       return [];
     }

@@ -282,6 +282,32 @@ describe('api.getAuthProviders', () => {
     mockFetch(() => Promise.reject(new Error('boom')));
     await expect(api.getAuthProviders()).resolves.toEqual([]);
   });
+
+  it('returns an empty list when providers is not an array', async () => {
+    mockFetch(() => jsonResponse({ providers: 'oops' }));
+    await expect(api.getAuthProviders()).resolves.toEqual([]);
+  });
+
+  it('drops entries that do not match the AuthProvider shape', async () => {
+    mockFetch(() =>
+      jsonResponse({
+        providers: [
+          { name: 'github', label: 'GitHub' },
+          // missing label
+          { name: 'no-label' },
+          // wrong types
+          { name: 42, label: 'Bad' },
+          null,
+          'not-an-object',
+          { name: 'google', label: 'Google' },
+        ],
+      }),
+    );
+    await expect(api.getAuthProviders()).resolves.toEqual([
+      { name: 'github', label: 'GitHub' },
+      { name: 'google', label: 'Google' },
+    ]);
+  });
 });
 
 describe('api.getDevAuthBypassEnabled', () => {

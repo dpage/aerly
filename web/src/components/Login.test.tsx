@@ -68,4 +68,30 @@ describe('Login', () => {
     const input = screen.getByLabelText(/dev login username/i);
     expect(input).toHaveAttribute('name', 'login');
   });
+
+  it('shows a loading placeholder until /auth/providers resolves', async () => {
+    // Hold the providers fetch open so the first paint reflects loading.
+    let resolveProviders!: (v: { name: string; label: string }[]) => void;
+    h.api.getAuthProviders.mockReturnValue(
+      new Promise((res) => {
+        resolveProviders = res;
+      }),
+    );
+    h.api.getDevAuthBypassEnabled.mockResolvedValue(false);
+    render(<Login />);
+    // Loading placeholder is present, but no provider links yet.
+    expect(
+      screen.getByRole('button', { name: /loading sign-in options/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: /sign in with/i }),
+    ).not.toBeInTheDocument();
+    // Resolve and confirm the placeholder is replaced by the real buttons.
+    resolveProviders([{ name: 'github', label: 'GitHub' }]);
+    const link = await screen.findByRole('link', { name: /sign in with github/i });
+    expect(link).toHaveAttribute('href', '/auth/github/login');
+    expect(
+      screen.queryByRole('button', { name: /loading sign-in options/i }),
+    ).not.toBeInTheDocument();
+  });
 });

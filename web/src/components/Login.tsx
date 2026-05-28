@@ -30,7 +30,11 @@ function iconFor(name: string) {
 }
 
 export default function Login() {
-  const [providers, setProviders] = useState<AuthProvider[]>([]);
+  // null until the /auth/providers request resolves; an empty array means
+  // "the backend reports no configured providers" (different from "we
+  // haven't asked yet"). This split avoids the first-paint flash where
+  // the page briefly looked like there were no sign-in methods.
+  const [providers, setProviders] = useState<AuthProvider[] | null>(null);
   const [devBypass, setDevBypass] = useState(false);
 
   useEffect(() => {
@@ -64,17 +68,23 @@ export default function Login() {
             Track your friends&rsquo; flights to PostgreSQL conferences.
           </Typography>
           <Stack spacing={1.5} sx={{ alignSelf: 'stretch' }}>
-            {providers.map((p) => (
-              <Button
-                key={p.name}
-                variant="contained"
-                size="large"
-                startIcon={iconFor(p.name)}
-                href={`/auth/${p.name}/login`}
-              >
-                Sign in with {p.label}
+            {providers === null ? (
+              <Button variant="contained" size="large" disabled>
+                Loading sign-in options…
               </Button>
-            ))}
+            ) : (
+              providers.map((p) => (
+                <Button
+                  key={p.name}
+                  variant="contained"
+                  size="large"
+                  startIcon={iconFor(p.name)}
+                  href={`/auth/${p.name}/login`}
+                >
+                  Sign in with {p.label}
+                </Button>
+              ))
+            )}
           </Stack>
           <Typography variant="caption" color="text.secondary">
             Access is restricted to invited users.
