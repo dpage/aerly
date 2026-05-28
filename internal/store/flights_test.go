@@ -652,7 +652,8 @@ func TestVisibilityHelpers(t *testing.T) {
 	if ok {
 		t.Errorf("carol CanView private after friending alice should be false (is_public=false)")
 	}
-	// VisibleUserIDs now includes carol (the new friend) on alice's PV.
+	// VisibleUserIDs for a private flight does NOT include friends —
+	// the friend branch only fires when is_public = true.
 	pvIDs, err := s.VisibleUserIDs(ctx, private.ID)
 	if err != nil {
 		t.Fatalf("VisibleUserIDs(PV): %v", err)
@@ -661,18 +662,19 @@ func TestVisibilityHelpers(t *testing.T) {
 	for _, id := range pvIDs {
 		pvSet[id] = true
 	}
-	if !pvSet[carol] {
-		t.Errorf("VisibleUserIDs(PV) missing friend carol: %v", pvIDs)
+	if pvSet[carol] {
+		t.Errorf("VisibleUserIDs(PV) should not contain friend carol for private flight: %v", pvIDs)
 	}
 
-	// VisibleUserIDs: shared flight returns at least {alice, bob, carol}
-	// once carol is alice's friend (alice creator, bob share, carol friend).
+	// VisibleUserIDs: shared flight (private) returns only {alice, bob} —
+	// carol is alice's friend but SV is not public, so the friend branch
+	// does not fire. The explicit share for bob still applies.
 	ids, err := s.VisibleUserIDs(ctx, shared.ID)
 	if err != nil {
 		t.Fatalf("VisibleUserIDs: %v", err)
 	}
-	if len(ids) != 3 {
-		t.Errorf("VisibleUserIDs len = %d, want 3: %v", len(ids), ids)
+	if len(ids) != 2 {
+		t.Errorf("VisibleUserIDs len = %d, want 2 (alice+bob only): %v", len(ids), ids)
 	}
 }
 
@@ -979,5 +981,84 @@ func TestFlightsWithMissingCoords(t *testing.T) {
 	}
 	if !gotIDs[c.ID] {
 		t.Errorf("both-NULL flight %d should be returned", c.ID)
+	}
+}
+
+func TestVisibleUserIDs_FriendGated(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+
+	creator := mkUser(t, s)
+	friend := mkUser(t, s)
+	stranger := mkUser(t, s)
+	pendingUser := mkUser(t, s)
+	passenger := mkUser(t, s)
+	sharedUser := mkUser(t, s)
+
+	if _, err := s.RequestFriendship(ctx, creator, friend); err != nil {
+		t.Fatalf("req friend: %v", err)
+	}
+	if _, err := s.AcceptFriendship(ctx, friend, creator); err != nil {
+		t.Fatalf("accept friend: %v", err)
+	}
+	if _, err := s.RequestFriendship(ctx, creator, pendingUser); err != nil {
+		t.Fatalf("req pending: %v", err)
+	}
+
+	// Private flight: only creator + explicit passenger + explicit share.
+	priv, err := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "VU1", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK", IsPublic: false,
+	}, creator)
+	if err != nil {
+		t.Fatalf("CreateFlight private: %v", err)
+	}
+	if err := s.AddPassenger(ctx, priv.ID, passenger); err != nil {
+		t.Fatalf("AddPassenger: %v", err)
+	}
+	if err := s.AddShare(ctx, priv.ID, sharedUser); err != nil {
+		t.Fatalf("AddShare: %v", err)
+	}
+
+	uids, err := s.VisibleUserIDs(ctx, priv.ID)
+	if err != nil {
+		t.Fatalf("VisibleUserIDs: %v", err)
+	}
+	want := map[int64]bool{creator: true, passenger: true, sharedUser: true}
+	got := map[int64]bool{}
+	for _, u := range uids {
+		got[u] = true
+	}
+	for u := range want {
+		if !got[u] {
+			t.Errorf("missing %d in viewers", u)
+		}
+	}
+	if got[friend] || got[stranger] || got[pendingUser] {
+		t.Errorf("non-passenger/non-share viewers leaked: friend=%v stranger=%v pending=%v",
+			got[friend], got[stranger], got[pendingUser])
+	}
+
+	// Public flight: creator's accepted friends join; strangers and pending do not.
+	pub, err := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "VU2", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK", IsPublic: true,
+	}, creator)
+	if err != nil {
+		t.Fatalf("CreateFlight public: %v", err)
+	}
+	uids, err = s.VisibleUserIDs(ctx, pub.ID)
+	if err != nil {
+		t.Fatalf("VisibleUserIDs public: %v", err)
+	}
+	got = map[int64]bool{}
+	for _, u := range uids {
+		got[u] = true
+	}
+	if !got[creator] || !got[friend] {
+		t.Errorf("public flight should include creator and friend; got %v", got)
+	}
+	if got[stranger] || got[pendingUser] {
+		t.Errorf("public flight should not include stranger/pending; got %v", got)
 	}
 }

@@ -550,7 +550,8 @@ func TestVisibilityFiltering(t *testing.T) {
 	// Alice creates three flights with different visibility shapes:
 	//   A — private (only Alice can see it)
 	//   B — explicitly shared with Bob
-	//   C — public (everyone sees it)
+	//   C — public (only Alice and her accepted friends can see it;
+	//              bob, carol, admin are not alice's friends here)
 	create := func(ident string, isPublic bool, sharedWith []int64) int64 {
 		body := map[string]any{
 			"ident": ident, "scheduled_out": now.Add(time.Hour), "scheduled_in": now.Add(2 * time.Hour),
@@ -583,19 +584,24 @@ func TestVisibilityFiltering(t *testing.T) {
 	if got := idents(alice, ""); !sameStrings(got, []string{"A1", "B1", "C1"}) {
 		t.Errorf("alice sees %v, want A1 B1 C1", got)
 	}
-	if got := idents(bob, ""); !sameStrings(got, []string{"B1", "C1"}) {
-		t.Errorf("bob sees %v, want B1 C1", got)
+	// Bob has an explicit share on B1 but is not alice's friend, so he only
+	// sees B1. C1 is public but only alice's accepted friends can see it.
+	if got := idents(bob, ""); !sameStrings(got, []string{"B1"}) {
+		t.Errorf("bob sees %v, want B1 only (explicit share; not alice's friend)", got)
 	}
-	if got := idents(carol, ""); !sameStrings(got, []string{"C1"}) {
-		t.Errorf("carol sees %v, want C1 only", got)
+	// Carol is not alice's friend and has no explicit share, so she sees nothing.
+	if got := idents(carol, ""); !sameStrings(got, []string{}) {
+		t.Errorf("carol sees %v, want nothing (not alice's friend)", got)
 	}
-	if got := idents(admin, ""); !sameStrings(got, []string{"C1"}) {
-		t.Errorf("admin (no show_all) sees %v, want C1 only", got)
+	// Admin is a superuser but not alice's friend; without show_all they see nothing.
+	if got := idents(admin, ""); !sameStrings(got, []string{}) {
+		t.Errorf("admin (no show_all) sees %v, want nothing (not alice's friend)", got)
 	}
 	if got := idents(admin, "?show_all=1"); !sameStrings(got, []string{"A1", "B1", "C1"}) {
 		t.Errorf("admin show_all sees %v, want all three", got)
 	}
-	if got := idents(bob, "?show_all=1"); !sameStrings(got, []string{"B1", "C1"}) {
+	// Bob is not a superuser so show_all is ignored; still only sees B1.
+	if got := idents(bob, "?show_all=1"); !sameStrings(got, []string{"B1"}) {
 		t.Errorf("non-superuser show_all should be ignored, got %v", got)
 	}
 

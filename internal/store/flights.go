@@ -459,14 +459,14 @@ func (s *Store) SharedUserIDsByFlight(ctx context.Context, flightIDs []int64) (m
 }
 
 // VisibleUserIDs returns the union of {creator, passengers, share-list,
-// creator's accepted friends} for a single flight — the exact set of user
-// IDs that can see the flight through any non-public, non-superuser-override
-// path. Used by publishers to populate the VisibleTo set on SSE events
-// before broadcasting.
+// + creator's accepted friends IFF the flight is public} for a single flight
+// — the exact set of user IDs that can see the flight through any
+// non-superuser-override path. Used by publishers to populate the VisibleTo
+// set on SSE events before broadcasting.
 //
-// Callers should additionally consider Flight.IsPublic; this query
-// intentionally does NOT widen the set when is_public is true so the caller
-// can pass an empty slice to the hub's public-broadcast path explicitly.
+// The shape matches ListVisibleFlights/CanView: friends only join when the
+// flight is public. Callers that want the public-broadcast path explicitly
+// (Hub.publishPublic) should consult Flight.IsPublic separately.
 func (s *Store) VisibleUserIDs(ctx context.Context, flightID int64) ([]int64, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT created_by FROM flights WHERE id = $1 AND created_by IS NOT NULL
@@ -478,7 +478,9 @@ func (s *Store) VisibleUserIDs(ctx context.Context, flightID int64) ([]int64, er
 		SELECT CASE WHEN f.user_low = flights.created_by
 		            THEN f.user_high ELSE f.user_low END
 		FROM friendships f, flights
-		WHERE flights.id = $1 AND f.status = 'accepted'
+		WHERE flights.id = $1
+		  AND flights.is_public = TRUE
+		  AND f.status = 'accepted'
 		  AND flights.created_by IN (f.user_low, f.user_high)`, flightID)
 	if err != nil {
 		return nil, err
