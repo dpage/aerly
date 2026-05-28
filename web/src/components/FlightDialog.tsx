@@ -24,6 +24,7 @@ import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 
 import { api } from '../api/client';
 import { useStore } from '../state/store';
+import { useFriendUsers } from '../state/friendUsers';
 import type { CreateFlightInput, FlightStatus, User } from '../api/types';
 
 interface Props {
@@ -67,6 +68,7 @@ const STATUSES: FlightStatus[] = [
 
 export default function FlightDialog({ open, editId, onClose }: Props) {
   const users = useStore((s) => s.users);
+  const friendUsers = useFriendUsers();
   const flights = useStore((s) => s.flights);
   const me = useStore((s) => s.me);
   const capabilities = useStore((s) => s.capabilities);
@@ -335,7 +337,7 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
             )}
             <Autocomplete
               multiple
-              options={users}
+              options={mergeOptions(friendUsers, minimal.passengers)}
               value={minimal.passengers}
               getOptionLabel={(o) => o.username}
               isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -365,7 +367,7 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
               helperText="Leaving notes blank uses the resolver’s default (airline + aircraft model)"
             />
             <VisibilityBlock
-              users={users}
+              users={mergeOptions(friendUsers, minimal.sharedWith)}
               sharedWith={minimal.sharedWith}
               isPublic={minimal.isPublic}
               disabled={false}
@@ -463,7 +465,7 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
             )}
             <Autocomplete
               multiple
-              options={users}
+              options={mergeOptions(friendUsers, form.passengers)}
               value={form.passengers}
               getOptionLabel={(o) => o.username}
               isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -492,7 +494,7 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
               rows={2}
             />
             <VisibilityBlock
-              users={users}
+              users={mergeOptions(friendUsers, form.sharedWith)}
               sharedWith={form.sharedWith}
               isPublic={form.isPublic}
               disabled={!canEditSharing}
@@ -634,6 +636,18 @@ function VisibilityBlock({
       />
     </Stack>
   );
+}
+
+// Autocomplete option lists are limited to friends, but if the flight
+// already has a non-friend in its value (legacy data, or a friend who
+// unfriended after the original share), we still want to render that
+// user's chip with the right label. Merge value into options for that
+// case — non-friends not in value remain hidden from the dropdown.
+function mergeOptions(friends: User[], selected: User[]): User[] {
+  const byId = new Map<number, User>();
+  for (const u of friends) byId.set(u.id, u);
+  for (const u of selected) if (!byId.has(u.id)) byId.set(u.id, u);
+  return [...byId.values()];
 }
 
 // formatDateOnly renders the user's picked calendar date as YYYY-MM-DD using

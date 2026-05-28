@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { Capabilities, Flight, User } from '../api/types';
+import type { Capabilities, Flight, Friendship, User } from '../api/types';
 
 // We mock @mui/x-date-pickers DatePicker/DateTimePicker with a plain controlled
 // <input type="datetime-local"> that calls onChange(new Date(value)). This lets
@@ -50,6 +50,7 @@ const h = vi.hoisted(() => ({
   state: {
     users: [] as User[],
     flights: [] as Flight[],
+    friendships: [] as Friendship[],
     me: null as User | null,
     capabilities: { resolver_available: false } as Capabilities,
     createFlight: vi.fn(),
@@ -82,6 +83,14 @@ function user(over: Partial<User> = {}): User {
   };
 }
 
+function friendship(friendId: number): Friendship {
+  return {
+    friend_id: friendId,
+    status: 'accepted',
+    requested_at: '2026-01-01T00:00:00Z',
+  };
+}
+
 function flight(over: Partial<Flight> = {}): Flight {
   return {
     id: 1,
@@ -104,6 +113,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.state.users = [];
   h.state.flights = [];
+  h.state.friendships = [];
   h.state.me = null;
   h.state.capabilities = { resolver_available: false };
 });
@@ -176,6 +186,8 @@ describe('FlightDialog - full form (create)', () => {
 
   it('sends share-with-all-friends and explicit share-list IDs through createFlight', async () => {
     h.state.users = [user({ id: 11, username: 'alice' }), user({ id: 22, username: 'bob' })];
+    h.state.me = user({ id: 99, username: 'me' });
+    h.state.friendships = [friendship(11), friendship(22)];
     h.state.createFlight.mockResolvedValue(undefined);
     render(<FlightDialog open editId={null} onClose={vi.fn()} />);
     await userEvent.type(screen.getByLabelText(/^Flight number/), 'X1');
@@ -304,6 +316,8 @@ describe('FlightDialog - minimal form', () => {
 
   it('renders selected passenger chips in the minimal form (renderTags/getOptionLabel)', async () => {
     h.state.users = [user({ id: 1, username: 'amy' }), user({ id: 2, username: 'bob' })];
+    h.state.me = user({ id: 99, username: 'me' });
+    h.state.friendships = [friendship(1), friendship(2)];
     render(<FlightDialog open editId={null} onClose={vi.fn()} />);
     const auto = screen.getByLabelText('Passengers');
     await userEvent.click(auto);
@@ -420,6 +434,8 @@ describe('FlightDialog - editing', () => {
     const f = flight({ id: 8, passenger_ids: [1] });
     h.state.flights = [f];
     h.state.users = [user({ id: 1, username: 'amy' }), user({ id: 2, username: 'bob' })];
+    h.state.me = user({ id: 99, username: 'me' });
+    h.state.friendships = [friendship(1), friendship(2)];
     h.state.updateFlight.mockResolvedValue(undefined);
     h.state.addPassenger.mockResolvedValue(undefined);
     h.state.removePassenger.mockResolvedValue(undefined);
@@ -491,6 +507,7 @@ describe('FlightDialog - editing', () => {
     const me = user({ id: 99 });
     h.state.me = me;
     h.state.users = [user({ id: 11, username: 'alice' }), user({ id: 22, username: 'bob' })];
+    h.state.friendships = [friendship(11), friendship(22)];
     const f = flight({ id: 7, created_by: 99, shared_user_ids: [11] });
     h.state.flights = [f];
     render(<FlightDialog open editId={7} onClose={vi.fn()} />);
@@ -500,6 +517,49 @@ describe('FlightDialog - editing', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(h.state.addShare).toHaveBeenCalledWith(7, 22);
     expect(h.state.removeShare).not.toHaveBeenCalled();
+  });
+
+  it('only lists accepted friends as passenger options', async () => {
+    h.state.me = user({ id: 1, username: 'me' });
+    h.state.users = [
+      user({ id: 1, username: 'me' }),
+      user({ id: 2, username: 'friend' }),
+      user({ id: 3, username: 'stranger' }),
+    ];
+    h.state.friendships = [friendship(2)];
+    render(<FlightDialog open editId={null} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByLabelText('Passengers'));
+    expect(await screen.findByText('friend')).toBeInTheDocument();
+    expect(screen.queryByText('stranger')).not.toBeInTheDocument();
+  });
+
+  it('keeps a non-friend chip when editing a flight that already has them as passenger', async () => {
+    h.state.me = user({ id: 1, username: 'me' });
+    h.state.users = [
+      user({ id: 1, username: 'me' }),
+      user({ id: 3, username: 'legacy-non-friend' }),
+    ];
+    h.state.friendships = [];
+    h.state.flights = [
+      {
+        id: 42,
+        ident: 'BA42',
+        scheduled_out: '2030-01-01T10:00:00Z',
+        scheduled_in: '2030-01-01T12:00:00Z',
+        origin_iata: 'LHR',
+        dest_iata: 'JFK',
+        status: 'Scheduled',
+        notes: '',
+        passenger_ids: [3],
+        shared_user_ids: [],
+        is_public: false,
+        created_by: 1,
+      } as Flight,
+    ];
+    render(<FlightDialog open editId={42} onClose={vi.fn()} />);
+
+    expect(await screen.findByText('legacy-non-friend')).toBeInTheDocument();
   });
 });
 
