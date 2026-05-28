@@ -21,12 +21,14 @@ export function isOld(f: Flight, nowMs: number): boolean {
 }
 
 /** Returns the subset of loaded flights that should be visible right now,
- * honouring the user's `showOld` and `showMineOnly` toggles and ageing
- * flights out as time passes (refreshed every OLD_TICK_MS). */
+ * honouring the user's `showOld` and `showFriends` toggles and ageing
+ * flights out as time passes (refreshed every OLD_TICK_MS). When
+ * `showFriends` is OFF the list is restricted to flights the viewer
+ * created or is a passenger on. */
 export function useVisibleFlights(): Flight[] {
   const flights = useStore((s) => s.flights);
   const showOld = useStore((s) => s.showOld);
-  const showMineOnly = useStore((s) => s.showMineOnly);
+  const showFriends = useStore((s) => s.showFriends);
   const meId = useStore((s) => s.me?.id);
   const [now, setNow] = useState(() => Date.now());
 
@@ -39,12 +41,12 @@ export function useVisibleFlights(): Flight[] {
   return useMemo(() => {
     let out = flights;
     if (!showOld) out = out.filter((f) => !isOld(f, now));
-    // Skip the mine-only filter while "me" is unknown (auth still loading,
+    // Skip the friend filter while "me" is unknown (auth still loading,
     // or tests that don't populate it) — otherwise we'd hide every flight
     // on first paint. "Mine" = the user is a passenger OR the creator.
-    if (showMineOnly && meId != null) {
+    if (!showFriends && meId != null) {
       out = out.filter((f) => f.created_by === meId || f.passenger_ids.includes(meId));
     }
     return out;
-  }, [flights, showOld, showMineOnly, meId, now]);
+  }, [flights, showOld, showFriends, meId, now]);
 }

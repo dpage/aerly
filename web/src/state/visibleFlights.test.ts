@@ -39,9 +39,9 @@ const initial = useStore.getState();
 
 beforeEach(() => {
   // Reset to a known baseline: no flights, both filters off, no signed-in
-  // user. Tests opt into showMineOnly + me explicitly.
+  // user. Tests opt into showFriends + me explicitly.
   useStore.setState(
-    { ...initial, flights: [], showOld: false, showMineOnly: false, me: null },
+    { ...initial, flights: [], showOld: false, showFriends: false, me: null },
     true,
   );
 });
@@ -121,11 +121,11 @@ describe('useVisibleFlights', () => {
   // either uses a fresh scheduled_in or sets showOld=true.
   const fresh = '2024-01-02T11:30:00Z';
 
-  it('filters to flights where me is a passenger when showMineOnly is on', () => {
+  it('filters to flights where me is creator or passenger when showFriends is off', () => {
     useStore.setState(
       {
         me: user({ id: 42 }),
-        showMineOnly: true,
+        showFriends: false,
         flights: [
           flight({ id: 1, passenger_ids: [42], scheduled_in: fresh }),
           flight({ id: 2, passenger_ids: [1, 2], scheduled_in: fresh }),
@@ -142,7 +142,7 @@ describe('useVisibleFlights', () => {
     useStore.setState(
       {
         me: user({ id: 42 }),
-        showMineOnly: true,
+        showFriends: false,
         flights: [
           flight({ id: 1, passenger_ids: [], created_by: 42, scheduled_in: fresh }), // mine via creator
           flight({ id: 2, passenger_ids: [42], created_by: 99, scheduled_in: fresh }), // mine via passenger
@@ -155,11 +155,11 @@ describe('useVisibleFlights', () => {
     expect(result.current.map((f) => f.id)).toEqual([1, 2]);
   });
 
-  it('returns the full list when showMineOnly is off, regardless of me', () => {
+  it('returns the full loaded list when showFriends is on, regardless of me', () => {
     useStore.setState(
       {
         me: user({ id: 42 }),
-        showMineOnly: false,
+        showFriends: true,
         flights: [
           flight({ id: 1, passenger_ids: [42], scheduled_in: fresh }),
           flight({ id: 2, passenger_ids: [1], scheduled_in: fresh }),
@@ -171,13 +171,13 @@ describe('useVisibleFlights', () => {
     expect(result.current.map((f) => f.id)).toEqual([1, 2]);
   });
 
-  it('skips the mine-only filter while me is unknown', () => {
+  it('skips the showFriends filter while me is unknown', () => {
     // Auth still loading / not signed in — applying the filter would hide
     // everything; instead we no-op until me arrives.
     useStore.setState(
       {
         me: null,
-        showMineOnly: true,
+        showFriends: false,
         flights: [
           flight({ id: 1, passenger_ids: [1], scheduled_in: fresh }),
           flight({ id: 2, passenger_ids: [], scheduled_in: fresh }),
@@ -189,11 +189,11 @@ describe('useVisibleFlights', () => {
     expect(result.current.map((f) => f.id)).toEqual([1, 2]);
   });
 
-  it('composes mine-only with the old-flight filter', () => {
+  it('composes showFriends=off with the old-flight filter', () => {
     useStore.setState(
       {
         me: user({ id: 42 }),
-        showMineOnly: true,
+        showFriends: false,
         showOld: false,
         flights: [
           flight({ id: 1, passenger_ids: [42], scheduled_in: fresh }), // mine, fresh
