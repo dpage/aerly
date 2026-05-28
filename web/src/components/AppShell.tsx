@@ -31,6 +31,7 @@ import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 
 import { useStore } from '../state/store';
+import { userInitial, userName } from '../lib/format';
 import { useThemeMode, type ThemePreference } from '../theme';
 import FlightList from './FlightList';
 import FlightMap from './FlightMap';
@@ -103,7 +104,7 @@ export default function AppShell() {
                 aria-label="Account menu"
               >
                 <Avatar src={me?.avatar_url} sx={{ width: 28, height: 28 }}>
-                  {me?.username.charAt(0).toUpperCase()}
+                  {me && userInitial(me)}
                 </Avatar>
               </IconButton>
             </Tooltip>
@@ -118,7 +119,7 @@ export default function AppShell() {
             {me && (
               <MenuItem disabled sx={{ opacity: '1 !important' }}>
                 <Typography variant="caption" color="text.secondary">
-                  Signed in as {me.username}
+                  Signed in as {userName(me)}
                 </Typography>
               </MenuItem>
             )}

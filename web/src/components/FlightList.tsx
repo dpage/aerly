@@ -18,7 +18,7 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import { useStore } from '../state/store';
 import { useVisibleFlights } from '../state/visibleFlights';
 import type { Flight, FlightStatus, User } from '../api/types';
-import { fmtDateTime, fmtRelative } from '../lib/format';
+import { fmtDateTime, fmtRelative, userInitial, userName } from '../lib/format';
 import FlightDetailPanel from './FlightDetailPanel';
 
 interface Props {
@@ -253,16 +253,16 @@ function FlightRow({
               </Tooltip>
             )}
             {owner && (
-              <Tooltip title={`Added by ${owner.username}`}>
+              <Tooltip title={`Added by ${userName(owner)}`}>
                 <Stack direction="row" alignItems="center" spacing={0.5} sx={{ ml: 'auto' }}>
                   <Avatar
                     src={owner.avatar_url}
                     sx={{ width: 18, height: 18, fontSize: 10 }}
                   >
-                    {owner.username.charAt(0).toUpperCase()}
+                    {userInitial(owner)}
                   </Avatar>
                   <Typography variant="caption" color="text.secondary" noWrap>
-                    {owner.username}
+                    {userName(owner)}
                   </Typography>
                 </Stack>
               </Tooltip>
@@ -294,8 +294,8 @@ function FlightRow({
               sx={{ mt: 0.5, justifyContent: 'flex-start', '& .MuiAvatar-root': { width: 24, height: 24, fontSize: 12 } }}
             >
               {passengers.map((u) => (
-                <Tooltip key={u.id} title={u.username}>
-                  <Avatar src={u.avatar_url}>{u.username.charAt(0).toUpperCase()}</Avatar>
+                <Tooltip key={u.id} title={userName(u)}>
+                  <Avatar src={u.avatar_url}>{userInitial(u)}</Avatar>
                 </Tooltip>
               ))}
             </AvatarGroup>

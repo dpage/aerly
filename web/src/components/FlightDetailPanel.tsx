@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Avatar, Box, Chip, Stack, Typography } from '@mui/material';
 
 import type { Flight, User } from '../api/types';
-import { fmtAgo, fmtDateTime, fmtUTC } from '../lib/format';
+import { fmtAgo, fmtDateTime, fmtUTC, userInitial, userName } from '../lib/format';
 
 interface Props {
   flight: Flight;
@@ -240,9 +240,9 @@ function UserChip({ user }: { user: User }) {
   return (
     <Stack direction="row" spacing={0.75} alignItems="center">
       <Avatar src={user.avatar_url} sx={{ width: 20, height: 20, fontSize: 11 }}>
-        {user.username.charAt(0).toUpperCase()}
+        {userInitial(user)}
       </Avatar>
-      <Typography variant="body2">{user.username}</Typography>
+      <Typography variant="body2">{userName(user)}</Typography>
     </Stack>
   );
 }

@@ -1,5 +1,20 @@
 // Shared display formatters used across the flight list and detail panel.
 
+import type { User } from '../api/types';
+
+// userName picks the user's display name when set, falling back to the
+// username. Use this anywhere we'd otherwise show the bare username — most
+// users won't recognise "dpage", but they will recognise "Dave Page".
+export function userName(u: User): string {
+  return u.name?.trim() || u.username;
+}
+
+// userInitial returns a single uppercase letter for avatar fallbacks,
+// derived from whatever userName() would render.
+export function userInitial(u: User): string {
+  return userName(u).charAt(0).toUpperCase();
+}
+
 // fmtDateTime renders an ISO timestamp in airport-local time. tz is the IANA
 // zone of the relevant airport (origin for departures, destination for
 // arrivals); when it's missing or empty we fall back to UTC and add a "UTC"

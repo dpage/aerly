@@ -26,6 +26,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 
 import { api } from '../api/client';
 import type { Friendship, User } from '../api/types';
+import { userName } from '../lib/format';
 import { useStore } from '../state/store';
 
 interface Props {
@@ -127,8 +128,7 @@ export default function FriendsDialog({ open, onClose }: Props) {
 
   const friendLabel = (id: number): string => {
     const u = userIndex.get(id);
-    if (!u) return `User #${id}`;
-    return u.name?.trim() || u.username;
+    return u ? userName(u) : `User #${id}`;
   };
 
   return (

@@ -25,6 +25,7 @@ import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { api } from '../api/client';
 import { useStore } from '../state/store';
 import { useFriendUsers } from '../state/friendUsers';
+import { userInitial, userName } from '../lib/format';
 import type { CreateFlightInput, FlightStatus, User } from '../api/types';
 
 interface Props {
@@ -339,7 +340,7 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
               multiple
               options={mergeOptions(friendUsers, minimal.passengers)}
               value={minimal.passengers}
-              getOptionLabel={(o) => o.username}
+              getOptionLabel={userName}
               isOptionEqualToValue={(a, b) => a.id === b.id}
               onChange={(_, value) => setMinimal({ ...minimal, passengers: value })}
               renderTags={(value, getTagProps) =>
@@ -349,10 +350,10 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
                     key={u.id}
                     avatar={
                       <Avatar src={u.avatar_url}>
-                        {u.username.charAt(0).toUpperCase()}
+                        {userInitial(u)}
                       </Avatar>
                     }
-                    label={u.username}
+                    label={userName(u)}
                   />
                 ))
               }
@@ -467,7 +468,7 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
               multiple
               options={mergeOptions(friendUsers, form.passengers)}
               value={form.passengers}
-              getOptionLabel={(o) => o.username}
+              getOptionLabel={userName}
               isOptionEqualToValue={(a, b) => a.id === b.id}
               onChange={(_, value) => setForm({ ...form, passengers: value })}
               renderTags={(value, getTagProps) =>
@@ -477,10 +478,10 @@ export default function FlightDialog({ open, editId, onClose }: Props) {
                     key={u.id}
                     avatar={
                       <Avatar src={u.avatar_url}>
-                        {u.username.charAt(0).toUpperCase()}
+                        {userInitial(u)}
                       </Avatar>
                     }
-                    label={u.username}
+                    label={userName(u)}
                   />
                 ))
               }
@@ -607,7 +608,7 @@ function VisibilityBlock({
         multiple
         options={users}
         value={sharedWith}
-        getOptionLabel={(o) => o.username}
+        getOptionLabel={userName}
         isOptionEqualToValue={(a, b) => a.id === b.id}
         onChange={(_, value) => onSharedChange(value)}
         disabled={disabled}
@@ -616,8 +617,8 @@ function VisibilityBlock({
             <Chip
               {...getTagProps({ index: i })}
               key={u.id}
-              avatar={<Avatar src={u.avatar_url}>{u.username.charAt(0).toUpperCase()}</Avatar>}
-              label={u.username}
+              avatar={<Avatar src={u.avatar_url}>{userInitial(u)}</Avatar>}
+              label={userName(u)}
             />
           ))
         }

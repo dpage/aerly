@@ -64,7 +64,10 @@ function user(over: Partial<User> = {}): User {
   return {
     id: 1,
     username: 'octocat',
-    name: 'Octo',
+    // Default empty so tests that override only `username` end up displaying
+    // that username (via userName()'s fallback). Tests that need a specific
+    // display name should pass `name` explicitly.
+    name: '',
     avatar_url: '',
     is_superuser: false,
     is_active: true,
