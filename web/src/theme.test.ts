@@ -24,7 +24,7 @@ describe('createAppTheme', () => {
   it('builds a dark palette with a dark default background', () => {
     const theme = createAppTheme('dark');
     expect(theme.palette.mode).toBe('dark');
-    expect(theme.palette.primary.main).toBe('#1f5fa8');
+    expect(theme.palette.primary.main).toBe('#60a5fa');
     expect(theme.palette.background.default).toBe('#0d1117');
     expect(theme.palette.background.paper).toBe('#161b22');
   });

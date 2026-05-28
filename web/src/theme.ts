@@ -10,7 +10,7 @@ export function createAppTheme(mode: ThemeMode): Theme {
   return createTheme({
     palette: {
       mode,
-      primary: { main: '#1f5fa8' },
+      primary: { main: mode === 'dark' ? '#60a5fa' : '#1f5fa8' },
       secondary: { main: '#d97706' },
       ...(mode === 'light'
         ? { background: { default: '#f5f6fa' } }
