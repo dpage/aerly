@@ -5,6 +5,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
 
 import { useStore } from './state/store';
 import { connectSSE } from './sse';
+import { api } from './api/client';
 import { createAppTheme, useThemeMode } from './theme';
 import Login from './components/Login';
 import AppShell from './components/AppShell';
@@ -16,8 +17,13 @@ export default function App() {
   const init = useStore((s) => s.init);
   const error = useStore((s) => s.error);
   const setError = useStore((s) => s.setError);
+  const notice = useStore((s) => s.notice);
+  const setNotice = useStore((s) => s.setNotice);
+  const refreshNotifications = useStore((s) => s.refreshNotifications);
   const applyFlightUpdate = useStore((s) => s.applyFlightUpdate);
   const applyFlightDelete = useStore((s) => s.applyFlightDelete);
+  const applyNotificationsUpdate = useStore((s) => s.applyNotificationsUpdate);
+  const users = useStore((s) => s.users);
   const showAll = useStore((s) => s.showAll);
   const { mode } = useThemeMode();
   const theme = useMemo(() => createAppTheme(mode), [mode]);
@@ -32,11 +38,47 @@ export default function App() {
       {
         onFlight: (f) => applyFlightUpdate(f),
         onDelete: (id) => applyFlightDelete(id),
-        onNotifications: () => {}, // TODO Task 12: wire to applyNotificationsUpdate
+        onNotifications: (n) => applyNotificationsUpdate(n),
       },
       { showAll },
     );
-  }, [auth, applyFlightUpdate, applyFlightDelete, showAll]);
+  }, [auth, applyFlightUpdate, applyFlightDelete, applyNotificationsUpdate, showAll]);
+
+  useEffect(() => {
+    if (auth !== 'authenticated') return;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('friend_accept');
+    if (!token) return;
+    void (async () => {
+      try {
+        const r = await api.acceptFriendToken(token);
+        if (r.already) {
+          setNotice({
+            message: "You're already friends — nothing to accept.",
+            severity: 'info',
+          });
+        } else {
+          const friend = r.friendship
+            ? users.find((u) => u.id === r.friendship!.friend_id)
+            : undefined;
+          const label = friend?.name?.trim() || 'them';
+          setNotice({
+            message: `You're now friends with ${label}.`,
+            severity: 'success',
+          });
+        }
+        void refreshNotifications();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        params.delete('friend_accept');
+        const qs = params.toString();
+        const url =
+          window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+        window.history.replaceState({}, '', url);
+      }
+    })();
+  }, [auth, users, refreshNotifications, setError, setNotice]);
 
   // window.location.pathname is safe here because /privacy and /terms are only
   // reached via full page loads — there is no client-side pushState navigation.
@@ -71,6 +113,18 @@ export default function App() {
           <Alert severity="error" variant="filled" onClose={() => setError(null)}>
             {error}
           </Alert>
+        </Snackbar>
+        <Snackbar
+          open={notice !== null}
+          autoHideDuration={6000}
+          onClose={() => setNotice(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          {notice ? (
+            <Alert severity={notice.severity} variant="filled" onClose={() => setNotice(null)}>
+              {notice.message}
+            </Alert>
+          ) : undefined}
         </Snackbar>
       </LocalizationProvider>
     </ThemeProvider>

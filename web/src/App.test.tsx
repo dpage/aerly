@@ -4,14 +4,26 @@ import userEvent from '@testing-library/user-event';
 
 const h = vi.hoisted(() => {
   return {
-    connectSSE: vi.fn((_handlers: { onFlight: (f: unknown) => void; onDelete: (id: number) => void; onNotifications: (n: unknown) => void }) => vi.fn()),
+    connectSSE: vi.fn((_handlers: {
+      onFlight: (f: unknown) => void;
+      onDelete: (id: number) => void;
+      onNotifications: (n: unknown) => void;
+    }) => vi.fn()),
+    api: {
+      acceptFriendToken: vi.fn(),
+    },
     state: {
       auth: 'loading' as 'loading' | 'anonymous' | 'authenticated',
       error: null as string | null,
+      notice: null as { message: string; severity: 'success' | 'info' } | null,
       init: vi.fn(),
       setError: vi.fn(),
+      setNotice: vi.fn(),
+      refreshNotifications: vi.fn(),
       applyFlightUpdate: vi.fn(),
       applyFlightDelete: vi.fn(),
+      applyNotificationsUpdate: vi.fn(),
+      users: [] as Array<{ id: number; name: string }>,
     },
   };
 });
@@ -19,6 +31,7 @@ const connectSSE = h.connectSSE;
 const state = h.state;
 
 vi.mock('./sse', () => ({ connectSSE: h.connectSSE }));
+vi.mock('./api/client', () => ({ api: h.api, ApiError: class {} }));
 vi.mock('./components/AppShell', () => ({ default: () => <div>APP_SHELL</div> }));
 vi.mock('./components/Login', () => ({ default: () => <div>LOGIN</div> }));
 vi.mock('./components/PrivacyPolicy', () => ({ default: () => <div>PRIVACY_POLICY</div> }));
@@ -33,6 +46,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.auth = 'loading';
   state.error = null;
+  state.notice = null;
+  state.users = [];
   window.history.pushState({}, '', '/');
 });
 
@@ -117,5 +132,56 @@ describe('App', () => {
     });
     vi.useRealTimers();
     expect(state.setError).toHaveBeenCalledWith(null);
+  });
+});
+
+describe('friend-accept token bootstrap', () => {
+  it('does not POST while anonymous; preserves the token in URL', async () => {
+    state.auth = 'anonymous';
+    window.history.pushState({}, '', '/?friend_accept=tok1');
+    render(<App />);
+    expect(h.api.acceptFriendToken).not.toHaveBeenCalled();
+    expect(window.location.search).toBe('?friend_accept=tok1');
+  });
+
+  it('POSTs and shows a success notice when authenticated', async () => {
+    h.api.acceptFriendToken.mockResolvedValueOnce({
+      friendship: { friend_id: 9, status: 'accepted', direction: '', requested_at: '' },
+    });
+    state.auth = 'authenticated';
+    state.users = [{ id: 9, name: 'Alice' }];
+    window.history.pushState({}, '', '/?friend_accept=tokA');
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.api.acceptFriendToken).toHaveBeenCalledWith('tokA');
+    expect(state.setNotice).toHaveBeenCalledWith({
+      message: "You're now friends with Alice.",
+      severity: 'success',
+    });
+    expect(window.location.search).toBe('');
+    expect(state.refreshNotifications).toHaveBeenCalled();
+  });
+
+  it('shows an info notice when the request was already accepted', async () => {
+    h.api.acceptFriendToken.mockResolvedValueOnce({ already: true });
+    state.auth = 'authenticated';
+    window.history.pushState({}, '', '/?friend_accept=tokB');
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.setNotice).toHaveBeenCalledWith({
+      message: "You're already friends — nothing to accept.",
+      severity: 'info',
+    });
+  });
+
+  it('surfaces a server error via setError, not setNotice', async () => {
+    const err = new Error("this invitation isn't for your account");
+    h.api.acceptFriendToken.mockRejectedValueOnce(err);
+    state.auth = 'authenticated';
+    window.history.pushState({}, '', '/?friend_accept=tokC');
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.setError).toHaveBeenCalledWith("this invitation isn't for your account");
+    expect(state.setNotice).not.toHaveBeenCalled();
   });
 });
