@@ -32,6 +32,7 @@ export default function App() {
       {
         onFlight: (f) => applyFlightUpdate(f),
         onDelete: (id) => applyFlightDelete(id),
+        onNotifications: () => {}, // TODO Task 12: wire to applyNotificationsUpdate
       },
       { showAll },
     );

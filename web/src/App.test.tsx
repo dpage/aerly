@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 const h = vi.hoisted(() => {
   return {
-    connectSSE: vi.fn((_handlers: { onFlight: (f: unknown) => void; onDelete: (id: number) => void }) => vi.fn()),
+    connectSSE: vi.fn((_handlers: { onFlight: (f: unknown) => void; onDelete: (id: number) => void; onNotifications: (n: unknown) => void }) => vi.fn()),
     state: {
       auth: 'loading' as 'loading' | 'anonymous' | 'authenticated',
       error: null as string | null,

@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 function noopHandlers() {
-  return { onFlight: () => {}, onDelete: () => {} };
+  return { onFlight: () => {}, onDelete: () => {}, onNotifications: () => {} };
 }
 
 describe('connectSSE', () => {
@@ -163,5 +163,33 @@ describe('connectSSE', () => {
     vi.advanceTimersByTime(5000);
     // open() ran but early-returned because stopped — no new EventSource.
     expect(FakeEventSource.instances).toHaveLength(1);
+  });
+});
+
+describe('notifications.updated events', () => {
+  it('parses payload and forwards to onNotifications', () => {
+    const onNotifications = vi.fn();
+    const onFlight = vi.fn();
+    const onDelete = vi.fn();
+    const teardown = connectSSE({ onFlight, onDelete, onNotifications });
+
+    const es = FakeEventSource.instances[0];
+    es.emit('notifications.updated', { data: JSON.stringify({ friend_requests_pending: 4 }) });
+    expect(onNotifications).toHaveBeenCalledWith({ friend_requests_pending: 4 });
+
+    teardown();
+  });
+
+  it('logs and ignores a malformed notifications payload', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onNotifications = vi.fn();
+    const teardown = connectSSE({
+      onFlight: vi.fn(), onDelete: vi.fn(), onNotifications,
+    });
+    const es = FakeEventSource.instances[0];
+    es.emit('notifications.updated', { data: '{not-json}' });
+    expect(onNotifications).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalledWith('bad SSE payload', expect.anything());
+    teardown();
   });
 });

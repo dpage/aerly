@@ -1,8 +1,9 @@
-import type { Flight } from './api/types';
+import type { Flight, Notifications } from './api/types';
 
 export interface SSEHandlers {
   onFlight: (flight: Flight) => void;
   onDelete: (id: number) => void;
+  onNotifications: (n: Notifications) => void;
 }
 
 export interface SSEOptions {
@@ -38,6 +39,14 @@ export function connectSSE(handlers: SSEHandlers, opts: SSEOptions = {}): () => 
       try {
         const { id } = JSON.parse((ev as MessageEvent).data) as { id: number };
         handlers.onDelete(id);
+      } catch (err) {
+        console.error('bad SSE payload', err);
+      }
+    });
+    es.addEventListener('notifications.updated', (ev) => {
+      try {
+        const n = JSON.parse((ev as MessageEvent).data) as Notifications;
+        handlers.onNotifications(n);
       } catch (err) {
         console.error('bad SSE payload', err);
       }
