@@ -17,7 +17,8 @@ type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
 const SHOW_ALL_KEY = 'ft.show_all';
 const SHOW_OLD_KEY = 'ft.show_old';
-const SHOW_MINE_ONLY_KEY = 'ft.show_mine_only';
+const SHOW_FRIENDS_KEY = 'ft.show_friends';
+const LEGACY_SHOW_MINE_ONLY_KEY = 'ft.show_mine_only';
 
 interface AppState {
   auth: AuthStatus;
@@ -40,13 +41,13 @@ interface AppState {
    * Available to every signed-in user; persisted to localStorage so it
    * survives reloads. */
   showOld: boolean;
-  /** When true (the default), the flight list hides flights the signed-in
-   * user neither created nor is a passenger on. Pure client-side filter
-   * applied in useVisibleFlights — no server interaction. Persisted to
-   * localStorage with inverted semantics (absent/'1' = on, '0' = off) so
-   * the default is on for first-time visitors but an explicit off-toggle
-   * survives reloads. */
-  showMineOnly: boolean;
+  /** When true, the flight list also includes flights from other users that
+   * those users have shared with the viewer (via the per-user share list,
+   * via "Share with all friends", or as a passenger). When false (the
+   * default), the list is restricted to flights the viewer created or is
+   * a passenger on. Persisted to localStorage with default-OFF semantics
+   * — absence means OFF, '1' means ON. */
+  showFriends: boolean;
   error: string | null;
   notifications: Notifications;
   notice: { message: string; severity: 'success' | 'info' } | null;
@@ -73,7 +74,7 @@ interface AppState {
   selectFlight: (id: number | null) => void;
   setShowAll: (v: boolean) => Promise<void>;
   setShowOld: (v: boolean) => Promise<void>;
-  setShowMineOnly: (v: boolean) => void;
+  setShowFriends: (v: boolean) => void;
   applyFlightUpdate: (f: Flight) => void;
   /** Drop a flight from local state in response to a flight.deleted SSE
    * event. Idempotent: no-op if the id isn't present (we may have already
@@ -121,21 +122,35 @@ function persistShowOld(v: boolean): void {
   }
 }
 
-// Inverted semantics vs showAll/showOld: the toggle defaults to ON, so
-// absence in localStorage means "on" and the only thing we persist is an
-// explicit OFF ('0'). Any non-'0' value (including a legacy '1') reads as on.
-function loadShowMineOnly(): boolean {
+// Default-OFF semantics with a one-shot migration from the legacy
+// `ft.show_mine_only` key. Legacy '0' (Only my flights OFF — used to mean
+// "show all loaded flights") becomes new ON (showFriends = true). Any
+// other legacy state (absent or '1' / unexpected value) defaults to OFF,
+// which matches the new default. The legacy key is removed once the
+// migration runs so subsequent loads use the new key only.
+function loadShowFriends(): boolean {
   try {
-    return window.localStorage.getItem(SHOW_MINE_ONLY_KEY) !== '0';
+    const existing = window.localStorage.getItem(SHOW_FRIENDS_KEY);
+    if (existing !== null) {
+      return existing === '1';
+    }
+    const legacy = window.localStorage.getItem(LEGACY_SHOW_MINE_ONLY_KEY);
+    if (legacy === null) return false;
+    const migrated = legacy === '0';
+    if (migrated) {
+      window.localStorage.setItem(SHOW_FRIENDS_KEY, '1');
+    }
+    window.localStorage.removeItem(LEGACY_SHOW_MINE_ONLY_KEY);
+    return migrated;
   } catch {
-    return true;
+    return false;
   }
 }
 
-function persistShowMineOnly(v: boolean): void {
+function persistShowFriends(v: boolean): void {
   try {
-    if (v) window.localStorage.removeItem(SHOW_MINE_ONLY_KEY);
-    else window.localStorage.setItem(SHOW_MINE_ONLY_KEY, '0');
+    if (v) window.localStorage.setItem(SHOW_FRIENDS_KEY, '1');
+    else window.localStorage.removeItem(SHOW_FRIENDS_KEY);
   } catch {
     // ignore — best effort
   }
@@ -152,7 +167,7 @@ export const useStore = create<AppState>((set, get) => ({
   lastUpdateAt: null,
   showAll: loadShowAll(),
   showOld: loadShowOld(),
-  showMineOnly: loadShowMineOnly(),
+  showFriends: loadShowFriends(),
   error: null,
   notifications: { friend_requests_pending: 0 },
   notice: null,
@@ -303,11 +318,9 @@ export const useStore = create<AppState>((set, get) => ({
     await get().refreshFlights();
   },
 
-  setShowMineOnly(v) {
-    persistShowMineOnly(v);
-    set({ showMineOnly: v });
-    // No refetch: the filter is applied client-side in useVisibleFlights
-    // against the already-loaded flights' passenger_ids.
+  setShowFriends(v) {
+    persistShowFriends(v);
+    set({ showFriends: v });
   },
 
   applyFlightUpdate(f) {

@@ -397,9 +397,10 @@ it('refreshFlights passes both showAll and showOld', async () => {
   expect(mockApi.listFlights).toHaveBeenCalledWith({ showAll: true, showOld: true });
 });
 
-describe('setShowMineOnly', () => {
-  // showMineOnly is persisted with inverted semantics: defaults ON when the
-  // key is absent, only an explicit OFF ('0') is written to localStorage.
+describe('showFriends state and persistence', () => {
+  const LEGACY_KEY = 'ft.show_mine_only';
+  const NEW_KEY = 'ft.show_friends';
+
   let store: Record<string, string>;
 
   beforeEach(() => {
@@ -425,21 +426,64 @@ describe('setShowMineOnly', () => {
     });
   });
 
-  it('flipping off writes "0" to localStorage and updates state', () => {
-    useStore.getState().setShowMineOnly(false);
-    expect(useStore.getState().showMineOnly).toBe(false);
-    expect(window.localStorage.getItem('ft.show_mine_only')).toBe('0');
+  it('defaults to false (only-mine view) for a fresh user', async () => {
+    vi.resetModules();
+    const { useStore: fresh } = await import('./store');
+    expect(fresh.getState().showFriends).toBe(false);
   });
 
-  it('flipping back on removes the localStorage key', () => {
-    window.localStorage.setItem('ft.show_mine_only', '0');
-    useStore.getState().setShowMineOnly(true);
-    expect(useStore.getState().showMineOnly).toBe(true);
-    expect(window.localStorage.getItem('ft.show_mine_only')).toBeNull();
+  it('migrates legacy showMineOnly absence (= default ON) to showFriends=false', async () => {
+    // Legacy default-on meant "only my flights" — same effective view as
+    // the new showFriends=false default.
+    vi.resetModules();
+    const { useStore: fresh } = await import('./store');
+    expect(fresh.getState().showFriends).toBe(false);
+    expect(window.localStorage.getItem(LEGACY_KEY)).toBeNull();
+  });
+
+  it("migrates legacy showMineOnly='0' (off) to showFriends=true and clears the legacy key", async () => {
+    window.localStorage.setItem(LEGACY_KEY, '0');
+    vi.resetModules();
+    const { useStore: fresh } = await import('./store');
+    expect(fresh.getState().showFriends).toBe(true);
+    expect(window.localStorage.getItem(LEGACY_KEY)).toBeNull();
+    expect(window.localStorage.getItem(NEW_KEY)).toBe('1');
+  });
+
+  it("migrates legacy showMineOnly='1' (explicit on) to showFriends=false and clears the legacy key", async () => {
+    window.localStorage.setItem(LEGACY_KEY, '1');
+    vi.resetModules();
+    const { useStore: fresh } = await import('./store');
+    expect(fresh.getState().showFriends).toBe(false);
+    expect(window.localStorage.getItem(LEGACY_KEY)).toBeNull();
+  });
+
+  it('does not migrate when the new key is already present', async () => {
+    window.localStorage.setItem(NEW_KEY, '1');
+    window.localStorage.setItem(LEGACY_KEY, '0');
+    vi.resetModules();
+    const { useStore: fresh } = await import('./store');
+    expect(fresh.getState().showFriends).toBe(true);
+    // Legacy key is left alone if migration didn't run.
+    expect(window.localStorage.getItem(LEGACY_KEY)).toBe('0');
+  });
+
+  it('setShowFriends(true) persists "1" and turns the toggle on', () => {
+    useStore.getState().setShowFriends(true);
+    expect(useStore.getState().showFriends).toBe(true);
+    expect(window.localStorage.getItem(NEW_KEY)).toBe('1');
+  });
+
+  it('setShowFriends(false) removes the key', () => {
+    window.localStorage.setItem(NEW_KEY, '1');
+    useStore.setState({ showFriends: true });
+    useStore.getState().setShowFriends(false);
+    expect(useStore.getState().showFriends).toBe(false);
+    expect(window.localStorage.getItem(NEW_KEY)).toBeNull();
   });
 
   it('does not refetch flights — filter is client-side', () => {
-    useStore.getState().setShowMineOnly(false);
+    useStore.getState().setShowFriends(true);
     expect(mockApi.listFlights).not.toHaveBeenCalled();
   });
 
@@ -458,10 +502,10 @@ describe('setShowMineOnly', () => {
         },
       },
     });
-    useStore.getState().setShowMineOnly(false);
-    expect(useStore.getState().showMineOnly).toBe(false);
-    useStore.getState().setShowMineOnly(true);
-    expect(useStore.getState().showMineOnly).toBe(true);
+    useStore.getState().setShowFriends(true);
+    expect(useStore.getState().showFriends).toBe(true);
+    useStore.getState().setShowFriends(false);
+    expect(useStore.getState().showFriends).toBe(false);
   });
 });
 
