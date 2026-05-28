@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import {
   AppBar,
   Avatar,
+  Badge,
   Box,
   Button,
+  Chip,
   Divider,
   IconButton,
   ListItemIcon,
@@ -42,6 +44,7 @@ export default function AppShell() {
   const me = useStore((s) => s.me);
   const logout = useStore((s) => s.logout);
   const capabilities = useStore((s) => s.capabilities);
+  const pendingRequests = useStore((s) => s.notifications.friend_requests_pending);
   const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
@@ -86,17 +89,25 @@ export default function AppShell() {
               </IconButton>
             </Tooltip>
           )}
-          <Tooltip title="Account menu">
-            <IconButton
-              size="small"
-              onClick={(e) => setMenuAnchor(e.currentTarget)}
-              aria-label="Account menu"
-            >
-              <Avatar src={me?.avatar_url} sx={{ width: 28, height: 28 }}>
-                {me?.username.charAt(0).toUpperCase()}
-              </Avatar>
-            </IconButton>
-          </Tooltip>
+          <Badge
+            badgeContent={pendingRequests}
+            color="error"
+            overlap="circular"
+            invisible={pendingRequests === 0}
+            anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <Tooltip title="Account menu">
+              <IconButton
+                size="small"
+                onClick={(e) => setMenuAnchor(e.currentTarget)}
+                aria-label="Account menu"
+              >
+                <Avatar src={me?.avatar_url} sx={{ width: 28, height: 28 }}>
+                  {me?.username.charAt(0).toUpperCase()}
+                </Avatar>
+              </IconButton>
+            </Tooltip>
+          </Badge>
           <Menu
             anchorEl={menuAnchor}
             open={menuAnchor !== null}
@@ -121,7 +132,17 @@ export default function AppShell() {
               <ListItemIcon>
                 <PeopleIcon fontSize="small" />
               </ListItemIcon>
-              Friends…
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
+                <Box>Friends…</Box>
+                {pendingRequests > 0 && (
+                  <Chip
+                    label={pendingRequests}
+                    size="small"
+                    color="error"
+                    sx={{ ml: 'auto' }}
+                  />
+                )}
+              </Box>
             </MenuItem>
             {capabilities.email_ingest_enabled && (
               <MenuItem

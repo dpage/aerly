@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
     me: null as User | null,
     logout: vi.fn(),
     capabilities: { resolver_available: false, poll_interval_sec: 60, email_ingest_enabled: false },
+    notifications: { friend_requests_pending: 0 },
   },
 }));
 
@@ -228,5 +229,34 @@ describe('AppShell', () => {
     expect(screen.getByText('STATS_DIALOG')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'CLOSE_STATS_DIALOG' }));
     expect(screen.queryByText('STATS_DIALOG')).not.toBeInTheDocument();
+  });
+});
+
+describe('AppShell notifications badge', () => {
+  beforeEach(() => {
+    h.state.me = { id: 1, username: 'me', name: 'Me', avatar_url: '', is_superuser: false, is_active: true, has_logged_in: true };
+    h.state.notifications = { friend_requests_pending: 0 };
+  });
+
+  it('hides the badge when no pending requests', () => {
+    render(<AppShell />);
+    const avatarButton = screen.getByRole('button', { name: /account menu/i });
+    // MUI Badge marks the bubble invisible via class on the badge span.
+    const bubble = avatarButton.parentElement?.querySelector('.MuiBadge-invisible');
+    expect(bubble).toBeTruthy();
+  });
+
+  it('shows the count when there is a pending request', () => {
+    h.state.notifications = { friend_requests_pending: 2 };
+    render(<AppShell />);
+    expect(screen.getByText('2')).toBeInTheDocument();
+  });
+
+  it('renders a count chip next to the Friends menu item', async () => {
+    h.state.notifications = { friend_requests_pending: 3 };
+    render(<AppShell />);
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    const friendsItem = screen.getByRole('menuitem', { name: /friends/i });
+    expect(friendsItem.textContent ?? '').toMatch(/3/);
   });
 });
