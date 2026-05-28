@@ -194,6 +194,13 @@ func TestFlightCRUD(t *testing.T) {
 	if w := e.req(t, "POST", "/api/flights", bad, uid); w.Code != 400 {
 		t.Errorf("invalid create = %d, want 400", w.Code)
 	}
+	// Befriend pax before creating the flight with them as a passenger.
+	if _, err := e.store.RequestFriendship(context.Background(), uid, pax); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(context.Background(), pax, uid); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
 	// Create OK with a passenger.
 	body := map[string]any{
 		"ident": "BA286", "scheduled_out": now.Add(-time.Hour), "scheduled_in": now.Add(time.Hour),
@@ -206,7 +213,9 @@ func TestFlightCRUD(t *testing.T) {
 	created := decodeBody[map[string]any](t, w)
 	fid := int64(created["id"].(float64))
 
-	// Create with a bad passenger id → AddPassenger FK error → 400.
+	// Create with a bad passenger id → pre-validation rejects (not a friend) → 400.
+	// The pre-validation runs before AddPassenger, so a non-existent user id
+	// is caught for "not a friend" rather than as an FK error.
 	body2 := map[string]any{
 		"ident": "BA287", "scheduled_out": now, "scheduled_in": now.Add(time.Hour),
 		"origin_iata": "LHR", "dest_iata": "JFK", "passenger_ids": []int64{999999},
@@ -253,13 +262,6 @@ func TestFlightCRUD(t *testing.T) {
 	}
 	if w := e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid), map[string]any{"user_id": 0}, uid); w.Code != 400 {
 		t.Errorf("addPassenger user_id 0 = %d", w.Code)
-	}
-	// Befriend pax before adding them as a passenger.
-	if _, err := e.store.RequestFriendship(context.Background(), uid, pax); err != nil {
-		t.Fatalf("RequestFriendship: %v", err)
-	}
-	if _, err := e.store.AcceptFriendship(context.Background(), pax, uid); err != nil {
-		t.Fatalf("AcceptFriendship: %v", err)
 	}
 	if w := e.req(t, "POST", fmt.Sprintf("/api/flights/%d/passengers", fid), map[string]any{"user_id": pax}, uid); w.Code != 204 {
 		t.Errorf("addPassenger = %d, want 204", w.Code)
@@ -562,9 +564,8 @@ func TestVisibilityFiltering(t *testing.T) {
 
 	// Alice creates three flights with different visibility shapes:
 	//   A — private (only Alice can see it)
-	//   B — explicitly shared with Bob
-	//   C — public (only Alice and her accepted friends can see it;
-	//              bob, carol, admin are not alice's friends here)
+	//   B — explicitly shared with Bob (alice+bob must be friends to share)
+	//   C — public (alice+bob are friends so bob can see it; carol and admin are not alice's friends)
 	create := func(ident string, isPublic bool, sharedWith []int64) int64 {
 		body := map[string]any{
 			"ident": ident, "scheduled_out": now.Add(time.Hour), "scheduled_in": now.Add(2 * time.Hour),
@@ -578,6 +579,13 @@ func TestVisibilityFiltering(t *testing.T) {
 		return int64(decodeBody[map[string]any](t, w)["id"].(float64))
 	}
 	idA := create("A1", false, nil)
+	// Befriend alice and bob before sharing B1 with bob.
+	if _, err := e.store.RequestFriendship(context.Background(), alice, bob); err != nil {
+		t.Fatalf("RequestFriendship alice→bob: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(context.Background(), bob, alice); err != nil {
+		t.Fatalf("AcceptFriendship bob←alice: %v", err)
+	}
 	idB := create("B1", false, []int64{bob})
 	create("C1", true, nil)
 
@@ -597,10 +605,10 @@ func TestVisibilityFiltering(t *testing.T) {
 	if got := idents(alice, ""); !sameStrings(got, []string{"A1", "B1", "C1"}) {
 		t.Errorf("alice sees %v, want A1 B1 C1", got)
 	}
-	// Bob has an explicit share on B1 but is not alice's friend, so he only
-	// sees B1. C1 is public but only alice's accepted friends can see it.
-	if got := idents(bob, ""); !sameStrings(got, []string{"B1"}) {
-		t.Errorf("bob sees %v, want B1 only (explicit share; not alice's friend)", got)
+	// Bob has an explicit share on B1 and is alice's friend, so he sees B1
+	// (explicit share) and C1 (public, alice's friend).
+	if got := idents(bob, ""); !sameStrings(got, []string{"B1", "C1"}) {
+		t.Errorf("bob sees %v, want B1 C1 (explicit share + alice's friend → public)", got)
 	}
 	// Carol is not alice's friend and has no explicit share, so she sees nothing.
 	if got := idents(carol, ""); !sameStrings(got, []string{}) {
@@ -613,9 +621,9 @@ func TestVisibilityFiltering(t *testing.T) {
 	if got := idents(admin, "?show_all=1"); !sameStrings(got, []string{"A1", "B1", "C1"}) {
 		t.Errorf("admin show_all sees %v, want all three", got)
 	}
-	// Bob is not a superuser so show_all is ignored; still only sees B1.
-	if got := idents(bob, "?show_all=1"); !sameStrings(got, []string{"B1"}) {
-		t.Errorf("non-superuser show_all should be ignored, got %v", got)
+	// Bob is not a superuser so show_all is ignored; still only sees B1 and C1.
+	if got := idents(bob, "?show_all=1"); !sameStrings(got, []string{"B1", "C1"}) {
+		t.Errorf("non-superuser show_all should be ignored, got %v (want B1 C1)", got)
 	}
 
 	// Carol can't read A directly (404, not 403, to avoid leaking existence).
@@ -1088,6 +1096,47 @@ func TestAddShareRequiresFriendship(t *testing.T) {
 		map[string]any{"user_id": stranger}, uid)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("addShare friend = %d, want 204", w.Code)
+	}
+}
+
+func TestCreateFlightRejectsNonFriendPassengerAndShare(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "creator-cf", false)
+	stranger := e.user(t, "stranger-cf", false)
+
+	body := map[string]any{
+		"ident":         "NF1",
+		"scheduled_out": "2030-01-01T00:00:00Z",
+		"scheduled_in":  "2030-01-01T05:00:00Z",
+		"origin_iata":   "LHR",
+		"dest_iata":     "JFK",
+		"passenger_ids": []int64{stranger},
+	}
+	w := e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("createFlight non-friend passenger = %d, want 400", w.Code)
+	}
+
+	body = map[string]any{
+		"ident":           "NF2",
+		"scheduled_out":   "2030-01-01T00:00:00Z",
+		"scheduled_in":    "2030-01-01T05:00:00Z",
+		"origin_iata":     "LHR",
+		"dest_iata":       "JFK",
+		"shared_user_ids": []int64{stranger},
+	}
+	w = e.req(t, "POST", "/api/flights", body, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("createFlight non-friend share = %d, want 400", w.Code)
+	}
+
+	// Verify no flight rows were created (pre-validate, not partial-commit).
+	flights, err := e.store.ListVisibleFlights(context.Background(), uid, false, true)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(flights) != 0 {
+		t.Errorf("expected no flights created; got %d", len(flights))
 	}
 }
 

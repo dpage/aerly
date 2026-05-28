@@ -122,6 +122,34 @@ func (a *API) createFlight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	me := auth.UserFrom(r.Context())
+	for _, uid := range in.PassengerIDs {
+		if uid == me.ID {
+			continue
+		}
+		ok, err := a.Store.AreAcceptedFriends(r.Context(), me.ID, uid)
+		if err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+		if !ok {
+			writeError(w, http.StatusBadRequest, "passenger is not a friend")
+			return
+		}
+	}
+	for _, uid := range in.SharedUserIDs {
+		if uid == me.ID {
+			continue
+		}
+		ok, err := a.Store.AreAcceptedFriends(r.Context(), me.ID, uid)
+		if err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+		if !ok {
+			writeError(w, http.StatusBadRequest, "share target is not a friend")
+			return
+		}
+	}
 	f, err := a.Store.CreateFlight(r.Context(), store.CreateFlightPayload{
 		Ident:        in.Ident,
 		ScheduledOut: in.ScheduledOut,
@@ -389,12 +417,14 @@ func (a *API) requireEdit(ctx context.Context, id int64, u *store.User, w http.R
 
 // requireFriendOfCreator writes a 400 response and returns a non-nil error
 // when target is neither the flight's creator nor an accepted friend of the
-// creator. Used to gate addPassenger / addShare / createFlight passenger and
-// share-list mutations so we never link a flight to a non-friend.
+// creator. Used to gate addPassenger and addShare on an existing flight so
+// we never link a flight to a non-friend.
 //
 // The check is against the creator's friend graph, not the actor's — a
 // superuser editing on someone else's behalf still has to respect the
-// creator's friendships.
+// creator's friendships. createFlight runs an analogous check inline
+// against me.ID since the flight doesn't exist yet when its
+// passenger_ids / shared_user_ids are validated.
 func (a *API) requireFriendOfCreator(ctx context.Context, flightID, target int64, w http.ResponseWriter) error {
 	f, err := a.Store.FlightByID(ctx, flightID)
 	if err != nil {
