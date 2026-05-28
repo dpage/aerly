@@ -2,8 +2,11 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/dpage/aerly/internal/testsupport"
 )
 
 func TestRequestFriendshipFreshPending(t *testing.T) {
@@ -380,5 +383,52 @@ func TestCountIncomingFriendRequestsMultiple(t *testing.T) {
 	}
 	if n != 2 {
 		t.Errorf("count = %d, want 2", n)
+	}
+}
+
+func TestAreAcceptedFriends(t *testing.T) {
+	s := newStore(t)
+	a := testsupport.InsertUser(t, s.pool, fmt.Sprintf("aaf-a%d", loginSeq.Add(1)), false, true)
+	b := testsupport.InsertUser(t, s.pool, fmt.Sprintf("aaf-b%d", loginSeq.Add(1)), false, true)
+	c := testsupport.InsertUser(t, s.pool, fmt.Sprintf("aaf-c%d", loginSeq.Add(1)), false, true)
+
+	// No row at all → false.
+	ok, err := s.AreAcceptedFriends(ctx, a, b)
+	if err != nil || ok {
+		t.Fatalf("no row: ok=%v err=%v want false,nil", ok, err)
+	}
+
+	// Pending request → false.
+	if _, err := s.RequestFriendship(ctx, a, b, ""); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	ok, err = s.AreAcceptedFriends(ctx, a, b)
+	if err != nil || ok {
+		t.Fatalf("pending: ok=%v err=%v want false,nil", ok, err)
+	}
+
+	// Accept → true, and order of arguments doesn't matter.
+	if _, err := s.AcceptFriendship(ctx, b, a); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
+	ok, err = s.AreAcceptedFriends(ctx, a, b)
+	if err != nil || !ok {
+		t.Fatalf("accepted (a,b): ok=%v err=%v want true,nil", ok, err)
+	}
+	ok, err = s.AreAcceptedFriends(ctx, b, a)
+	if err != nil || !ok {
+		t.Fatalf("accepted (b,a): ok=%v err=%v want true,nil", ok, err)
+	}
+
+	// Unrelated user → false.
+	ok, err = s.AreAcceptedFriends(ctx, a, c)
+	if err != nil || ok {
+		t.Fatalf("unrelated: ok=%v err=%v want false,nil", ok, err)
+	}
+
+	// Self → false (cheap guard; mirrors FriendshipBetween).
+	ok, err = s.AreAcceptedFriends(ctx, a, a)
+	if err != nil || ok {
+		t.Fatalf("self: ok=%v err=%v want false,nil", ok, err)
 	}
 }

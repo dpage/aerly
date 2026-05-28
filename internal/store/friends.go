@@ -67,6 +67,24 @@ func (s *Store) FriendshipBetween(ctx context.Context, a, b int64) (*Friendship,
 		low, high))
 }
 
+// AreAcceptedFriends reports whether a and b have an accepted friendship.
+// Argument order doesn't matter; the query normalises to the canonical pair.
+// Returns false (no error) when a == b — callers may legitimately ask about
+// the creator/passenger being the same user.
+func (s *Store) AreAcceptedFriends(ctx context.Context, a, b int64) (bool, error) {
+	if a == b {
+		return false, nil
+	}
+	low, high := pairOrder(a, b)
+	var ok bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM friendships
+			WHERE user_low = $1 AND user_high = $2 AND status = 'accepted')`,
+		low, high).Scan(&ok)
+	return ok, err
+}
+
 // ListFriendships returns every friendship row involving viewerID,
 // regardless of status. Pending rows come first ('p' > 'a' alphabetically
 // under status DESC) so the UI surfaces action items (incoming requests)
