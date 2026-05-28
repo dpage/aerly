@@ -497,7 +497,7 @@ func (s *Store) VisibleUserIDs(ctx context.Context, flightID int64) ([]int64, er
 
 // ListVisibleFlights returns flights the viewer is allowed to see.
 // Visibility rule: created_by=viewer OR passenger OR share-list OR
-// is_public OR friend-of-creator (accepted friendship) OR
+// (is_public AND friend-of-creator with accepted friendship) OR
 // (showAllForSuperuser AND caller is superuser). The superuser-show-all
 // branch is gated by the caller — pass true only when the request
 // actually originated from a superuser session that opted in.
@@ -512,16 +512,16 @@ func (s *Store) ListVisibleFlights(ctx context.Context, viewerID int64, showAllF
 	args := []any{}
 	conds := []string{}
 	if !showAllForSuperuser {
-		conds = append(conds, `(is_public = TRUE
-		   OR created_by = $1
+		conds = append(conds, `(created_by = $1
 		   OR EXISTS (SELECT 1 FROM flight_passengers
 		              WHERE flight_id = flights.id AND user_id = $1)
 		   OR EXISTS (SELECT 1 FROM flight_shares
 		              WHERE flight_id = flights.id AND user_id = $1)
-		   OR EXISTS (SELECT 1 FROM friendships f
-		              WHERE f.status = 'accepted'
-		                AND $1 IN (f.user_low, f.user_high)
-		                AND flights.created_by IN (f.user_low, f.user_high)))`)
+		   OR (is_public = TRUE
+		       AND EXISTS (SELECT 1 FROM friendships f
+		                   WHERE f.status = 'accepted'
+		                     AND $1 IN (f.user_low, f.user_high)
+		                     AND flights.created_by IN (f.user_low, f.user_high))))`)
 		args = append(args, viewerID)
 	}
 	if !showOld {
@@ -568,16 +568,16 @@ func (s *Store) CanView(ctx context.Context, flightID, viewerID int64, showAllFo
 		SELECT EXISTS(
 			SELECT 1 FROM flights
 			WHERE id = $1
-			  AND (is_public = TRUE
-			       OR created_by = $2
+			  AND (created_by = $2
 			       OR EXISTS (SELECT 1 FROM flight_passengers
 			                  WHERE flight_id = $1 AND user_id = $2)
 			       OR EXISTS (SELECT 1 FROM flight_shares
 			                  WHERE flight_id = $1 AND user_id = $2)
-			       OR EXISTS (SELECT 1 FROM friendships f
-			                  WHERE f.status = 'accepted'
-			                    AND $2 IN (f.user_low, f.user_high)
-			                    AND flights.created_by IN (f.user_low, f.user_high))))`,
+			       OR (is_public = TRUE
+			           AND EXISTS (SELECT 1 FROM friendships f
+			                       WHERE f.status = 'accepted'
+			                         AND $2 IN (f.user_low, f.user_high)
+			                         AND flights.created_by IN (f.user_low, f.user_high)))))`,
 		flightID, viewerID).Scan(&ok)
 	return ok, err
 }

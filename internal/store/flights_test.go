@@ -593,11 +593,15 @@ func TestVisibilityHelpers(t *testing.T) {
 	if got := listIdents(alice, false); !want(got, []string{"PV", "SV", "PU"}) {
 		t.Errorf("alice list = %v, want all three", got)
 	}
-	if got := listIdents(bob, false); !want(got, []string{"SV", "PU"}) {
-		t.Errorf("bob list = %v, want SV PU", got)
+	// Bob has an explicit share on SV but is not alice's friend, so he only
+	// sees SV — is_public alone no longer grants access to non-friends.
+	if got := listIdents(bob, false); !want(got, []string{"SV"}) {
+		t.Errorf("bob list = %v, want SV only (not a friend)", got)
 	}
-	if got := listIdents(carol, false); !want(got, []string{"PU"}) {
-		t.Errorf("carol list = %v, want PU only", got)
+	// Carol is a stranger (not alice's friend), so she sees nothing — is_public
+	// alone no longer grants access to non-friends.
+	if got := listIdents(carol, false); !want(got, []string{}) {
+		t.Errorf("carol list = %v, want nothing (stranger)", got)
 	}
 	if got := listIdents(carol, true); !want(got, []string{"PV", "SV", "PU"}) {
 		t.Errorf("carol show-all list = %v, want all three", got)
@@ -615,9 +619,10 @@ func TestVisibilityHelpers(t *testing.T) {
 	if !ok {
 		t.Errorf("bob CanView shared should be true")
 	}
+	// Carol is not alice's friend, so she cannot view the public flight.
 	ok, _ = s.CanView(ctx, public.ID, carol, false)
-	if !ok {
-		t.Errorf("carol CanView public should be true")
+	if ok {
+		t.Errorf("carol CanView public should be false (not a friend)")
 	}
 
 	if ok, _ := s.CanEdit(ctx, private.ID, alice); !ok {
@@ -630,20 +635,22 @@ func TestVisibilityHelpers(t *testing.T) {
 		t.Errorf("CanEdit missing id should be ErrNotFound, got %v", err)
 	}
 
-	// Friend-of-creator visibility: turning carol into alice's friend
-	// should grant carol read access to PV without an explicit share row.
-	if _, err := s.RequestFriendship(ctx, alice, carol, "test@example.com"); err != nil {
+	// Friend-of-creator visibility: turning carol into alice's friend grants
+	// carol access to public flights (is_public AND friend-of-creator), but
+	// NOT to private flights — the friend branch no longer bypasses is_public.
+	if _, err := s.RequestFriendship(ctx, alice, carol, ""); err != nil {
 		t.Fatalf("alice→carol request: %v", err)
 	}
 	if _, err := s.AcceptFriendship(ctx, carol, alice); err != nil {
 		t.Fatalf("carol accepts: %v", err)
 	}
-	if got := listIdents(carol, false); !want(got, []string{"PV", "SV", "PU"}) {
-		t.Errorf("carol after friending alice = %v, want all three", got)
+	if got := listIdents(carol, false); !want(got, []string{"PU"}) {
+		t.Errorf("carol after friending alice = %v, want PU only (public+friend; private still hidden)", got)
 	}
+	// Private flight is still hidden from carol even after friendship.
 	ok, _ = s.CanView(ctx, private.ID, carol, false)
-	if !ok {
-		t.Errorf("carol CanView private after friending alice should be true")
+	if ok {
+		t.Errorf("carol CanView private after friending alice should be false (is_public=false)")
 	}
 	// VisibleUserIDs now includes carol (the new friend) on alice's PV.
 	pvIDs, err := s.VisibleUserIDs(ctx, private.ID)
@@ -752,6 +759,175 @@ func TestListVisibleFlights_ShowOldFilter(t *testing.T) {
 		if !got[id] {
 			t.Errorf("showOld=true: %s should be visible, got %v", id, got)
 		}
+	}
+}
+
+func TestListVisibleFlights_FriendGatedVisibility(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+
+	creator := mkUser(t, s)
+	friend := mkUser(t, s)
+	stranger := mkUser(t, s)
+	pending := mkUser(t, s)
+
+	if _, err := s.RequestFriendship(ctx, creator, friend, ""); err != nil {
+		t.Fatalf("RequestFriendship friend: %v", err)
+	}
+	if _, err := s.AcceptFriendship(ctx, friend, creator); err != nil {
+		t.Fatalf("AcceptFriendship friend: %v", err)
+	}
+	if _, err := s.RequestFriendship(ctx, creator, pending, ""); err != nil {
+		t.Fatalf("RequestFriendship pending: %v", err)
+	}
+
+	private, err := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "PR1", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK", IsPublic: false,
+	}, creator)
+	if err != nil {
+		t.Fatalf("CreateFlight private: %v", err)
+	}
+
+	public, err := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "PU1", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK", IsPublic: true,
+	}, creator)
+	if err != nil {
+		t.Fatalf("CreateFlight public: %v", err)
+	}
+
+	contains := func(list []*Flight, id int64) bool {
+		for _, f := range list {
+			if f.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	mustList := func(viewer int64) []*Flight {
+		t.Helper()
+		got, err := s.ListVisibleFlights(ctx, viewer, false, true)
+		if err != nil {
+			t.Fatalf("ListVisibleFlights: %v", err)
+		}
+		return got
+	}
+
+	// Creator sees both.
+	got := mustList(creator)
+	if !contains(got, private.ID) || !contains(got, public.ID) {
+		t.Errorf("creator: got %v, want both flights", got)
+	}
+
+	// Friend sees ONLY the public one (the change — used to see both via
+	// standalone friend-of-creator branch).
+	got = mustList(friend)
+	if contains(got, private.ID) {
+		t.Errorf("friend should not see private flight")
+	}
+	if !contains(got, public.ID) {
+		t.Errorf("friend should see public flight")
+	}
+
+	// Stranger sees neither (the change — used to see public via is_public).
+	got = mustList(stranger)
+	if contains(got, private.ID) || contains(got, public.ID) {
+		t.Errorf("stranger should see nothing, got %v", got)
+	}
+
+	// Pending friend sees nothing — pending is not enough.
+	got = mustList(pending)
+	if contains(got, private.ID) || contains(got, public.ID) {
+		t.Errorf("pending should see nothing, got %v", got)
+	}
+}
+
+func TestCanView_FriendGatedVisibility(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+
+	creator := mkUser(t, s)
+	friend := mkUser(t, s)
+	stranger := mkUser(t, s)
+	if _, err := s.RequestFriendship(ctx, creator, friend, ""); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := s.AcceptFriendship(ctx, friend, creator); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
+
+	private, err := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "PR2", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK", IsPublic: false,
+	}, creator)
+	if err != nil {
+		t.Fatalf("CreateFlight: %v", err)
+	}
+	public, err := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "PU2", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK", IsPublic: true,
+	}, creator)
+	if err != nil {
+		t.Fatalf("CreateFlight: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		fid    int64
+		viewer int64
+		wantOK bool
+	}{
+		{"creator/private", private.ID, creator, true},
+		{"creator/public", public.ID, creator, true},
+		{"friend/private", private.ID, friend, false},
+		{"friend/public", public.ID, friend, true},
+		{"stranger/private", private.ID, stranger, false},
+		{"stranger/public", public.ID, stranger, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, err := s.CanView(ctx, tc.fid, tc.viewer, false)
+			if err != nil {
+				t.Errorf("err=%v", err)
+			}
+			if ok != tc.wantOK {
+				t.Errorf("ok=%v want %v", ok, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestListVisibleFlights_ExplicitShareSurvivesNonFriend(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+
+	creator := mkUser(t, s)
+	nonFriend := mkUser(t, s)
+
+	f, err := s.CreateFlight(ctx, CreateFlightPayload{
+		Ident: "EX1", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK", IsPublic: false,
+	}, creator)
+	if err != nil {
+		t.Fatalf("CreateFlight: %v", err)
+	}
+	if err := s.AddShare(ctx, f.ID, nonFriend); err != nil {
+		t.Fatalf("AddShare: %v", err)
+	}
+
+	got, err := s.ListVisibleFlights(ctx, nonFriend, false, true)
+	if err != nil {
+		t.Fatalf("ListVisibleFlights: %v", err)
+	}
+	found := false
+	for _, x := range got {
+		if x.ID == f.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("non-friend with explicit share should still see flight")
 	}
 }
 
