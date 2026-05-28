@@ -6,6 +6,7 @@ import type {
   CreateFlightInput,
   Flight,
   InviteUserInput,
+  Notifications,
   UpdateFlightInput,
   UpdateUserInput,
   User,
@@ -45,6 +46,8 @@ interface AppState {
    * survives reloads. */
   showMineOnly: boolean;
   error: string | null;
+  notifications: Notifications;
+  notice: { message: string; severity: 'success' | 'info' } | null;
 
   init: () => Promise<void>;
   refreshAll: () => Promise<void>;
@@ -74,6 +77,9 @@ interface AppState {
    * removed it locally via deleteFlight()). */
   applyFlightDelete: (id: number) => void;
   setError: (msg: string | null) => void;
+  refreshNotifications: () => Promise<void>;
+  applyNotificationsUpdate: (n: Notifications) => void;
+  setNotice: (n: { message: string; severity: 'success' | 'info' } | null) => void;
 }
 
 function loadShowAll(): boolean {
@@ -144,12 +150,14 @@ export const useStore = create<AppState>((set, get) => ({
   showOld: loadShowOld(),
   showMineOnly: loadShowMineOnly(),
   error: null,
+  notifications: { friend_requests_pending: 0 },
+  notice: null,
 
   async init() {
     try {
       const [me, capabilities] = await Promise.all([api.getMe(), api.getConfig()]);
       set({ me, capabilities, auth: 'authenticated' });
-      await get().refreshAll();
+      await Promise.all([get().refreshAll(), get().refreshNotifications()]);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         set({ me: null, auth: 'anonymous' });
@@ -250,6 +258,8 @@ export const useStore = create<AppState>((set, get) => ({
       selectedFlightId: null,
       capabilities: { resolver_available: false, poll_interval_sec: 60, email_ingest_enabled: false },
       lastUpdateAt: null,
+      notifications: { friend_requests_pending: 0 },
+      notice: null,
     });
   },
 
@@ -308,6 +318,23 @@ export const useStore = create<AppState>((set, get) => ({
 
   setError(msg) {
     set({ error: msg });
+  },
+
+  async refreshNotifications() {
+    try {
+      const n = await api.getNotifications();
+      set({ notifications: n });
+    } catch {
+      // Non-fatal: stale badge is fine; SSE / next reload will recover.
+    }
+  },
+
+  applyNotificationsUpdate(n) {
+    set({ notifications: n });
+  },
+
+  setNotice(n) {
+    set({ notice: n });
   },
 }));
 
