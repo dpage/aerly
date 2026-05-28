@@ -2,6 +2,18 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
+// jsdom 28 removed the built-in in-memory localStorage implementation.
+// Provide a simple Map-backed mock so tests can call getItem/setItem/clear/etc.
+const _localStorageStore = new Map<string, string>();
+vi.stubGlobal('localStorage', {
+  getItem: (key: string) => _localStorageStore.get(key) ?? null,
+  setItem: (key: string, value: string) => { _localStorageStore.set(key, String(value)); },
+  removeItem: (key: string) => { _localStorageStore.delete(key); },
+  clear: () => { _localStorageStore.clear(); },
+  key: (index: number) => [..._localStorageStore.keys()][index] ?? null,
+  get length() { return _localStorageStore.size; },
+});
+
 // Mutable module-level flag for matchMedia.matches — flip it for narrow/wide
 // layout tests via setMatchMedia().
 let matchMediaMatches = false;
@@ -31,4 +43,5 @@ globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserv
 afterEach(() => {
   cleanup();
   setMatchMedia(false);
+  _localStorageStore.clear();
 });
