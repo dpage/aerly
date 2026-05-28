@@ -42,6 +42,10 @@ make run
 
 The first GitHub user to sign in is automatically marked a superuser. They can then invite others by GitHub login from the **Manage users** dialog in the top bar.
 
+The friend-request email includes a one-click "Accept" button signed
+with a 7-day token; an avatar badge surfaces pending requests
+in-app even when email is not configured.
+
 ## Configuration
 
 All configuration is via environment variables (see `.env.example`).
