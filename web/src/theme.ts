@@ -22,13 +22,28 @@ export function createAppTheme(mode: ThemeMode): Theme {
         'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     },
     components: {
-      // The outlined input's notch is sized from a hidden <legend> whose
-      // content uses font-size:0.75em while the visible <InputLabel> uses
-      // transform:scale(0.75). On some platforms (notably macOS rendering
-      // San Francisco) the two come out a few pixels different, so the
-      // visible label spills past the notch and the focused border draws
-      // through it. Widen the legend's invisible label padding to add
-      // slack — purely cosmetic, no effect on layout of anything visible.
+      // Safari draws the focused outline straight through the floating
+      // label on some outlined inputs (notably multiline TextFields,
+      // Autocomplete renderInput, and certain size="small" fields).
+      // The MUI variant that opens the fieldset's notch when the label
+      // is shrunk (sets `max-width: 100%` on the legend) doesn't always
+      // get applied by Safari's CSS engine — leaving the notch closed
+      // even though the visible InputLabel has floated up.
+      //
+      // Force the notch open whenever the label is in its shrunk state,
+      // using an adjacent-sibling rule that's specific enough to win
+      // over MUI's default variant. Also widen the legend's invisible
+      // span padding so any residual sub-pixel font-metric drift can't
+      // cause the visible label to spill past the notch edges.
+      MuiFormControl: {
+        styleOverrides: {
+          root: {
+            '& .MuiInputLabel-shrink + .MuiInputBase-root > .MuiOutlinedInput-notchedOutline > legend': {
+              maxWidth: '100%',
+            },
+          },
+        },
+      },
       MuiOutlinedInput: {
         styleOverrides: {
           notchedOutline: {
