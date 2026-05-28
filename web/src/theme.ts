@@ -50,15 +50,17 @@ export function createAppTheme(mode: ThemeMode): Theme {
         styleOverrides: {
           root: {
             '&.MuiInputLabel-shrink.MuiInputLabel-outlined': {
-              backgroundColor:
-                mode === 'dark' ? '#161b22' : '#ffffff',
-              // In dark mode, the surrounding Dialog/Paper paints
+              // The surrounding Dialog/Paper in dark mode paints
               // background.paper plus an elevation-24 white overlay
-              // (alpha 0.165) — match it so the label blends in.
-              ...(mode === 'dark' && {
-                backgroundImage:
-                  'linear-gradient(rgba(255, 255, 255, 0.165), rgba(255, 255, 255, 0.165))',
-              }),
+              // (alpha 0.165). Match by pre-composing the result into a
+              // single solid colour — using a separate background-image
+              // gradient (the way MUI's Paper does it) was leaving a
+              // thin darker seam under the label in Safari because the
+              // gradient's vertical bounds didn't quite line up with
+              // the bg-color's bounds, exposing the un-overlaid base
+              // colour at the seam.
+              backgroundColor:
+                mode === 'dark' ? '#3c4146' : '#ffffff',
               paddingLeft: 4,
               paddingRight: 4,
               marginLeft: -2,
