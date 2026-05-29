@@ -66,9 +66,11 @@ Everything in a trip is shown on a single **vertical timeline**, grouped by day.
 
 - **Trip** — the central object. Has a name, a destination, rough dates, and a
   collection of plans. Everything a user adds lives inside a trip.
-- **Plan** — one entry on the timeline. A flight, a hotel stay, a train, a bus,
-  a taxi, a day trip, a dinner, or a free-form note. Every plan has a time (or
-  time range), a title, a location, and any confirmation details.
+- **Plan** — one entry on the timeline. A flight, a train, a hotel stay, ground
+  transport (taxi, bus, transfer), a meal out, or an excursion / day trip. Every
+  plan has a time (or time range), a title, a location, any confirmation details,
+  and a free-form notes field. Notes are a field *on* a plan (and on the trip
+  itself) — not a timeline entry in their own right.
 - **Timeline** — the day-by-day vertical view of a trip's plans, in order.
 - **Tracker** — the live map view. Used right before, during, and after travel
   to watch real movement.
@@ -93,7 +95,7 @@ Opening a trip shows its **vertical timeline** — the heart of the product. Pla
 are listed in chronological order, grouped under sticky day headers, each shown
 as a card with:
 
-- An icon for its type (plane, bed, train, bus, taxi, attraction, meal, note).
+- An icon for its type (plane, train, bed, ground transport, meal, excursion).
 - Its time or time range, shown in the **local time of where it happens** (so a
   red-eye correctly spans two days).
 - A title, location, and any confirmation reference.
@@ -122,12 +124,44 @@ the user to confirm or edit before they're added**. Anything it's unsure about
 is flagged rather than silently guessed. This effortless capture is the feature
 we expect users to fall in love with.
 
-### 6.4 Sharing a trip
+### 6.4 Sharing & privacy
 
-A user can share a trip with friends and choose whether each can view or edit.
-Shared trips update live for everyone viewing them — if one person adds the
-dinner reservation, it appears on everyone's timeline. Sharing is always
-explicit; nothing a user adds is visible to others unless they share it.
+A trip can be shared with friends. There are three trip-level roles:
+
+- **Owner** — created the trip. Always sees everything in it.
+- **Editor** — can add, edit, and remove plans. Editors are an explicit list,
+  parallel to the viewer list.
+- **Viewer** — can see the trip but not change it.
+
+Sharing is always explicit: nothing a user creates is visible to anyone else
+until they share it. Shared trips update live for everyone viewing them — if one
+person adds the dinner reservation, it appears on everyone's timeline.
+
+Separately, a person can be a **passenger** on an individual plan (e.g. on a
+specific flight). Being a passenger grants visibility of that one plan; it does
+not by itself grant access to the rest of the trip — though the owner can also
+add them as a viewer if they want them to see everything.
+
+**Per-plan privacy.** By default every plan is visible to everyone who can see
+the trip. The owner (or an editor) can override an individual plan's visibility
+with a simple "Who can see this?" control:
+
+- **Everyone on the trip** (the default).
+- **Hidden from…** — visible to all trip members except the people named. Good
+  for surprises (hide the anniversary dinner from your partner while the friends
+  helping plan it still see it). Note: someone added to the trip *later* will see
+  the plan, so this is for "don't spoil it," not for sensitive information.
+- **Only visible to…** — visible only to the people named. Use this for genuinely
+  private plans; people added to the trip later will *not* see it.
+
+A few rules keep this predictable:
+
+- The owner always sees every plan; a plan can never be hidden from the owner.
+- A plan can't be hidden from its own passengers — if you're on the flight, you
+  can see the flight.
+- Privacy applies everywhere a plan appears — the timeline, the trip map, and the
+  live tracker — so a hidden flight never shows up as a racer to someone it's
+  hidden from.
 
 ### 6.5 The tracker
 
@@ -140,7 +174,8 @@ The live tracker is reachable two ways, and adapts to how it was opened:
   the user, within an adjustable time window. When several friends are heading
   to the same place around the same time, they naturally cluster here — this is
   the "watch the race" experience, and the spiritual successor to Aerly's
-  original "who's already in the air?" feature.
+  original "who's already in the air?" feature. It's just a shared live map of
+  everyone's movement — there is no leaderboard, podium, or "winner."
 
 The time window for the tracker is **user-adjustable** (e.g. from a week before
 to a week after now), so people who travel early or stay late to sightsee are
@@ -153,7 +188,11 @@ through an **optional shared tag**:
 
 - Anyone can put a tag on their own trip — creating a tag is just typing it the
   first time.
-- Others in the group add the **same tag** to their own trips to opt in.
+- Others in the group add the **same tag** to their own trips to opt in. The tag
+  input is an autocomplete: as you type it suggests tags already present on trips
+  you can see, so joining a group's tag is usually a tap rather than retyping it
+  exactly. (It only ever suggests tags from trips already visible to you, in
+  keeping with "tags group, they never grant.")
 - A tag **groups, it never grants access**: tagging your trip never exposes it
   to anyone who couldn't already see it. You only ever see tagged trips that are
   already shared with you. Two unrelated groups can use the same word with no
@@ -201,18 +240,31 @@ the tracker, and have the taxi pickup time and hotel address one scroll away.
 
 ---
 
-## 9. Open questions
+## 9. Decisions and open questions
 
-- **Inbound-leg detection for the tracker.** When watching a tag, should Aerly
-  automatically highlight each person's arriving leg, or is the clustered map
-  enough? Leaning toward "clustered map is enough" first, with auto-highlight as
-  a later refinement.
-- **Edit vs. view roles.** Is a simple view/edit split enough for shared trips,
-  or do we need finer control (e.g. per-plan privacy within a shared trip)?
-- **Tag discovery.** Beyond typing an agreed tag, do we want any in-product
-  suggestion of tags already on trips you can see?
-- **Plan types at launch.** Which set ships first (flights + hotels + ground +
-  activities + dining + notes), and which can wait?
+Resolved since the first draft:
+
+- **Sharing & privacy.** Owner / editor / viewer at the trip level, plus a
+  per-plan "Who can see this?" override (everyone / hidden from / only visible
+  to) — see §6.4.
+- **Plan types at launch.** Flight, train, hotel, ground transport, dining, and
+  excursion. Free-form notes are a field on a plan and on the trip, not a
+  standalone timeline entry.
+- **Tag discovery.** An autocomplete input that suggests tags already on trips
+  the user can see — see §6.6.
+- **Tracker "inbound-leg" highlighting.** Deferred. At launch the tracker simply
+  shows everyone's trackable travel within the window and lets the clustered map
+  tell the story; automatically singling out each person's arriving leg can come
+  later if the plain view proves too busy. Either way there is no leaderboard or
+  ranking — just the live map.
+
+Still open:
+
+- When a passenger is added to a plan, should we offer to also add them as a trip
+  viewer? (Leaning yes, as an optional prompt.)
+- Does any plan type need special timeline treatment beyond an icon and a time —
+  e.g. a multi-night hotel shown as a band spanning its nights rather than a
+  single point?
 
 ## 10. Possible future directions (not in this phase)
 
