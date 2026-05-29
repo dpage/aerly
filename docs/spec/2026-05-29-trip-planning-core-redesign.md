@@ -332,6 +332,13 @@ fan-out) replacing the duplicated flight predicates.
 inserts a `viewer` `trip_members` row if absent (idempotent; not removed on
 passenger removal — leaves them a viewer, which matches "they were on the trip").
 
+Moving a plan to another trip (`POST /api/plans/{id}/move`) requires editor
+rights on both the source and destination trips; the plan's parts, passengers,
+and `plan_visibility` rows travel with it, and its visibility is thereafter
+evaluated against the *destination* trip's membership. Any passenger or
+`plan_visibility` rows naming users who aren't members of the new trip simply go
+inert — the predicate's `trip_members` gate fails first, so nothing leaks.
+
 ---
 
 ## 5. Backend: store, handlers, DTOs
@@ -368,6 +375,7 @@ DELETE /api/plans/{id}
 POST   /api/plans/{id}/passengers       (+ auto trip viewer)
 DELETE /api/plans/{id}/passengers/{userId}
 PUT    /api/plans/{id}/visibility       set mode + member list
+POST   /api/plans/{id}/move             reassign the plan (+ its parts) to another trip
 PATCH  /api/plan-parts/{id}             edit a part (time/place/status)
 
 POST   /api/trips/{id}/ingest           paste/upload → proposed plans (no commit)
@@ -419,9 +427,21 @@ and `Commit(ctx, deps, tripID, confirmed []PlanDraft)`. `flightops.Create` /
 `CreateManual` fold in as the flight-type path (still calling the resolver to
 enrich `ident+date`). Both the HTTP ingest endpoints and the email-ingest
 `Service` (`internal/emailingest/ingest.go`) call `planops`, so all four capture
-methods converge. Email ingest now needs a **target trip**: default to the
-user's most recent active trip, else auto-create one (named from the
-destination), surfaced for confirmation rather than silently committed.
+methods converge.
+
+Manual paste/upload carry an explicit target trip from the UI. Email ingest has
+no UI to pick one, so it chooses by **date proximity** (resolved §12). Compute
+the incoming plan's date span `[p_start, p_end]` and compare it with each of the
+user's trips' effective spans (derived from `min/max` of the trip's `plan_parts`,
+falling back to `trips.starts_on/ends_on`). Attach to an existing trip when the
+plan's span is **within, encompasses, or is adjacent to** that trip's span — i.e.
+the two intervals overlap, or the gap between them is ≤ an adjacency tolerance
+(default 1 day, to catch the dinner the evening a trip ends). Among matches pick
+the greatest overlap, then the smallest gap; if nothing matches — or the only
+candidates are date-less (empty) trips — create a new trip named from the
+destination/dates. As with all capture, ingested parts are surfaced for
+confirmation rather than silently committed, so a wrong auto-match can be
+corrected — including reassigning the plan with **move-to-trip** (§5.2).
 
 ### 6.1 Rebooking match (PRD §6.9)
 
@@ -553,13 +573,19 @@ Resolved:
   (§3.2). `positions` keys on `plan_part_id`, so train live-tracking columns can
   later be added to `train_details` with no structural change.
 
+- **Email-ingest target trip:** an ingested plan attaches to an existing trip
+  when its dates are within / encompass / are adjacent to that trip's dates
+  (intervals overlap or are within a 1-day tolerance); otherwise a new trip is
+  created. Plans can be reassigned afterwards via move-to-trip (§5.2, §6).
+
 Still open:
 
-- **`plan_visibility` mode uniformity:** enforce one mode per plan via a DB
-  trigger vs. a store-layer invariant. Leaning store-layer.
-- **Email-ingest target trip:** auto-create a draft trip vs. always ask which
-  trip. Leaning auto-create a draft but require confirmation before parts
-  persist.
+- **`plan_visibility` mode enforcement:** a single plan's privacy is *either* a
+  `hidden_from` list *or* an `only_visible_to` list — never a mix. The question
+  is purely *how* we stop a mix arising: a DB `CHECK`/trigger that all rows for a
+  `plan_id` share one `mode`, vs. enforcing it in the Go store layer (and the
+  `PUT …/visibility` handler that rewrites the set atomically). Both work; it's a
+  belt-and-braces question, not a behavioural one. Leaning store-layer.
 
 ---
 
