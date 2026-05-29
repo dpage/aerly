@@ -132,7 +132,6 @@ CREATE TABLE plan_parts (
     status        TEXT NOT NULL DEFAULT 'planned' -- planned|confirmed|cancelled
                     CHECK (status IN ('planned','confirmed','cancelled')),
     supersedes_id BIGINT REFERENCES plan_parts(id) ON DELETE SET NULL,
-    details       JSONB NOT NULL DEFAULT '{}',     -- type-specific extras (§3.2)
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -194,33 +193,82 @@ becomes `positions_part_ts_idx`.
 
 ### 3.2 Per-type part details
 
-Only `flight` carries enough structured, behaviour-bearing state (live tracking,
-resolver throttle via `last_resolved_at`, three scheduled/estimated/actual time
-pairs, the rich status enum) to justify a dedicated satellite — `flight_details`
-above. The other launch types are well served by the **generic `plan_parts`
-columns** (a part is fundamentally a time range with a start place and an end
-place) plus a small typed **`details` JSON blob** on the part for the
-type-specific extras — avoiding a sprawl of mostly-empty tables. `details` is
-marshalled to/from a per-type Go struct in the store layer (validated in app
-code, keyed off `plans.type`; the DB just stores JSONB). `train` graduates to its
-own `train_details` satellite if and when live train tracking lands (PRD future;
-§12) — at which point it follows the `flight_details` pattern.
+The `plan_parts` row stays strictly generic — a part is fundamentally a time
+range with a start place and an end place, and those columns plus `status` /
+`supersedes_id` are common to every type. Everything type-specific lives in a
+**thin, fully-typed 1:1 satellite keyed on `plan_part_id`**, the same pattern as
+`flight_details`. No JSON, no wide nullable catch-all on `plan_parts`: each type
+gets a small table with real columns and real types, so constraints, indexes, and
+future migrations all behave. A part's `plans.type` tells the store which
+satellite to join.
 
-How each launch type maps onto the spine:
+```sql
+CREATE TABLE hotel_details (
+    plan_part_id      BIGINT PRIMARY KEY REFERENCES plan_parts(id) ON DELETE CASCADE,
+    property_name     TEXT NOT NULL DEFAULT '',
+    address           TEXT NOT NULL DEFAULT '',
+    phone             TEXT NOT NULL DEFAULT '',
+    room_type         TEXT NOT NULL DEFAULT '',
+    guests            INT,
+    -- Local time-of-day; NULL falls back to the 15:00 / 11:00 defaults used by
+    -- the smart-times calc (§10). The actual check-in/out instants are the
+    -- part's starts_at / ends_at.
+    standard_checkin  TIME,
+    standard_checkout TIME
+);
 
-| Type | Generic `plan_parts` columns | `details` JSON keys |
-|------|------------------------------|---------------------|
-| **flight** | starts/ends = scheduled out/in; start/end label+coords = origin/dest | *(rich data in `flight_details`)*; `seat`, `cabin` optional |
-| **hotel** | starts = check-in, ends = check-out; start_label = property; coords = address | `room_type`, `guests`, `standard_checkin`, `standard_checkout`, `address`, `phone` |
-| **train** | starts/ends = depart/arrive; start/end label = stations | `operator`, `service_no`, `coach`, `seat`, `class`, `platform` |
-| **ground** | starts/ends = pickup/dropoff; start_label = pickup, end_label = dropoff | `provider`, `phone`, `vehicle`, `driver`, `pax` |
-| **dining** | starts = reservation time; start_label = venue + coords | `party_size`, `reservation_name`, `phone` |
-| **excursion** | starts/ends = activity window; start_label = meeting point | `provider`, `ticket_count`, `meeting_point` |
+CREATE TABLE train_details (
+    plan_part_id  BIGINT PRIMARY KEY REFERENCES plan_parts(id) ON DELETE CASCADE,
+    operator      TEXT NOT NULL DEFAULT '',
+    service_no    TEXT NOT NULL DEFAULT '',
+    coach         TEXT NOT NULL DEFAULT '',
+    seat          TEXT NOT NULL DEFAULT '',
+    class         TEXT NOT NULL DEFAULT '',
+    platform      TEXT NOT NULL DEFAULT ''
+    -- Live-tracking columns (akin to flight_details' icao24/last_polled_at)
+    -- are added here if/when train tracking is built; positions already keys
+    -- on plan_part_id, so no structural change is needed then.
+);
 
-`standard_checkin` / `standard_checkout` feed the smart-times calc (§10); when a
-confirmation doesn't state them, the 15:00 / 11:00 local defaults apply. The
-extractor (§6) returns these same per-type fields, and `planops.Commit` writes
-the generic columns plus either `details` or `flight_details` according to type.
+CREATE TABLE ground_details (
+    plan_part_id  BIGINT PRIMARY KEY REFERENCES plan_parts(id) ON DELETE CASCADE,
+    provider      TEXT NOT NULL DEFAULT '',
+    phone         TEXT NOT NULL DEFAULT '',
+    vehicle       TEXT NOT NULL DEFAULT '',
+    driver        TEXT NOT NULL DEFAULT '',
+    pax           INT
+);
+
+CREATE TABLE dining_details (
+    plan_part_id     BIGINT PRIMARY KEY REFERENCES plan_parts(id) ON DELETE CASCADE,
+    party_size       INT,
+    reservation_name TEXT NOT NULL DEFAULT '',
+    phone            TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE excursion_details (
+    plan_part_id  BIGINT PRIMARY KEY REFERENCES plan_parts(id) ON DELETE CASCADE,
+    provider      TEXT NOT NULL DEFAULT '',
+    ticket_count  INT
+);
+```
+
+Which generic columns each type leans on (the satellite holds the rest):
+
+| Type | `plan_parts` columns | Satellite |
+|------|----------------------|-----------|
+| **flight** | starts/ends = scheduled out/in; start/end label+coords = origin/dest | `flight_details` |
+| **hotel** | starts = check-in, ends = check-out; start_label = property; coords = address | `hotel_details` |
+| **train** | starts/ends = depart/arrive; start/end label+coords = stations | `train_details` |
+| **ground** | starts/ends = pickup/dropoff; start_label = pickup, end_label = dropoff | `ground_details` |
+| **dining** | starts = reservation time; start_label = venue + coords | `dining_details` |
+| **excursion** | starts/ends = activity window; start_label = meeting point + coords | `excursion_details` |
+
+The extractor (§6) returns these same typed per-type fields, and
+`planops.Commit` writes the `plan_parts` row plus exactly one satellite row
+according to `plans.type`. Reads join the one satellite the type dictates; the
+store exposes a small typed Go struct per satellite (no `interface{}`/JSON
+round-trip).
 
 ### 3.3 Migration of existing data (`0010` up)
 
@@ -341,9 +389,10 @@ tracker single-flight view reads `/api/trips/{id}` part data or a focused
 ### 5.3 DTOs
 
 `internal/api/dto.go` gains `TripDTO`, `PlanDTO`, `PlanPartDTO`, `TagDTO`. The
-existing `FlightDTO` is largely reborn as `PlanPartDTO` + a nested
-`FlightDetailDTO` (carrying `ident`, the three time pairs, status, `icao24`,
-positions, track). The TZ-lookup convenience in `ToFlightDTO` (calling
+existing `FlightDTO` is largely reborn as `PlanPartDTO` + a nested, type-specific
+detail object (`FlightDetailDTO` carrying `ident`, the three time pairs, status,
+`icao24`, positions, track; `HotelDetailDTO`, `TrainDetailDTO`, … for the
+others) — exactly one populated per part, selected by `plans.type`. The TZ-lookup convenience in `ToFlightDTO` (calling
 `airports.LookupTZ`) moves to part construction. `PlanPartDTO` carries a derived
 `effective_at` = `COALESCE(actual_*, estimated_*, scheduled_*)` so the front end
 sorts/render every type uniformly (the rule already implicit in
@@ -498,11 +547,11 @@ Resolved:
   whole import bucket.
 - **Router:** use `react-router` for the single trip-list ↔ trip-detail routing
   level (§11).
-- **Per-type schema:** one rich `flight_details` satellite; all other launch
-  types use the generic `plan_parts` columns + a typed `details` JSON blob; a
-  `train_details` satellite is added only when live train tracking is built
-  (§3.2). `positions` is modelled generically (keyed on `plan_part_id`) from the
-  start so that future satellite is cheap.
+- **Per-type schema:** strictly generic `plan_parts` plus one thin, fully-typed
+  1:1 satellite per type (`flight_details`, `hotel_details`, `train_details`,
+  `ground_details`, `dining_details`, `excursion_details`) — **no JSON columns**
+  (§3.2). `positions` keys on `plan_part_id`, so train live-tracking columns can
+  later be added to `train_details` with no structural change.
 
 Still open:
 
