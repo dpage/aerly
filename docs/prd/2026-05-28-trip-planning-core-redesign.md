@@ -258,9 +258,10 @@ location, and confirmation details.
 Aerly already watches the flights people add. When something changes — a delay,
 a schedule or gate change, a cancellation, or a diversion — it alerts the people
 on that flight both **in-app** (a notification, with the timeline updating live)
-and by **email**. Alerts go to the plan's owner and its passengers by default;
-each person can choose their channels and set a threshold so trivial changes (a
-two-minute slip) don't nag them. This is the bridge between the planning side of
+and by **email**. Alerts go to the plan's owner and its passengers by default,
+and a viewer can opt in to receive them too. Each person chooses their channels
+and sets a threshold so trivial changes (a two-minute slip) don't nag them. This
+is the bridge between the planning side of
 Aerly and the live tracker: your itinerary tells you the moment it's no longer
 accurate.
 
@@ -348,26 +349,21 @@ Resolved since the first draft:
 - **Multi-part bookings.** A booking can span several timeline entries (return
   flights, multi-leg journeys, hotel stays), modelled as one plan with several
   parts; a multi-night hotel renders as a band. See §5 and §6.2.
-- **Flight alerts.** In-app and email alerts on delay / change / cancellation,
-  to the owner and passengers — see §6.8.
+- **Flight alerts.** In-app and email alerts on delay / change / cancellation, to
+  the owner and passengers, with viewers able to opt in — see §6.8.
 - **Rebookings.** A new confirmation matched to an existing flight supersedes it,
-  greyed out, with the replacement shown alongside — see §6.9.
+  greyed out, with the replacement shown alongside. The match is always confirmed
+  by the user before it's applied — see §6.9.
 - **Smart check-in / check-out times.** Suggested from the linked flight's
   arrival and departure — see §6.10.
+- **Per-part privacy.** Privacy stays at the plan level — a booking is hidden as
+  a whole or not at all. Hiding a single part (e.g. just the return leg) is
+  treated as an unnecessary corner case.
 
 Still open:
 
 - When a passenger is added to a plan, should we offer to also add them as a trip
   viewer? (Leaning yes, as an optional prompt.)
-- **Alert recipients & threshold.** Owner + passengers get flight alerts by
-  default — should viewers be able to opt in, and what's the default "don't
-  bother me below this" threshold?
-- **Rebooking matches.** When a new confirmation looks like a change to an
-  existing flight, always ask the user to confirm the match (current assumption),
-  or auto-apply high-confidence matches?
-- **Per-part privacy.** Privacy is set per plan and inherited by all its parts.
-  Do we ever need to restrict a single part (e.g. hide just the return leg)?
-  Assuming no for now.
 
 ## 10. Possible future directions (not in this phase)
 
