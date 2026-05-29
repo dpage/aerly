@@ -62,6 +62,15 @@ Flight-only columns live in `flight_details` rather than bloating `plan_parts`
 with ~15 nullable columns. `positions` simply re-keys to `plan_part_id`, so the
 poller/resolver keep a focused table to work against.
 
+**Design principle — invariants live in the database.** Business rules are
+enforced by the schema itself (keys, `CHECK`s, foreign keys, and triggers where a
+rule spans rows or tables), not only in application code. Aerly may grow more
+than one client (web now, mobile later, third-party integrations), and a rule
+that lives only in the Go layer will eventually be bypassed by another writer and
+diverge. Where a rule can be made *structurally unrepresentable* by
+normalization, we prefer that to a trigger; where it genuinely spans tables, a
+trigger enforces it.
+
 ---
 
 ## 3. Data model
@@ -164,14 +173,21 @@ CREATE TABLE plan_passengers (
     PRIMARY KEY (plan_id, user_id)
 );
 
--- Per-plan privacy. Absence of a row for a plan = default "everyone on trip".
+-- Per-plan privacy. A plan with no plan_visibility row uses the default
+-- "everyone on the trip". The mode lives on a single parent row keyed by
+-- plan_id, so "exactly one mode per plan" is structurally guaranteed — a
+-- mixed-mode plan is simply unrepresentable, no trigger needed. The named
+-- people are child rows.
 CREATE TABLE plan_visibility (
-    plan_id   BIGINT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
-    mode      TEXT NOT NULL CHECK (mode IN ('hidden_from','only_visible_to')),
-    user_id   BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    plan_id  BIGINT PRIMARY KEY REFERENCES plans(id) ON DELETE CASCADE,
+    mode     TEXT NOT NULL CHECK (mode IN ('hidden_from','only_visible_to'))
+);
+
+CREATE TABLE plan_visibility_members (
+    plan_id  BIGINT NOT NULL REFERENCES plan_visibility(plan_id) ON DELETE CASCADE,
+    user_id  BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (plan_id, user_id)
 );
--- mode is uniform per plan (enforced in the store layer / a trigger).
 
 CREATE TABLE alert_prefs (
     user_id        BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -316,8 +332,8 @@ AND (
      P.created_by = V                           -- always see your own
   OR EXISTS plan_passengers(P, V)               -- passenger always sees
   OR NOT EXISTS plan_visibility(P)              -- default: everyone on trip
-  OR (mode='hidden_from'     AND V NOT IN plan_visibility(P).user_id)
-  OR (mode='only_visible_to' AND V IN     plan_visibility(P).user_id)
+  OR (P.mode='hidden_from'     AND V NOT IN plan_visibility_members(P))
+  OR (P.mode='only_visible_to' AND V IN     plan_visibility_members(P))
 )
 OR T.created_by = V                             -- trip owner sees everything
 ```
@@ -328,9 +344,18 @@ current bypass. This predicate is implemented once in the store
 fan-out) replacing the duplicated flight predicates.
 
 `trip_members` roles: `owner` (full, can delete trip, manage members),
-`editor` (CRUD plans/parts), `viewer` (read). Adding a `plan_passengers` row
-inserts a `viewer` `trip_members` row if absent (idempotent; not removed on
-passenger removal — leaves them a viewer, which matches "they were on the trip").
+`editor` (CRUD plans/parts), `viewer` (read). The passenger⇒viewer rule (PRD
+§6.4) is maintained by a **DB trigger**, not the app: an `AFTER INSERT` on
+`plan_passengers` ensures a `viewer` `trip_members` row exists for that user on
+the plan's trip (no-op if they're already a member of any role). Keeping it in
+the database means any client that adds a passenger gets the membership rule for
+free and can't diverge. It is not undone on passenger removal — once on the trip,
+they stay a viewer.
+
+The "can't hide a plan from its own passenger / from the owner" rules (PRD §6.4)
+need no enforcement: the predicate above grants passengers, the plan creator, and
+the trip owner unconditionally and *before* it consults `plan_visibility`, so a
+stray `hidden_from` row naming one of them is simply inert.
 
 Moving a plan to another trip (`POST /api/plans/{id}/move`) requires editor
 rights on both the source and destination trips; the plan's parts, passengers,
@@ -578,14 +603,14 @@ Resolved:
   (intervals overlap or are within a 1-day tolerance); otherwise a new trip is
   created. Plans can be reassigned afterwards via move-to-trip (§5.2, §6).
 
-Still open:
+- **`plan_visibility` mode enforcement:** resolved in the database by
+  normalization — `mode` is a column on a single parent row keyed by `plan_id`,
+  with named users in `plan_visibility_members`, so a mixed-mode plan is
+  structurally impossible (§3.1). The passenger⇒viewer membership rule is
+  likewise moved into a DB trigger rather than the store layer (§4), per the
+  invariants-in-the-database principle (§2).
 
-- **`plan_visibility` mode enforcement:** a single plan's privacy is *either* a
-  `hidden_from` list *or* an `only_visible_to` list — never a mix. The question
-  is purely *how* we stop a mix arising: a DB `CHECK`/trigger that all rows for a
-  `plan_id` share one `mode`, vs. enforcing it in the Go store layer (and the
-  `PUT …/visibility` handler that rewrites the set atomically). Both work; it's a
-  belt-and-braces question, not a behavioural one. Leaning store-layer.
+No design questions remain open; the spec is ready to build against.
 
 ---
 
