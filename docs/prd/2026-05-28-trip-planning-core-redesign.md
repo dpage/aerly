@@ -32,12 +32,16 @@ Everything in a trip is shown on a single **vertical timeline**, grouped by day.
 
 - Make creating and filling a trip the primary thing users do in Aerly.
 - Support every common travel plan type, not just flights.
+- Treat a booking that spans several timeline entries — return flights, multi-leg
+  journeys, a hotel stay — as a single plan.
 - Make adding plans nearly effortless via email, upload, and paste, in addition
   to manual entry.
 - Present a trip as a clean, day-by-day vertical timeline.
 - Let users share a trip with friends and plan collaboratively.
 - Let users subscribe to their plans from their own calendar app via read-only
   iCal feeds, at the traveller, trip, and individual-plan level.
+- Alert travellers in-app and by email when a flight is delayed, changed, or
+  cancelled, and make folding in a rebooking easy.
 - Keep the live flight tracker as a strong secondary feature, reachable both
   from a single flight and as a "who's converging" view before/during an event.
 
@@ -68,11 +72,17 @@ Everything in a trip is shown on a single **vertical timeline**, grouped by day.
 
 - **Trip** — the central object. Has a name, a destination, rough dates, and a
   collection of plans. Everything a user adds lives inside a trip.
-- **Plan** — one entry on the timeline. A flight, a train, a hotel stay, ground
-  transport (taxi, bus, transfer), a meal out, or an excursion / day trip. Every
-  plan has a time (or time range), a title, a location, any confirmation details,
-  and a free-form notes field. Notes are a field *on* a plan (and on the trip
-  itself) — not a timeline entry in their own right.
+- **Plan** — one booking, which may show up on the timeline as a single entry or
+  several. A simple plan is one entry (a dinner, a taxi). A flight booking can
+  have several **parts** — outbound, return, and any connecting legs — each its
+  own timeline entry but all one plan. A hotel booking has a check-in and a
+  check-out. Every plan has a title, any confirmation details, and a free-form
+  notes field; each part has its own time (or time range) and location. Notes are
+  a field *on* a plan (and on the trip itself) — not a timeline entry in their own
+  right.
+- **Part** — one timeline entry belonging to a plan (a single flight leg, a hotel
+  check-in). Sharing, passengers, and privacy are set on the plan and apply to all
+  its parts.
 - **Timeline** — the day-by-day vertical view of a trip's plans, in order.
 - **Tracker** — the live map view. Used right before, during, and after travel
   to watch real movement.
@@ -103,6 +113,15 @@ as a card with:
 - A title, location, and any confirmation reference.
 - For flights, a link through to the live tracker for that flight.
 
+Because a single booking can have several parts, those parts appear as separate,
+chronologically-placed cards that are visually linked as one plan — a return
+flight's outbound and inbound legs, or a hotel's check-in and check-out, read as
+the same booking even when they're days apart. A multi-night hotel stay shows as
+a continuous band across the days it covers rather than two unrelated points.
+Plans that have been changed or cancelled stay on the timeline **greyed out**,
+with their replacement shown alongside (see §6.9), so any knock-on effects on
+other plans are easy to spot.
+
 From within a trip the user can also switch to a **Map** view for that trip,
 which plots the trip's plans geographically — but the timeline is the default
 and primary view.
@@ -123,8 +142,10 @@ place:
 
 For the paste / upload / email paths, Aerly shows the **extracted plan(s) for
 the user to confirm or edit before they're added**. Anything it's unsure about
-is flagged rather than silently guessed. This effortless capture is the feature
-we expect users to fall in love with.
+is flagged rather than silently guessed. A single confirmation often covers a
+whole round trip or a multi-leg journey; Aerly groups those into one plan with
+several parts rather than a scatter of unrelated entries. This effortless capture
+is the feature we expect users to fall in love with.
 
 ### 6.4 Sharing & privacy
 
@@ -232,6 +253,49 @@ their feed. A feed link can be regenerated to revoke the old one.
 Each plan becomes a calendar entry with its time (in local time), title,
 location, and confirmation details.
 
+### 6.8 Alerts when a flight changes
+
+Aerly already watches the flights people add. When something changes — a delay,
+a schedule or gate change, a cancellation, or a diversion — it alerts the people
+on that flight both **in-app** (a notification, with the timeline updating live)
+and by **email**. Alerts go to the plan's owner and its passengers by default;
+each person can choose their channels and set a threshold so trivial changes (a
+two-minute slip) don't nag them. This is the bridge between the planning side of
+Aerly and the live tracker: your itinerary tells you the moment it's no longer
+accurate.
+
+### 6.9 Changes and rebookings
+
+When a flight is cancelled or you rebook, you'll usually get a fresh
+confirmation. Dropping that into Aerly (paste / upload / email, like any plan) is
+recognised as a **change to an existing booking** rather than a brand-new one.
+Aerly matches it to the original — by booking reference where possible, otherwise
+by traveller and route — and, once you confirm the match, supersedes the old
+flight: the original stays on the timeline **greyed out** and the new flight
+appears alongside it. Keeping the old one visible is deliberate — it makes it
+obvious whether the rest of the trip still lines up (does the airport taxi need
+moving? does the hotel checkout still work?) so you can adjust the knock-on
+plans. Once everything's reconciled, superseded entries can be tidied away.
+
+### 6.10 Smart check-in and check-out times
+
+Rather than parroting a hotel's standard 3 pm / 11 am, Aerly suggests timeline
+times that reflect your actual travel:
+
+- **Arrival / check-in** — the *later* of the hotel's standard check-in time and
+  about an hour after your inbound flight lands, since you can't realistically be
+  at the hotel before then.
+- **Departure / check-out** — the *earlier* of the hotel's standard check-out
+  time and when you need to leave for your flight: roughly two hours before
+  departure for short-haul, three for long-haul.
+- **Where we can:** factor in the expected travel time between airport and hotel,
+  so both ends shift to allow for the journey.
+
+These are shown as **suggestions the user can override**, and they only kick in
+when a hotel and a flight sit together in the trip; with no known flight Aerly
+falls back to standard times. The booking still records the real check-in /
+check-out dates — this only affects the *suggested* times shown on the timeline.
+
 ## 7. Key journeys
 
 **A. Build a trip from my inbox.**
@@ -281,14 +345,29 @@ Resolved since the first draft:
   tell the story; automatically singling out each person's arriving leg can come
   later if the plain view proves too busy. Either way there is no leaderboard or
   ranking — just the live map.
+- **Multi-part bookings.** A booking can span several timeline entries (return
+  flights, multi-leg journeys, hotel stays), modelled as one plan with several
+  parts; a multi-night hotel renders as a band. See §5 and §6.2.
+- **Flight alerts.** In-app and email alerts on delay / change / cancellation,
+  to the owner and passengers — see §6.8.
+- **Rebookings.** A new confirmation matched to an existing flight supersedes it,
+  greyed out, with the replacement shown alongside — see §6.9.
+- **Smart check-in / check-out times.** Suggested from the linked flight's
+  arrival and departure — see §6.10.
 
 Still open:
 
 - When a passenger is added to a plan, should we offer to also add them as a trip
   viewer? (Leaning yes, as an optional prompt.)
-- Does any plan type need special timeline treatment beyond an icon and a time —
-  e.g. a multi-night hotel shown as a band spanning its nights rather than a
-  single point?
+- **Alert recipients & threshold.** Owner + passengers get flight alerts by
+  default — should viewers be able to opt in, and what's the default "don't
+  bother me below this" threshold?
+- **Rebooking matches.** When a new confirmation looks like a change to an
+  existing flight, always ask the user to confirm the match (current assumption),
+  or auto-apply high-confidence matches?
+- **Per-part privacy.** Privacy is set per plan and inherited by all its parts.
+  Do we ever need to restrict a single part (e.g. hide just the return leg)?
+  Assuming no for now.
 
 ## 10. Possible future directions (not in this phase)
 
