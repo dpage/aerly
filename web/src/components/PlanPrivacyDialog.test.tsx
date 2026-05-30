@@ -1,0 +1,192 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+import type { Friendship, Plan, TripMember, User } from '../api/types';
+
+const h = vi.hoisted(() => ({
+  setPlanVisibility: vi.fn(),
+  addPlanPassenger: vi.fn(),
+  removePlanPassenger: vi.fn(),
+  setError: vi.fn(),
+  state: {
+    users: [] as User[],
+    friendships: [] as Friendship[],
+    me: null as User | null,
+  },
+}));
+
+vi.mock('../state/store', () => ({
+  useStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel({
+      users: h.state.users,
+      friendships: h.state.friendships,
+      me: h.state.me,
+      setPlanVisibility: h.setPlanVisibility,
+      addPlanPassenger: h.addPlanPassenger,
+      removePlanPassenger: h.removePlanPassenger,
+      setError: h.setError,
+    }),
+}));
+
+import PlanPrivacyDialog from './PlanPrivacyDialog';
+
+function user(over: Partial<User> = {}): User {
+  return {
+    id: 1,
+    username: 'octocat',
+    name: '',
+    avatar_url: '',
+    is_superuser: false,
+    is_active: true,
+    has_logged_in: true,
+    ...over,
+  };
+}
+
+function accepted(friendId: number): Friendship {
+  return { friend_id: friendId, status: 'accepted', requested_at: '2026-01-01T00:00:00Z' };
+}
+
+function plan(over: Partial<Plan> = {}): Plan {
+  return {
+    id: 42,
+    trip_id: 7,
+    type: 'flight',
+    title: 'BA123',
+    confirmation_ref: '',
+    notes: '',
+    source: '',
+    passenger_ids: [],
+    visibility: { mode: 'everyone', user_ids: [] },
+    parts: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...over,
+  };
+}
+
+const members: TripMember[] = [
+  { user_id: 100, role: 'owner' },
+  { user_id: 2, role: 'editor' },
+  { user_id: 3, role: 'viewer' },
+];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  h.state.me = user({ id: 100, username: 'me', name: 'Me' });
+  h.state.users = [
+    user({ id: 100, username: 'me', name: 'Me' }),
+    user({ id: 2, username: 'bob', name: 'Bob' }),
+    user({ id: 3, username: 'carol', name: 'Carol' }),
+  ];
+  h.state.friendships = [accepted(2), accepted(3)];
+});
+
+function render_(p: Plan = plan()) {
+  return render(<PlanPrivacyDialog open plan={p} members={members} onClose={() => {}} />);
+}
+
+describe('PlanPrivacyDialog', () => {
+  it('defaults to "everyone" and saves it with an empty user list', async () => {
+    h.setPlanVisibility.mockResolvedValue(undefined);
+    render_();
+    expect(screen.getByRole('radio', { name: /everyone on the trip/i })).toBeChecked();
+    // No member multi-select while everyone is selected.
+    expect(screen.queryByLabelText('Only visible to')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /save visibility/i }));
+    await waitFor(() =>
+      expect(h.setPlanVisibility).toHaveBeenCalledWith(42, { mode: 'everyone', user_ids: [] }),
+    );
+  });
+
+  it('reveals the member picker for "only visible to" and saves the selection', async () => {
+    h.setPlanVisibility.mockResolvedValue(undefined);
+    render_();
+
+    await userEvent.click(screen.getByRole('radio', { name: /only visible to/i }));
+    await userEvent.click(screen.getByLabelText('Only visible to'));
+    await userEvent.click(await screen.findByRole('option', { name: /Bob/ }));
+    // Close the listbox before clicking Save.
+    await userEvent.keyboard('{Escape}');
+
+    await userEvent.click(screen.getByRole('button', { name: /save visibility/i }));
+    await waitFor(() =>
+      expect(h.setPlanVisibility).toHaveBeenCalledWith(42, {
+        mode: 'only_visible_to',
+        user_ids: [2],
+      }),
+    );
+  });
+
+  it('pre-populates the scope from existing hidden_from visibility', async () => {
+    h.setPlanVisibility.mockResolvedValue(undefined);
+    render_(plan({ visibility: { mode: 'hidden_from', user_ids: [3] } }));
+
+    expect(screen.getByRole('radio', { name: /hidden from/i })).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: /save visibility/i }));
+    await waitFor(() =>
+      expect(h.setPlanVisibility).toHaveBeenCalledWith(42, {
+        mode: 'hidden_from',
+        user_ids: [3],
+      }),
+    );
+  });
+
+  it('shows the passenger auto-grant copy', () => {
+    render_();
+    expect(
+      screen.getByText(/grants them viewer access to the whole trip/i),
+    ).toBeInTheDocument();
+  });
+
+  it('adds a passenger', async () => {
+    h.addPlanPassenger.mockResolvedValue(undefined);
+    render_();
+
+    await userEvent.click(screen.getByLabelText('Add passenger'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Carol' }));
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    await waitFor(() => expect(h.addPlanPassenger).toHaveBeenCalledWith(42, 3));
+  });
+
+  it('removes a passenger', async () => {
+    h.removePlanPassenger.mockResolvedValue(undefined);
+    render_(plan({ passenger_ids: [2] }));
+
+    await userEvent.click(screen.getByLabelText(/remove passenger bob/i));
+    await waitFor(() => expect(h.removePlanPassenger).toHaveBeenCalledWith(42, 2));
+  });
+
+  it('excludes current passengers from the add picker', async () => {
+    render_(plan({ passenger_ids: [2] }));
+    await userEvent.click(screen.getByLabelText('Add passenger'));
+    expect(await screen.findByRole('option', { name: 'Carol' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Bob' })).not.toBeInTheDocument();
+  });
+
+  it('surfaces visibility save errors via setError', async () => {
+    h.setPlanVisibility.mockRejectedValue(new Error('vis boom'));
+    render_();
+    await userEvent.click(screen.getByRole('button', { name: /save visibility/i }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('vis boom'));
+  });
+
+  it('surfaces passenger add errors via setError', async () => {
+    h.addPlanPassenger.mockRejectedValue('pax boom');
+    render_();
+    await userEvent.click(screen.getByLabelText('Add passenger'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Bob' }));
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('pax boom'));
+  });
+
+  it('surfaces passenger remove errors via setError', async () => {
+    h.removePlanPassenger.mockRejectedValue(new Error('rm pax boom'));
+    render_(plan({ passenger_ids: [2] }));
+    await userEvent.click(screen.getByLabelText(/remove passenger bob/i));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('rm pax boom'));
+  });
+});

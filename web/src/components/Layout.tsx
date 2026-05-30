@@ -24,6 +24,7 @@ import EmailIcon from '@mui/icons-material/EmailOutlined';
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
+import NotificationsIcon from '@mui/icons-material/NotificationsOutlined';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 
@@ -32,6 +33,7 @@ import { userInitial, userName } from '../lib/format';
 import { useThemeMode, type ThemePreference } from '../theme';
 import AddToTripDialog from './AddToTripDialog';
 import AdminDialog from './AdminDialog';
+import AlertPrefsDialog from './AlertPrefsDialog';
 import EmailsDialog from './EmailsDialog';
 import FriendsDialog from './FriendsDialog';
 import StatsDialog from './StatsDialog';
@@ -56,6 +58,7 @@ export default function Layout() {
   const [emailsOpen, setEmailsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [alertPrefsOpen, setAlertPrefsOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   const closeMenu = () => setMenuAnchor(null);
@@ -181,6 +184,17 @@ export default function Layout() {
               </ListItemIcon>
               Statistics…
             </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                setAlertPrefsOpen(true);
+              }}
+            >
+              <ListItemIcon>
+                <NotificationsIcon fontSize="small" />
+              </ListItemIcon>
+              Alert preferences…
+            </MenuItem>
             <Divider />
             <MenuItem disabled sx={{ opacity: '1 !important' }}>
               <Typography variant="caption" color="text.secondary">
@@ -233,6 +247,7 @@ export default function Layout() {
       <EmailsDialog open={emailsOpen} onClose={() => setEmailsOpen(false)} />
       <FriendsDialog open={friendsOpen} onClose={() => setFriendsOpen(false)} />
       <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} />
+      <AlertPrefsDialog open={alertPrefsOpen} onClose={() => setAlertPrefsOpen(false)} />
     </Box>
   );
 }
