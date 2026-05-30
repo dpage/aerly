@@ -4,11 +4,13 @@ import userEvent from '@testing-library/user-event';
 
 const h = vi.hoisted(() => {
   return {
-    connectSSE: vi.fn((_handlers: {
-      onFlight: (f: unknown) => void;
-      onDelete: (id: number) => void;
-      onNotifications: (n: unknown) => void;
-    }) => vi.fn()),
+    connectSSE: vi.fn(
+      (_handlers: {
+        onFlight: (f: unknown) => void;
+        onDelete: (id: number) => void;
+        onNotifications: (n: unknown) => void;
+      }) => vi.fn(),
+    ),
     api: {
       acceptFriendToken: vi.fn(),
     },
@@ -36,6 +38,24 @@ const state = h.state;
 vi.mock('./sse', () => ({ connectSSE: h.connectSSE }));
 vi.mock('./api/client', () => ({ api: h.api, ApiError: class {} }));
 vi.mock('./components/AppShell', () => ({ default: () => <div>APP_SHELL</div> }));
+// The authenticated `/` route renders Layout → TripList. Mock the chrome to a
+// plain Outlet so the routed page shows through, and stub the pages.
+vi.mock('./components/Layout', async () => {
+  const { Outlet } = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    default: () => (
+      <div>
+        LAYOUT
+        <Outlet />
+      </div>
+    ),
+  };
+});
+vi.mock('./pages/TripList', () => ({ default: () => <div>TRIP_LIST</div> }));
+vi.mock('./pages/TripDetail', () => ({ default: () => <div>TRIP_DETAIL</div> }));
+vi.mock('./pages/TripTimeline', () => ({ default: () => <div>TRIP_TIMELINE</div> }));
+vi.mock('./pages/TripMap', () => ({ default: () => <div>TRIP_MAP</div> }));
+vi.mock('./pages/Tracker', () => ({ default: () => <div>TRACKER</div> }));
 vi.mock('./components/Login', () => ({ default: () => <div>LOGIN</div> }));
 vi.mock('./components/PrivacyPolicy', () => ({ default: () => <div>PRIVACY_POLICY</div> }));
 vi.mock('./components/TermsOfService', () => ({ default: () => <div>TERMS_OF_SERVICE</div> }));
@@ -69,10 +89,10 @@ describe('App', () => {
     expect(connectSSE).not.toHaveBeenCalled();
   });
 
-  it('renders AppShell and wires SSE when authenticated', () => {
+  it('renders the trip list home and wires SSE when authenticated', () => {
     state.auth = 'authenticated';
     render(<App />);
-    expect(screen.getByText('APP_SHELL')).toBeInTheDocument();
+    expect(screen.getByText('TRIP_LIST')).toBeInTheDocument();
     expect(connectSSE).toHaveBeenCalledTimes(1);
     // All three SSE handlers should forward to the matching store action.
     const handlers = connectSSE.mock.calls[0][0];

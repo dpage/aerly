@@ -1,16 +1,36 @@
 import type {
   AcceptFriendTokenResult,
+  AddTripMemberInput,
+  AlertPrefs,
   AuthProvider,
+  CalendarScope,
+  CalendarToken,
   Capabilities,
+  ConfirmPlanInput,
   CreateFlightInput,
+  CreatePlanInput,
+  CreateTripInput,
   Flight,
   Friendship,
+  IngestInput,
+  IngestResult,
   InviteFriendInput,
   InviteUserInput,
+  MovePlanInput,
   Notifications,
+  Plan,
+  PlanPart,
+  PlanVisibility,
   ResolveFlightInput,
   ResolvedFlight,
+  TagSuggestion,
+  TrackerPart,
+  Trip,
+  UpdateAlertPrefsInput,
   UpdateFlightInput,
+  UpdatePlanInput,
+  UpdatePlanPartInput,
+  UpdateTripInput,
   UpdateUserInput,
   User,
   UserEmail,
@@ -138,8 +158,7 @@ export const api = {
   // registered users. We expose a single Promise<void> reflecting that.
   inviteFriend: (input: InviteFriendInput) =>
     request<void>('POST', '/api/friends/invite', input).then(() => undefined),
-  acceptFriend: (userId: number) =>
-    request<Friendship>('POST', `/api/friends/${userId}/accept`),
+  acceptFriend: (userId: number) => request<Friendship>('POST', `/api/friends/${userId}/accept`),
   removeFriend: (userId: number) => request<void>('DELETE', `/api/friends/${userId}`),
   cancelOutgoingInvite: (email: string) =>
     request<void>('DELETE', '/api/friends/outgoing', { email }).then(() => undefined),
@@ -149,14 +168,98 @@ export const api = {
   getNotifications: () => request<Notifications>('GET', '/api/notifications'),
 
   listMyEmails: () => request<UserEmail[]>('GET', '/api/me/emails'),
-  addMyEmail: (address: string) =>
-    request<UserEmail>('POST', '/api/me/emails', { address }),
-  resendMyEmail: (id: number) =>
-    request<UserEmail>('POST', `/api/me/emails/${id}/resend`),
+  addMyEmail: (address: string) => request<UserEmail>('POST', '/api/me/emails', { address }),
+  resendMyEmail: (id: number) => request<UserEmail>('POST', `/api/me/emails/${id}/resend`),
   deleteMyEmail: (id: number) => request<void>('DELETE', `/api/me/emails/${id}`),
 
   logout: () =>
     fetch('/auth/logout', { method: 'POST', credentials: 'include' }).then(() => undefined),
+
+  // -------------------------------------------------------------------------
+  // Trips (spec §5.2). The list returns my trips plus those shared with me.
+  // -------------------------------------------------------------------------
+  listTrips: () => request<Trip[]>('GET', '/api/trips'),
+  // The single-trip payload carries the timeline data (plans + parts) so the
+  // detail view can render without further fetches.
+  getTrip: (id: number) => request<Trip & { plans: Plan[] }>('GET', `/api/trips/${id}`),
+  createTrip: (input: CreateTripInput) => request<Trip>('POST', '/api/trips', input),
+  updateTrip: (id: number, patch: UpdateTripInput) =>
+    request<Trip>('PATCH', `/api/trips/${id}`, patch),
+  deleteTrip: (id: number) => request<void>('DELETE', `/api/trips/${id}`),
+  addTripMember: (tripId: number, input: AddTripMemberInput) =>
+    request<Trip>('POST', `/api/trips/${tripId}/members`, input),
+  removeTripMember: (tripId: number, userId: number) =>
+    request<void>('DELETE', `/api/trips/${tripId}/members/${userId}`),
+
+  // Tags: set the full label list on a trip; suggest autocompletes over the
+  // tags the viewer can see.
+  setTripTags: (tripId: number, labels: string[]) =>
+    request<Trip>('PUT', `/api/trips/${tripId}/tags`, { labels }),
+  suggestTags: (q: string) =>
+    request<TagSuggestion[]>('GET', `/api/tags/suggest?q=${encodeURIComponent(q)}`),
+
+  // -------------------------------------------------------------------------
+  // Plans & parts (spec §5.2).
+  // -------------------------------------------------------------------------
+  createPlan: (tripId: number, input: CreatePlanInput) =>
+    request<Plan>('POST', `/api/trips/${tripId}/plans`, input),
+  updatePlan: (id: number, patch: UpdatePlanInput) =>
+    request<Plan>('PATCH', `/api/plans/${id}`, patch),
+  deletePlan: (id: number) => request<void>('DELETE', `/api/plans/${id}`),
+  addPlanPassenger: (planId: number, userId: number) =>
+    request<Plan>('POST', `/api/plans/${planId}/passengers`, { user_id: userId }),
+  removePlanPassenger: (planId: number, userId: number) =>
+    request<void>('DELETE', `/api/plans/${planId}/passengers/${userId}`),
+  setPlanVisibility: (planId: number, visibility: PlanVisibility) =>
+    request<Plan>('PUT', `/api/plans/${planId}/visibility`, visibility),
+  movePlan: (planId: number, input: MovePlanInput) =>
+    request<Plan>('POST', `/api/plans/${planId}/move`, input),
+  updatePlanPart: (partId: number, patch: UpdatePlanPartInput) =>
+    request<PlanPart>('PATCH', `/api/plan-parts/${partId}`, patch),
+  // Tidy away a superseded part; stamps dismissed_at so the timeline omits it.
+  dismissPlanPart: (partId: number) => request<void>('POST', `/api/plan-parts/${partId}/dismiss`),
+
+  // -------------------------------------------------------------------------
+  // Ingest (spec §5.2 / §6): paste/upload → proposed plans, then commit.
+  // -------------------------------------------------------------------------
+  ingest: (tripId: number, input: IngestInput) =>
+    request<IngestResult>('POST', `/api/trips/${tripId}/ingest`, input),
+  ingestConfirm: (tripId: number, plans: ConfirmPlanInput[]) =>
+    request<Plan[]>('POST', `/api/trips/${tripId}/ingest/confirm`, { plans }),
+
+  // -------------------------------------------------------------------------
+  // Calendar tokens (spec §5.2 / §8). The .ics feeds themselves are fetched
+  // by external calendar clients via the token URL, not this client.
+  // -------------------------------------------------------------------------
+  listCalendarTokens: () => request<CalendarToken[]>('GET', '/api/calendar/tokens'),
+  // Issue or regenerate (revoking the old one) a token for the given scope.
+  issueCalendarToken: (scope: CalendarScope, id?: number) =>
+    request<CalendarToken>('POST', '/api/calendar/tokens', { scope, id }),
+  revokeCalendarToken: (token: string) =>
+    request<void>('DELETE', `/api/calendar/tokens/${encodeURIComponent(token)}`),
+
+  // -------------------------------------------------------------------------
+  // Tracker (spec §5.2 / §7): convergence view of trackable parts.
+  // -------------------------------------------------------------------------
+  getTracker: (opts?: { windowBefore?: string; windowAfter?: string; tag?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.windowBefore) params.set('window_before', opts.windowBefore);
+    if (opts?.windowAfter) params.set('window_after', opts.windowAfter);
+    if (opts?.tag) params.set('tag', opts.tag);
+    const qs = params.toString();
+    return request<TrackerPart[]>('GET', qs ? `/api/tracker?${qs}` : '/api/tracker');
+  },
+
+  // -------------------------------------------------------------------------
+  // Alerts (spec §5.2 / §9).
+  // -------------------------------------------------------------------------
+  getAlertPrefs: () => request<AlertPrefs>('GET', '/api/alert-prefs'),
+  updateAlertPrefs: (patch: UpdateAlertPrefsInput) =>
+    request<AlertPrefs>('PUT', '/api/alert-prefs', patch),
+  // Viewer opt-in to a specific plan's alerts.
+  optInPlanAlerts: (planId: number) => request<void>('POST', `/api/plans/${planId}/alerts/optin`),
+  optOutPlanAlerts: (planId: number) =>
+    request<void>('DELETE', `/api/plans/${planId}/alerts/optin`),
 };
 
 export { ApiError };
