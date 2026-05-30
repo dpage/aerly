@@ -268,21 +268,17 @@ Pre-release. Tracker and resolver paths are working end-to-end with OpenSky and 
 
 ## Roadmap / follow-up work
 
-High-level TODOs deferred during the trip-planning redesign, for later pickup:
-
-**Data sources**
+**Open**
 - **Flight data: migrate to FlightAware AeroAPI.** Evaluate replacing AeroDataBox with AeroAPI for richer, fresher gate/terminal and status data. AeroAPI is metered per-query (cost-sensitive at poll cadence — lean on `last_resolved_at` throttling) and coverage varies, so spike against real routes first. Slots in behind the existing `providers.Resolver` interface as a sibling implementation; AeroDataBox stays the default until then.
-- **Gate-change alerts.** Add `gate`/`terminal` parsing to the AeroDataBox provider, store them on `flight_details`, and add a gate-change branch to the poller alert diff (always-alert, like cancellation). Independent of and cheaper than the AeroAPI move — AeroDataBox already returns gate/terminal for many airports; the resolver just doesn't parse it today.
 
-**Ingestion**
-- **Binary / PDF upload.** `IngestInput` is currently text-only; add a document/file field plus multipart transport so "upload a PDF ticket" works end-to-end. The LLM extractor already accepts PDF documents — only the API/UI transport is missing.
-
-**Tracker & calendar**
-- **Single-flight track on the tracker.** The focused single-flight view can't draw the flown track yet — the single-part endpoint returns a position-only DTO. Have it return a track-bearing payload (the per-part track data already exists via `PartTracks`).
-- **Backend SSE for trip/plan edits.** The poller emits `plan_part.updated` (live tracker/timeline status), and the frontend already listens for `trip.updated`/`plan.updated` defensively — but the backend doesn't emit them yet. Emit them on trip/plan/member/visibility mutations so a shared trip's timeline live-updates for everyone viewing it (the PRD's collaborative-timeline promise).
-- **Per-plan alert opt-in in the DTO.** Expose an `alert_opted_in` flag (per viewer) on `PlanDTO` so the per-plan "notify me of changes" toggle survives reloads instead of relying on caller-supplied initial state.
-- **Calendar token granularity (decision needed).** iCal tokens are keyed per `(user, scope)`, so regenerating a "trip" token revokes *every* trip feed for that user at once. If per-trip/plan revocation is wanted, key `calendar_tokens` by `(user, scope, resource_id)`.
-- **iCal DST rules.** Calendar feeds emit one `STANDARD` VTIMEZONE observance per offset rather than full DST transition rules — correct for the events present, but add proper `RRULE` transitions for fully general recurring-event timezones.
+**Shipped (trip-planning follow-ups)**
+- Gate-change alerts — gate/terminal parsed from AeroDataBox onto `flight_details`, always-alert branch with dedupe in the poller.
+- Binary / PDF upload — multipart transport into the LLM extractor.
+- Single-flight track on the tracker — focused view returns the flown track.
+- Backend SSE for trip/plan edits — `trip.updated`/`plan.updated`/`plan.deleted` emitted on mutations so shared timelines update live.
+- Per-plan alert opt-in exposed as `alert_opted_in` on `PlanDTO`.
+- Per-resource calendar token granularity — each trip/plan feed independently revocable.
+- iCal DST — VTIMEZONE blocks now carry DAYLIGHT/STANDARD `RRULE` transitions.
 
 ## Licence
 
