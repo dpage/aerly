@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
@@ -9,8 +10,14 @@ import { api } from './api/client';
 import { createAppTheme, useThemeMode } from './theme';
 import Login from './components/Login';
 import AppShell from './components/AppShell';
+import Layout from './components/Layout';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
+import TripList from './pages/TripList';
+import TripDetail from './pages/TripDetail';
+import TripTimeline from './pages/TripTimeline';
+import TripMap from './pages/TripMap';
+import Tracker from './pages/Tracker';
 
 export default function App() {
   const auth = useStore((s) => s.auth);
@@ -114,8 +121,7 @@ export default function App() {
       } finally {
         params.delete('friend_accept');
         const qs = params.toString();
-        const url =
-          window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+        const url = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
         window.history.replaceState({}, '', url);
         if (fromStash) {
           try {
@@ -128,30 +134,51 @@ export default function App() {
     })();
   }, [auth, users, refreshNotifications, setError, setNotice]);
 
-  // window.location.pathname is safe here because /privacy and /terms are only
-  // reached via full page loads — there is no client-side pushState navigation.
-  let body;
-  if (window.location.pathname === '/privacy') {
-    body = <PrivacyPolicy />;
-  } else if (window.location.pathname === '/terms') {
-    body = <TermsOfService />;
-  } else if (auth === 'loading') {
-    body = (
+  // /privacy and /terms render regardless of auth (they're linked from the
+  // login page and from emails). Everything else is gated: a spinner while
+  // auth is resolving, the Login screen when anonymous, and the routed app
+  // chrome once authenticated. The legacy flight UI stays reachable at
+  // /flights until Wave 3 retires it.
+  let gated;
+  if (auth === 'loading') {
+    gated = (
       <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
         <CircularProgress />
       </Box>
     );
   } else if (auth === 'anonymous') {
-    body = <Login />;
+    gated = <Login />;
   } else {
-    body = <AppShell />;
+    gated = (
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<TripList />} />
+          <Route path="trips/:id" element={<TripDetail />}>
+            <Route index element={<TripTimeline />} />
+            <Route path="map" element={<TripMap />} />
+          </Route>
+          <Route path="tracker" element={<Tracker />} />
+        </Route>
+        {/* Legacy flight-centric home; removed in Wave 3. */}
+        <Route path="/flights" element={<AppShell />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    );
   }
+
+  const body = (
+    <Routes>
+      <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/terms" element={<TermsOfService />} />
+      <Route path="*" element={gated} />
+    </Routes>
+  );
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <LocalizationProvider dateAdapter={AdapterDateFns}>
-        {body}
+        <BrowserRouter>{body}</BrowserRouter>
         <Snackbar
           open={error !== null}
           autoHideDuration={6000}
