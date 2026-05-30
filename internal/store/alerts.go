@@ -61,6 +61,21 @@ func (s *Store) AddPlanAlertOptin(ctx context.Context, planID, userID int64) err
 	return err
 }
 
+// PlanAlertOptedIn reports whether userID has opted in to planID's change
+// alerts (an explicit plan_alert_optin row). Used to populate PlanDTO's
+// alert_opted_in for the requesting viewer.
+func (s *Store) PlanAlertOptedIn(ctx context.Context, planID, userID int64) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM plan_alert_optin WHERE plan_id = $1 AND user_id = $2
+		)`, planID, userID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 // RemovePlanAlertOptin removes a viewer's opt-in to a plan's alerts. A no-op
 // (no error) when the row doesn't exist.
 func (s *Store) RemovePlanAlertOptin(ctx context.Context, planID, userID int64) error {

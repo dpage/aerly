@@ -50,10 +50,10 @@ export default function App() {
         // tracked part refreshes. Fold it into the open trip's timeline and the
         // tracker convergence list so the shared timeline updates live.
         onPlanPart: (part) => applyPlanPartUpdate(part),
-        // trip.updated / plan.updated aren't emitted by the backend yet (see
-        // sse.ts). These handlers are wired defensively so the moment the
-        // backend starts publishing them the relevant view refetches itself;
-        // until then they never fire.
+        // trip.updated / plan.updated / plan.deleted fire after user-driven
+        // trip & plan edits (the backend publishes them, scoped to who can see
+        // the trip/plan). Refetch the open trip + tracker so the shared view
+        // stays live without a manual reload.
         onTrip: (id) => {
           const cur = useStore.getState().currentTrip;
           if (cur && cur.id === id) void loadTrip(id);

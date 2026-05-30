@@ -6,7 +6,8 @@ import maplibregl, {
 } from 'maplibre-gl';
 import { Box } from '@mui/material';
 
-import type { TrackerPart } from '../api/types';
+import type { PlanPart, TrackerPart } from '../api/types';
+import { greatCircle, toMultiLine } from '../lib/great-circle';
 
 const STYLE: StyleSpecification = {
   version: 8,
@@ -28,6 +29,33 @@ interface TrackerMapProps {
   parts: TrackerPart[];
   /** When set, the map focuses (fits to) the single part with this id. */
   focusedPartId?: number | null;
+  /** The focused part's full detail (with its flown track), loaded for the
+   * single-flight view. When present and a flight, the map draws the flown
+   * track polyline + the planned great-circle. */
+  focusedPart?: PlanPart | null;
+}
+
+const TRACK_SOURCE = 'focus-track';
+const GC_SOURCE = 'focus-gc';
+
+function emptyFeatureCollection(): GeoJSON.FeatureCollection {
+  return { type: 'FeatureCollection', features: [] };
+}
+
+/** MultiLineString feature collection from a list of [lon,lat] line segments. */
+function multiLineCollection(lines: [number, number][][]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: lines.length
+      ? [
+          {
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'MultiLineString', coordinates: lines },
+          },
+        ]
+      : [],
+  };
 }
 
 /** Convergence map for the tracker (PRD §6.5). Plots the latest known position
@@ -38,7 +66,7 @@ interface TrackerMapProps {
  * Uses the standard MapLibre lifecycle (init once, sync markers on data
  * change, fit bounds) over the lighter `TrackerPart` shape, which only carries
  * a latest position. */
-export default function TrackerMap({ parts, focusedPartId }: TrackerMapProps) {
+export default function TrackerMap({ parts, focusedPartId, focusedPart }: TrackerMapProps) {
   const containerRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const markersRef = useRef<Map<number, maplibregl.Marker>>(new Map());
@@ -53,6 +81,26 @@ export default function TrackerMap({ parts, focusedPartId }: TrackerMapProps) {
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     mapRef.current = map;
+    // Sources + layers for the single-flight focus: the planned great-circle
+    // (dashed) under the flown track (solid). Added once the style is ready.
+    map.once('load', () => {
+      map.addSource(GC_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addSource(TRACK_SOURCE, { type: 'geojson', data: emptyFeatureCollection() });
+      map.addLayer({
+        id: GC_SOURCE,
+        type: 'line',
+        source: GC_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#94a3b8', 'line-width': 2, 'line-dasharray': [2, 2] },
+      });
+      map.addLayer({
+        id: TRACK_SOURCE,
+        type: 'line',
+        source: TRACK_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#d97706', 'line-width': 3 },
+      });
+    });
     return () => {
       markersRef.current.forEach((m) => m.remove());
       markersRef.current.clear();
@@ -94,6 +142,49 @@ export default function TrackerMap({ parts, focusedPartId }: TrackerMapProps) {
     }
   }, [parts, focusedPartId]);
 
+  // Draw the focused flight's flown track (from its positions) and planned
+  // great-circle (origin → dest). Cleared when not focused / not a flight.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      const trackSrc = map.getSource(TRACK_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      const gcSrc = map.getSource(GC_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      if (!trackSrc || !gcSrc) return;
+
+      const flight = focusedPart?.flight;
+      if (focusedPartId == null || !flight) {
+        trackSrc.setData(emptyFeatureCollection());
+        gcSrc.setData(emptyFeatureCollection());
+        return;
+      }
+
+      // Flown track: the recorded positions, oldest → newest.
+      const trackPts: [number, number][] = (flight.track ?? []).map((p) => [p.lon, p.lat]);
+      trackSrc.setData(
+        trackPts.length > 1
+          ? multiLineCollection([trackPts])
+          : emptyFeatureCollection(),
+      );
+
+      // Planned great-circle from the part's start/end coordinates.
+      const { start_lat, start_lon, end_lat, end_lon } = focusedPart;
+      if (
+        start_lat != null &&
+        start_lon != null &&
+        end_lat != null &&
+        end_lon != null
+      ) {
+        const arc = greatCircle(start_lat, start_lon, end_lat, end_lon);
+        gcSrc.setData(multiLineCollection(toMultiLine(arc)));
+      } else {
+        gcSrc.setData(emptyFeatureCollection());
+      }
+    };
+    if (map.isStyleLoaded() && map.getSource(TRACK_SOURCE)) apply();
+    else map.once('load', apply);
+  }, [focusedPart, focusedPartId]);
+
   // Fit the map: to the single focused part, or to the whole in-window cluster.
   const fittedRef = useRef<string>('');
   useEffect(() => {
@@ -102,19 +193,26 @@ export default function TrackerMap({ parts, focusedPartId }: TrackerMapProps) {
     const plotted = (
       focusedPartId != null ? parts.filter((p) => p.plan_part_id === focusedPartId) : parts
     ).filter((p) => p.latest_position);
-    const key =
-      (focusedPartId ?? 'all') +
-      ':' +
-      plotted
-        .map((p) => p.plan_part_id)
-        .sort((a, b) => a - b)
-        .join(',');
-    if (key === fittedRef.current) return;
-    fittedRef.current = key;
     const pts: [number, number][] = plotted.map((p) => [
       p.latest_position!.lon,
       p.latest_position!.lat,
     ]);
+
+    // In the single-flight focus, widen the fit to the whole route: the part's
+    // start/end coordinates plus every flown-track point, so the polyline +
+    // great-circle are fully in view rather than zoomed to the marker alone.
+    if (focusedPartId != null && focusedPart) {
+      const { start_lat, start_lon, end_lat, end_lon } = focusedPart;
+      if (start_lat != null && start_lon != null) pts.push([start_lon, start_lat]);
+      if (end_lat != null && end_lon != null) pts.push([end_lon, end_lat]);
+      for (const p of focusedPart.flight?.track ?? []) pts.push([p.lon, p.lat]);
+    }
+
+    const key =
+      (focusedPartId ?? 'all') + ':' + pts.map((p) => `${p[0]},${p[1]}`).join(';');
+    if (key === fittedRef.current) return;
+    fittedRef.current = key;
+
     if (focusedPartId != null && pts.length === 1) {
       const fly = () => map.flyTo({ center: pts[0], zoom: 5, duration: 600 });
       if (map.isStyleLoaded()) fly();
@@ -126,7 +224,7 @@ export default function TrackerMap({ parts, focusedPartId }: TrackerMapProps) {
     const fit = () => map.fitBounds(bounds, { padding: 80, maxZoom: 6, duration: 600 });
     if (map.isStyleLoaded()) fit();
     else map.once('load', fit);
-  }, [parts, focusedPartId]);
+  }, [parts, focusedPartId, focusedPart]);
 
   return <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} data-testid="tracker-map" />;
 }

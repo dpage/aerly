@@ -6,14 +6,13 @@ export interface SSEHandlers {
    * a TrackerPartDTO. Drives the tracker convergence list and the open trip's
    * timeline live (PRD live-updating shared timeline). */
   onPlanPart: (part: TrackerPart) => void;
-  /** Optional: a trip's metadata changed. The backend does not emit
-   * `trip.updated` yet — wired defensively so the handler is a no-op when the
-   * event never arrives, and lights up automatically if the backend starts
-   * publishing it. Payload carries at least the trip id. */
+  /** Optional: a trip's metadata changed. The backend emits `trip.updated`
+   * after trip create/update/delete, member, and tag mutations, scoped to the
+   * trip's members. Payload carries at least the trip id. */
   onTrip?: (id: number) => void;
-  /** Optional: a plan changed. The backend does not emit `plan.updated` yet —
-   * wired defensively (see onTrip). Payload carries at least the trip id so the
-   * client can refresh the right trip. */
+  /** Optional: a plan changed or was deleted. The backend emits `plan.updated`
+   * and `plan.deleted` after plan mutations; both are routed here. Payload
+   * carries at least the trip id so the client can refresh the right trip. */
   onPlan?: (tripId: number) => void;
 }
 
@@ -24,9 +23,9 @@ export interface SSEOptions {
 
 // connectSSE returns a teardown function. It auto-reconnects with backoff on
 // transient errors. The poller pushes plan_part.updated events carrying the
-// locked TrackerPartDTO; notifications.updated tracks the friendship badge.
-// trip.updated / plan.updated are subscribed defensively — the backend does
-// not emit them today, so those listeners are dormant until it does.
+// locked TrackerPartDTO; notifications.updated tracks the friendship badge;
+// trip.updated / plan.updated / plan.deleted fire on user-driven trip & plan
+// edits so the open trip + tracker refresh live.
 export function connectSSE(handlers: SSEHandlers, opts: SSEOptions = {}): () => void {
   let es: EventSource | null = null;
   let stopped = false;
@@ -55,14 +54,16 @@ export function connectSSE(handlers: SSEHandlers, opts: SSEOptions = {}): () => 
         console.error('bad SSE payload', err);
       }
     });
-    es.addEventListener('plan.updated', (ev) => {
+    const onPlanEvent = (ev: Event) => {
       try {
         const { trip_id } = JSON.parse((ev as MessageEvent).data) as { trip_id: number };
         handlers.onPlan?.(trip_id);
       } catch (err) {
         console.error('bad SSE payload', err);
       }
-    });
+    };
+    es.addEventListener('plan.updated', onPlanEvent);
+    es.addEventListener('plan.deleted', onPlanEvent);
     es.addEventListener('notifications.updated', (ev) => {
       try {
         const n = JSON.parse((ev as MessageEvent).data) as Notifications;

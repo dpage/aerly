@@ -18,6 +18,26 @@ vi.mock('../state/store', () => ({
 }));
 
 import PlanAlertToggle from './PlanAlertToggle';
+import type { Plan } from '../api/types';
+
+// plan builds a minimal Plan with the alert_opted_in flag the toggle reads.
+function plan(id: number, optedIn: boolean): Plan {
+  return {
+    id,
+    trip_id: 1,
+    type: 'flight',
+    title: 'BA1',
+    confirmation_ref: '',
+    notes: '',
+    source: '',
+    passenger_ids: [],
+    visibility: { mode: 'everyone', user_ids: [] },
+    alert_opted_in: optedIn,
+    parts: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -26,14 +46,14 @@ beforeEach(() => {
 });
 
 describe('PlanAlertToggle', () => {
-  it('reflects the initial opted-in state', () => {
-    render(<PlanAlertToggle planId={5} optedIn />);
+  it('reflects the plan opted-in state', () => {
+    render(<PlanAlertToggle plan={plan(5, true)} />);
     expect(screen.getByRole('checkbox', { name: /notify me of changes/i })).toBeChecked();
   });
 
   it('opts in when toggled on', async () => {
     const onChange = vi.fn();
-    render(<PlanAlertToggle planId={5} optedIn={false} onChange={onChange} />);
+    render(<PlanAlertToggle plan={plan(5, false)} onChange={onChange} />);
     await userEvent.click(screen.getByRole('checkbox', { name: /notify me of changes/i }));
     await waitFor(() => expect(h.optInPlanAlerts).toHaveBeenCalledWith(5));
     expect(onChange).toHaveBeenCalledWith(true);
@@ -41,7 +61,7 @@ describe('PlanAlertToggle', () => {
 
   it('opts out when toggled off', async () => {
     const onChange = vi.fn();
-    render(<PlanAlertToggle planId={9} optedIn onChange={onChange} />);
+    render(<PlanAlertToggle plan={plan(9, true)} onChange={onChange} />);
     await userEvent.click(screen.getByRole('checkbox', { name: /notify me of changes/i }));
     await waitFor(() => expect(h.optOutPlanAlerts).toHaveBeenCalledWith(9));
     expect(onChange).toHaveBeenCalledWith(false);
@@ -49,7 +69,7 @@ describe('PlanAlertToggle', () => {
 
   it('reverts and reports an error when opt-in fails', async () => {
     h.optInPlanAlerts.mockRejectedValue(new Error('opt boom'));
-    render(<PlanAlertToggle planId={5} optedIn={false} />);
+    render(<PlanAlertToggle plan={plan(5, false)} />);
     const toggle = screen.getByRole('checkbox', { name: /notify me of changes/i });
     await userEvent.click(toggle);
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('opt boom'));
@@ -58,7 +78,7 @@ describe('PlanAlertToggle', () => {
 
   it('stringifies non-Error rejections', async () => {
     h.optOutPlanAlerts.mockRejectedValue('kaboom');
-    render(<PlanAlertToggle planId={5} optedIn />);
+    render(<PlanAlertToggle plan={plan(5, true)} />);
     await userEvent.click(screen.getByRole('checkbox', { name: /notify me of changes/i }));
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('kaboom'));
   });

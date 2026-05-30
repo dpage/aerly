@@ -191,11 +191,12 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	dto, err := a.planDTO(r.Context(), plan.ID)
+	dto, err := a.planDTO(r.Context(), plan.ID, me.ID)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishPlanUpdated(r.Context(), tripID, plan.ID)
 	writeJSON(w, http.StatusCreated, dto)
 }
 
@@ -222,11 +223,12 @@ func (a *API) updatePlan(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
-	dto, err := a.planDTO(r.Context(), id)
+	dto, err := a.planDTO(r.Context(), id, me.ID)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishPlanUpdated(r.Context(), dto.TripID, id)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -240,6 +242,14 @@ func (a *API) deletePlan(w http.ResponseWriter, r *http.Request) {
 	if err := a.requirePlanEdit(r.Context(), id, me, w); err != nil {
 		return
 	}
+	// Resolve the trip id + visibility set before the delete; both are gone
+	// once the plan row (and its plan_visibility rows) are removed.
+	plan, err := a.Store.PlanByID(r.Context(), id)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	a.publishPlanDeleted(r.Context(), plan.TripID, id)
 	if err := a.Store.DeletePlan(r.Context(), id); err != nil {
 		handleStoreErr(w, err)
 		return
@@ -271,11 +281,12 @@ func (a *API) addPlanPassenger(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	dto, err := a.planDTO(r.Context(), id)
+	dto, err := a.planDTO(r.Context(), id, me.ID)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishPlanUpdated(r.Context(), dto.TripID, id)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -297,6 +308,9 @@ func (a *API) removePlanPassenger(w http.ResponseWriter, r *http.Request) {
 	if err := a.Store.RemovePlanPassenger(r.Context(), id, uid); err != nil {
 		handleStoreErr(w, err)
 		return
+	}
+	if plan, err := a.Store.PlanByID(r.Context(), id); err == nil {
+		a.publishPlanUpdated(r.Context(), plan.TripID, id)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -330,11 +344,12 @@ func (a *API) setPlanVisibility(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
-	dto, err := a.planDTO(r.Context(), id)
+	dto, err := a.planDTO(r.Context(), id, me.ID)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishPlanUpdated(r.Context(), dto.TripID, id)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -364,14 +379,24 @@ func (a *API) movePlan(w http.ResponseWriter, r *http.Request) {
 	if err := a.requireTripEdit(r.Context(), in.TripID, me, w); err != nil {
 		return
 	}
+	// Capture the source trip before the move so its members can be told their
+	// timeline lost a plan (trip.updated). nil is benign — we just skip it.
+	var sourceTripID int64
+	if src, err := a.Store.PlanByID(r.Context(), id); err == nil {
+		sourceTripID = src.TripID
+	}
 	if err := a.Store.MovePlan(r.Context(), id, in.TripID); err != nil {
 		handleStoreErr(w, err)
 		return
 	}
-	dto, err := a.planDTO(r.Context(), id)
+	dto, err := a.planDTO(r.Context(), id, me.ID)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
+	}
+	a.publishPlanUpdated(r.Context(), dto.TripID, id)
+	if sourceTripID != 0 && sourceTripID != dto.TripID {
+		a.publishTripUpdated(r.Context(), sourceTripID)
 	}
 	writeJSON(w, http.StatusOK, dto)
 }
@@ -413,6 +438,9 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	if planID, tripID, err := a.Store.PlanIDForPart(r.Context(), id); err == nil {
+		a.publishPlanUpdated(r.Context(), tripID, planID)
+	}
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -429,6 +457,9 @@ func (a *API) dismissPlanPart(w http.ResponseWriter, r *http.Request) {
 	if err := a.Store.DismissPlanPart(r.Context(), id); err != nil {
 		handleStoreErr(w, err)
 		return
+	}
+	if planID, tripID, err := a.Store.PlanIDForPart(r.Context(), id); err == nil {
+		a.publishPlanUpdated(r.Context(), tripID, planID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -548,7 +579,9 @@ func endOr(t *time.Time, fallback time.Time) time.Time {
 
 // planDTO assembles a full PlanDTO: the plan row, its passengers, visibility,
 // and every part with its type-specific detail (and smart hotel times).
-func (a *API) planDTO(ctx context.Context, planID int64) (api.PlanDTO, error) {
+// viewerID is the requesting user, used to compute alert_opted_in; pass 0 for
+// server-side assembly with no viewer (the flag is then false).
+func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO, error) {
 	plan, err := a.Store.PlanByID(ctx, planID)
 	if err != nil {
 		return api.PlanDTO{}, err
@@ -589,6 +622,13 @@ func (a *API) planDTO(ctx context.Context, planID int64) (api.PlanDTO, error) {
 	if pids == nil {
 		pids = []int64{}
 	}
+	var optedIn bool
+	if viewerID != 0 {
+		optedIn, err = a.Store.PlanAlertOptedIn(ctx, planID, viewerID)
+		if err != nil {
+			return api.PlanDTO{}, err
+		}
+	}
 	return api.PlanDTO{
 		ID:              plan.ID,
 		TripID:          plan.TripID,
@@ -600,6 +640,7 @@ func (a *API) planDTO(ctx context.Context, planID int64) (api.PlanDTO, error) {
 		CreatedBy:       plan.CreatedBy,
 		PassengerIDs:    pids,
 		Visibility:      visDTO,
+		AlertOptedIn:    optedIn,
 		Parts:           partDTOs,
 		CreatedAt:       plan.CreatedAt,
 		UpdatedAt:       plan.UpdatedAt,
@@ -743,7 +784,7 @@ func (a *API) visiblePlanDTOs(r *http.Request, tripID int64, u *store.User) ([]a
 		if !ok {
 			continue
 		}
-		dto, err := a.planDTO(ctx, pl.ID)
+		dto, err := a.planDTO(ctx, pl.ID, u.ID)
 		if err != nil {
 			return nil, err
 		}
