@@ -57,11 +57,14 @@ export default function CalendarSubscribeDialog({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Find the token already issued for this exact scope (+ id), if any. The
-  // `me` feed is scope-only; trip/plan feeds key on id too.
+  // Find the token already issued for this exact (scope, resource), if any.
+  // Tokens are keyed per (scope, resource_id): the `me` feed has resource_id 0,
+  // while trip/plan feeds match on their id, so this dialog only ever surfaces
+  // and revokes the token for the resource it manages.
+  const resourceId = scope === 'me' ? 0 : (id ?? 0);
   const matches = useCallback(
-    (t: CalendarToken) => t.scope === scope,
-    [scope],
+    (t: CalendarToken) => t.scope === scope && t.resource_id === resourceId,
+    [scope, resourceId],
   );
 
   useEffect(() => {

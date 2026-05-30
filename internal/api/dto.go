@@ -624,3 +624,29 @@ func ToExcursionDetailDTO(d *store.ExcursionDetail) *ExcursionDetailDTO {
 		TicketCount: d.TicketCount,
 	}
 }
+
+// CalendarTokenDTO is the wire shape for one iCal feed token. Tokens are keyed
+// per (scope, resource_id): the "me" feed has resource_id 0, while each
+// trip/plan feed carries its own resource id and is independently revocable, so
+// regenerating one trip's link no longer disturbs the others. The URL is the
+// ready-to-use feed link (the caller derives it from the public base URL since
+// the store layer is URL-unaware).
+type CalendarTokenDTO struct {
+	Scope      string `json:"scope"`
+	ResourceID int64  `json:"resource_id"`
+	Token      string `json:"token"`
+	URL        string `json:"url"`
+	CreatedAt  string `json:"created_at"`
+}
+
+// ToCalendarTokenDTO projects a store token plus its precomputed feed URL onto
+// the wire shape.
+func ToCalendarTokenDTO(t *store.CalendarToken, url string) CalendarTokenDTO {
+	return CalendarTokenDTO{
+		Scope:      t.Scope,
+		ResourceID: t.ResourceID,
+		Token:      t.Token,
+		URL:        url,
+		CreatedAt:  t.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+	}
+}

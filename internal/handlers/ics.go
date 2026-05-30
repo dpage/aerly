@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,14 +15,17 @@ import (
 // plan_part, each anchored to a VTIMEZONE for the part's IANA zone so clients
 // show the correct local wall-clock time.
 //
-// VTIMEZONE strategy: rather than reproduce a full historical/future DST rule
-// set (which we don't have without a tz-rule library), each referenced zone
-// gets a VTIMEZONE whose STANDARD components capture the actual UTC offset at
-// every distinct instant a feed event uses it. RFC 5545 §3.6.5 permits
-// multiple observances; a client resolves an event's TZID+local-time against
-// the observance whose DTSTART it falls on or after. By seeding an observance
-// at (just before) each event time with that instant's real offset, the local
-// time renders correctly across DST boundaries without us shipping rrules.
+// VTIMEZONE strategy: for each referenced IANA zone we emit proper
+// STANDARD/DAYLIGHT observances carrying RRULE transitions, derived directly
+// from Go's bundled tzdata. We scan the offset transitions in a window around
+// the feed's events (a couple of years either side is plenty for a calendar
+// feed) and group them by the (offsetFrom, offsetTo, abbreviation) they switch
+// to. Each group becomes one observance whose DTSTART is the first transition's
+// local wall-clock time and whose RRULE recurs yearly on the matching
+// month/weekday so clients render correct local times across DST boundaries.
+// Zones with no DST in the window collapse to a single STANDARD observance with
+// no RRULE. This stays dependency-free — Go's time package already carries the
+// tz rules we need.
 
 const icsProdID = "-//Aerly//Trip Planner//EN"
 
@@ -85,48 +89,177 @@ func renderICS(calName string, events []*store.CalendarEvent) string {
 	return b.String()
 }
 
-func writeVTimezone(b *strings.Builder, tzName string, loc *time.Location, instants []time.Time) {
-	// One STANDARD observance per distinct offset we observe, with DTSTART at
-	// the earliest instant carrying that offset. This keeps the block compact
-	// while still giving the client the right offset for each event time.
-	type obs struct {
-		offset int       // seconds east of UTC
-		abbr   string    // zone abbreviation, e.g. CET/CEST
-		at     time.Time // earliest instant observed at this offset
+// tzTransition is one observed UTC-offset change at instant At: the offset and
+// abbreviation in effect just before and just after, and whether the new offset
+// is daylight (i.e. larger than the zone's standard offset).
+type tzTransition struct {
+	At         time.Time
+	OffsetFrom int
+	OffsetTo   int
+	Abbr       string
+	IsDST      bool
+}
+
+// tzWindow returns the [min,max] instant range a zone is referenced over,
+// padded by a year on each side so the surrounding DST transitions are
+// captured. When a zone has no instants (shouldn't happen) it falls back to a
+// window around now.
+func tzWindow(instants []time.Time) (time.Time, time.Time) {
+	if len(instants) == 0 {
+		now := time.Now().UTC()
+		return now.AddDate(-1, 0, 0), now.AddDate(1, 0, 0)
 	}
-	seen := map[int]*obs{}
-	for _, t := range instants {
-		local := t.In(loc)
-		abbr, off := local.Zone()
-		o := seen[off]
-		if o == nil {
-			seen[off] = &obs{offset: off, abbr: abbr, at: t}
-		} else if t.Before(o.at) {
-			o.at = t
+	min, max := instants[0], instants[0]
+	for _, t := range instants[1:] {
+		if t.Before(min) {
+			min = t
+		}
+		if t.After(max) {
+			max = t
 		}
 	}
-	offs := make([]int, 0, len(seen))
-	for off := range seen {
-		offs = append(offs, off)
+	return min.AddDate(-1, 0, 0).UTC(), max.AddDate(1, 0, 0).UTC()
+}
+
+// findTransitions scans loc's UTC offset across [start,end] and returns each
+// offset change, refined to the (UTC) second it occurs. It steps day-by-day to
+// spot a change, then binary-searches the day to pin the exact transition. The
+// zone's standard (smallest) offset over the window is used to classify each
+// target offset as daylight or standard.
+func findTransitions(loc *time.Location, start, end time.Time) []tzTransition {
+	offsetAt := func(t time.Time) (int, string) {
+		abbr, off := t.In(loc).Zone()
+		return off, abbr
 	}
-	sort.Ints(offs)
+
+	// First pass: determine the standard (minimum) offset over the window so we
+	// can label DST observances.
+	stdOffset := 1 << 30
+	for t := start; !t.After(end); t = t.AddDate(0, 0, 1) {
+		off, _ := offsetAt(t)
+		if off < stdOffset {
+			stdOffset = off
+		}
+	}
+
+	var out []tzTransition
+	prevOff, _ := offsetAt(start)
+	const day = 24 * time.Hour
+	for t := start.Add(day); !t.After(end); t = t.Add(day) {
+		off, _ := offsetAt(t)
+		if off == prevOff {
+			continue
+		}
+		// A transition lies in (t-day, t]; binary-search to the second.
+		lo, hi := t.Add(-day), t
+		for hi.Sub(lo) > time.Second {
+			mid := lo.Add(hi.Sub(lo) / 2)
+			if o, _ := offsetAt(mid); o == prevOff {
+				lo = mid
+			} else {
+				hi = mid
+			}
+		}
+		newOff, newAbbr := offsetAt(hi)
+		out = append(out, tzTransition{
+			At:         hi,
+			OffsetFrom: prevOff,
+			OffsetTo:   newOff,
+			Abbr:       newAbbr,
+			IsDST:      newOff > stdOffset,
+		})
+		prevOff = newOff
+	}
+	return out
+}
+
+// rruleFor renders a yearly RRULE describing a transition that recurs on the
+// same weekday-of-month as the given local transition time (e.g. the last
+// Sunday of October). This matches how civil DST rules are defined, so a single
+// observance covers years of transitions.
+func rruleFor(local time.Time) string {
+	weekday := int(local.Weekday()) // 0=Sun..6=Sat
+	days := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
+	// Which occurrence of this weekday within the month: 1..5, or -1 for "last"
+	// when the date falls in the final week.
+	nth := (local.Day()-1)/7 + 1
+	lastOfMonth := time.Date(local.Year(), local.Month()+1, 0, 0, 0, 0, 0, local.Location()).Day()
+	setpos := strconv.Itoa(nth)
+	if local.Day()+7 > lastOfMonth {
+		setpos = "-1"
+	}
+	return fmt.Sprintf("RRULE:FREQ=YEARLY;BYMONTH=%d;BYDAY=%s%s",
+		int(local.Month()), setpos, days[weekday])
+}
+
+func writeVTimezone(b *strings.Builder, tzName string, loc *time.Location, instants []time.Time) {
+	start, end := tzWindow(instants)
+	transitions := findTransitions(loc, start, end)
 
 	writeLine(b, "BEGIN:VTIMEZONE")
 	writeLine(b, "TZID:"+tzName)
-	for _, off := range offs {
-		o := seen[off]
-		// DTSTART is the local wall-clock time at the start of this observance.
-		start := o.at.In(loc)
-		writeLine(b, "BEGIN:STANDARD")
-		writeLine(b, "DTSTART:"+start.Format("20060102T150405"))
-		writeLine(b, "TZOFFSETFROM:"+formatTZOffset(o.offset))
-		writeLine(b, "TZOFFSETTO:"+formatTZOffset(o.offset))
-		abbr := o.abbr
+
+	if len(transitions) == 0 {
+		// No DST in the window: a single STANDARD observance with the fixed
+		// offset at the window start (RFC 5545 requires at least one observance).
+		at := start
+		if len(instants) > 0 {
+			at = instants[0].UTC()
+		}
+		abbr, off := at.In(loc).Zone()
 		if abbr == "" {
 			abbr = tzName
 		}
+		writeLine(b, "BEGIN:STANDARD")
+		writeLine(b, "DTSTART:"+at.In(loc).Format("20060102T150405"))
+		writeLine(b, "TZOFFSETFROM:"+formatTZOffset(off))
+		writeLine(b, "TZOFFSETTO:"+formatTZOffset(off))
 		writeLine(b, "TZNAME:"+abbr)
 		writeLine(b, "END:STANDARD")
+		writeLine(b, "END:VTIMEZONE")
+		return
+	}
+
+	// Group transitions by their target (offsetTo, abbr, isDST): each group
+	// becomes one observance, anchored at its earliest transition with a yearly
+	// RRULE. Recurring civil rules produce two groups (into-DST, out-of-DST).
+	type group struct {
+		first      tzTransition
+		offsetFrom int
+	}
+	groups := map[string]*group{}
+	var order []string
+	for _, tr := range transitions {
+		key := fmt.Sprintf("%d|%s|%t", tr.OffsetTo, tr.Abbr, tr.IsDST)
+		g := groups[key]
+		if g == nil {
+			groups[key] = &group{first: tr, offsetFrom: tr.OffsetFrom}
+			order = append(order, key)
+		} else if tr.At.Before(g.first.At) {
+			g.first = tr
+			g.offsetFrom = tr.OffsetFrom
+		}
+	}
+	sort.Strings(order)
+
+	for _, key := range order {
+		g := groups[key]
+		local := g.first.At.In(loc)
+		comp := "STANDARD"
+		if g.first.IsDST {
+			comp = "DAYLIGHT"
+		}
+		abbr := g.first.Abbr
+		if abbr == "" {
+			abbr = tzName
+		}
+		writeLine(b, "BEGIN:"+comp)
+		writeLine(b, "DTSTART:"+local.Format("20060102T150405"))
+		writeLine(b, rruleFor(local))
+		writeLine(b, "TZOFFSETFROM:"+formatTZOffset(g.offsetFrom))
+		writeLine(b, "TZOFFSETTO:"+formatTZOffset(g.first.OffsetTo))
+		writeLine(b, "TZNAME:"+abbr)
+		writeLine(b, "END:"+comp)
 	}
 	writeLine(b, "END:VTIMEZONE")
 }

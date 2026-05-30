@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -25,11 +26,11 @@ import (
 // --- Feed handlers (token-authed, no session) ---
 
 func (a *API) calendarMe(w http.ResponseWriter, r *http.Request) {
-	uid, ok := a.calendarTokenUser(w, r)
+	info, ok := a.calendarTokenInfo(w, r, "me", 0)
 	if !ok {
 		return
 	}
-	events, err := a.Store.CalendarEventsForUser(r.Context(), uid)
+	events, err := a.Store.CalendarEventsForUser(r.Context(), info.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -38,16 +39,16 @@ func (a *API) calendarMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) calendarTrip(w http.ResponseWriter, r *http.Request) {
-	uid, ok := a.calendarTokenUser(w, r)
-	if !ok {
-		return
-	}
 	id, ok := parseICSPathID(r.URL.Path, "/api/calendar/trip/")
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	events, err := a.Store.CalendarEventsForTrip(r.Context(), uid, id)
+	info, ok := a.calendarTokenInfo(w, r, "trip", id)
+	if !ok {
+		return
+	}
+	events, err := a.Store.CalendarEventsForTrip(r.Context(), info.UserID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -56,16 +57,16 @@ func (a *API) calendarTrip(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) calendarPlan(w http.ResponseWriter, r *http.Request) {
-	uid, ok := a.calendarTokenUser(w, r)
-	if !ok {
-		return
-	}
 	id, ok := parseICSPathID(r.URL.Path, "/api/calendar/plan/")
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	events, err := a.Store.CalendarEventsForPlan(r.Context(), uid, id)
+	info, ok := a.calendarTokenInfo(w, r, "plan", id)
+	if !ok {
+		return
+	}
+	events, err := a.Store.CalendarEventsForPlan(r.Context(), info.UserID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -73,24 +74,32 @@ func (a *API) calendarPlan(w http.ResponseWriter, r *http.Request) {
 	writeICS(w, "Aerly Plan", events)
 }
 
-// calendarTokenUser resolves the ?token= query param to its owning user id,
-// writing a 401 and returning ok=false when absent or unknown.
-func (a *API) calendarTokenUser(w http.ResponseWriter, r *http.Request) (int64, bool) {
+// calendarTokenInfo resolves the ?token= query param to its owner and verifies
+// the token was issued for exactly this feed (wantScope + wantResource). A
+// per-resource token only authorizes its own resource, so presenting a "trip 5"
+// token at the "trip 6" feed (or at a different scope) yields 401 rather than
+// silently serving another resource. Writes a 401 and returns ok=false when the
+// token is absent, unknown, or mismatched.
+func (a *API) calendarTokenInfo(w http.ResponseWriter, r *http.Request, wantScope string, wantResource int64) (*store.CalendarTokenInfo, bool) {
 	tok := strings.TrimSpace(r.URL.Query().Get("token"))
 	if tok == "" {
 		http.Error(w, "missing token", http.StatusUnauthorized)
-		return 0, false
+		return nil, false
 	}
-	uid, err := a.Store.UserByCalendarToken(r.Context(), tok)
+	info, err := a.Store.CalendarTokenByValue(r.Context(), tok)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
-			return 0, false
+			return nil, false
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
-		return 0, false
+		return nil, false
 	}
-	return uid, true
+	if info.Scope != wantScope || info.ResourceID != wantResource {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return nil, false
+	}
+	return info, true
 }
 
 // parseICSPathID extracts the {id} from a "<prefix>{id}.ics" request path. The
@@ -121,25 +130,19 @@ func writeICS(w http.ResponseWriter, calName string, events []*store.CalendarEve
 
 // --- Token-management handlers (session-authed) ---
 //
-// Shapes match the already-merged frontend contract in web/src/api/client.ts +
-// types.ts:
+// Shapes match the frontend contract in web/src/api/client.ts + types.ts:
 //   GET    /api/calendar/tokens            -> CalendarToken[]
 //   POST   /api/calendar/tokens {scope,id} -> CalendarToken   (issue/regenerate)
 //   DELETE /api/calendar/tokens/{token}    -> 204
-// where CalendarToken = { scope, token, url, created_at }.
-
-type calendarTokenDTO struct {
-	Scope     string `json:"scope"`
-	Token     string `json:"token"`
-	URL       string `json:"url"`
-	CreatedAt string `json:"created_at"`
-}
+// where CalendarToken = { scope, resource_id, token, url, created_at }. Tokens
+// are now keyed per (user, scope, resource_id): each trip/plan feed has its own
+// independently-revocable token (resource_id 0 for the "me" scope).
 
 type issueCalendarTokenInput struct {
 	Scope string `json:"scope"`
-	// ID is the trip or plan id for scope=="trip"/"plan"; it is folded into the
-	// returned feed URL. The token itself is per-(user,scope) — the URL carries
-	// the id — so the FE's optional id only shapes the URL, never the token row.
+	// ID is the trip or plan id for scope=="trip"/"plan"; it is both stored as
+	// the token's resource_id and folded into the feed URL. The "me" scope
+	// ignores it (resource_id 0).
 	ID int64 `json:"id"`
 }
 
@@ -150,9 +153,9 @@ func (a *API) listCalendarTokens(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := make([]calendarTokenDTO, 0, len(toks))
+	out := make([]api.CalendarTokenDTO, 0, len(toks))
 	for _, t := range toks {
-		out = append(out, a.calendarTokenDTO(t, 0))
+		out = append(out, a.calendarTokenDTO(t))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -175,13 +178,13 @@ func (a *API) issueCalendarToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "id required for trip/plan scope")
 		return
 	}
-	// Issue (regenerate, revoking any prior token for this scope).
-	tok, err := a.Store.RegenerateCalendarToken(r.Context(), u.ID, scope)
+	// Issue (regenerate), revoking any prior token for this exact resource only.
+	tok, err := a.Store.RegenerateCalendarToken(r.Context(), u.ID, scope, in.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, a.calendarTokenDTO(tok, in.ID))
+	writeJSON(w, http.StatusOK, a.calendarTokenDTO(tok))
 }
 
 func (a *API) revokeCalendarToken(w http.ResponseWriter, r *http.Request) {
@@ -203,14 +206,10 @@ func (a *API) revokeCalendarToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // calendarTokenDTO builds the wire shape, deriving the ready-to-use feed URL
-// from the public base URL, scope, and (for trip/plan) the id.
-func (a *API) calendarTokenDTO(t *store.CalendarToken, id int64) calendarTokenDTO {
-	return calendarTokenDTO{
-		Scope:     t.Scope,
-		Token:     t.Token,
-		URL:       a.calendarFeedURL(t.Scope, id, t.Token),
-		CreatedAt: t.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
-	}
+// from the public base URL, scope, and (for trip/plan) the resource id stored
+// on the token.
+func (a *API) calendarTokenDTO(t *store.CalendarToken) api.CalendarTokenDTO {
+	return api.ToCalendarTokenDTO(t, a.calendarFeedURL(t.Scope, t.ResourceID, t.Token))
 }
 
 func (a *API) calendarFeedURL(scope string, id int64, token string) string {
