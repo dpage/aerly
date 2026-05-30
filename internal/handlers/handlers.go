@@ -133,6 +133,8 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	// Tracker (Wave 1C).
 	mux.Handle("GET /api/tracker", req(http.HandlerFunc(a.getTracker)))
+	// Focused single-flight view: one part with its full detail + flown track.
+	mux.Handle("GET /api/tracker/part/{id}", req(http.HandlerFunc(a.getTrackerPart)))
 
 	// Alerts (Wave 2B).
 	mux.Handle("GET /api/alert-prefs", req(http.HandlerFunc(a.getAlertPrefs)))

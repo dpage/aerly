@@ -104,6 +104,7 @@ func (a *API) createTrip(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishTripUpdated(r.Context(), t.ID)
 	writeJSON(w, http.StatusCreated, dto)
 }
 
@@ -187,6 +188,7 @@ func (a *API) updateTrip(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishTripUpdated(r.Context(), t.ID)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -201,6 +203,9 @@ func (a *API) deleteTrip(w http.ResponseWriter, r *http.Request) {
 	if err := a.requireTripOwner(r.Context(), id, me, w); err != nil {
 		return
 	}
+	// Resolve the member set before the delete: the membership rows (and thus
+	// the trip.updated VisibleTo) are gone once the trip row is removed.
+	a.publishTripUpdated(r.Context(), id)
 	if err := a.Store.DeleteTrip(r.Context(), id); err != nil {
 		handleStoreErr(w, err)
 		return
@@ -246,6 +251,7 @@ func (a *API) addTripMember(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishTripUpdated(r.Context(), id)
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -268,6 +274,7 @@ func (a *API) removeTripMember(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishTripUpdated(r.Context(), id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -300,6 +307,7 @@ func (a *API) setTripTags(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	a.publishTripUpdated(r.Context(), id)
 	writeJSON(w, http.StatusOK, dto)
 }
 

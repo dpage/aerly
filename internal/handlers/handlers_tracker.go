@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -84,8 +85,10 @@ func (a *API) getTracker(w http.ResponseWriter, r *http.Request) {
 }
 
 // getTrackerPart is the focused single-flight view: one trackable part with its
-// latest position. 404 (not 403) when the viewer can't see it, so part
-// existence isn't leaked. Backs the FlightDetailPanel / FlightMap.
+// full detail, latest position, AND the flown track (the convergence list view
+// stays position-only). 404 (not 403) when the viewer can't see it, so part
+// existence isn't leaked. Returns a PlanPartDTO (embedding FlightDetailDTO with
+// track + latest_position) so the FE can draw the polyline + great-circle.
 func (a *API) getTrackerPart(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -93,13 +96,52 @@ func (a *API) getTrackerPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	me := auth.UserFrom(r.Context())
-	tp, err := a.Store.TrackerPartByID(r.Context(), me.ID, id)
-	if err != nil {
-		handleStoreErr(w, err) // ErrNotFound → 404, covers the hidden case
+	// Gate on the §4 plan-visibility predicate first: ErrNotFound → 404 covers
+	// the hidden case without leaking existence.
+	if _, err := a.Store.TrackerPartByID(r.Context(), me.ID, id); err != nil {
+		handleStoreErr(w, err)
 		return
 	}
-	latest, _ := a.Store.LatestPartPositions(r.Context(), []int64{id})
-	writeJSON(w, http.StatusOK, toTrackerPartDTO(tp, latest[id]))
+	part, err := a.Store.PlanPartByID(r.Context(), id)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	dto, err := a.trackerPartDetailDTO(r.Context(), part)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto)
+}
+
+// trackerPartDetailDTO assembles a single part's PlanPartDTO with its latest
+// position and flown track folded in (flight parts only carry positions). Reuses
+// the api projection so dto.go's json tags stay the single source of truth.
+func (a *API) trackerPartDetailDTO(ctx context.Context, p *store.PlanPart) (api.PlanPartDTO, error) {
+	var (
+		flight *store.FlightDetail
+		latest *store.Position
+		track  []*store.Position
+		err    error
+	)
+	if p.Type == "flight" {
+		flight, err = a.Store.FlightDetailFor(ctx, p.ID)
+		if err != nil {
+			return api.PlanPartDTO{}, err
+		}
+		latestMap, err := a.Store.LatestPartPositions(ctx, []int64{p.ID})
+		if err != nil {
+			return api.PlanPartDTO{}, err
+		}
+		latest = latestMap[p.ID]
+		trackMap, err := a.Store.PartTracks(ctx, []int64{p.ID}, 0)
+		if err != nil {
+			return api.PlanPartDTO{}, err
+		}
+		track = trackMap[p.ID]
+	}
+	return api.ToPlanPartDTO(p, flight, nil, nil, nil, nil, nil, latest, track), nil
 }
 
 // toTrackerPartDTO projects a store.TrackerPart (+ optional latest position)

@@ -1,13 +1,20 @@
 package handlers
 
 import (
+	"io"
+	"mime"
 	"net/http"
+	"strings"
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
 )
+
+// maxUploadBytes caps a single ingest document (PDF ticket) to keep multipart
+// parsing bounded. 20 MiB comfortably covers boarding-pass / itinerary PDFs.
+const maxUploadBytes = 20 << 20
 
 // Wave 2A: the ingest pipeline. POST /api/trips/{id}/ingest proposes plans from
 // pasted text / uploaded documents (the LLM seam, with a rebooking match
@@ -54,13 +61,13 @@ func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "ingest is not configured (no LLM provider)")
 		return
 	}
-	var in ingestReq
-	if err := decode(r, &in); err != nil {
+	text, docs, err := parseIngestBody(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	deps := planops.Deps{Store: a.Store, Extractor: a.Extractor, Resolver: a.Resolver}
-	proposals, err := planops.Propose(r.Context(), deps, me.ID, tripID, in.Text, nil)
+	proposals, err := planops.Propose(r.Context(), deps, me.ID, tripID, text, docs)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -70,6 +77,65 @@ func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 		out.Proposals = append(out.Proposals, toProposedPlanDTO(p))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// parseIngestBody reads the propose request as either JSON ({text, source}) or
+// multipart/form-data (a "file" part plus optional "text"/"source" fields). The
+// uploaded file is forwarded to planops as a Document so the extractor's PDF
+// path runs end-to-end; text-only requests keep the JSON/text path unchanged.
+func parseIngestBody(r *http.Request) (text string, docs []planops.Document, err error) {
+	ct := r.Header.Get("Content-Type")
+	mediaType, _, _ := mime.ParseMediaType(ct)
+	if mediaType != "multipart/form-data" {
+		var in ingestReq
+		if derr := decode(r, &in); derr != nil {
+			return "", nil, derr
+		}
+		return in.Text, nil, nil
+	}
+
+	// +1 so a file at exactly the cap isn't silently truncated past the limit.
+	if perr := r.ParseMultipartForm(maxUploadBytes + 1); perr != nil {
+		return "", nil, perr
+	}
+	text = r.FormValue("text")
+
+	file, header, ferr := r.FormFile("file")
+	if ferr == http.ErrMissingFile {
+		// Multipart with no file — treat as a text-only request.
+		return text, nil, nil
+	}
+	if ferr != nil {
+		return "", nil, ferr
+	}
+	defer file.Close()
+
+	data, rerr := io.ReadAll(io.LimitReader(file, maxUploadBytes))
+	if rerr != nil {
+		return "", nil, rerr
+	}
+	doc := planops.Document{
+		Data:      data,
+		MediaType: documentMediaType(header.Header.Get("Content-Type"), header.Filename),
+		Filename:  header.Filename,
+	}
+	return text, []planops.Document{doc}, nil
+}
+
+// documentMediaType resolves the document's media type from the part's declared
+// Content-Type, falling back to a filename-extension guess (PDFs are the common
+// case) and finally application/octet-stream.
+func documentMediaType(declared, filename string) string {
+	if mt, _, err := mime.ParseMediaType(declared); err == nil && mt != "" && mt != "application/octet-stream" {
+		return mt
+	}
+	if strings.HasSuffix(strings.ToLower(filename), ".pdf") {
+		return "application/pdf"
+	}
+	if declared != "" {
+		return declared
+	}
+	return "application/octet-stream"
 }
 
 // ingestTripConfirm commits the confirmed/edited proposals against the trip,
@@ -106,12 +172,13 @@ func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]api.PlanDTO, 0, len(created))
 	for _, pl := range created {
-		dto, err := a.planDTO(r.Context(), pl.ID)
+		dto, err := a.planDTO(r.Context(), pl.ID, me.ID)
 		if err != nil {
 			handleStoreErr(w, err)
 			return
 		}
 		out = append(out, dto)
+		a.publishPlanUpdated(r.Context(), dto.TripID, dto.ID)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

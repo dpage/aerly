@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
-import type { TrackerPart } from '../api/types';
+import type { PlanPart, TrackerPart } from '../api/types';
 import type { StoreState } from './store';
 
 /** Default convergence window when the user hasn't set one. */
@@ -53,8 +53,15 @@ export interface TrackerSlice {
   trackerTag: string;
   trackerWindow: TrackerWindow;
   trackerLoading: boolean;
+  /** The focused single-flight part (with its flown track + latest position),
+   * loaded from /api/tracker/part/{id} when the view is opened with `?part=`.
+   * null in the convergence view or before the fetch resolves. */
+  focusedPart: PlanPart | null;
 
   loadTracker: (opts?: { tag?: string }) => Promise<void>;
+  /** Fetch the focused part's full detail + track for the single-flight view.
+   * Pass null to clear the focus. */
+  loadTrackerPart: (partId: number | null) => Promise<void>;
   setTrackerWindow: (w: Partial<TrackerWindow>) => Promise<void>;
   /** Apply a plan_part.updated SSE event (the poller broadcasts a
    * TrackerPartDTO). Refreshes the convergence list in place and folds the
@@ -69,6 +76,7 @@ export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> 
   trackerTag: '',
   trackerWindow: loadWindow(''),
   trackerLoading: false,
+  focusedPart: null,
 
   async loadTracker(opts) {
     const tag = opts?.tag ?? get().trackerTag;
@@ -83,6 +91,20 @@ export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> 
       set({ trackerParts, trackerLoading: false });
     } catch (err) {
       set({ error: errorMessage(err), trackerLoading: false });
+    }
+  },
+
+  async loadTrackerPart(partId) {
+    if (partId == null) {
+      set({ focusedPart: null });
+      return;
+    }
+    try {
+      const focusedPart = await api.getTrackerPart(partId);
+      set({ focusedPart });
+    } catch (err) {
+      // A part the viewer can't see 404s; clear the focus and surface the error.
+      set({ focusedPart: null, error: errorMessage(err) });
     }
   },
 

@@ -332,6 +332,9 @@ export interface Plan {
   created_by?: number;
   passenger_ids: number[];
   visibility: PlanVisibility;
+  /** Whether the requesting viewer has opted in to this plan's change alerts
+   * (a per-viewer projection of plan_alert_optin). Drives PlanAlertToggle. */
+  alert_opted_in: boolean;
   parts: PlanPart[];
   created_at: string;
   updated_at: string;
@@ -447,6 +450,10 @@ export interface IngestInput {
   /** Pasted text (Manual paste tab). */
   text?: string;
   source?: IngestSource;
+  /** An uploaded document (e.g. a PDF ticket). When present the client sends
+   * multipart/form-data so the backend extractor's binary/PDF path runs; absent
+   * keeps the JSON/text path. */
+  file?: File;
 }
 
 /** A plan proposed by the ingest pipeline, awaiting confirmation. */

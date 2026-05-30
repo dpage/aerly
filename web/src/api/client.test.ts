@@ -212,6 +212,40 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(s.mock.calls[0][0]).toBe('/auth/logout');
     expect(s.mock.calls[0][1]?.method).toBe('POST');
   });
+
+  it('ingest sends JSON when no file is attached', async () => {
+    await api.ingest(3, { text: 'a paste', source: 'paste' });
+    expect(last()[0]).toBe('/api/trips/3/ingest');
+    expect(last()[1]?.method).toBe('POST');
+    expect(last()[1]?.body).toBe(JSON.stringify({ text: 'a paste', source: 'paste' }));
+    // JSON path sets the Content-Type header.
+    const headers = last()[1]?.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+  });
+
+  it('ingest sends multipart/form-data when a file is attached', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'ticket.pdf', {
+      type: 'application/pdf',
+    });
+    await api.ingest(3, { file, source: 'upload' });
+    expect(last()[0]).toBe('/api/trips/3/ingest');
+    expect(last()[1]?.method).toBe('POST');
+    const body = last()[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    const form = body as FormData;
+    expect((form.get('file') as File).name).toBe('ticket.pdf');
+    expect(form.get('source')).toBe('upload');
+    // The browser must set the multipart boundary itself, so we must NOT send
+    // an explicit Content-Type header.
+    const headers = last()[1]?.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBeUndefined();
+  });
+
+  it('getTrackerPart fetches the single-part detail endpoint', async () => {
+    await api.getTrackerPart(42);
+    expect(last()[0]).toBe('/api/tracker/part/42');
+    expect(last()[1]?.method).toBe('GET');
+  });
 });
 
 describe('api.getAuthProviders', () => {

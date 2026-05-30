@@ -283,9 +283,12 @@ type PlanDTO struct {
 	CreatedBy       *int64            `json:"created_by,omitempty"`
 	PassengerIDs    []int64           `json:"passenger_ids"`
 	Visibility      PlanVisibilityDTO `json:"visibility"`
-	Parts           []PlanPartDTO     `json:"parts"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
+	// AlertOptedIn is whether the requesting viewer has opted in to this plan's
+	// change alerts (a plan_alert_optin row). Computed per-viewer at assembly.
+	AlertOptedIn bool          `json:"alert_opted_in"`
+	Parts        []PlanPartDTO `json:"parts"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
 }
 
 // ProposedPlanDTO is a plan the ingest pipeline proposes, awaiting

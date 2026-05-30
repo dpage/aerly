@@ -54,6 +54,23 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
   }
   const res = await fetch(path, init);
+  return handleResponse<T>(res);
+}
+
+// requestMultipart sends a FormData body. The Content-Type header is left unset
+// on purpose so the browser fills in the multipart boundary; everything else
+// (credentials, error shape) matches request().
+async function requestMultipart<T>(method: string, path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+    body: form,
+  });
+  return handleResponse<T>(res);
+}
+
+async function handleResponse<T>(res: Response): Promise<T> {
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -210,8 +227,22 @@ export const api = {
   // -------------------------------------------------------------------------
   // Ingest (spec §5.2 / §6): paste/upload → proposed plans, then commit.
   // -------------------------------------------------------------------------
-  ingest: (tripId: number, input: IngestInput) =>
-    request<IngestResult>('POST', `/api/trips/${tripId}/ingest`, input),
+  // When a file is attached the request goes out as multipart/form-data so the
+  // backend can forward the bytes to the document extractor (PDF tickets);
+  // otherwise it stays a plain JSON {text, source} request.
+  ingest: (tripId: number, input: IngestInput) => {
+    if (input.file) {
+      const form = new FormData();
+      form.append('file', input.file, input.file.name);
+      if (input.text) form.append('text', input.text);
+      if (input.source) form.append('source', input.source);
+      return requestMultipart<IngestResult>('POST', `/api/trips/${tripId}/ingest`, form);
+    }
+    return request<IngestResult>('POST', `/api/trips/${tripId}/ingest`, {
+      text: input.text,
+      source: input.source,
+    });
+  },
   ingestConfirm: (tripId: number, plans: ConfirmPlanInput[]) =>
     request<Plan[]>('POST', `/api/trips/${tripId}/ingest/confirm`, { plans }),
 
@@ -237,6 +268,10 @@ export const api = {
     const qs = params.toString();
     return request<TrackerPart[]>('GET', qs ? `/api/tracker?${qs}` : '/api/tracker');
   },
+  // Focused single-flight view: the full part with its flight detail, latest
+  // position AND the flown track (the convergence list stays position-only).
+  getTrackerPart: (partId: number) =>
+    request<PlanPart>('GET', `/api/tracker/part/${partId}`),
 
   // -------------------------------------------------------------------------
   // Alerts (spec §5.2 / §9).

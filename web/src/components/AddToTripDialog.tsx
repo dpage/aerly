@@ -94,11 +94,15 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
     onClose();
   };
 
-  const handleIngest = async (input: { text?: string; source: 'paste' | 'upload' }) => {
+  const handleIngest = async (input: {
+    text?: string;
+    file?: File;
+    source: 'paste' | 'upload';
+  }) => {
     if (effectiveTripId == null) return;
     setBusy(true);
     try {
-      await ingest(effectiveTripId, { text: input.text, source: input.source });
+      await ingest(effectiveTripId, { text: input.text, file: input.file, source: input.source });
       // Success: the store now holds the proposals; hand over to the confirm
       // step (which reads them from the store).
       setSubmitted(true);
@@ -194,7 +198,7 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
             {tab === 'upload' && (
               <UploadTab
                 disabled={effectiveTripId == null || working}
-                onIngest={(text) => void handleIngest({ text, source: 'upload' })}
+                onIngest={(payload) => void handleIngest({ ...payload, source: 'upload' })}
               />
             )}
             {tab === 'email' && (
@@ -436,20 +440,25 @@ function PasteTab({ disabled, onIngest }: IngestTabProps) {
   );
 }
 
-function UploadTab({ disabled, onIngest }: IngestTabProps) {
-  const [fileName, setFileName] = useState('');
+interface UploadTabProps {
+  disabled: boolean;
+  /** Sends the chosen file bytes (PDF/binary) and/or inlined text to ingest. */
+  onIngest: (payload: { text?: string; file?: File }) => void;
+}
+
+function UploadTab({ disabled, onIngest }: UploadTabProps) {
+  const [file, setFile] = useState<File | null>(null);
+  // For text-ish documents we also read the contents inline so a degraded /
+  // text-only extractor still has something to work with; binary tickets (PDF)
+  // are sent as the file and handled by the backend's document extractor.
   const [text, setText] = useState('');
 
-  const onFile = async (file: File | undefined) => {
-    if (!file) return;
-    setFileName(file.name);
-    // Text-ish documents (e.g. .txt/.eml) can be read inline and sent through
-    // the same text path. Binary tickets (PDF) are handled by the backend's
-    // document extractor; until the upload transport lands we surface the
-    // filename and let the user paste, so the flow degrades gracefully.
-    if (/text|message|json/.test(file.type) || /\.(txt|eml|md)$/i.test(file.name)) {
+  const onFile = async (chosen: File | undefined) => {
+    if (!chosen) return;
+    setFile(chosen);
+    if (/text|message|json/.test(chosen.type) || /\.(txt|eml|md)$/i.test(chosen.name)) {
       try {
-        setText(await file.text());
+        setText(await chosen.text());
       } catch {
         setText('');
       }
@@ -473,16 +482,16 @@ function UploadTab({ disabled, onIngest }: IngestTabProps) {
           onChange={(e) => void onFile(e.target.files?.[0])}
         />
       </Button>
-      {fileName && (
+      {file && (
         <Typography variant="caption" color="text.secondary">
-          Selected: {fileName}
+          Selected: {file.name}
         </Typography>
       )}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Button
           variant="contained"
-          onClick={() => onIngest(text)}
-          disabled={disabled || (text.trim() === '' && fileName === '')}
+          onClick={() => onIngest({ file: file ?? undefined, text: text.trim() || undefined })}
+          disabled={disabled || file === null}
         >
           Extract plan
         </Button>

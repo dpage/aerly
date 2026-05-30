@@ -3,20 +3,23 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
-import type { Position, TrackerPart, Trip } from '../api/types';
+import type { PlanPart, Position, TrackerPart, Trip } from '../api/types';
 import maplibreMock, { resetMaplibreMock } from '../test/maplibre-mock';
 
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
 const loadTracker = vi.fn();
+const loadTrackerPart = vi.fn().mockResolvedValue(undefined);
 const setTrackerWindow = vi.fn().mockResolvedValue(undefined);
 const listTrips = vi.fn();
 
 const state = {
   loadTracker,
+  loadTrackerPart,
   setTrackerWindow,
   listTrips,
   trackerParts: [] as TrackerPart[],
+  focusedPart: null as PlanPart | null,
   trackerTag: '',
   trackerWindow: { before: '7d', after: '7d' },
   trackerLoading: false,
@@ -74,6 +77,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetMaplibreMock();
   state.trackerParts = [];
+  state.focusedPart = null;
   state.trackerTag = '';
   state.trackerWindow = { before: '7d', after: '7d' };
   state.trackerLoading = false;
@@ -109,6 +113,11 @@ describe('Tracker page', () => {
     expect(screen.queryByLabelText('Tag')).not.toBeInTheDocument();
     expect(screen.getByText('LH7')).toBeInTheDocument();
     expect(screen.queryByText('BA1')).not.toBeInTheDocument();
+  });
+
+  it('fetches the focused part detail (track) when ?part= is set', async () => {
+    renderTracker('/tracker?part=2');
+    await waitFor(() => expect(loadTrackerPart).toHaveBeenCalledWith(2));
   });
 
   it('changing the tag seeds the window from the tag span and reloads', async () => {

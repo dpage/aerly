@@ -53,8 +53,10 @@ export default function Tracker() {
   }, [searchParams]);
 
   const loadTracker = useStore((s) => s.loadTracker);
+  const loadTrackerPart = useStore((s) => s.loadTrackerPart);
   const setTrackerWindow = useStore((s) => s.setTrackerWindow);
   const parts = useStore((s) => s.trackerParts);
+  const focusedPart = useStore((s) => s.focusedPart);
   const tag = useStore((s) => s.trackerTag);
   const win = useStore((s) => s.trackerWindow);
   const loading = useStore((s) => s.trackerLoading);
@@ -64,6 +66,12 @@ export default function Tracker() {
   useEffect(() => {
     void loadTracker();
   }, [loadTracker]);
+
+  // Single-flight focus: fetch the focused part's full detail + flown track so
+  // the map can draw the polyline + great-circle. Clears when leaving focus.
+  useEffect(() => {
+    void loadTrackerPart(focusedPartId);
+  }, [focusedPartId, loadTrackerPart]);
 
   // The tag selector's options come from the tags on trips the viewer can see;
   // we need the trip list for both that and the tag-derived default window.
@@ -202,7 +210,7 @@ export default function Tracker() {
 
       <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: { xs: 'column', md: 'row' } }}>
         <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 280 }}>
-          <TrackerMap parts={parts} focusedPartId={focusedPartId} />
+          <TrackerMap parts={parts} focusedPartId={focusedPartId} focusedPart={focusedPart} />
         </Box>
         <Box
           sx={{
