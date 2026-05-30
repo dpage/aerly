@@ -16,56 +16,26 @@ func canceled() context.Context {
 	return c
 }
 
-func TestFlightQueryErrorPaths(t *testing.T) {
+// TestPositionQueryErrorPaths exercises the DB-error branches of the
+// (part-keyed) position helpers that survived the Wave 3 flight cut-over.
+func TestPositionQueryErrorPaths(t *testing.T) {
 	s := newStore(t)
 	cc := canceled()
 
-	if _, err := s.ListFlights(cc); err == nil {
-		t.Error("ListFlights should error on cancelled ctx")
-	}
-	if _, err := s.ActiveFlights(cc, time.Now()); err == nil {
-		t.Error("ActiveFlights should error on cancelled ctx")
-	}
-	if _, err := s.FlightByID(cc, 1); err == nil || errors.Is(err, ErrNotFound) {
-		t.Errorf("FlightByID cancelled should be a non-NotFound error, got %v", err)
-	}
-	if _, err := s.CreateFlight(cc, CreateFlightPayload{
-		Ident: "X1", ScheduledOut: time.Now(), ScheduledIn: time.Now().Add(time.Hour),
-	}, 1); err == nil {
-		t.Error("CreateFlight should error on cancelled ctx")
-	}
-	if _, err := s.UpdateFlight(cc, 1, UpdateFlightPayload{}); err == nil {
-		t.Error("UpdateFlight should error on cancelled ctx")
-	}
-	if err := s.RefreshFlightStatus(cc, 1); err == nil {
-		t.Error("RefreshFlightStatus should error on cancelled ctx")
-	}
-	if err := s.DeleteFlight(cc, 1); err == nil {
-		t.Error("DeleteFlight should error on cancelled ctx")
-	}
-	if err := s.AddPassenger(cc, 1, 1); err == nil {
-		t.Error("AddPassenger should error on cancelled ctx")
-	}
-	if err := s.RemovePassenger(cc, 1, 1); err == nil {
-		t.Error("RemovePassenger should error on cancelled ctx")
-	}
-	if _, err := s.PassengersByFlight(cc, []int64{1}); err == nil {
-		t.Error("PassengersByFlight should error on cancelled ctx")
-	}
 	if _, err := s.LatestRealPosition(cc, 1); err == nil {
 		t.Error("LatestRealPosition should error on cancelled ctx")
 	}
-	if _, err := s.RecentTracks(cc, []int64{1}, 10); err == nil {
-		t.Error("RecentTracks should error on cancelled ctx")
+	if _, err := s.LatestPartPositions(cc, []int64{1}); err == nil {
+		t.Error("LatestPartPositions should error on cancelled ctx")
 	}
-	if _, err := s.LatestPositions(cc, []int64{1}); err == nil {
-		t.Error("LatestPositions should error on cancelled ctx")
+	if _, err := s.PartTracks(cc, []int64{1}, 10); err == nil {
+		t.Error("PartTracks should error on cancelled ctx")
 	}
 	if _, err := s.PositionsForFlight(cc, 1, 10); err == nil {
 		t.Error("PositionsForFlight should error on cancelled ctx")
 	}
-	if err := s.InsertPosition(cc, Position{FlightID: 1, Ts: time.Now()}); err == nil {
-		t.Error("InsertPosition should error on cancelled ctx")
+	if err := s.InsertPartPosition(cc, Position{FlightID: 1, Ts: time.Now()}); err == nil {
+		t.Error("InsertPartPosition should error on cancelled ctx")
 	}
 }
 
@@ -108,7 +78,7 @@ func TestUserQueryErrorPaths(t *testing.T) {
 // users / user_identities tables after Begin would otherwise succeed.
 func TestLinkLoginFirstQueryErrors(t *testing.T) {
 	s := newStore(t)
-	if _, err := s.pool.Exec(ctx, `DROP TABLE flight_passengers, positions, flights, user_emails, user_identities, users CASCADE`); err != nil {
+	if _, err := s.pool.Exec(ctx, `DROP TABLE positions, user_emails, user_identities, users CASCADE`); err != nil {
 		t.Fatalf("drop tables: %v", err)
 	}
 	_, _, err := s.LinkLogin(ctx,

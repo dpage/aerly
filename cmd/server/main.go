@@ -21,7 +21,6 @@ import (
 	"github.com/dpage/aerly/internal/config"
 	"github.com/dpage/aerly/internal/db"
 	"github.com/dpage/aerly/internal/emailingest"
-	"github.com/dpage/aerly/internal/flightops"
 	"github.com/dpage/aerly/internal/handlers"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/poller"
@@ -151,11 +150,9 @@ func run() error {
 				SendmailPath:  cfg.EmailIngestSendmail,
 				PublicURL:     cfg.PublicURL,
 			},
-			Store:      s,
-			Extractor:  extractor,
-			FlightDeps: flightops.Deps{Store: s, Resolver: resolver},
-			PlanDeps:   planops.Deps{Store: s, Extractor: extractor, Resolver: resolver},
-			Hub:        hub,
+			Store:     s,
+			Extractor: extractor,
+			PlanDeps:  planops.Deps{Store: s, Extractor: extractor, Resolver: resolver},
 		}
 		go func() {
 			if err := svc.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {

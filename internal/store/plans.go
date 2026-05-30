@@ -943,9 +943,9 @@ func (s *Store) ListVisiblePlanParts(ctx context.Context, viewerID int64, opts L
 // member who passes the per-plan rule, unioned with passengers and the plan
 // creator (who are always granted).
 //
-// Named VisiblePlanUserIDs (not VisibleUserIDs) because the legacy
-// flights.go still defines a flight-keyed VisibleUserIDs; Wave 3 retires that
-// one. Feature agents fanning out plan-part SSE events should call this.
+// Named VisiblePlanUserIDs (the flight-keyed VisibleUserIDs it once shared the
+// concept with was retired with the legacy flight surface in Wave 3). Callers
+// fanning out plan-part SSE events should call this.
 func (s *Store) VisiblePlanUserIDs(ctx context.Context, planID int64) ([]int64, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT u.id FROM users u

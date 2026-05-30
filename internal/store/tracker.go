@@ -42,9 +42,9 @@ const flightPartFrom = `FROM plan_parts part
 	JOIN plans pl ON pl.id = part.plan_id`
 
 // scanFlightPart reads the flightPartColumns projection into a *Flight. The
-// scan order matches scanFlight in flights.go exactly, so the carrier struct is
-// byte-for-byte equivalent to the legacy one — IsPublic is always false (the
-// concept moved to plan_visibility), and CreatedBy/Notes come from the plan.
+// *Flight carrier struct is the one the providers/poller consume; IsPublic is
+// always false (the concept moved to plan_visibility), and CreatedBy/Notes come
+// from the owning plan.
 func scanFlightPart(row pgx.Row) (*Flight, error) {
 	var f Flight
 	if err := row.Scan(
@@ -124,11 +124,27 @@ func (s *Store) FlightPartsWithMissingCoords(ctx context.Context) ([]*Flight, er
 	return out, rows.Err()
 }
 
-// BackfillFlightPart is the part-keyed counterpart of BackfillFlight. It writes
-// resolver-supplied metadata only into columns that are currently empty so
-// user-typed values are never overwritten — identical rule to BackfillFlight,
-// split across the two tables the data now lives in: IATA/airframe on
-// flight_details, coords on plan_parts, notes on the owning plan.
+// BackfillPayload carries optional resolver-supplied metadata for a flight
+// part that was created with blanks. The poller uses this to fill in airports,
+// airframe, and notes the first time it sees the part in its active window.
+// Empty / zero values are ignored — BackfillFlightPart only touches columns
+// whose current value is empty so user-typed entries are never overwritten.
+type BackfillPayload struct {
+	OriginIATA string
+	OriginLat  float64
+	OriginLon  float64
+	DestIATA   string
+	DestLat    float64
+	DestLon    float64
+	ICAO24     string
+	Callsign   string
+	Notes      string
+}
+
+// BackfillFlightPart writes resolver-supplied metadata only into columns that
+// are currently empty so user-typed values are never overwritten — split
+// across the tables the data now lives in: IATA/airframe on flight_details,
+// coords on plan_parts, notes on the owning plan.
 func (s *Store) BackfillFlightPart(ctx context.Context, partID int64, in BackfillPayload) error {
 	icao24 := strings.ToLower(strings.TrimSpace(in.ICAO24))
 	callsign := strings.ToUpper(strings.TrimSpace(in.Callsign))
