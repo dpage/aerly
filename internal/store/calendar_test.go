@@ -42,16 +42,16 @@ func TestCalendarTokenIssueAndResolve(t *testing.T) {
 	u := mkUser(t, s)
 
 	// CalendarToken issues on first call.
-	ct, err := s.CalendarToken(ctx, u, "me")
+	ct, err := s.CalendarToken(ctx, u, "me", 0)
 	if err != nil {
 		t.Fatalf("CalendarToken: %v", err)
 	}
-	if ct.Token == "" || ct.Scope != "me" || ct.UserID != u {
+	if ct.Token == "" || ct.Scope != "me" || ct.UserID != u || ct.ResourceID != 0 {
 		t.Fatalf("unexpected token: %+v", ct)
 	}
 
 	// Second call returns the same token (idempotent fetch).
-	ct2, err := s.CalendarToken(ctx, u, "me")
+	ct2, err := s.CalendarToken(ctx, u, "me", 0)
 	if err != nil {
 		t.Fatalf("CalendarToken 2: %v", err)
 	}
@@ -59,23 +59,75 @@ func TestCalendarTokenIssueAndResolve(t *testing.T) {
 		t.Errorf("CalendarToken not stable: %q vs %q", ct.Token, ct2.Token)
 	}
 
-	// Resolve back to the owner.
-	got, err := s.UserByCalendarToken(ctx, ct.Token)
+	// Resolve back to the owner with its scope+resource.
+	info, err := s.CalendarTokenByValue(ctx, ct.Token)
 	if err != nil {
-		t.Fatalf("UserByCalendarToken: %v", err)
+		t.Fatalf("CalendarTokenByValue: %v", err)
 	}
-	if got != u {
-		t.Errorf("UserByCalendarToken = %d, want %d", got, u)
+	if info.UserID != u || info.Scope != "me" || info.ResourceID != 0 {
+		t.Errorf("CalendarTokenByValue = %+v, want user %d / me / 0", info, u)
 	}
 
 	// Unknown token → ErrNotFound.
-	if _, err := s.UserByCalendarToken(ctx, "nope"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.CalendarTokenByValue(ctx, "nope"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown token err = %v, want ErrNotFound", err)
 	}
 
 	// Invalid scope is rejected.
-	if _, err := s.CalendarToken(ctx, u, "bogus"); err == nil {
+	if _, err := s.CalendarToken(ctx, u, "bogus", 0); err == nil {
 		t.Error("CalendarToken accepted invalid scope")
+	}
+
+	// trip/plan scope requires a resource id.
+	if _, err := s.CalendarToken(ctx, u, "trip", 0); err == nil {
+		t.Error("CalendarToken accepted trip scope without resource id")
+	}
+}
+
+// TestCalendarTokenPerResourceGranularity: each (scope, resource) gets its own
+// token, regenerating one does not disturb another, and a token resolves to its
+// own resource only.
+func TestCalendarTokenPerResourceGranularity(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	u := mkUser(t, s)
+
+	trip5, err := s.CalendarToken(ctx, u, "trip", 5)
+	if err != nil {
+		t.Fatalf("trip5 token: %v", err)
+	}
+	trip6, err := s.CalendarToken(ctx, u, "trip", 6)
+	if err != nil {
+		t.Fatalf("trip6 token: %v", err)
+	}
+	if trip5.Token == trip6.Token {
+		t.Fatal("distinct trip resources shared a token")
+	}
+	if trip5.ResourceID != 5 || trip6.ResourceID != 6 {
+		t.Fatalf("resource ids wrong: %d / %d", trip5.ResourceID, trip6.ResourceID)
+	}
+
+	// Each token resolves to its own resource.
+	info5, _ := s.CalendarTokenByValue(ctx, trip5.Token)
+	if info5.Scope != "trip" || info5.ResourceID != 5 {
+		t.Errorf("trip5 resolves to %+v, want trip/5", info5)
+	}
+
+	// Regenerating trip 5 revokes ONLY trip 5; trip 6 is untouched.
+	newTrip5, err := s.RegenerateCalendarToken(ctx, u, "trip", 5)
+	if err != nil {
+		t.Fatalf("regenerate trip5: %v", err)
+	}
+	if newTrip5.Token == trip5.Token {
+		t.Fatal("regenerate did not change trip5 token")
+	}
+	if _, err := s.CalendarTokenByValue(ctx, trip5.Token); !errors.Is(err, ErrNotFound) {
+		t.Errorf("old trip5 token still resolves: %v", err)
+	}
+	if _, err := s.CalendarTokenByValue(ctx, trip6.Token); err != nil {
+		t.Errorf("trip6 token was disturbed by trip5 regenerate: %v", err)
 	}
 }
 
@@ -85,11 +137,11 @@ func TestCalendarTokenRegenerateRevokes(t *testing.T) {
 		return
 	}
 	u := mkUser(t, s)
-	first, err := s.CalendarToken(ctx, u, "trip")
+	first, err := s.CalendarToken(ctx, u, "trip", 1)
 	if err != nil {
 		t.Fatalf("CalendarToken: %v", err)
 	}
-	second, err := s.RegenerateCalendarToken(ctx, u, "trip")
+	second, err := s.RegenerateCalendarToken(ctx, u, "trip", 1)
 	if err != nil {
 		t.Fatalf("RegenerateCalendarToken: %v", err)
 	}
@@ -97,11 +149,11 @@ func TestCalendarTokenRegenerateRevokes(t *testing.T) {
 		t.Fatal("regenerate did not change the token")
 	}
 	// Old token no longer resolves.
-	if _, err := s.UserByCalendarToken(ctx, first.Token); !errors.Is(err, ErrNotFound) {
+	if _, err := s.CalendarTokenByValue(ctx, first.Token); !errors.Is(err, ErrNotFound) {
 		t.Errorf("old token still resolves: err=%v", err)
 	}
 	// New token resolves.
-	if _, err := s.UserByCalendarToken(ctx, second.Token); err != nil {
+	if _, err := s.CalendarTokenByValue(ctx, second.Token); err != nil {
 		t.Errorf("new token does not resolve: %v", err)
 	}
 }
@@ -113,8 +165,8 @@ func TestCalendarTokenListAndRevoke(t *testing.T) {
 	}
 	u := mkUser(t, s)
 	other := mkUser(t, s)
-	me, _ := s.CalendarToken(ctx, u, "me")
-	_, _ = s.CalendarToken(ctx, u, "trip")
+	me, _ := s.CalendarToken(ctx, u, "me", 0)
+	_, _ = s.CalendarToken(ctx, u, "trip", 7)
 
 	toks, err := s.ListCalendarTokens(ctx, u)
 	if err != nil {
@@ -132,7 +184,7 @@ func TestCalendarTokenListAndRevoke(t *testing.T) {
 	if err := s.RevokeCalendarToken(ctx, u, me.Token); err != nil {
 		t.Errorf("owner revoke: %v", err)
 	}
-	if _, err := s.UserByCalendarToken(ctx, me.Token); !errors.Is(err, ErrNotFound) {
+	if _, err := s.CalendarTokenByValue(ctx, me.Token); !errors.Is(err, ErrNotFound) {
 		t.Errorf("revoked token still resolves: %v", err)
 	}
 }

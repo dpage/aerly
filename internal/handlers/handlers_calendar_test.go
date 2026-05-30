@@ -122,6 +122,17 @@ func TestCalendarTokenManagementEndpoints(t *testing.T) {
 	if u, _ := tripTok["url"].(string); !strings.Contains(u, "/api/calendar/trip/42.ics?token=") {
 		t.Errorf("trip url = %q, want trip/42.ics", u)
 	}
+	if rid, _ := tripTok["resource_id"].(float64); rid != 42 {
+		t.Errorf("trip token resource_id = %v, want 42", tripTok["resource_id"])
+	}
+
+	// A second trip (different id) gets its own distinct token — per-resource
+	// granularity, so regenerating one trip's feed never revokes another's.
+	w = e.req(t, "POST", "/api/calendar/tokens", map[string]any{"scope": "trip", "id": 43}, uid)
+	trip43 := decodeBody[map[string]any](t, w)
+	if trip43["token"] == tripTok["token"] {
+		t.Error("distinct trip ids shared a token")
+	}
 
 	// trip/plan scope without id → 400.
 	if w := e.req(t, "POST", "/api/calendar/tokens", map[string]any{"scope": "plan"}, uid); w.Code != http.StatusBadRequest {
@@ -132,11 +143,11 @@ func TestCalendarTokenManagementEndpoints(t *testing.T) {
 		t.Errorf("bad scope = %d, want 400", w.Code)
 	}
 
-	// List now has 2 tokens.
+	// List now has 3 tokens (me + trip 42 + trip 43).
 	w = e.req(t, "GET", "/api/calendar/tokens", nil, uid)
 	list := decodeBody[[]map[string]any](t, w)
-	if len(list) != 2 {
-		t.Fatalf("list len = %d, want 2", len(list))
+	if len(list) != 3 {
+		t.Fatalf("list len = %d, want 3", len(list))
 	}
 
 	// Revoke the me token.
@@ -172,14 +183,23 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 	seedPart(t, e, hid)
 	hidePlanFrom(t, e, hid, member)
 
-	// Issue per-user tokens.
-	ownerTok, err := e.store.CalendarToken(context.Background(), owner, "me")
+	// Issue per-user "me" tokens plus per-resource trip/plan tokens (each feed
+	// now needs a token issued for exactly its scope+resource).
+	ownerTok, err := e.store.CalendarToken(context.Background(), owner, "me", 0)
 	if err != nil {
 		t.Fatalf("owner token: %v", err)
 	}
-	memberTok, err := e.store.CalendarToken(context.Background(), member, "me")
+	memberTok, err := e.store.CalendarToken(context.Background(), member, "me", 0)
 	if err != nil {
 		t.Fatalf("member token: %v", err)
+	}
+	memberTripTok, err := e.store.CalendarToken(context.Background(), member, "trip", trip)
+	if err != nil {
+		t.Fatalf("member trip token: %v", err)
+	}
+	memberPlanTok, err := e.store.CalendarToken(context.Background(), member, "plan", hid)
+	if err != nil {
+		t.Fatalf("member plan token: %v", err)
 	}
 
 	feed := func(path string) string {
@@ -208,17 +228,30 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 		t.Errorf("member feed LEAKED hidden plan:\n%s", memberFeed)
 	}
 
-	// Trip feed for member: same — hidden absent.
-	tripFeed := feed("/api/calendar/trip/" + itoa(trip) + ".ics?token=" + memberTok.Token)
+	// Trip feed for member (its own trip token): same — hidden absent.
+	tripFeed := feed("/api/calendar/trip/" + itoa(trip) + ".ics?token=" + memberTripTok.Token)
 	if strings.Contains(tripFeed, "Hidden Flight") {
 		t.Errorf("member trip feed LEAKED hidden plan:\n%s", tripFeed)
 	}
 
-	// Single-plan feed for the hidden plan via the member's token → empty
+	// Single-plan feed for the hidden plan via the member's plan token → empty
 	// (no VEVENT), because the member can't see it.
-	planFeed := feed("/api/calendar/plan/" + itoa(hid) + ".ics?token=" + memberTok.Token)
+	planFeed := feed("/api/calendar/plan/" + itoa(hid) + ".ics?token=" + memberPlanTok.Token)
 	if strings.Contains(planFeed, "BEGIN:VEVENT") {
 		t.Errorf("member single-plan feed for hidden plan should have no events:\n%s", planFeed)
+	}
+
+	// Per-resource enforcement: a "me" token must NOT authorize a trip/plan feed.
+	if w := rawGet(e, "/api/calendar/trip/"+itoa(trip)+".ics?token="+memberTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("me token at trip feed = %d, want 401", w.Code)
+	}
+	// A token for one trip must not authorize a different trip's feed.
+	if w := rawGet(e, "/api/calendar/trip/"+itoa(trip+1)+".ics?token="+memberTripTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("trip token at other trip feed = %d, want 401", w.Code)
+	}
+	// A trip token must not authorize the plan feed for the same id.
+	if w := rawGet(e, "/api/calendar/plan/"+itoa(trip)+".ics?token="+memberTripTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("trip token at plan feed = %d, want 401", w.Code)
 	}
 
 	// Missing token → 401.
@@ -243,7 +276,7 @@ func TestCalendarFeedUpdatesReflectPartChanges(t *testing.T) {
 	trip := seedTrip(t, e, owner)
 	plan := seedPlan(t, e, trip, owner, "Live Flight")
 	seedPart(t, e, plan)
-	tok, _ := e.store.CalendarToken(context.Background(), owner, "me")
+	tok, _ := e.store.CalendarToken(context.Background(), owner, "plan", plan)
 
 	first := rawGet(e, "/api/calendar/plan/"+itoa(plan)+".ics?token="+tok.Token).Body.String()
 	if !strings.Contains(first, "BEGIN:VEVENT") {

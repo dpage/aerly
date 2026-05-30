@@ -108,6 +108,48 @@ func TestRenderICSStructure(t *testing.T) {
 	}
 }
 
+// TestRenderICSDSTTransitions verifies the VTIMEZONE carries proper
+// DAYLIGHT/STANDARD observances with RRULE transitions, and that two events
+// straddling a DST boundary render the correct local wall-clock times.
+func TestRenderICSDSTTransitions(t *testing.T) {
+	// Two events in Europe/London on either side of the autumn 2026 transition
+	// (BST→GMT at 02:00 BST on the last Sunday of October, 2026-10-25).
+	// Before: 2026-10-20 12:00Z = 13:00 BST (UTC+1).
+	// After:  2026-11-03 12:00Z = 12:00 GMT (UTC+0).
+	before := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	after := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	events := []*store.CalendarEvent{
+		{PartID: 1, Type: "flight", Title: "Pre-DST", StartsAt: before, StartTZ: "Europe/London", UpdatedAt: before},
+		{PartID: 2, Type: "flight", Title: "Post-DST", StartsAt: after, StartTZ: "Europe/London", UpdatedAt: after},
+	}
+	out := renderICS("Aerly", events)
+
+	mustContain := []string{
+		"BEGIN:VTIMEZONE",
+		"TZID:Europe/London",
+		"BEGIN:DAYLIGHT",
+		"BEGIN:STANDARD",
+		"RRULE:FREQ=YEARLY;BYMONTH=3",  // spring forward in March
+		"RRULE:FREQ=YEARLY;BYMONTH=10", // fall back in October
+		"TZOFFSETTO:+0100",             // BST
+		"TZOFFSETTO:+0000",             // GMT
+		// Local wall-clock times the client renders against the VTIMEZONE.
+		"DTSTART;TZID=Europe/London:20261020T130000", // 13:00 BST
+		"DTSTART;TZID=Europe/London:20261103T120000", // 12:00 GMT
+	}
+	for _, m := range mustContain {
+		if !strings.Contains(out, m) {
+			t.Errorf("ICS DST output missing %q\n---\n%s", m, out)
+		}
+	}
+
+	// The DST RRULE should resolve to the last Sunday (BYDAY=-1SU) for both
+	// transitions in Europe/London.
+	if !strings.Contains(out, "BYDAY=-1SU") {
+		t.Errorf("expected last-Sunday RRULE for Europe/London:\n%s", out)
+	}
+}
+
 func TestRenderICSNoTZFallsBackToUTC(t *testing.T) {
 	events := []*store.CalendarEvent{{
 		PartID:    1,

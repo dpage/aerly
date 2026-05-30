@@ -487,6 +487,10 @@ export type CalendarScope = 'me' | 'trip' | 'plan';
 
 export interface CalendarToken {
   scope: CalendarScope;
+  /** Trip/plan id this token's feed is pinned to; 0 for the `me` scope. Tokens
+   * are keyed per (scope, resource_id), so each trip/plan feed is independently
+   * revocable. */
+  resource_id: number;
   token: string;
   /** Ready-to-use feed URL. */
   url: string;

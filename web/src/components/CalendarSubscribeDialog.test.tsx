@@ -19,6 +19,7 @@ import CalendarSubscribeDialog from './CalendarSubscribeDialog';
 function token(over: Partial<CalendarToken> = {}): CalendarToken {
   return {
     scope: 'me',
+    resource_id: 0,
     token: 'tok-abc',
     url: 'https://aerly.test/cal/tok-abc.ics',
     created_at: '2026-01-01T00:00:00Z',
@@ -61,10 +62,31 @@ describe('CalendarSubscribeDialog', () => {
   it('passes the id for trip scope when issuing', async () => {
     const user = userEvent.setup();
     h.api.listCalendarTokens.mockResolvedValue([]);
-    h.api.issueCalendarToken.mockResolvedValue(token({ scope: 'trip', url: 'https://x/trip.ics' }));
+    h.api.issueCalendarToken.mockResolvedValue(token({ scope: 'trip', resource_id: 42, url: 'https://x/trip.ics' }));
     render(<CalendarSubscribeDialog open scope="trip" id={42} onClose={vi.fn()} />);
     await user.click(await screen.findByRole('button', { name: /create feed link/i }));
     expect(h.api.issueCalendarToken).toHaveBeenCalledWith('trip', 42);
+  });
+
+  it('matches only the token for this resource, not another trip', async () => {
+    // Two trip tokens exist; the dialog for trip 42 must surface trip 42's feed
+    // and ignore trip 99's — per-resource granularity.
+    h.api.listCalendarTokens.mockResolvedValue([
+      token({ scope: 'trip', resource_id: 99, token: 't99', url: 'https://x/trip99.ics' }),
+      token({ scope: 'trip', resource_id: 42, token: 't42', url: 'https://x/trip42.ics' }),
+    ]);
+    render(<CalendarSubscribeDialog open scope="trip" id={42} onClose={vi.fn()} />);
+    const field = await screen.findByLabelText('Feed URL');
+    expect(field).toHaveValue('https://x/trip42.ics');
+  });
+
+  it('offers to create a link when only a different resource is tokenized', async () => {
+    // Only trip 99 has a token; the trip 42 dialog should NOT reuse it.
+    h.api.listCalendarTokens.mockResolvedValue([
+      token({ scope: 'trip', resource_id: 99, token: 't99', url: 'https://x/trip99.ics' }),
+    ]);
+    render(<CalendarSubscribeDialog open scope="trip" id={42} onClose={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: /create feed link/i })).toBeInTheDocument();
   });
 
   it('copies the URL to the clipboard', async () => {

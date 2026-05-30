@@ -8,14 +8,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// CalendarToken is a per-user, per-scope secret used to authenticate the
-// read-only iCal feeds (not the session cookie, since calendar clients won't
-// carry it). Regenerating revokes the prior feed URL.
+// CalendarToken is a per-user, per-(scope,resource) secret used to authenticate
+// the read-only iCal feeds (not the session cookie, since calendar clients won't
+// carry it). Regenerating revokes only that one resource's feed URL.
 type CalendarToken struct {
-	UserID    int64
-	Scope     string // "me" | "trip" | "plan"
-	Token     string
-	CreatedAt time.Time
+	UserID     int64
+	Scope      string // "me" | "trip" | "plan"
+	ResourceID int64  // trip/plan id for trip/plan scope; 0 for the "me" scope
+	Token      string
+	CreatedAt  time.Time
 }
 
 // validCalendarScope reports whether scope is one of the three feed scopes.
@@ -28,20 +29,36 @@ func validCalendarScope(scope string) bool {
 	}
 }
 
-// CalendarToken returns the user's token for the given scope, issuing one if
-// absent. The (user_id, scope) primary key means a user has at most one token
-// per scope; the per-scope token authenticates the user, and the feed URL
-// carries the trip/plan id.
-func (s *Store) CalendarToken(ctx context.Context, userID int64, scope string) (*CalendarToken, error) {
+// normalizeCalendarResource clamps resource_id to 0 for the "me" scope (which
+// has no resource) and rejects a missing id for trip/plan scopes.
+func normalizeCalendarResource(scope string, resourceID int64) (int64, error) {
+	if scope == "me" {
+		return 0, nil
+	}
+	if resourceID <= 0 {
+		return 0, errors.New("resource id required for trip/plan calendar scope")
+	}
+	return resourceID, nil
+}
+
+// CalendarToken returns the user's token for the given scope+resource, issuing
+// one if absent. The (user_id, scope, resource_id) primary key means a user has
+// at most one token per resource feed; the token both authenticates the user
+// and pins which resource its feed may surface.
+func (s *Store) CalendarToken(ctx context.Context, userID int64, scope string, resourceID int64) (*CalendarToken, error) {
 	if !validCalendarScope(scope) {
 		return nil, errors.New("invalid calendar scope")
 	}
+	rid, err := normalizeCalendarResource(scope, resourceID)
+	if err != nil {
+		return nil, err
+	}
 	var ct CalendarToken
-	err := s.pool.QueryRow(ctx,
-		`SELECT user_id, scope, token, created_at
-		   FROM calendar_tokens WHERE user_id = $1 AND scope = $2`,
-		userID, scope,
-	).Scan(&ct.UserID, &ct.Scope, &ct.Token, &ct.CreatedAt)
+	err = s.pool.QueryRow(ctx,
+		`SELECT user_id, scope, resource_id, token, created_at
+		   FROM calendar_tokens WHERE user_id = $1 AND scope = $2 AND resource_id = $3`,
+		userID, scope, rid,
+	).Scan(&ct.UserID, &ct.Scope, &ct.ResourceID, &ct.Token, &ct.CreatedAt)
 	if err == nil {
 		return &ct, nil
 	}
@@ -49,15 +66,20 @@ func (s *Store) CalendarToken(ctx context.Context, userID int64, scope string) (
 		return nil, err
 	}
 	// No token yet — issue one.
-	return s.RegenerateCalendarToken(ctx, userID, scope)
+	return s.RegenerateCalendarToken(ctx, userID, scope, rid)
 }
 
-// RegenerateCalendarToken issues a fresh token for the scope, revoking the old
-// one (the unique (user_id, scope) row is overwritten, so the prior feed URL
-// stops authenticating).
-func (s *Store) RegenerateCalendarToken(ctx context.Context, userID int64, scope string) (*CalendarToken, error) {
+// RegenerateCalendarToken issues a fresh token for the scope+resource, revoking
+// the old one (the unique (user_id, scope, resource_id) row is overwritten, so
+// only that resource's prior feed URL stops authenticating — other trip/plan
+// feeds are untouched).
+func (s *Store) RegenerateCalendarToken(ctx context.Context, userID int64, scope string, resourceID int64) (*CalendarToken, error) {
 	if !validCalendarScope(scope) {
 		return nil, errors.New("invalid calendar scope")
+	}
+	rid, err := normalizeCalendarResource(scope, resourceID)
+	if err != nil {
+		return nil, err
 	}
 	tok, err := generateToken()
 	if err != nil {
@@ -65,25 +87,25 @@ func (s *Store) RegenerateCalendarToken(ctx context.Context, userID int64, scope
 	}
 	var ct CalendarToken
 	err = s.pool.QueryRow(ctx,
-		`INSERT INTO calendar_tokens (user_id, scope, token, created_at)
-		 VALUES ($1, $2, $3, NOW())
-		 ON CONFLICT (user_id, scope)
+		`INSERT INTO calendar_tokens (user_id, scope, resource_id, token, created_at)
+		 VALUES ($1, $2, $3, $4, NOW())
+		 ON CONFLICT (user_id, scope, resource_id)
 		   DO UPDATE SET token = EXCLUDED.token, created_at = NOW()
-		 RETURNING user_id, scope, token, created_at`,
-		userID, scope, tok,
-	).Scan(&ct.UserID, &ct.Scope, &ct.Token, &ct.CreatedAt)
+		 RETURNING user_id, scope, resource_id, token, created_at`,
+		userID, scope, rid, tok,
+	).Scan(&ct.UserID, &ct.Scope, &ct.ResourceID, &ct.Token, &ct.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return &ct, nil
 }
 
-// ListCalendarTokens returns all of the user's per-scope tokens (0..3 rows),
-// ordered by scope for stable output.
+// ListCalendarTokens returns all of the user's tokens, ordered by
+// (scope, resource_id) for stable output.
 func (s *Store) ListCalendarTokens(ctx context.Context, userID int64) ([]*CalendarToken, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT user_id, scope, token, created_at
-		   FROM calendar_tokens WHERE user_id = $1 ORDER BY scope`, userID)
+		`SELECT user_id, scope, resource_id, token, created_at
+		   FROM calendar_tokens WHERE user_id = $1 ORDER BY scope, resource_id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +113,7 @@ func (s *Store) ListCalendarTokens(ctx context.Context, userID int64) ([]*Calend
 	var out []*CalendarToken
 	for rows.Next() {
 		var ct CalendarToken
-		if err := rows.Scan(&ct.UserID, &ct.Scope, &ct.Token, &ct.CreatedAt); err != nil {
+		if err := rows.Scan(&ct.UserID, &ct.Scope, &ct.ResourceID, &ct.Token, &ct.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, &ct)
@@ -115,19 +137,30 @@ func (s *Store) RevokeCalendarToken(ctx context.Context, userID int64, token str
 	return nil
 }
 
-// UserByCalendarToken resolves a feed token to the owning user id, or
-// ErrNotFound if the token is unknown.
-func (s *Store) UserByCalendarToken(ctx context.Context, token string) (int64, error) {
-	var uid int64
+// CalendarTokenInfo identifies what a feed token authorizes: the owning user
+// plus the exact (scope, resource) the token was issued for. The feed handler
+// checks the requested feed against this so a per-resource token only ever
+// surfaces its own resource.
+type CalendarTokenInfo struct {
+	UserID     int64
+	Scope      string
+	ResourceID int64
+}
+
+// CalendarTokenByValue resolves a feed token to its owner and the (scope,
+// resource) it authorizes, or ErrNotFound if the token is unknown.
+func (s *Store) CalendarTokenByValue(ctx context.Context, token string) (*CalendarTokenInfo, error) {
+	var info CalendarTokenInfo
 	err := s.pool.QueryRow(ctx,
-		`SELECT user_id FROM calendar_tokens WHERE token = $1`, token).Scan(&uid)
+		`SELECT user_id, scope, resource_id FROM calendar_tokens WHERE token = $1`, token).
+		Scan(&info.UserID, &info.Scope, &info.ResourceID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, ErrNotFound
+			return nil, ErrNotFound
 		}
-		return 0, err
+		return nil, err
 	}
-	return uid, nil
+	return &info, nil
 }
 
 // CalendarEvent is one row's worth of data the ICS renderer needs for a
