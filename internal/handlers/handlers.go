@@ -64,16 +64,11 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/me/emails/{id}/resend", req(http.HandlerFunc(a.resendMyEmail)))
 	mux.Handle("DELETE /api/me/emails/{id}", req(http.HandlerFunc(a.deleteMyEmail)))
 
-	mux.Handle("GET /api/flights", req(http.HandlerFunc(a.listFlights)))
-	mux.Handle("POST /api/flights", req(http.HandlerFunc(a.createFlight)))
+	// The legacy /api/flights CRUD surface (list/create/get/update/delete +
+	// passengers/shares) was retired in Wave 3 — flights now live in the plan
+	// model. The stateless resolver lookup survives: it does NOT touch the
+	// dropped flights table and the FE's manual flight-add still uses it.
 	mux.Handle("POST /api/flights/resolve", req(http.HandlerFunc(a.resolveFlight)))
-	mux.Handle("GET /api/flights/{id}", req(http.HandlerFunc(a.getFlight)))
-	mux.Handle("PATCH /api/flights/{id}", req(http.HandlerFunc(a.updateFlight)))
-	mux.Handle("DELETE /api/flights/{id}", req(http.HandlerFunc(a.deleteFlight)))
-	mux.Handle("POST /api/flights/{id}/passengers", req(http.HandlerFunc(a.addPassenger)))
-	mux.Handle("DELETE /api/flights/{id}/passengers/{userId}", req(http.HandlerFunc(a.removePassenger)))
-	mux.Handle("POST /api/flights/{id}/shares", req(http.HandlerFunc(a.addShare)))
-	mux.Handle("DELETE /api/flights/{id}/shares/{userId}", req(http.HandlerFunc(a.removeShare)))
 
 	mux.Handle("GET /api/notifications", req(http.HandlerFunc(a.getNotifications)))
 
@@ -143,6 +138,27 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("PUT /api/alert-prefs", req(http.HandlerFunc(a.setAlertPrefs)))
 	mux.Handle("POST /api/plans/{id}/alerts/optin", req(http.HandlerFunc(a.addPlanAlertOptin)))
 	mux.Handle("DELETE /api/plans/{id}/alerts/optin", req(http.HandlerFunc(a.removePlanAlertOptin)))
+}
+
+// events streams SSE to the caller. Builds a Subscription from the auth
+// context + ?show_all=1 query param (only honored for superusers).
+func (a *API) events(w http.ResponseWriter, r *http.Request) {
+	me := auth.UserFrom(r.Context())
+	a.Hub.Stream(w, r, sse.Subscription{
+		ViewerID:    me.ID,
+		IsSuperuser: me.IsSuperuser,
+		ShowAll:     wantsShowAll(r, me),
+	})
+}
+
+// wantsShowAll returns true when the caller asked for ?show_all=1 AND is
+// a superuser. Non-superusers cannot opt into the all-resources view.
+func wantsShowAll(r *http.Request, u *store.User) bool {
+	if u == nil || !u.IsSuperuser {
+		return false
+	}
+	v := r.URL.Query().Get("show_all")
+	return v == "1" || v == "true"
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

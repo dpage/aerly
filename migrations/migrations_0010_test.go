@@ -107,7 +107,18 @@ func TestMigration0010UpDown(t *testing.T) {
 	}
 
 	// Down then up again — exercises the reverse, and that the FK is restored.
+	// 0013 (applied by NewPool) dropped the legacy flights tables, so a correct
+	// rollback chain must run 0013-down FIRST to recreate the flights structure
+	// that 0010-down's positions→flights FK restore depends on.
+	up0013, down0013 := readUpDown(t, "0013_drop_legacy_flights")
 	up, down := readUpDown(t, "0010_trip_core")
+	if _, err := pool.Exec(ctx, down0013); err != nil {
+		t.Fatalf("apply 0013 down: %v", err)
+	}
+	// 0013-down recreates the legacy flights structure (empty).
+	if !tableExists(t, pool, "flights") {
+		t.Error("legacy flights table should be recreated by 0013 down")
+	}
 	if _, err := pool.Exec(ctx, down); err != nil {
 		t.Fatalf("apply down: %v", err)
 	}
@@ -119,15 +130,21 @@ func TestMigration0010UpDown(t *testing.T) {
 	if columnExists(t, pool, "positions", "plan_part_id") {
 		t.Error("positions.plan_part_id still present after down")
 	}
-	// Legacy tables must survive the down (Wave 3 drops them, not 0010).
+	// Legacy tables must survive the 0010 down (0010 never dropped them).
 	if !tableExists(t, pool, "flights") {
 		t.Error("legacy flights table should survive 0010 down")
 	}
-	// Re-apply up to confirm reversibility.
+	// Re-apply up (0010 then 0013) to confirm reversibility of the chain.
 	if _, err := pool.Exec(ctx, up); err != nil {
 		t.Fatalf("re-apply up: %v", err)
 	}
 	if !tableExists(t, pool, "trips") {
 		t.Error("trips missing after re-applying up")
+	}
+	if _, err := pool.Exec(ctx, up0013); err != nil {
+		t.Fatalf("re-apply 0013 up: %v", err)
+	}
+	if tableExists(t, pool, "flights") {
+		t.Error("flights should be dropped again after re-applying 0013 up")
 	}
 }

@@ -7,7 +7,6 @@ import (
 
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
-	"github.com/dpage/aerly/internal/store"
 )
 
 func TestSweep_TableFillsRow(t *testing.T) {
@@ -19,7 +18,7 @@ func TestSweep_TableFillsRow(t *testing.T) {
 	// Seed a flight whose origin IATA (BRS) is in the embedded airports
 	// table but whose dest IATA (ZZZ) is not — origin coords get filled
 	// at create time, dest coords stay NULL.
-	f, err := mkPart(ctx, s, store.CreateFlightPayload{
+	f, err := mkPart(ctx, s, partSeed{
 		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "ZZZ",
 	}, uid)
@@ -73,7 +72,7 @@ func TestSweep_NoNullRowsIsNoOp(t *testing.T) {
 
 	// Single flight, both IATAs known → all four coord columns populated
 	// at create time. Sweep should find zero candidates.
-	if _, err := mkPart(ctx, s, store.CreateFlightPayload{
+	if _, err := mkPart(ctx, s, partSeed{
 		Ident: "LH400", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "FRA", DestIATA: "JFK",
 	}, uid); err != nil {
@@ -105,7 +104,7 @@ func TestSweep_ResolverFillsUnknownIATA(t *testing.T) {
 	ctx := context.Background()
 	uid := seedUser(t, s)
 	now := time.Now()
-	f, err := mkPart(ctx, s, store.CreateFlightPayload{
+	f, err := mkPart(ctx, s, partSeed{
 		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "ZZZ", // dest not in table
 	}, uid)
@@ -146,7 +145,7 @@ func TestSweep_ResolverNotFoundLeavesNull(t *testing.T) {
 	ctx := context.Background()
 	uid := seedUser(t, s)
 	now := time.Now()
-	f, _ := mkPart(ctx, s, store.CreateFlightPayload{
+	f, _ := mkPart(ctx, s, partSeed{
 		Ident: "XX9999", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "ZZZ",
 	}, uid)
@@ -175,7 +174,7 @@ func TestSweep_ThrottleHoldsRecentRow(t *testing.T) {
 	ctx := context.Background()
 	uid := seedUser(t, s)
 	now := time.Now()
-	f, _ := mkPart(ctx, s, store.CreateFlightPayload{
+	f, _ := mkPart(ctx, s, partSeed{
 		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "ZZZ",
 	}, uid)
@@ -204,7 +203,7 @@ func TestSweep_NoResolverConfiguredTableOnly(t *testing.T) {
 	ctx := context.Background()
 	uid := seedUser(t, s)
 	now := time.Now()
-	f, _ := mkPart(ctx, s, store.CreateFlightPayload{
+	f, _ := mkPart(ctx, s, partSeed{
 		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "ZZZ",
 	}, uid)
@@ -239,7 +238,7 @@ func TestSweep_MixedBatchPerRowIsolation(t *testing.T) {
 	// (a) Table-fillable: BRS → SID (both in table); seeded with
 	// dest_lat NULL via direct SQL to simulate the "deploy added SID"
 	// case.
-	a, _ := mkPart(ctx, s, store.CreateFlightPayload{
+	a, _ := mkPart(ctx, s, partSeed{
 		Ident: "TABLE-ME", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "SID",
 	}, uid)
@@ -249,14 +248,14 @@ func TestSweep_MixedBatchPerRowIsolation(t *testing.T) {
 	}
 
 	// (b) Resolver-fillable: ident matches the fake resolver's match.
-	b, _ := mkPart(ctx, s, store.CreateFlightPayload{
+	b, _ := mkPart(ctx, s, partSeed{
 		Ident: "RESOLVE-ME", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "ZZZ",
 	}, uid)
 
 	// (c) Unfillable: ident the resolver returns ErrFlightNotFound for,
 	// dest IATA not in the table.
-	c, _ := mkPart(ctx, s, store.CreateFlightPayload{
+	c, _ := mkPart(ctx, s, partSeed{
 		Ident: "UNFILL-ME", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "QQQ",
 	}, uid)
@@ -297,7 +296,7 @@ func TestSweep_PartiallyUnknownPreservesTableFilledLeg(t *testing.T) {
 	now := time.Now()
 	// Seed with origin=BRS (in table) and dest=ZZZ (not in table). The
 	// create-time helper fills origin coords, dest stays NULL.
-	f, _ := mkPart(ctx, s, store.CreateFlightPayload{
+	f, _ := mkPart(ctx, s, partSeed{
 		Ident: "EZY2823", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
 		OriginIATA: "BRS", DestIATA: "ZZZ",
 	}, uid)

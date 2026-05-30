@@ -256,98 +256,26 @@ func (s *Store) AcceptFriendship(ctx context.Context, viewerID, otherID int64) (
 
 // RemoveFriendship deletes the row joining viewerID and otherID. Covers
 // both unfriending an accepted edge and declining / cancelling a pending
-// request. When the deleted edge was 'accepted', it additionally clears
-// any passenger or share grant where one of the pair is the flight's
-// creator and the other was the named passenger/sharee — so unfriending
-// is a clean cut: neither party retains visibility on flights the other
-// owns, even via an explicit grant. Returns the (deduplicated) set of
-// flight IDs whose passenger or share list was modified by the cleanup
-// so the caller can publish flight visibility-change SSE events; returns
-// ErrNotFound when no friendship row matched.
-func (s *Store) RemoveFriendship(ctx context.Context, viewerID, otherID int64) ([]int64, error) {
+// request. Returns ErrNotFound when no friendship row matched.
+//
+// Prior to Wave 3 this also cleared legacy flight_passengers / flight_shares
+// grants linking the pair; those tables were dropped with the legacy flight
+// surface. Plan-level visibility is trip-membership based and is not affected
+// by unfriending, so no cross-table cleanup is needed here anymore.
+func (s *Store) RemoveFriendship(ctx context.Context, viewerID, otherID int64) error {
 	low, high := pairOrder(viewerID, otherID)
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
 	var status string
-	err = tx.QueryRow(ctx, `
+	err := s.pool.QueryRow(ctx, `
 		DELETE FROM friendships
 		WHERE user_low = $1 AND user_high = $2
 		  AND $3 IN (user_low, user_high)
 		RETURNING status`,
 		low, high, viewerID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
+		return ErrNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-
-	// For pending / declined / cancelled rows we leave any (likely
-	// legacy or admin-set) passenger and share grants alone — those
-	// preceded the friendship and weren't established by it.
-	if status != "accepted" {
-		if err := tx.Commit(ctx); err != nil {
-			return nil, err
-		}
-		return nil, nil
-	}
-
-	seen := map[int64]struct{}{}
-	addAffected := func(rows pgx.Rows) error {
-		defer rows.Close()
-		for rows.Next() {
-			var id int64
-			if err := rows.Scan(&id); err != nil {
-				return err
-			}
-			seen[id] = struct{}{}
-		}
-		return rows.Err()
-	}
-
-	rows, err := tx.Query(ctx, `
-		DELETE FROM flight_passengers fp
-		USING flights f
-		WHERE fp.flight_id = f.id
-		  AND ((f.created_by = $1 AND fp.user_id = $2)
-		    OR (f.created_by = $2 AND fp.user_id = $1))
-		RETURNING fp.flight_id`,
-		viewerID, otherID)
-	if err != nil {
-		return nil, err
-	}
-	if err := addAffected(rows); err != nil {
-		return nil, err
-	}
-
-	rows, err = tx.Query(ctx, `
-		DELETE FROM flight_shares fs
-		USING flights f
-		WHERE fs.flight_id = f.id
-		  AND ((f.created_by = $1 AND fs.user_id = $2)
-		    OR (f.created_by = $2 AND fs.user_id = $1))
-		RETURNING fs.flight_id`,
-		viewerID, otherID)
-	if err != nil {
-		return nil, err
-	}
-	if err := addAffected(rows); err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	affected := make([]int64, 0, len(seen))
-	for id := range seen {
-		affected = append(affected, id)
-	}
-	return affected, nil
+	return err
 }
 
 // UpsertPendingFriendInvite records that inviterID has invited an email

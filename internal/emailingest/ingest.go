@@ -2,7 +2,6 @@ package emailingest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,11 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dpage/aerly/internal/api"
-	"github.com/dpage/aerly/internal/flightops"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/providers"
-	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -32,20 +28,13 @@ type Config struct {
 
 // Service is the long-running ingest goroutine.
 type Service struct {
-	Cfg        Config
-	Store      *store.Store
-	Extractor  *Extractor
-	FlightDeps flightops.Deps
-	// PlanDeps wires the generalized planops capture path (multi-type plans
-	// + date-proximity trip selection). When its Store is set, processOne
-	// runs the planops path for non-flight bookings alongside the legacy
-	// flight handling. Optional — when zero, only flights are ingested
-	// (the Wave-1 behaviour).
+	Cfg       Config
+	Store     *store.Store
+	Extractor *Extractor
+	// PlanDeps wires the planops capture path (multi-type plans incl. flights
+	// + date-proximity trip selection). Its Store/Extractor/Resolver must be
+	// set for ingest to do anything useful.
 	PlanDeps planops.Deps
-	// Hub is the SSE broadcast hub. Optional — when nil, ingested flights
-	// are still inserted but connected clients won't learn of them until
-	// they refresh. Wired in production; tests opt in via newHarness.
-	Hub *sse.Hub
 }
 
 type outcomeKind int
@@ -161,61 +150,23 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	}
 
 	body, docs := buildPrompt(parsed, s.Cfg.MaxBodyBytes)
-	legs, err := s.Extractor.Extract(ctx, body, docs)
+
+	// All extracted bookings — flights included — now flow through planops:
+	// each proposal becomes a plan-with-parts attached to a trip chosen by
+	// date proximity (auto-creating one when nothing matches). Flight parts
+	// are resolver-enriched inside planops.Propose (with the same email-schedule
+	// fallback the legacy flightops path used), so emailed flights land as
+	// flight-typed plan parts the tracker/poller key on, not legacy flight rows.
+	added, failed, flightCount, err := s.capturePlans(ctx, u.ID, body, docs)
 	if err != nil {
-		// Treat any extractor failure as transient: drain loop will retry.
-		slog.Warn("emailingest: extractor", "err", err)
+		// Treat any extractor/propose failure as transient: drain loop retries.
+		slog.Warn("emailingest: capture plans", "err", err)
 		return outcome{kind: outcomeTransient}
-	}
-
-	added := []ReplyLeg{}
-	failed := []ReplyFailure{}
-	for _, leg := range legs {
-		f, err := flightops.Create(ctx, s.FlightDeps, u.ID, leg.Ident, leg.Date)
-		if err != nil {
-			// If the provider just doesn't know about this flight yet but
-			// the email itself spells out the schedule, fall back to a
-			// manual add so we don't make the user re-enter what we
-			// already extracted. Reserved for the two "no upstream data"
-			// sentinels — transient/auth errors still surface as failures.
-			if isResolverGap(err) && leg.HasManualDetails() {
-				if mf, mErr := flightops.CreateManual(ctx, s.FlightDeps, u.ID, flightops.ManualCreatePayload{
-					Ident:           leg.Ident,
-					DepartDate:      leg.Date,
-					DepartTimeLocal: leg.DepartTimeLocal,
-					ArriveDate:      leg.ArriveDate,
-					ArriveTimeLocal: leg.ArriveTimeLocal,
-					OriginIATA:      leg.OriginIATA,
-					DestIATA:        leg.DestIATA,
-					Notes:           "Added from email — schedule not yet published by airline; please verify times.",
-				}); mErr == nil {
-					added = append(added, ReplyLeg{Ident: leg.Ident, Date: leg.Date, ManualNote: true})
-					s.publishFlight(ctx, mf.ID)
-					continue
-				} else {
-					slog.Warn("emailingest: manual fallback insert failed", "err", mErr, "ident", leg.Ident)
-				}
-			}
-			failed = append(failed, ReplyFailure{Ident: leg.Ident, Date: leg.Date, Reason: failureReason(err)})
-			continue
-		}
-		added = append(added, ReplyLeg{Ident: leg.Ident, Date: leg.Date})
-		s.publishFlight(ctx, f.ID)
-	}
-
-	// Generalized planops capture: non-flight bookings (hotel/train/ground/
-	// dining/excursion) are grouped into plans, attached to a trip chosen by
-	// date proximity (auto-creating one when nothing matches), and committed
-	// against that trip. Flights stay on the legacy path above for tracker /
-	// SSE continuity. Gated on PlanDeps being wired so the Wave-1 flight-only
-	// behaviour is unchanged when it isn't.
-	if s.PlanDeps.Store != nil {
-		s.captureNonFlightPlans(ctx, u.ID, body, docs)
 	}
 
 	status := "accepted"
 	switch {
-	case len(legs) == 0:
+	case flightCount == 0:
 		status = "no_flights"
 	case len(added) == 0:
 		status = "all_failed"
@@ -287,17 +238,6 @@ func buildPrompt(p *Parsed, max int) (string, []Document) {
 	return body, docs
 }
 
-// isResolverGap reports whether err means the upstream provider had no
-// usable record for this ident+date — i.e. the case where falling back
-// to the email's own schedule details is appropriate. Transient errors
-// (auth, network, rate-limit) are NOT included: those should keep
-// surfacing as failures so a retry on the next tick or a user fix can
-// pick them up.
-func isResolverGap(err error) bool {
-	return errors.Is(err, providers.ErrFlightUnscheduled) ||
-		errors.Is(err, providers.ErrFlightNotFound)
-}
-
 // failureReason renders a per-leg ReplyFailure.Reason string, recognising
 // the well-known sentinel errors from the resolver so the user sees a
 // terse, actionable message instead of a stack of wrapped errors.
@@ -315,44 +255,91 @@ func failureReason(err error) string {
 	return s
 }
 
-// captureNonFlightPlans runs the planops capture path for the non-flight
-// bookings in an email. It proposes plans (tripID 0 → no rebooking match
-// pre-attach), picks a target trip by date proximity (auto-creating one when
-// nothing overlaps), and commits each plan against that trip. Failures are
-// logged, not fatal: the legacy flight reply still goes out. Flight plans are
-// skipped here — they are handled by the flightops path so the tracker keeps
-// its single source of truth this wave.
-func (s *Service) captureNonFlightPlans(ctx context.Context, userID int64, body string, emDocs []Document) {
+// capturePlans runs the planops capture path for every booking in an email.
+// It proposes plans (tripID 0 → no rebooking match pre-attach), picks a target
+// trip by date proximity (auto-creating one when nothing overlaps), and commits
+// each plan against that trip. Flight proposals additionally yield reply legs so
+// the confirmation email still lists the flights that were added. Returns the
+// added/failed reply legs and the count of flight proposals seen (used to
+// distinguish "no flights in this mail" from "all flights failed").
+func (s *Service) capturePlans(ctx context.Context, userID int64, body string, emDocs []Document) ([]ReplyLeg, []ReplyFailure, int, error) {
 	docs := make([]planops.Document, 0, len(emDocs))
 	for _, d := range emDocs {
 		docs = append(docs, planops.Document{Data: d.Data, MediaType: d.MediaType, Filename: d.Filename})
 	}
 	proposals, err := planops.Propose(ctx, s.PlanDeps, userID, 0, body, docs)
 	if err != nil {
-		slog.Warn("emailingest: planops propose", "err", err)
-		return
+		return nil, nil, 0, fmt.Errorf("propose: %w", err)
 	}
+
+	added := []ReplyLeg{}
+	failed := []ReplyFailure{}
+	flightCount := 0
 	for _, p := range proposals {
-		if p.Type == "flight" {
-			continue
+		isFlight := p.Type == "flight"
+		if isFlight {
+			flightCount++
 		}
 		start, end := planops.PlanSpan(p.Parts)
 		tripID, ok, err := planops.SelectTrip(ctx, s.PlanDeps, userID, start, end)
 		if err != nil {
 			slog.Warn("emailingest: planops select trip", "err", err)
+			if isFlight {
+				failed = append(failed, flightFailure(p, err))
+			}
 			continue
 		}
 		if !ok {
 			tripID, err = s.createTripForPlan(ctx, userID, p, start, end)
 			if err != nil {
 				slog.Warn("emailingest: create trip for ingested plan", "err", err)
+				if isFlight {
+					failed = append(failed, flightFailure(p, err))
+				}
 				continue
 			}
 		}
-		if _, err := planops.Commit(ctx, s.PlanDeps, tripID, userID, []planops.ConfirmPlanInput{toConfirmInput(p)}); err != nil {
+		// The sender confirms as-extracted with themselves as the sole
+		// passenger; the user can correct or re-share afterwards in the UI.
+		in := toConfirmInput(p)
+		in.PassengerIDs = []int64{userID}
+		if _, err := planops.Commit(ctx, s.PlanDeps, tripID, userID, []planops.ConfirmPlanInput{in}); err != nil {
 			slog.Warn("emailingest: planops commit", "err", err, "trip", tripID)
+			if isFlight {
+				failed = append(failed, flightFailure(p, err))
+			}
+			continue
+		}
+		if isFlight {
+			added = append(added, flightLeg(p))
 		}
 	}
+	return added, failed, flightCount, nil
+}
+
+// flightLeg renders a committed flight proposal as a ReplyLeg for the
+// confirmation email. ManualNote is set when the schedule came from the email's
+// own details rather than the resolver — detectable by the absence of a
+// resolved airframe (the resolver always returns one when it had a record).
+func flightLeg(p planops.ProposedPlan) ReplyLeg {
+	leg := ReplyLeg{}
+	if len(p.Parts) > 0 && p.Parts[0].Flight != nil {
+		fd := p.Parts[0].Flight
+		leg.Ident = fd.Ident
+		leg.Date = fd.ScheduledOut.Format("2006-01-02")
+		leg.ManualNote = fd.ICAO24 == nil
+	}
+	return leg
+}
+
+// flightFailure renders a flight proposal that couldn't be committed.
+func flightFailure(p planops.ProposedPlan, err error) ReplyFailure {
+	f := ReplyFailure{Reason: failureReason(err)}
+	if len(p.Parts) > 0 && p.Parts[0].Flight != nil {
+		f.Ident = p.Parts[0].Flight.Ident
+		f.Date = p.Parts[0].Flight.ScheduledOut.Format("2006-01-02")
+	}
+	return f
 }
 
 // createTripForPlan auto-creates a trip named from the plan title / dates when
@@ -409,35 +396,6 @@ func toConfirmInput(p planops.ProposedPlan) planops.ConfirmPlanInput {
 		})
 	}
 	return in
-}
-
-// publishFlight broadcasts a flight.updated SSE event for the just-inserted
-// flight so connected clients can drop it into their list without waiting
-// for the next page refresh. Mirrors the assembly logic in the position
-// poller — assembles the full FlightDTO and scopes the broadcast to the
-// flight's visibility set. Silent no-op when Hub is nil.
-func (s *Service) publishFlight(ctx context.Context, id int64) {
-	if s.Hub == nil {
-		return
-	}
-	f, err := s.Store.FlightByID(ctx, id)
-	if err != nil {
-		slog.Warn("emailingest: publishFlight refetch", "err", err, "id", id)
-		return
-	}
-	passengers, _ := s.Store.PassengersByFlight(ctx, []int64{id})
-	shares, _ := s.Store.SharedUserIDsByFlight(ctx, []int64{id})
-	dto := api.ToFlightDTO(f, passengers[id], shares[id], nil, nil)
-	payload, err := json.Marshal(dto)
-	if err != nil {
-		slog.Error("emailingest: publishFlight marshal", "err", err, "id", id)
-		return
-	}
-	visible, err := s.Store.VisibleUserIDs(ctx, f.ID)
-	if err != nil {
-		slog.Warn("emailingest: publishFlight visibility", "err", err, "id", id)
-	}
-	s.Hub.Publish(sse.Event{Type: "flight.updated", Data: payload, VisibleTo: visible})
 }
 
 func (s *Service) logIngest(ctx context.Context, msgID, from, subject string, dkimPass bool, userID *int64, status string, added, failed int, errMsg string) {

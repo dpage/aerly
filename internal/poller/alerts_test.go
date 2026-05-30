@@ -95,7 +95,7 @@ func TestAlert_DelayBelowThresholdDoesNotAlert(t *testing.T) {
 		t.Fatalf("verify email: %v", err)
 	}
 	now := time.Now()
-	f, err := mkPart(ctx, s, store.CreateFlightPayload{
+	f, err := mkPart(ctx, s, partSeed{
 		Ident: "BA100", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
 		OriginIATA: "LHR", DestIATA: "JFK",
 	}, owner)
@@ -127,7 +127,7 @@ func TestAlert_DelayAboveThresholdAlerts(t *testing.T) {
 		t.Fatalf("verify email: %v", err)
 	}
 	now := time.Now()
-	f, err := mkPart(ctx, s, store.CreateFlightPayload{
+	f, err := mkPart(ctx, s, partSeed{
 		Ident: "BA200", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
 		OriginIATA: "LHR", DestIATA: "JFK",
 	}, owner)
@@ -165,7 +165,7 @@ func TestAlert_CancellationAlwaysAlertsRegardlessOfThreshold(t *testing.T) {
 		t.Fatalf("set prefs: %v", err)
 	}
 	now := time.Now()
-	f, err := mkPart(ctx, s, store.CreateFlightPayload{
+	f, err := mkPart(ctx, s, partSeed{
 		Ident: "BA300", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
 		OriginIATA: "LHR", DestIATA: "JFK",
 	}, owner)
@@ -197,7 +197,7 @@ func TestAlert_ViewerWithoutOptInGetsNothing(t *testing.T) {
 		t.Fatalf("verify email: %v", err)
 	}
 	now := time.Now()
-	f, err := mkPart(ctx, s, store.CreateFlightPayload{
+	f, err := mkPart(ctx, s, partSeed{
 		Ident: "BA400", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
 		OriginIATA: "LHR", DestIATA: "JFK",
 	}, owner)
@@ -258,7 +258,7 @@ func TestAlert_DedupeSuppressesRepeatOfSameChange(t *testing.T) {
 		t.Fatalf("verify email: %v", err)
 	}
 	now := time.Now()
-	f, err := mkPart(ctx, s, store.CreateFlightPayload{
+	f, err := mkPart(ctx, s, partSeed{
 		Ident: "BA500", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
 		OriginIATA: "LHR", DestIATA: "JFK",
 	}, owner)

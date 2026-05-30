@@ -2,7 +2,6 @@ package emailingest_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -12,10 +11,8 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/emailingest"
-	"github.com/dpage/aerly/internal/flightops"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/providers"
-	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 	"github.com/dpage/aerly/internal/testsupport"
 )
@@ -82,11 +79,12 @@ type harness struct {
 	sendmailOut string
 	maildir     string
 	store       *store.Store
-	hub         *sse.Hub
 }
 
 // newHarness builds a Service wired to a real DB, a fake LLM, a fake resolver,
-// and a stub sendmail. Caller drops messages into <maildir>/new/.
+// and a stub sendmail. Every booking (flights included) flows through the
+// planops capture path now that the legacy flight surface is gone. Caller drops
+// messages into <maildir>/new/.
 func newHarness(t *testing.T, llmResp string, resolverErr error, requireDKIM bool) *harness {
 	t.Helper()
 	pool := testsupport.NewPool(t)
@@ -96,7 +94,7 @@ func newHarness(t *testing.T, llmResp string, resolverErr error, requireDKIM boo
 	sendmailOut := filepath.Join(t.TempDir(), "sent.txt")
 	t.Setenv("SENDMAIL_OUT", sendmailOut)
 
-	hub := sse.NewHub()
+	extractor := emailingest.NewExtractor(&fakeLLM{resp: llmResp}, "test")
 	svc := &emailingest.Service{
 		Cfg: emailingest.Config{
 			MaildirPath:   maildir,
@@ -107,26 +105,14 @@ func newHarness(t *testing.T, llmResp string, resolverErr error, requireDKIM boo
 			SendmailPath:  buildTestSendmail(t),
 			PublicURL:     "https://flights.example",
 		},
-		Store:      s,
-		Extractor:  emailingest.NewExtractor(&fakeLLM{resp: llmResp}, "test"),
-		FlightDeps: flightops.Deps{Store: s, Resolver: fakeResolver{err: resolverErr}},
-		Hub:        hub,
+		Store:     s,
+		Extractor: extractor,
+		PlanDeps:  planops.Deps{Store: s, Extractor: extractor, Resolver: fakeResolver{err: resolverErr}},
 	}
 	if err := svc.EnsureDirs(); err != nil {
 		t.Fatal(err)
 	}
-	return &harness{svc: svc, sendmailOut: sendmailOut, maildir: maildir, store: s, hub: hub}
-}
-
-// enablePlanCapture wires the planops path on the harness's Service, so
-// processOne also runs the generalized capture (non-flight plans + trip
-// selection). The same fake LLM backs it.
-func (h *harness) enablePlanCapture(llmResp string) {
-	h.svc.PlanDeps = planops.Deps{
-		Store:     h.store,
-		Extractor: emailingest.NewExtractor(&fakeLLM{resp: llmResp}, "test"),
-		Resolver:  fakeResolver{},
-	}
+	return &harness{svc: svc, sendmailOut: sendmailOut, maildir: maildir, store: s}
 }
 
 // runUntilProcessed runs svc.Run in a goroutine and waits up to timeout for
@@ -167,9 +153,41 @@ func writeMessage(t *testing.T, maildir, name, msg string) {
 	}
 }
 
+// flightPlanResp renders a planops-schema LLM response with a single flight
+// plan. Email bookings now flow through planops.ExtractPlans (the {"plans":...}
+// schema) rather than the legacy {"flights":...} schema.
+func flightPlanResp(ident, date string) string {
+	return `{"plans":[{"type":"flight","title":"` + ident + `","parts":[
+		{"type":"flight","confidence":"high","flight":{"ident":"` + ident + `","date":"` + date + `"}}
+	]}]}`
+}
+
+// flightPlanRespManual renders a flight plan that also carries the email's own
+// origin/dest/times, so planops can fall back to them when the resolver has no
+// record (the old flightops manual-fallback path).
+func flightPlanRespManual(ident, depDate, arrDate string) string {
+	return `{"plans":[{"type":"flight","title":"` + ident + `","parts":[
+		{"type":"flight","confidence":"high","flight":{"ident":"` + ident + `","date":"` + depDate + `",
+		 "origin_iata":"IST","dest_iata":"LHR","depart_time":"22:30","arrive_date":"` + arrDate + `","arrive_time":"01:15"}}
+	]}]}`
+}
+
+// soloFlightPart returns the single flight plan part visible to viewer, or fails.
+func soloFlightPart(t *testing.T, h *harness, viewer int64) *store.PlanPart {
+	t.Helper()
+	parts, err := h.store.ListVisiblePlanParts(context.Background(), viewer, store.ListVisiblePlanPartsOpts{Type: "flight"})
+	if err != nil {
+		t.Fatalf("ListVisiblePlanParts: %v", err)
+	}
+	if len(parts) != 1 {
+		t.Fatalf("expected 1 visible flight part, got %d", len(parts))
+	}
+	return parts[0]
+}
+
 func TestIngest_EndToEnd_Success(t *testing.T) {
 	h := newHarness(t,
-		`{"flights":[{"ident":"TK1980","date":"`+time.Now().AddDate(0, 1, 0).Format("2006-01-02")+`","confidence":"high"}]}`,
+		flightPlanResp("TK1980", time.Now().AddDate(0, 1, 0).Format("2006-01-02")),
 		nil, true)
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
@@ -207,7 +225,7 @@ func TestIngest_DKIMFailed_Poison(t *testing.T) {
 
 func TestIngest_DKIMOff_AcceptsAnyway(t *testing.T) {
 	h := newHarness(t,
-		`{"flights":[{"ident":"TK1980","date":"`+time.Now().AddDate(0, 1, 0).Format("2006-01-02")+`","confidence":"high"}]}`,
+		flightPlanResp("TK1980", time.Now().AddDate(0, 1, 0).Format("2006-01-02")),
 		nil, false)
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
@@ -241,9 +259,15 @@ func TestIngest_SelfAddressed_Poison(t *testing.T) {
 	}
 }
 
-func TestIngest_ResolverError_PartialAllFailed(t *testing.T) {
+// TestIngest_ResolverError_StillCapturedFromEmail covers the post-Wave-3
+// behaviour: planops.enrichFlight falls back to the email's own schedule when
+// the resolver errors, so an emailed flight is still committed (as a plan with
+// a flight part) rather than reported as a hard failure. The reply lists it
+// with the "verify the times" note since the schedule wasn't resolver-confirmed.
+func TestIngest_ResolverError_StillCapturedFromEmail(t *testing.T) {
+	depDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
 	h := newHarness(t,
-		`{"flights":[{"ident":"TK1980","date":"`+time.Now().AddDate(0, 1, 0).Format("2006-01-02")+`","confidence":"high"}]}`,
+		flightPlanResp("TK1980", depDate),
 		errors.New("upstream down"), false)
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
@@ -253,26 +277,24 @@ func TestIngest_ResolverError_PartialAllFailed(t *testing.T) {
 	writeMessage(t, h.maildir, "6", goodMessage)
 	state := h.runUntilProcessed(t, "6", 5*time.Second)
 	if state != "removed" {
-		t.Errorf("expected file removed (we sent the failure reply), got %s", state)
+		t.Errorf("expected file removed, got %s", state)
 	}
 	body, _ := os.ReadFile(h.sendmailOut)
-	if !strings.Contains(string(body), "couldn't add any") {
-		t.Errorf("expected all-failed reply, got: %s", body)
+	if !strings.Contains(string(body), "TK1980") {
+		t.Errorf("expected reply to list the captured flight, got: %s", body)
 	}
+	// The flight landed as a plan part the tracker can see.
+	soloFlightPart(t, h, u.ID)
 }
 
 func TestIngest_ResolverUnscheduled_ManualFallback(t *testing.T) {
-	// LLM extracts a leg with full manual details. Resolver reports the
-	// flight is unscheduled. We should insert it manually and tell the
-	// user to verify times.
+	// LLM extracts a flight part with full manual details. Resolver reports the
+	// flight is unscheduled. planops.enrichFlight falls back to the email's own
+	// schedule, so the flight is captured as a plan with origin/dest from the
+	// email, and the reply tells the user to verify the times.
 	depDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
 	arrDate := time.Now().AddDate(0, 1, 0).AddDate(0, 0, 1).Format("2006-01-02")
-	llmResp := `{"flights":[{
-		"ident":"TK1980","date":"` + depDate + `","confidence":"high",
-		"origin_iata":"IST","dest_iata":"LHR",
-		"depart_time":"22:30","arrive_date":"` + arrDate + `","arrive_time":"01:15"
-	}]}`
-	h := newHarness(t, llmResp, providers.ErrFlightUnscheduled, false)
+	h := newHarness(t, flightPlanRespManual("TK1980", depDate, arrDate), providers.ErrFlightUnscheduled, false)
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
 	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
@@ -291,25 +313,24 @@ func TestIngest_ResolverUnscheduled_ManualFallback(t *testing.T) {
 	if !strings.Contains(bs, "please check the departure and arrival times") {
 		t.Errorf("expected manual trailer in reply, got:\n%s", bs)
 	}
-	// The flight should be in the DB attached to alice.
-	flights, err := h.store.ListVisibleFlights(ctx, u.ID, false, false)
+	// The flight should be a plan part attached to alice, with the email's IATAs.
+	part := soloFlightPart(t, h, u.ID)
+	fd, err := h.store.FlightDetailFor(ctx, part.ID)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("FlightDetailFor: %v", err)
 	}
-	if len(flights) != 1 {
-		t.Fatalf("expected 1 flight in DB, got %d", len(flights))
-	}
-	if flights[0].Ident != "TK1980" || flights[0].OriginIATA != "IST" || flights[0].DestIATA != "LHR" {
-		t.Errorf("flight wrong: %+v", flights[0])
+	if fd.Ident != "TK1980" || fd.OriginIATA != "IST" || fd.DestIATA != "LHR" {
+		t.Errorf("flight detail wrong: %+v", fd)
 	}
 }
 
-func TestIngest_ResolverUnscheduled_NoManualDetails_Failure(t *testing.T) {
-	// Resolver fails AND the LLM didn't extract manual details — we
-	// fall through to the original failure path rather than guessing.
+func TestIngest_ResolverUnscheduled_NoManualDetails_StillCaptured(t *testing.T) {
+	// Resolver fails AND the LLM didn't extract manual details. Under the
+	// plan model the flight is still captured (with a placeholder schedule from
+	// the email's date) rather than discarded — the user can correct it in the
+	// UI. This replaces the legacy "hard failure" behaviour.
 	depDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
-	llmResp := `{"flights":[{"ident":"TK1980","date":"` + depDate + `","confidence":"high"}]}`
-	h := newHarness(t, llmResp, providers.ErrFlightUnscheduled, false)
+	h := newHarness(t, flightPlanResp("TK1980", depDate), providers.ErrFlightUnscheduled, false)
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
 	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
@@ -321,13 +342,10 @@ func TestIngest_ResolverUnscheduled_NoManualDetails_Failure(t *testing.T) {
 		t.Fatalf("expected removed, got %s", state)
 	}
 	body, _ := os.ReadFile(h.sendmailOut)
-	if !strings.Contains(string(body), "couldn't add any") {
-		t.Errorf("expected all-failed reply when no manual details, got:\n%s", body)
+	if !strings.Contains(string(body), "TK1980") {
+		t.Errorf("expected reply to list the captured flight, got:\n%s", body)
 	}
-	flights, _ := h.store.ListVisibleFlights(ctx, u.ID, false, false)
-	if len(flights) != 0 {
-		t.Errorf("expected 0 flights when no manual fallback possible, got %d", len(flights))
-	}
+	soloFlightPart(t, h, u.ID)
 }
 
 func TestIngest_MalformedMessage_Poison(t *testing.T) {
@@ -339,87 +357,11 @@ func TestIngest_MalformedMessage_Poison(t *testing.T) {
 	}
 }
 
-// TestIngest_PublishesSSEOnInsert exercises the resolver-backed create path
-// (flightops.Create) and asserts a flight.updated SSE event is broadcast to
-// the user who owns the newly-inserted flight. Without this, connected SPA
-// clients wouldn't learn about the new flight until they manually refresh.
-func TestIngest_PublishesSSEOnInsert(t *testing.T) {
-	depDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
-	h := newHarness(t,
-		`{"flights":[{"ident":"TK1980","date":"`+depDate+`","confidence":"high"}]}`,
-		nil, false)
-	ctx := context.Background()
-	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
-	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
-		t.Fatal(err)
-	}
-
-	events, unsub := h.hub.Subscribe(sse.Subscription{ViewerID: u.ID})
-	defer unsub()
-
-	writeMessage(t, h.maildir, "20", goodMessage)
-	if state := h.runUntilProcessed(t, "20", 5*time.Second); state != "removed" {
-		t.Fatalf("expected removed, got %s", state)
-	}
-
-	select {
-	case ev := <-events:
-		if ev.Type != "flight.updated" {
-			t.Errorf("event type = %q, want flight.updated", ev.Type)
-		}
-		var got struct {
-			Ident        string  `json:"ident"`
-			PassengerIDs []int64 `json:"passenger_ids"`
-		}
-		if err := json.Unmarshal(ev.Data, &got); err != nil {
-			t.Fatalf("unmarshal event: %v", err)
-		}
-		if got.Ident != "TK1980" {
-			t.Errorf("event ident = %q, want TK1980", got.Ident)
-		}
-		if len(got.PassengerIDs) != 1 || got.PassengerIDs[0] != u.ID {
-			t.Errorf("event passenger_ids = %v, want [%d]", got.PassengerIDs, u.ID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected flight.updated SSE event after email-ingest insert")
-	}
-}
-
-// TestIngest_ManualFallback_PublishesSSE covers the same publish behavior on
-// the manual-fallback path (flightops.CreateManual) used when the resolver
-// has no record but the email itself spells out the schedule.
-func TestIngest_ManualFallback_PublishesSSE(t *testing.T) {
-	depDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
-	arrDate := time.Now().AddDate(0, 1, 0).AddDate(0, 0, 1).Format("2006-01-02")
-	llmResp := `{"flights":[{
-		"ident":"TK1980","date":"` + depDate + `","confidence":"high",
-		"origin_iata":"IST","dest_iata":"LHR",
-		"depart_time":"22:30","arrive_date":"` + arrDate + `","arrive_time":"01:15"
-	}]}`
-	h := newHarness(t, llmResp, providers.ErrFlightUnscheduled, false)
-	ctx := context.Background()
-	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
-	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
-		t.Fatal(err)
-	}
-
-	events, unsub := h.hub.Subscribe(sse.Subscription{ViewerID: u.ID})
-	defer unsub()
-
-	writeMessage(t, h.maildir, "21", goodMessage)
-	if state := h.runUntilProcessed(t, "21", 5*time.Second); state != "removed" {
-		t.Fatalf("expected removed, got %s", state)
-	}
-
-	select {
-	case ev := <-events:
-		if ev.Type != "flight.updated" {
-			t.Errorf("event type = %q, want flight.updated", ev.Type)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected flight.updated SSE event after manual-fallback insert")
-	}
-}
+// The legacy SSE-on-insert tests (TestIngest_PublishesSSEOnInsert /
+// TestIngest_ManualFallback_PublishesSSE) were removed in Wave 3: email ingest
+// now creates plans, and — like the rest of the plan model — does not broadcast
+// per-row SSE events on creation. Connected clients pick up new plans on their
+// next trip refresh, exactly as for interactive plan creation.
 
 // TestIngest_PlanCapture_AutoCreatesTrip exercises the rewired Service planops
 // path: an email with a non-flight booking and no matching trip auto-creates a
@@ -431,7 +373,6 @@ func TestIngest_PlanCapture_AutoCreatesTrip(t *testing.T) {
 		{"type":"hotel","confidence":"high","start_date":"2026-06-12","end_date":"2026-06-15","hotel":{"property_name":"Hotel Plaza","address":"1 Main St"}}
 	]}]}`
 	h := newHarness(t, llmResp, nil, false)
-	h.enablePlanCapture(llmResp)
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
 	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
@@ -466,7 +407,6 @@ func TestIngest_PlanCapture_AttachesToExistingTrip(t *testing.T) {
 		{"type":"hotel","confidence":"high","start_date":"2026-06-12","end_date":"2026-06-15","hotel":{"property_name":"Hotel Plaza"}}
 	]}]}`
 	h := newHarness(t, llmResp, nil, false)
-	h.enablePlanCapture(llmResp)
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
 	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {

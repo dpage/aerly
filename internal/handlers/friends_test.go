@@ -514,7 +514,12 @@ func TestAcceptPublishesNotificationsToBothSides(t *testing.T) {
 	}
 }
 
-func TestUnfriendDropsCrossSharesAndFiresDelete(t *testing.T) {
+// TestUnfriendPublishesNotifications covers the surviving unfriend fan-out.
+// The legacy variant of this test (TestUnfriendDropsCrossSharesAndFiresDelete)
+// asserted flight_passengers/flight_shares cleanup and a flight.deleted SSE
+// event; that behaviour was retired in Wave 3 along with the flights table.
+// Unfriending now only refreshes both parties' notification counts.
+func TestUnfriendPublishesNotifications(t *testing.T) {
 	e := setup(t, nil, nil)
 	alice := e.user(t, "alice", false)
 	bob := e.user(t, "bob", false)
@@ -530,23 +535,6 @@ func TestUnfriendDropsCrossSharesAndFiresDelete(t *testing.T) {
 		t.Fatalf("accept: %s", w.Body.String())
 	}
 
-	// Alice creates a flight and adds bob as a passenger so unfriending
-	// has cross-share state to clean up.
-	now := time.Now().UTC()
-	f, err := e.store.CreateFlight(context.Background(), store.CreateFlightPayload{
-		Ident:        "AB1",
-		ScheduledOut: now.Add(time.Hour),
-		ScheduledIn:  now.Add(3 * time.Hour),
-		OriginIATA:   "LHR",
-		DestIATA:     "JFK",
-	}, alice)
-	if err != nil {
-		t.Fatalf("CreateFlight: %v", err)
-	}
-	if err := e.store.AddPassenger(context.Background(), f.ID, bob); err != nil {
-		t.Fatalf("AddPassenger: %v", err)
-	}
-
 	bobCh, bobUnsub := e.hub.Subscribe(sse.Subscription{ViewerID: bob})
 	defer bobUnsub()
 
@@ -556,31 +544,20 @@ func TestUnfriendDropsCrossSharesAndFiresDelete(t *testing.T) {
 		t.Fatalf("unfriend: %d %s", w.Code, w.Body.String())
 	}
 
-	// Bob's passenger row on alice's flight should be gone.
-	pax, _ := e.store.PassengersByFlight(context.Background(), []int64{f.ID})
-	if len(pax[f.ID]) != 0 {
-		t.Errorf("passenger row should be cleaned up, got %v", pax[f.ID])
+	// The friendship row should be gone.
+	if _, err := e.store.FriendshipBetween(context.Background(), alice, bob); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("friendship should be removed, got %v", err)
 	}
 
-	// Bob should have received a flight.deleted for the flight he just
-	// lost access to (plus a notifications.updated for the unfriend).
-	var sawDelete bool
-	var deletedID int64
+	// Bob should have received a notifications.updated for the unfriend.
+	var sawNotif bool
 	for _, ev := range drainEvents(bobCh) {
-		if ev.Type == "flight.deleted" {
-			sawDelete = true
-			var p struct {
-				ID int64 `json:"id"`
-			}
-			_ = json.Unmarshal(ev.Data, &p)
-			deletedID = p.ID
+		if ev.Type == "notifications.updated" {
+			sawNotif = true
 		}
 	}
-	if !sawDelete {
-		t.Error("bob did not see a flight.deleted event after losing access via unfriend")
-	}
-	if deletedID != f.ID {
-		t.Errorf("flight.deleted id = %d, want %d", deletedID, f.ID)
+	if !sawNotif {
+		t.Error("bob did not see a notifications.updated event after unfriend")
 	}
 }
 
