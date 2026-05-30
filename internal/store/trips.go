@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Trip is the top-level container: a set of plans, a membership/visibility
@@ -45,54 +48,202 @@ type UpdateTripPayload struct {
 	EndsOn      *time.Time
 }
 
-// ListTrips returns the trips the viewer can see (member of, or owner).
+// tripColumns is the shared SELECT list for trip rows.
+const tripColumns = `id, name, destination, starts_on, ends_on, created_by, created_at, updated_at`
+
+func scanTrip(row pgx.Row) (*Trip, error) {
+	var t Trip
+	err := row.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
+		&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// ListTrips returns the trips the viewer can see (member of, or owner),
+// newest-updated first.
 func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) {
-	return nil, ErrNotImplemented
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+tripColumns+`
+		FROM trips t
+		WHERE t.created_by = $1
+		   OR EXISTS (SELECT 1 FROM trip_members tm
+		              WHERE tm.trip_id = t.id AND tm.user_id = $1)
+		ORDER BY t.updated_at DESC, t.id DESC`, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Trip
+	for rows.Next() {
+		t, err := scanTrip(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 // TripByID returns a single trip by id.
 func (s *Store) TripByID(ctx context.Context, id int64) (*Trip, error) {
-	return nil, ErrNotImplemented
+	return scanTrip(s.pool.QueryRow(ctx,
+		`SELECT `+tripColumns+` FROM trips WHERE id = $1`, id))
 }
 
-// CreateTrip inserts a trip and an owner trip_members row for createdBy.
+// CreateTrip inserts a trip and an owner trip_members row for createdBy, in one
+// transaction.
 func (s *Store) CreateTrip(ctx context.Context, in CreateTripPayload, createdBy int64) (*Trip, error) {
-	return nil, ErrNotImplemented
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	t, err := scanTrip(tx.QueryRow(ctx, `
+		INSERT INTO trips (name, destination, starts_on, ends_on, created_by)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING `+tripColumns,
+		in.Name, in.Destination, in.StartsOn, in.EndsOn, createdBy))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO trip_members (trip_id, user_id, role) VALUES ($1, $2, 'owner')`,
+		t.ID, createdBy); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return t, nil
 }
 
-// UpdateTrip applies the supplied fields to a trip.
+// UpdateTrip applies the supplied fields to a trip. nil pointers are left
+// untouched. ends_on/starts_on are set unconditionally when their pointer is
+// non-nil (so a caller may also clear them by passing a zero-valued *time —
+// the handler distinguishes "absent" from "present").
 func (s *Store) UpdateTrip(ctx context.Context, id int64, in UpdateTripPayload) (*Trip, error) {
-	return nil, ErrNotImplemented
+	t, err := scanTrip(s.pool.QueryRow(ctx, `
+		UPDATE trips SET
+			name        = COALESCE($2, name),
+			destination = COALESCE($3, destination),
+			starts_on   = CASE WHEN $4::boolean THEN $5 ELSE starts_on END,
+			ends_on     = CASE WHEN $6::boolean THEN $7 ELSE ends_on END,
+			updated_at  = NOW()
+		WHERE id = $1
+		RETURNING `+tripColumns,
+		id, in.Name, in.Destination,
+		in.StartsOn != nil, in.StartsOn,
+		in.EndsOn != nil, in.EndsOn))
+	return t, err
 }
 
 // DeleteTrip removes a trip and (via cascade) its plans, parts, and members.
 func (s *Store) DeleteTrip(ctx context.Context, id int64) error {
-	return ErrNotImplemented
+	tag, err := s.pool.Exec(ctx, `DELETE FROM trips WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
-// TripMembers returns the membership rows for a trip.
+// TripMembers returns the membership rows for a trip, ordered by role then
+// user id for stable output.
 func (s *Store) TripMembers(ctx context.Context, tripID int64) ([]*TripMember, error) {
-	return nil, ErrNotImplemented
+	rows, err := s.pool.Query(ctx, `
+		SELECT trip_id, user_id, role, added_at
+		FROM trip_members
+		WHERE trip_id = $1
+		ORDER BY
+			CASE role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END,
+			user_id`, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*TripMember
+	for rows.Next() {
+		var m TripMember
+		if err := rows.Scan(&m.TripID, &m.UserID, &m.Role, &m.AddedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &m)
+	}
+	return out, rows.Err()
 }
 
 // AddTripMember inserts or updates a (trip, user) membership at the given role.
 func (s *Store) AddTripMember(ctx context.Context, tripID, userID int64, role string) error {
-	return ErrNotImplemented
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO trip_members (trip_id, user_id, role)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (trip_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+		tripID, userID, role)
+	return err
 }
 
 // RemoveTripMember drops a (trip, user) membership.
 func (s *Store) RemoveTripMember(ctx context.Context, tripID, userID int64) error {
-	return ErrNotImplemented
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM trip_members WHERE trip_id = $1 AND user_id = $2`, tripID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // TripRole returns the viewer's role on the trip ("owner"|"editor"|"viewer"),
 // or ErrNotFound if they are not a member.
 func (s *Store) TripRole(ctx context.Context, tripID, viewerID int64) (string, error) {
-	return "", ErrNotImplemented
+	var role string
+	err := s.pool.QueryRow(ctx,
+		`SELECT role FROM trip_members WHERE trip_id = $1 AND user_id = $2`,
+		tripID, viewerID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return role, nil
 }
 
 // CanEditTrip reports whether the viewer may mutate the trip's plans/parts
-// (owner or editor).
+// (owner or editor). A non-member returns (false, nil); a missing trip also
+// returns (false, nil) — callers that need to distinguish "no such trip" use
+// TripByID first.
 func (s *Store) CanEditTrip(ctx context.Context, tripID, viewerID int64) (bool, error) {
-	return false, ErrNotImplemented
+	var ok bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM trip_members
+			WHERE trip_id = $1 AND user_id = $2 AND role IN ('owner','editor')
+		)`, tripID, viewerID).Scan(&ok)
+	return ok, err
+}
+
+// CanViewTrip reports whether the viewer is on the trip in any role, or owns
+// it. Used to gate the trip-detail read.
+func (s *Store) CanViewTrip(ctx context.Context, tripID, viewerID int64) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM trips t
+			WHERE t.id = $1
+			  AND (t.created_by = $2
+			    OR EXISTS (SELECT 1 FROM trip_members tm
+			               WHERE tm.trip_id = t.id AND tm.user_id = $2))
+		)`, tripID, viewerID).Scan(&ok)
+	return ok, err
 }
