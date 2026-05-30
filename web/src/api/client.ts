@@ -123,16 +123,14 @@ export const api = {
 
   // The legacy single-flight collection routes were retired in the trip-planning
   // cut-over. Two pieces survive:
-  //   - listFlights backs the Statistics dialog's flown/upcoming rollup.
+  //   - listFlights backs the Statistics dialog's flown/upcoming rollup. It now
+  //     reads /api/me/flights, which rebuilds the FlightDTO shape from the plan
+  //     model (the viewer's flight-type plan_parts) — the legacy flights table
+  //     is gone. The opts are accepted for call-site compatibility but ignored;
+  //     the endpoint always returns the viewer's full flight history.
   //   - resolveFlight backs the manual flight-add (ident + date → metadata).
-  // The backend keeps exactly these two routes.
-  listFlights: (opts?: { showAll?: boolean; showOld?: boolean }) => {
-    const params = new URLSearchParams();
-    if (opts?.showAll) params.set('show_all', '1');
-    if (opts?.showOld) params.set('show_old', '1');
-    const qs = params.toString();
-    return request<Flight[]>('GET', qs ? `/api/flights?${qs}` : '/api/flights');
-  },
+  listFlights: (_opts?: { showAll?: boolean; showOld?: boolean }) =>
+    request<Flight[]>('GET', '/api/me/flights'),
   resolveFlight: (input: ResolveFlightInput) =>
     request<ResolvedFlight>('POST', '/api/flights/resolve', input),
 
