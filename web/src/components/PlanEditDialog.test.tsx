@@ -172,6 +172,144 @@ describe('PlanEditDialog', () => {
     expect(h.updatePlanPart).not.toHaveBeenCalled();
   });
 
+  it('edits every endpoint field on a transfer part and patches them', async () => {
+    h.updatePlanPart.mockResolvedValue(undefined);
+    render_(plan({ parts: [part()] }));
+    // A transfer (flight) shows From/To headings and both endpoints.
+    expect(screen.getByText('From')).toBeInTheDocument();
+    expect(screen.getByText('To')).toBeInTheDocument();
+
+    const labels = screen.getAllByRole('textbox', { name: /^place$/i });
+    const addresses = screen.getAllByRole('textbox', { name: /^address$/i });
+    const dates = screen.getAllByLabelText(/^date$/i);
+    const tzs = screen.getAllByRole('textbox', { name: /^timezone$/i });
+
+    await userEvent.clear(labels[0]);
+    await userEvent.type(labels[0], 'Heathrow');
+    await userEvent.clear(addresses[0]);
+    await userEvent.type(addresses[0], 'TW6');
+    await userEvent.clear(dates[0]);
+    await userEvent.type(dates[0], '2026-10-13');
+    await userEvent.clear(tzs[0]);
+    await userEvent.type(tzs[0], 'Europe/Paris');
+
+    // End endpoint too.
+    await userEvent.clear(labels[1]);
+    await userEvent.type(labels[1], 'Dulles');
+    await userEvent.clear(addresses[1]);
+    await userEvent.type(addresses[1], 'VA');
+
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.start_label).toBe('Heathrow');
+    expect(patch.start_address).toBe('TW6');
+    expect(patch.start_tz).toBe('Europe/Paris');
+    expect(patch.end_label).toBe('Dulles');
+    expect(patch.end_address).toBe('VA');
+  });
+
+  it('shows a single "Where" endpoint for a non-transfer single-point part', () => {
+    render_(
+      plan({
+        type: 'dining',
+        parts: [
+          part({ type: 'dining', ends_at: undefined, end_label: '', end_tz: '' }),
+        ],
+      }),
+    );
+    expect(screen.getByText('Where')).toBeInTheDocument();
+    expect(screen.queryByText('To')).not.toBeInTheDocument();
+    expect(screen.queryByText('Until')).not.toBeInTheDocument();
+  });
+
+  it('shows "Until" for a non-transfer part that carries an end time (hotel)', () => {
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [part({ type: 'hotel', start_label: 'Hotel', end_label: '' })],
+      }),
+    );
+    expect(screen.getByText('Where')).toBeInTheDocument();
+    expect(screen.getByText('Until')).toBeInTheDocument();
+  });
+
+  it('numbers multiple parts and skips dismissed ones', () => {
+    render_(
+      plan({
+        parts: [
+          part({ id: 100 }),
+          part({ id: 101 }),
+          part({ id: 102, dismissed_at: '2026-01-01T00:00:00Z' }),
+        ],
+      }),
+    );
+    // Two editable parts → "Flight 1" / "Flight 2" dividers; dismissed one hidden.
+    expect(screen.getByText(/Flight 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Flight 2/)).toBeInTheDocument();
+    expect(screen.queryByText(/Flight 3/)).not.toBeInTheDocument();
+  });
+
+  it('resets the move target to empty when cleared', async () => {
+    render_();
+    const combo = screen.getByRole('combobox', { name: /move to another trip/i });
+    await userEvent.click(combo);
+    await userEvent.click(await screen.findByRole('option', { name: 'Porto' }));
+    // Move is now enabled.
+    expect(screen.getByRole('button', { name: /^move$/i })).toBeEnabled();
+  });
+
+  it('surfaces move errors via setError', async () => {
+    h.movePlan.mockRejectedValue(new Error('move boom'));
+    render_();
+    await userEvent.click(screen.getByRole('combobox', { name: /move to another trip/i }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Porto' }));
+    await userEvent.click(screen.getByRole('button', { name: /^move$/i }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('move boom'));
+  });
+
+  it('edits confirmation ref and notes and saves them', async () => {
+    h.updatePlan.mockResolvedValue(undefined);
+    render_();
+    const conf = screen.getByRole('textbox', { name: /confirmation/i });
+    const notes = screen.getByRole('textbox', { name: /notes/i });
+    await userEvent.clear(conf);
+    await userEvent.type(conf, 'ABC');
+    await userEvent.clear(notes);
+    await userEvent.type(notes, 'aisle seat');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(h.updatePlan).toHaveBeenCalledWith(42, {
+        title: 'BA123',
+        confirmation_ref: 'ABC',
+        notes: 'aisle seat',
+      }),
+    );
+  });
+
+  it('closes via Cancel without writing', async () => {
+    const onClose = vi.fn();
+    render(<PlanEditDialog open plan={plan()} onClose={onClose} />);
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(onClose).toHaveBeenCalled();
+    expect(h.updatePlan).not.toHaveBeenCalled();
+  });
+
+  it('does nothing on open=false', () => {
+    render(<PlanEditDialog open={false} plan={plan()} onClose={() => {}} />);
+    expect(h.listTrips).not.toHaveBeenCalled();
+  });
+
+  it('surfaces non-Error save failures by stringifying them', async () => {
+    h.updatePlan.mockRejectedValue('plain string boom');
+    render_();
+    const title = screen.getByRole('textbox', { name: /title/i });
+    await userEvent.clear(title);
+    await userEvent.type(title, 'BA999');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('plain string boom'));
+  });
+
   it('surfaces save errors via setError', async () => {
     h.updatePlan.mockRejectedValue(new Error('save boom'));
     render_();

@@ -334,4 +334,145 @@ describe('planTypeLabel', () => {
   it('labels ground transport', () => {
     expect(planTypeLabel('ground')).toBe('Ground transport');
   });
+  it('labels every known plan type', () => {
+    expect(planTypeLabel('flight')).toBe('Flight');
+    expect(planTypeLabel('train')).toBe('Train');
+    expect(planTypeLabel('hotel')).toBe('Hotel');
+    expect(planTypeLabel('dining')).toBe('Dining');
+    expect(planTypeLabel('excursion')).toBe('Excursion');
+  });
+  it('falls back to the raw type for an unknown value', () => {
+    expect(planTypeLabel('mystery' as unknown as Parameters<typeof planTypeLabel>[0])).toBe(
+      'mystery',
+    );
+  });
+});
+
+describe('branch edge cases', () => {
+  it('fmtTripDates: start-only (explicit) has no ~ prefix', () => {
+    expect(fmtTripDates(trip({ starts_on: '2026-10-12' }))).toMatch(/^12 Oct 2026$/);
+  });
+  it('fmtTripDates: start-only (inferred) carries the ~ prefix', () => {
+    expect(fmtTripDates(trip({ effective_start: '2026-10-12' }))).toMatch(/^~12 Oct 2026$/);
+  });
+  it('fmtTripDates: end-only renders "until …"', () => {
+    expect(fmtTripDates(trip({ ends_on: '2026-10-18' }))).toMatch(/^until 18 Oct 2026$/);
+  });
+  it('fmtDay: returns the raw string for an unparseable date-only value', () => {
+    // An invalid date column falls through to the raw value rather than NaN.
+    expect(fmtTripDates(trip({ starts_on: 'not-a-date' }))).toBe('not-a-date');
+  });
+
+  it('tripSpan: falls back to effective_* when no starts_on/ends_on', () => {
+    const span = tripSpan(trip({ effective_start: '2026-10-12', effective_end: '2026-10-18' }));
+    expect(span.start).toBe(new Date('2026-10-12T00:00:00Z').getTime());
+    expect(span.end).toBe(new Date('2026-10-18T00:00:00Z').getTime());
+  });
+  it('tripSpan: uses a part with no effective_at (falls back to starts_at)', () => {
+    const plans = [plan([part({ id: 1, effective_at: undefined, starts_at: '2026-10-12T09:00:00Z', ends_at: undefined })])];
+    const span = tripSpan(trip(), plans);
+    expect(span.start).toBe(new Date('2026-10-12T09:00:00Z').getTime());
+  });
+
+  it('classifyTrip: an end with no start treats the end as both bounds (past)', () => {
+    const now = new Date('2026-10-15T12:00:00Z').getTime();
+    expect(classifyTrip({ start: null, end: now - 1e9 }, now)).toBe('past');
+  });
+  it('classifyTrip: a start with no end treats the start as both bounds (upcoming)', () => {
+    const now = new Date('2026-10-15T12:00:00Z').getTime();
+    expect(classifyTrip({ start: now + 1e9, end: null }, now)).toBe('upcoming');
+  });
+
+  it('plansOutsideTripDates: skips dismissed parts', () => {
+    const early = part({ id: 2, starts_at: '2026-10-01T09:00:00Z', effective_at: '2026-10-01T09:00:00Z', dismissed_at: '2026-09-01T00:00:00Z' });
+    expect(
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([early])]),
+    ).toBe(false);
+  });
+  it('plansOutsideTripDates: end-only trip flags a late part', () => {
+    const late = part({ id: 3, starts_at: '2026-10-25T09:00:00Z', effective_at: '2026-10-25T09:00:00Z' });
+    expect(plansOutsideTripDates(trip({ ends_on: '2026-10-18' }), [plan([late])])).toBe(true);
+  });
+  it('plansOutsideTripDates: start-only trip flags an early part', () => {
+    const early = part({ id: 4, starts_at: '2026-10-01T09:00:00Z', effective_at: '2026-10-01T09:00:00Z' });
+    expect(plansOutsideTripDates(trip({ starts_on: '2026-10-12' }), [plan([early])])).toBe(true);
+  });
+  it('plansOutsideTripDates: a part with no end uses its start for the end check', () => {
+    const within = part({ id: 5, starts_at: '2026-10-13T09:00:00Z', effective_at: '2026-10-13T09:00:00Z', ends_at: undefined, end_tz: '' });
+    expect(
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([within])]),
+    ).toBe(false);
+  });
+
+  it('buildTimeline: a same-day hotel renders as a single tile (not a band)', () => {
+    const plans = [
+      plan(
+        [
+          part({
+            id: 9,
+            type: 'hotel',
+            starts_at: '2026-10-12T09:00:00Z',
+            effective_at: '2026-10-12T09:00:00Z',
+            ends_at: '2026-10-12T18:00:00Z',
+          }),
+        ],
+        { id: 2, type: 'hotel' },
+      ),
+    ];
+    const days = buildTimeline(plans);
+    expect(days).toHaveLength(1);
+    expect(days[0].parts[0].edge).toBeUndefined();
+  });
+  it('buildTimeline: a hotel with no end is a single tile', () => {
+    const plans = [
+      plan([part({ id: 9, type: 'hotel', ends_at: undefined })], { id: 2, type: 'hotel' }),
+    ];
+    expect(buildTimeline(plans)[0].parts[0].edge).toBeUndefined();
+  });
+
+  it('isHotelBand: false when a hotel has no end', () => {
+    expect(isHotelBand(part({ type: 'hotel', ends_at: undefined }))).toBe(false);
+  });
+  it('hotelNights: 0 when there is no end or an unparseable instant', () => {
+    expect(hotelNights(part({ type: 'hotel', ends_at: undefined }))).toBe(0);
+    expect(hotelNights(part({ type: 'hotel', starts_at: 'nope', ends_at: '2026-10-15T10:00:00Z' }))).toBe(0);
+  });
+
+  it('fmtPartPlaces: end-only transfer still renders the arrow form', () => {
+    // A transfer with a distinct (non-empty) end still reads as "start → end".
+    expect(fmtPartPlaces('flight', '', 'JFK')).toBe(' → JFK');
+  });
+  it('fmtPartPlaces: transfer with no labels at all is empty', () => {
+    expect(fmtPartPlaces('flight', '', '')).toBe('');
+  });
+  it('fmtPartPlaces: non-transfer with only an end label shows the end', () => {
+    expect(fmtPartPlaces('hotel', '', 'The Savoy')).toBe('The Savoy');
+  });
+  it('fmtPartPlaces: treats undefined labels as empty', () => {
+    expect(fmtPartPlaces('hotel', undefined, undefined)).toBe('');
+    expect(fmtPartPlaces('hotel', 'Nobu', undefined)).toBe('Nobu');
+  });
+
+  it('buildTimeline: an unparseable instant falls back to the raw iso for its day key/label', () => {
+    const plans = [
+      plan([part({ id: 1, starts_at: 'not-a-date', effective_at: 'not-a-date', ends_at: undefined })]),
+    ];
+    const days = buildTimeline(plans);
+    expect(days).toHaveLength(1);
+    // localDayKey + fmtDayHeader both fall back to the raw iso on NaN.
+    expect(days[0].dayKey).toBe('not-a-date');
+    expect(days[0].label).toBe('not-a-date');
+  });
+
+  it('fmtTimeOfDay / tzAbbrev / fmtLocalDateTime / splitLocal: empty for unparseable iso', () => {
+    expect(fmtPartTimeRange(part({ starts_at: 'not-a-date', ends_at: undefined }))).toBe('');
+    expect(tzAbbrev('not-a-date', 'UTC')).toBe('');
+    expect(fmtLocalDateTime('not-a-date', 'UTC')).toBe('');
+    expect(splitLocal('not-a-date', 'UTC')).toEqual({ date: '', time: '' });
+  });
+
+  it('zonedTimeToUtc: empty for a malformed date, defaults a blank time to 00:00', () => {
+    expect(zonedTimeToUtc('', '09:00', 'UTC')).toBe('');
+    expect(zonedTimeToUtc('2026-10-12', '', 'UTC')).toBe('2026-10-12T00:00:00.000Z');
+  });
 });

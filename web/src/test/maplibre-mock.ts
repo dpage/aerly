@@ -26,7 +26,9 @@ export class FakeMap {
   fitBounds = vi.fn();
   flyTo = vi.fn();
   remove = vi.fn();
-  getCanvas = vi.fn(() => ({ style: {} as CSSStyleDeclaration }));
+  // A stable canvas so cursor writes persist across getCanvas() calls.
+  canvasEl = { style: {} as CSSStyleDeclaration };
+  getCanvas = vi.fn(() => this.canvasEl);
 
   constructor(opts: unknown) {
     this.opts = opts;
@@ -51,8 +53,8 @@ export class FakeMap {
 
   once(evt: string, cb: () => void): void {
     (this.onceHandlers[evt] ??= []).push(cb);
-    // Fire 'load' immediately so the deferred apply()/fit() path is exercised.
-    if (evt === 'load') cb();
+    // Fire 'load'/'idle' immediately so the deferred apply()/fit() paths run.
+    if (evt === 'load' || evt === 'idle') cb();
   }
 
   fire(evt: string): void {

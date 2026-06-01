@@ -7,10 +7,31 @@ import type { Plan, PlanPart, Trip } from '../api/types';
 
 const state = {
   currentTrip: null as (Trip & { plans: Plan[] }) | null,
+  deletePlan: vi.fn(async () => {}),
+  setError: vi.fn(),
+  // Fields the child dialogs (PlanEditDialog/PlanPrivacyDialog/PlanAlertToggle)
+  // pull off the store when they're opened from an expanded tile.
+  trips: [] as Trip[],
+  users: [] as unknown[],
+  listTrips: vi.fn(async () => {}),
+  updatePlan: vi.fn(async () => {}),
+  updatePlanPart: vi.fn(async () => {}),
+  movePlan: vi.fn(async () => {}),
+  setPlanVisibility: vi.fn(async () => {}),
+  addPlanPassenger: vi.fn(async () => {}),
+  removePlanPassenger: vi.fn(async () => {}),
+  optInPlanAlerts: vi.fn(async () => {}),
+  optOutPlanAlerts: vi.fn(async () => {}),
 };
 
 vi.mock('../state/store', () => ({
   useStore: (sel: (s: typeof state) => unknown) => sel(state),
+}));
+
+// AddToTripDialog pulls a large ingest-flow slice off the store; the timeline
+// only needs to mount it when `open`, so stub it to a minimal dialog.
+vi.mock('../components/AddToTripDialog', () => ({
+  default: ({ open }: { open: boolean }) => (open ? <div role="dialog">Add to trip dialog</div> : null),
 }));
 
 import TripTimeline from './TripTimeline';
@@ -74,6 +95,7 @@ function renderTimeline() {
 
 beforeEach(() => {
   state.currentTrip = null;
+  vi.clearAllMocks();
 });
 
 describe('TripTimeline', () => {
@@ -283,5 +305,209 @@ describe('TripTimeline', () => {
     expect(within(card).queryByRole('button', { name: /Privacy & passengers/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
+  });
+
+  it('opens the empty-state Add to trip dialog when the link is clicked', async () => {
+    state.currentTrip = tripWith([]);
+    renderTimeline();
+    await userEvent.click(screen.getByRole('button', { name: /add to trip/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('shows type-specific detail lines for each plan type when expanded', async () => {
+    const cases: Array<{ p: Partial<PlanPart>; expect: RegExp[] }> = [
+      {
+        p: { id: 11, type: 'hotel', hotel: { room_type: 'Suite', phone: '+351 1' } },
+        expect: [/Suite/, /\+351 1/],
+      },
+      {
+        p: {
+          id: 12,
+          type: 'train',
+          train: {
+            operator: 'Eurostar',
+            service_no: '9012',
+            class: 'Standard',
+            coach: '7',
+            seat: '12A',
+            platform: '4',
+          },
+        },
+        expect: [/Eurostar/, /Coach 7/, /Seat 12A/, /Platform 4/],
+      },
+      {
+        p: { id: 13, type: 'ground', ground: { provider: 'Addison Lee', vehicle: 'Saloon', phone: '020' } },
+        expect: [/Addison Lee/, /Saloon/, /020/],
+      },
+      {
+        p: { id: 14, type: 'dining', dining: { reservation_name: 'Page', phone: '555' } },
+        expect: [/Reservation: Page/, /555/],
+      },
+      {
+        p: { id: 15, type: 'excursion', excursion: { provider: 'GetYourGuide' } },
+        expect: [/GetYourGuide/],
+      },
+      {
+        p: {
+          id: 16,
+          type: 'flight',
+          flight: {
+            ident: 'TP123',
+            callsign: '',
+            scheduled_out: '',
+            scheduled_in: '',
+            origin_iata: 'LHR',
+            dest_iata: 'LIS',
+            flight_status: 'Scheduled',
+          },
+        },
+        expect: [/TP123/, /Scheduled/],
+      },
+    ];
+    for (const c of cases) {
+      state.currentTrip = tripWith([
+        plan([part({ plan_id: 1, ...(c.p as Partial<PlanPart>) })], {
+          id: 1,
+          type: (c.p.type as Plan['type']) ?? 'flight',
+          title: 'Detail plan',
+        }),
+      ]);
+      const { unmount } = renderTimeline();
+      const card = screen.getByTestId(`part-card-${c.p.id}`);
+      await userEvent.click(card);
+      for (const re of c.expect) expect(card).toHaveTextContent(re);
+      unmount();
+    }
+  });
+
+  it('renders no detail lines when type-specific objects are absent', async () => {
+    // Hotel/train/ground/dining/excursion parts whose nested objects are missing
+    // exercise the `if (part.x)` false branches in partDetailLines.
+    for (const type of ['hotel', 'train', 'ground', 'dining', 'excursion'] as const) {
+      state.currentTrip = tripWith([
+        plan([part({ id: 20, plan_id: 1, type })], { id: 1, type, title: 'Bare' }),
+      ]);
+      const { unmount } = renderTimeline();
+      await userEvent.click(screen.getByTestId('part-card-20'));
+      expect(screen.getByText('Bare')).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('opens the edit dialog from an expanded tile (owner)', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    await userEvent.click(within(card).getByRole('button', { name: /^Edit$/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('opens the privacy dialog from an expanded tile (owner)', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    await userEvent.click(within(card).getByRole('button', { name: /Privacy & passengers/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('deletes a plan after confirmation', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 7, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    await userEvent.click(within(card).getByRole('button', { name: /Delete/i }));
+    expect(state.deletePlan).toHaveBeenCalledWith(7);
+    confirmSpy.mockRestore();
+  });
+
+  it('does not delete when confirmation is cancelled', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 7, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    await userEvent.click(within(card).getByRole('button', { name: /Delete/i }));
+    expect(state.deletePlan).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('surfaces an error when deletion fails', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    state.deletePlan.mockRejectedValueOnce(new Error('nope'));
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 7, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    await userEvent.click(within(card).getByRole('button', { name: /Delete/i }));
+    await vi.waitFor(() => expect(state.setError).toHaveBeenCalledWith('nope'));
+    confirmSpy.mockRestore();
+  });
+
+  it('shows a confirmed chip and a confirmation reference', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1, status: 'confirmed' })], {
+        id: 1,
+        title: 'Flight out',
+        confirmation_ref: 'XIIVFQ',
+      }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    expect(within(card).getByText('confirmed')).toBeInTheDocument();
+    expect(card).toHaveTextContent('Ref: XIIVFQ');
+  });
+
+  it('closes the edit dialog via its onClose callback', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    await userEvent.click(within(card).getByRole('button', { name: /^Edit$/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('closes the privacy dialog via its onClose callback', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    await userEvent.click(within(card).getByRole('button', { name: /Privacy & passengers/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('keeps a tile expanded when a click lands inside the expanded body', async () => {
+    state.currentTrip = tripWith([
+      plan(
+        [part({ id: 1, plan_id: 1, type: 'ground', start_address: '12 Acacia Avenue' })],
+        { id: 1, type: 'ground', title: 'Taxi', notes: 'Ring on arrival' },
+      ),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    // Clicking the notes text (inside the expanded body) must not fold it back.
+    await userEvent.click(screen.getByText('Ring on arrival'));
+    expect(within(card).getByRole('button', { name: /^Edit$/i })).toBeInTheDocument();
   });
 });
