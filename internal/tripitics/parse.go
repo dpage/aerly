@@ -49,7 +49,7 @@ type DateTime struct {
 	Time     time.Time // best-effort; zero if unparseable
 	HasTime  bool      // false for date-only values
 	IsUTC    bool      // the value carried a trailing Z
-	Floating bool      // had a wall-clock time but no TZID and no Z
+	Floating bool      // wall-clock time with no zone applied (no TZID/Z, or an unresolvable TZID)
 }
 
 // Property is a single iCalendar content line: NAME;PARAM=v;…:VALUE.
@@ -198,8 +198,7 @@ func parseDateTime(p Property) DateTime {
 		}
 		return dt
 	}
-	// Floating local time. Resolve against the TZID when we can load it,
-	// otherwise parse as a naive wall clock (UTC-based) and flag it floating.
+	// Zoned local time: resolve against the TZID when we can load it.
 	if dt.TZID != "" {
 		if loc, err := time.LoadLocation(dt.TZID); err == nil {
 			if t, err := time.ParseInLocation("20060102T150405", v, loc); err == nil {
@@ -207,8 +206,15 @@ func parseDateTime(p Property) DateTime {
 				return dt
 			}
 		}
+		// TZID present but unresolvable (e.g. a non-IANA name like
+		// "Pacific Time"): fall through to a floating parse rather than
+		// pretend the zone was applied. dt.TZID is kept for best-effort
+		// mapping later.
 	}
-	dt.Floating = dt.TZID == ""
+	// Floating local time — either no TZID, or one we couldn't load. The wall
+	// clock is parsed naively and flagged Floating so callers know no zone was
+	// applied and must not treat dt.Time as an absolute instant.
+	dt.Floating = true
 	if t, err := time.Parse("20060102T150405", v); err == nil {
 		dt.Time = t
 	}

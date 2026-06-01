@@ -33,7 +33,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "open:", err)
 		os.Exit(1)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			fmt.Fprintln(os.Stderr, "close:", cerr)
+		}
+	}()
 
 	cal, err := tripitics.Parse(f)
 	if err != nil {

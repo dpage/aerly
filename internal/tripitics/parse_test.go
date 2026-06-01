@@ -104,6 +104,12 @@ func TestParseQuotedParamColon(t *testing.T) {
 	if cal.Events[0].Start.Raw != "20170223T080000" {
 		t.Errorf("raw = %q, want 20170223T080000", cal.Events[0].Start.Raw)
 	}
+	// The TZID can't be loaded, so the time must be flagged Floating (not a
+	// resolved zoned instant) while keeping the original name for later mapping.
+	st := cal.Events[0].Start
+	if !st.Floating || st.IsUTC {
+		t.Errorf("unresolvable TZID should be floating & non-UTC, got %+v", st)
+	}
 }
 
 func TestParseEmpty(t *testing.T) {
