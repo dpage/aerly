@@ -160,6 +160,11 @@ func (a *AeroDataBox) doOne(ctx context.Context, ident, date string) (
 	q := url.Values{}
 	q.Set("withAircraftImage", "false")
 	q.Set("withLocation", "true")
+	// Match {date} against the flight's local DEPARTURE date. Bookings give the
+	// local departure date; without this AeroDataBox matches by UTC date, so a
+	// late-evening westbound flight (local date < UTC date) resolves to the
+	// previous day's flight.
+	q.Set("dateLocalRole", "Departure")
 	u := fmt.Sprintf("%s/flights/number/%s/%s?%s",
 		a.BaseURL, url.PathEscape(ident), date, q.Encode())
 
