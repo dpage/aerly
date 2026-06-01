@@ -6,8 +6,10 @@ import {
   classifyTrip,
   fmtPartPlaces,
   fmtPartTimeRange,
+  fmtLocalDateTime,
   fmtTripDates,
   plansOutsideTripDates,
+  tzAbbrev,
   hotelNights,
   isHotelBand,
   planTypeLabel,
@@ -259,18 +261,18 @@ describe('fmtPartPlaces', () => {
 });
 
 describe('fmtPartTimeRange', () => {
-  it('renders a single time without an end', () => {
+  it('renders a single time with its tz abbreviation', () => {
     expect(fmtPartTimeRange(part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined }))).toBe(
-      '09:00',
+      '09:00 UTC',
     );
   });
 
-  it('adds a UTC suffix when the tz is unknown', () => {
+  it('falls back to a UTC suffix when the tz is unknown', () => {
     expect(
       fmtPartTimeRange(part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, start_tz: '' })),
     ).toBe('09:00 UTC');
   });
-  it('renders a range with each end in its own tz', () => {
+  it('renders a range with each end in its own tz + abbreviation', () => {
     const out = fmtPartTimeRange(
       part({
         starts_at: '2026-07-01T10:00:00Z',
@@ -279,7 +281,27 @@ describe('fmtPartTimeRange', () => {
         end_tz: 'America/New_York',
       }),
     );
-    expect(out).toBe('11:00 → 10:00');
+    // 11:00 BST (London summer) → 10:00 EDT (New York summer); the exact London
+    // abbreviation (BST vs GMT+1) depends on the runtime ICU, so match loosely.
+    expect(out).toMatch(/^11:00 \S+ → 10:00 EDT$/);
+  });
+});
+
+describe('tzAbbrev', () => {
+  it('returns a real abbreviation for a known zone', () => {
+    expect(tzAbbrev('2026-07-01T14:00:00Z', 'America/New_York')).toBe('EDT');
+  });
+  it('falls back to UTC when the zone is unknown', () => {
+    expect(tzAbbrev('2026-07-01T14:00:00Z', '')).toBe('UTC');
+  });
+});
+
+describe('fmtLocalDateTime', () => {
+  it('renders date + local time + tz abbreviation', () => {
+    // 14:00Z → 10:00 EDT on the same day.
+    expect(fmtLocalDateTime('2026-07-01T14:00:00Z', 'America/New_York')).toMatch(
+      /Jul.*10:00 EDT$/,
+    );
   });
 });
 

@@ -256,9 +256,9 @@ function PartCard({ part, plan, trip, edge, accent, multiPart, expanded, onToggl
 
           <Typography variant="caption" color="text.secondary">
             {edge === 'check-in'
-              ? `Check in · ${localClock(part.starts_at, part.start_tz)}`
+              ? `Check in · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
               : edge === 'check-out'
-                ? `Check out · ${localClock(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
+                ? `Check out · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
                 : fmtPartTimeRange(part)}
           </Typography>
 
@@ -334,14 +334,6 @@ function PartCard({ part, plan, trip, edge, accent, multiPart, expanded, onToggl
       )}
     </Card>
   );
-}
-
-// A hotel check-in/out is a local wall-clock at the property. We don't store
-// the property's timezone, so drop the "UTC" suffix fmtTimeOfDay adds for
-// tz-less times — the digits are the local check-in/out the booking stated, and
-// labelling them "UTC" is misleading.
-function localClock(iso: string, tz?: string): string {
-  return fmtTimeOfDay(iso, tz).replace(/\s*UTC$/, '');
 }
 
 /** Type-specific detail lines for the plan-detail dialog, so a tapped plan
