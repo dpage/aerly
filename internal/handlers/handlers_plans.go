@@ -201,6 +201,7 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.publishPlanUpdated(r.Context(), tripID, plan.ID)
+	a.geocodePlanAsync(tripID, plan.ID)
 	writeJSON(w, http.StatusCreated, dto)
 }
 
