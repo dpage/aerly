@@ -4,13 +4,19 @@ import maplibregl, {
   type Map as MlMap,
   type StyleSpecification,
 } from 'maplibre-gl';
-import { Box, Typography } from '@mui/material';
+import {
+  Box,
+  List,
+  ListItemButton,
+  ListItemText,
+  Typography,
+} from '@mui/material';
 
 import { useStore } from '../state/store';
 import type { Plan, PlanPart, PlanType } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
-import { planTypeLabel } from '../lib/trip-format';
-import { buildMarkerPopup, buildPinEl } from '../lib/plan-marker';
+import { fmtTimeOfDay, planTypeLabel } from '../lib/trip-format';
+import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
 
 // Standard OSM raster style for the trip map (spec §11: MapLibre).
 const STYLE: StyleSpecification = {
@@ -51,6 +57,7 @@ export default function TripMap() {
 
   const points = useMemo(() => collectPoints(plans), [plans]);
   const legsFC = useMemo(() => buildLegs(plans), [plans]);
+  const events = useMemo(() => collectEvents(plans), [plans]);
 
   const containerRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -131,7 +138,111 @@ export default function TripMap() {
     );
   }
 
-  return <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} />;
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        flexDirection: { xs: 'column', md: 'row' },
+      }}
+    >
+      <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 240 }}>
+        <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} />
+      </Box>
+      <Box
+        sx={{
+          width: { xs: '100%', md: 280 },
+          borderLeft: { md: 1 },
+          borderTop: { xs: 1, md: 0 },
+          borderColor: 'divider',
+          overflowY: 'auto',
+        }}
+      >
+        <TripEventList
+          events={events}
+          onFocus={(lat, lon) =>
+            mapRef.current?.flyTo({ center: [lon, lat], zoom: 12, duration: 600 })
+          }
+        />
+      </Box>
+    </Box>
+  );
+}
+
+/** A clickable event in the trip-map side list. */
+interface TripEvent {
+  key: string;
+  type: PlanType;
+  title: string;
+  iso: string;
+  tz?: string;
+  lat?: number;
+  lon?: number;
+}
+
+/** One row per non-dismissed part, chronological. Tied to the map: clicking a
+ * row with coordinates pans the map to it, so "where's dinner?" is one tap. */
+function collectEvents(plans: Plan[]): TripEvent[] {
+  const out: TripEvent[] = [];
+  for (const plan of plans) {
+    const title = plan.title || planTypeLabel(plan.type);
+    for (const part of plan.parts) {
+      if (part.dismissed_at) continue;
+      const lat = part.start_lat ?? part.end_lat ?? undefined;
+      const lon = part.start_lon ?? part.end_lon ?? undefined;
+      out.push({
+        key: `p${part.id}`,
+        type: part.type,
+        title,
+        iso: part.effective_at ?? part.starts_at,
+        tz: part.start_tz,
+        lat: lat ?? undefined,
+        lon: lon ?? undefined,
+      });
+    }
+  }
+  return out.sort((a, b) => a.iso.localeCompare(b.iso));
+}
+
+function TripEventList({
+  events,
+  onFocus,
+}: {
+  events: TripEvent[];
+  onFocus: (lat: number, lon: number) => void;
+}) {
+  if (events.length === 0) return null;
+  return (
+    <List dense disablePadding>
+      {events.map((e) => {
+        const secondary = [planTypeLabel(e.type), fmtTimeOfDay(e.iso, e.tz)]
+          .filter(Boolean)
+          .join(' · ');
+        const hasCoords = e.lat != null && e.lon != null;
+        return (
+          <ListItemButton
+            key={e.key}
+            disabled={!hasCoords}
+            onClick={() => hasCoords && onFocus(e.lat!, e.lon!)}
+          >
+            <Box
+              component="span"
+              sx={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                bgcolor: planTypeColor(e.type),
+                flex: 'none',
+                mr: 1.5,
+              }}
+            />
+            <ListItemText primary={e.title} secondary={secondary || undefined} />
+          </ListItemButton>
+        );
+      })}
+    </List>
+  );
 }
 
 function collectPoints(plans: Plan[]): MapPoint[] {

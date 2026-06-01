@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Chip,
@@ -9,6 +9,7 @@ import {
   List,
   ListItemButton,
   ListItemText,
+  ListSubheader,
   MenuItem,
   Select,
   Slider,
@@ -17,7 +18,8 @@ import {
 } from '@mui/material';
 
 import { useStore } from '../state/store';
-import { tripSpan } from '../lib/trip-format';
+import { fmtTimeOfDay, planTypeLabel, tripSpan } from '../lib/trip-format';
+import { planTypeColor } from '../lib/plan-marker';
 import { labelOnDefaultBgSx } from '../theme';
 import TrackerMap from '../components/TrackerMap';
 
@@ -25,7 +27,7 @@ import TrackerMap from '../components/TrackerMap';
 function parseDays(token: string): number {
   const m = /^(\d+)d$/.exec(token.trim());
   if (!m) return 7;
-  return Math.max(0, Math.min(60, Number(m[1])));
+  return Math.max(0, Math.min(366, Number(m[1])));
 }
 
 function days(n: number): string {
@@ -109,21 +111,20 @@ export default function Tracker() {
       }
     }
     if (!any) return null;
-    // Pad by a day so trips that start/end today aren't clipped, and clamp.
+    // Pad by a day so trips that start/end today aren't clipped. Clamp to a
+    // year so an older past trip's whole span is still covered — the previous
+    // 60-day cap silently clipped trips further back than two months.
     return {
-      before: days(Math.max(1, Math.min(60, before + 1))),
-      after: days(Math.max(1, Math.min(60, after + 1))),
+      before: days(Math.max(1, Math.min(366, before + 1))),
+      after: days(Math.max(1, Math.min(366, after + 1))),
     };
   };
 
   const onTagChange = (label: string) => {
-    const seeded = tagWindow(label);
-    if (seeded) {
-      // Seed the window from the tag's span, then reload for the tag.
-      void setTrackerWindow(seeded).then(() => loadTracker({ tag: label }));
-    } else {
-      void loadTracker({ tag: label });
-    }
+    // Seed the window from the tag's span and load in one step, so the seed is
+    // persisted + sent under the new tag (a past-trip tag would otherwise reload
+    // with the default 7d window and show nothing).
+    void loadTracker({ tag: label, window: tagWindow(label) ?? undefined });
   };
 
   const before = parseDays(win.before);
@@ -230,7 +231,12 @@ export default function Tracker() {
             overflowY: 'auto',
           }}
         >
-          <TrackerList parts={parts} focusedPartId={focusedPartId} loading={loading} />
+          <TrackerList
+            parts={parts}
+            markers={markers}
+            focusedPartId={focusedPartId}
+            loading={loading}
+          />
         </Box>
       </Box>
     </Box>
@@ -239,15 +245,22 @@ export default function Tracker() {
 
 interface TrackerListProps {
   parts: import('../api/types').TrackerPart[];
+  markers: import('../api/types').TrackerMarker[];
   focusedPartId: number | null;
   loading: boolean;
 }
 
-function TrackerList({ parts, focusedPartId, loading }: TrackerListProps) {
+function TrackerList({ parts, markers, focusedPartId, loading }: TrackerListProps) {
   const [, setSearchParams] = useSearchParams();
-  const shown = focusedPartId != null ? parts.filter((p) => p.plan_part_id === focusedPartId) : parts;
+  const navigate = useNavigate();
+  const shownParts =
+    focusedPartId != null ? parts.filter((p) => p.plan_part_id === focusedPartId) : parts;
+  // Venue events only show in the convergence view, not the single-flight focus.
+  // A part can yield two markers (a taxi's pickup + dropoff) — keep the earliest
+  // per part so each event lists once.
+  const shownVenues = focusedPartId != null ? [] : dedupeVenues(markers);
 
-  if (shown.length === 0) {
+  if (shownParts.length === 0 && shownVenues.length === 0) {
     return (
       <Box sx={{ p: 2 }}>
         <Typography variant="body2" color="text.secondary">
@@ -259,7 +272,7 @@ function TrackerList({ parts, focusedPartId, loading }: TrackerListProps) {
 
   return (
     <List dense disablePadding>
-      {shown.map((p) => {
+      {shownParts.map((p) => {
         const pos = p.latest_position;
         const secondary = [
           p.dest_iata ? `→ ${p.dest_iata}` : '',
@@ -270,7 +283,7 @@ function TrackerList({ parts, focusedPartId, loading }: TrackerListProps) {
           .join(' · ');
         return (
           <ListItemButton
-            key={p.plan_part_id}
+            key={`f${p.plan_part_id}`}
             selected={focusedPartId === p.plan_part_id}
             onClick={() =>
               setSearchParams(
@@ -293,6 +306,49 @@ function TrackerList({ parts, focusedPartId, loading }: TrackerListProps) {
           </ListItemButton>
         );
       })}
+
+      {shownVenues.length > 0 && (
+        <ListSubheader disableSticky sx={{ bgcolor: 'transparent', lineHeight: '32px' }}>
+          Places
+        </ListSubheader>
+      )}
+      {shownVenues.map((m) => {
+        const secondary = [planTypeLabel(m.type), m.when ? fmtTimeOfDay(m.when, m.tz) : '']
+          .filter(Boolean)
+          .join(' · ');
+        return (
+          <ListItemButton
+            key={`v${m.plan_part_id}:${m.lat},${m.lon}`}
+            onClick={() => navigate(`/trips/${m.trip_id}`)}
+          >
+            <Box
+              component="span"
+              sx={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                bgcolor: planTypeColor(m.type),
+                flex: 'none',
+                mr: 1.5,
+              }}
+            />
+            <ListItemText primary={m.label} secondary={secondary || undefined} />
+          </ListItemButton>
+        );
+      })}
     </List>
   );
+}
+
+/** Keep one marker per plan part (the earliest by time), so a taxi's pickup +
+ * dropoff list as a single event rather than twice. */
+function dedupeVenues(
+  markers: import('../api/types').TrackerMarker[],
+): import('../api/types').TrackerMarker[] {
+  const byPart = new Map<number, import('../api/types').TrackerMarker>();
+  for (const m of markers) {
+    const cur = byPart.get(m.plan_part_id);
+    if (!cur || (m.when ?? '') < (cur.when ?? '')) byPart.set(m.plan_part_id, m);
+  }
+  return [...byPart.values()].sort((a, b) => (a.when ?? '').localeCompare(b.when ?? ''));
 }
