@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -151,5 +151,75 @@ describe('TripList', () => {
     await userEvent.click(screen.getByRole('button', { name: /new trip/i }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('button', { name: /create/i })).toBeDisabled();
+  });
+
+  it('shows a spinner while the first load is in flight', () => {
+    state.tripsLoading = true;
+    state.trips = [];
+    renderList();
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByText(/No trips yet/i)).not.toBeInTheDocument();
+  });
+
+  it('does not show the spinner once trips have loaded even if a refetch is in flight', () => {
+    state.tripsLoading = true;
+    state.trips = [trip({ id: 1, name: 'Already here', starts_on: dateOnly(3) })];
+    renderList();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.getByText('Already here')).toBeInTheDocument();
+  });
+
+  it('captures destination and dates from the New trip dialog', async () => {
+    createTrip.mockResolvedValue(trip({ id: 12, name: 'Full' }));
+    renderList();
+    await userEvent.click(screen.getByRole('button', { name: /new trip/i }));
+    const dialog = screen.getByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText(/name/i), 'Full');
+    await userEvent.type(within(dialog).getByLabelText(/destination/i), 'Porto');
+    await userEvent.type(within(dialog).getByLabelText(/starts/i), '2026-10-01');
+    await userEvent.type(within(dialog).getByLabelText(/ends/i), '2026-10-05');
+    await userEvent.click(within(dialog).getByRole('button', { name: /create/i }));
+    expect(createTrip).toHaveBeenCalledWith({
+      name: 'Full',
+      destination: 'Porto',
+      starts_on: '2026-10-01',
+      ends_on: '2026-10-05',
+    });
+  });
+
+  it('does not navigate when trip creation returns nothing', async () => {
+    createTrip.mockResolvedValue(null);
+    renderList();
+    await userEvent.click(screen.getByRole('button', { name: /new trip/i }));
+    const dialog = screen.getByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText(/name/i), 'Nope');
+    await userEvent.click(within(dialog).getByRole('button', { name: /create/i }));
+    expect(createTrip).toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('closes the New trip dialog via Cancel', async () => {
+    renderList();
+    await userEvent.click(screen.getByRole('button', { name: /new trip/i }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('ignores a second Create click while a creation is in flight', async () => {
+    // Hold the createTrip promise open so busy stays true across a 2nd click.
+    let resolve!: (t: Trip) => void;
+    createTrip.mockReturnValue(new Promise<Trip>((r) => (resolve = r)));
+    renderList();
+    await userEvent.click(screen.getByRole('button', { name: /new trip/i }));
+    const dialog = screen.getByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText(/name/i), 'Once');
+    const createBtn = within(dialog).getByRole('button', { name: /create/i });
+    await userEvent.click(createBtn);
+    // The button disables on busy; force a programmatic re-click to hit the
+    // `busy` short-circuit in submit().
+    createBtn.click();
+    expect(createTrip).toHaveBeenCalledTimes(1);
+    resolve(trip({ id: 1, name: 'Once' }));
   });
 });

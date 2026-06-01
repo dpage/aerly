@@ -246,6 +246,196 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(last()[0]).toBe('/api/tracker?from=2026-10-01&to=2026-10-31&tag=pgconf');
     expect(last()[1]?.method).toBe('GET');
   });
+
+  it('getTracker hits the bare endpoint when given no opts', async () => {
+    await api.getTracker();
+    expect(last()[0]).toBe('/api/tracker');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('updateMe', async () => {
+    await api.updateMe({ home_address: '1 Main St' });
+    expect(last()[0]).toBe('/api/me');
+    expect(last()[1]?.method).toBe('PATCH');
+    expect(last()[1]?.body).toBe(JSON.stringify({ home_address: '1 Main St' }));
+  });
+
+  it('cancelOutgoingInvite sends the email body and resolves undefined', async () => {
+    const r = await api.cancelOutgoingInvite('bob@example.com');
+    expect(r).toBeUndefined();
+    expect(last()[0]).toBe('/api/friends/outgoing');
+    expect(last()[1]?.method).toBe('DELETE');
+    expect(last()[1]?.body).toBe(JSON.stringify({ email: 'bob@example.com' }));
+  });
+
+  it('listTrips', async () => {
+    await api.listTrips();
+    expect(last()[0]).toBe('/api/trips');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('getTrip', async () => {
+    await api.getTrip(8);
+    expect(last()[0]).toBe('/api/trips/8');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('createTrip', async () => {
+    await api.createTrip({ name: 'Lisbon' });
+    expect(last()[0]).toBe('/api/trips');
+    expect(last()[1]?.method).toBe('POST');
+    expect(last()[1]?.body).toBe(JSON.stringify({ name: 'Lisbon' }));
+  });
+
+  it('updateTrip', async () => {
+    await api.updateTrip(8, { name: 'Porto' });
+    expect(last()[0]).toBe('/api/trips/8');
+    expect(last()[1]?.method).toBe('PATCH');
+  });
+
+  it('deleteTrip', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.deleteTrip(8);
+  });
+
+  it('addTripMember', async () => {
+    await api.addTripMember(8, { user_id: 2, role: 'viewer' });
+    expect(last()[0]).toBe('/api/trips/8/members');
+    expect(last()[1]?.method).toBe('POST');
+    expect(last()[1]?.body).toBe(JSON.stringify({ user_id: 2, role: 'viewer' }));
+  });
+
+  it('removeTripMember', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.removeTripMember(8, 2);
+  });
+
+  it('setTripTags', async () => {
+    await api.setTripTags(8, ['pgconf', 'work']);
+    expect(last()[0]).toBe('/api/trips/8/tags');
+    expect(last()[1]?.method).toBe('PUT');
+    expect(last()[1]?.body).toBe(JSON.stringify({ labels: ['pgconf', 'work'] }));
+  });
+
+  it('suggestTags url-encodes the query', async () => {
+    await api.suggestTags('p g');
+    expect(last()[0]).toBe('/api/tags/suggest?q=p%20g');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('createPlan', async () => {
+    await api.createPlan(8, { type: 'flight', title: 'Out' } as Parameters<typeof api.createPlan>[1]);
+    expect(last()[0]).toBe('/api/trips/8/plans');
+    expect(last()[1]?.method).toBe('POST');
+  });
+
+  it('updatePlan', async () => {
+    await api.updatePlan(3, { title: 'New' });
+    expect(last()[0]).toBe('/api/plans/3');
+    expect(last()[1]?.method).toBe('PATCH');
+  });
+
+  it('deletePlan', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.deletePlan(3);
+  });
+
+  it('addPlanPassenger', async () => {
+    await api.addPlanPassenger(3, 2);
+    expect(last()[0]).toBe('/api/plans/3/passengers');
+    expect(last()[1]?.method).toBe('POST');
+    expect(last()[1]?.body).toBe(JSON.stringify({ user_id: 2 }));
+  });
+
+  it('removePlanPassenger', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.removePlanPassenger(3, 2);
+  });
+
+  it('setPlanVisibility', async () => {
+    await api.setPlanVisibility(3, { mode: 'everyone', user_ids: [] });
+    expect(last()[0]).toBe('/api/plans/3/visibility');
+    expect(last()[1]?.method).toBe('PUT');
+  });
+
+  it('movePlan', async () => {
+    await api.movePlan(3, { trip_id: 9 });
+    expect(last()[0]).toBe('/api/plans/3/move');
+    expect(last()[1]?.method).toBe('POST');
+  });
+
+  it('updatePlanPart', async () => {
+    await api.updatePlanPart(5, { starts_at: '2026-10-12T09:00:00Z' });
+    expect(last()[0]).toBe('/api/plan-parts/5');
+    expect(last()[1]?.method).toBe('PATCH');
+  });
+
+  it('dismissPlanPart', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.dismissPlanPart(5);
+  });
+
+  it('ingestConfirm', async () => {
+    await api.ingestConfirm(8, []);
+    expect(last()[0]).toBe('/api/trips/8/ingest/confirm');
+    expect(last()[1]?.method).toBe('POST');
+    expect(last()[1]?.body).toBe(JSON.stringify({ plans: [] }));
+  });
+
+  it('listCalendarTokens', async () => {
+    await api.listCalendarTokens();
+    expect(last()[0]).toBe('/api/calendar/tokens');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('issueCalendarToken', async () => {
+    await api.issueCalendarToken('me');
+    expect(last()[0]).toBe('/api/calendar/tokens');
+    expect(last()[1]?.method).toBe('POST');
+    expect(last()[1]?.body).toBe(JSON.stringify({ scope: 'me', id: undefined }));
+  });
+
+  it('revokeCalendarToken url-encodes the token', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.revokeCalendarToken('a/b c');
+  });
+
+  it('getAlertPrefs', async () => {
+    await api.getAlertPrefs();
+    expect(last()[0]).toBe('/api/alert-prefs');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('updateAlertPrefs', async () => {
+    await api.updateAlertPrefs({} as Parameters<typeof api.updateAlertPrefs>[0]);
+    expect(last()[0]).toBe('/api/alert-prefs');
+    expect(last()[1]?.method).toBe('PUT');
+  });
+
+  it('optInPlanAlerts', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.optInPlanAlerts(3);
+  });
+
+  it('optOutPlanAlerts', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.optOutPlanAlerts(3);
+  });
+});
+
+describe('revokeCalendarToken / issueCalendarToken paths', () => {
+  it('revokeCalendarToken hits the encoded token path', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.revokeCalendarToken('a/b c');
+    expect(spy.mock.calls[0][0]).toBe('/api/calendar/tokens/a%2Fb%20c');
+    expect(spy.mock.calls[0][1]?.method).toBe('DELETE');
+  });
+
+  it('issueCalendarToken forwards an explicit id for regeneration', async () => {
+    const spy = mockFetch(() => jsonResponse({ token: 't' }));
+    await api.issueCalendarToken('trip', 42);
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ scope: 'trip', id: 42 }));
+  });
 });
 
 describe('api.getAuthProviders', () => {

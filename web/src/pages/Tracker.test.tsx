@@ -1,14 +1,26 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 import type { PlanPart, Trip } from '../api/types';
 
 // Stub the MUI date picker: its date-fns adapter trips vitest's ESM resolution,
-// and these tests only need a labelled control, not real date parsing.
+// and these tests only need a labelled control, not real date parsing. The stub
+// forwards a real Date to onChange on input so the page's window handlers run.
 vi.mock('@mui/x-date-pickers/DatePicker', () => ({
-  DatePicker: ({ label }: { label: string }) => <input aria-label={label} readOnly />,
+  DatePicker: ({
+    label,
+    onChange,
+  }: {
+    label: string;
+    onChange?: (d: Date | null) => void;
+  }) => (
+    <input
+      aria-label={label}
+      onChange={(e) => onChange?.(e.target.value ? new Date(e.target.value) : null)}
+    />
+  ),
 }));
 
 const loadTracker = vi.fn();
@@ -116,5 +128,102 @@ describe('Tracker page', () => {
     const w = call![0].window as { from?: string; to?: string };
     expect(w.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(w.to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('reuses a persisted window on mount instead of the default span', async () => {
+    state.trackerWindow = { from: '2026-01-01' };
+    renderTracker();
+    await waitFor(() => expect(loadTracker).toHaveBeenCalled());
+    expect(loadTracker.mock.calls[0][0].window).toEqual({ from: '2026-01-01' });
+  });
+
+  it('the From/To pickers push the chosen day into the tracker window', async () => {
+    renderTracker();
+    // Fire a single complete-date change (avoids partial values from per-keystroke typing).
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-10-12' } });
+    expect(setTrackerWindow).toHaveBeenCalledWith({ from: '2026-10-12' });
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-10-20' } });
+    expect(setTrackerWindow).toHaveBeenCalledWith({ to: '2026-10-20' });
+    // The falsy branch (cleared input → null) is a no-op, exercised here.
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '' } });
+  });
+
+  it('ignores a non-numeric ?part= deep link (passes null to the map)', () => {
+    renderTracker('/tracker?part=banana');
+    const props = planMapSpy.mock.calls.at(-1)![0] as { initialSelectedPartId?: number | null };
+    expect(props.initialSelectedPartId).toBeNull();
+  });
+
+  it('merges the spans of several trips sharing a tag (min start / max end)', async () => {
+    const user = userEvent.setup();
+    state.trips = [
+      trip({ id: 1, tags: ['pgconf'], starts_on: '2026-10-10', ends_on: '2026-10-14' }),
+      trip({ id: 2, tags: ['pgconf'], starts_on: '2026-10-05', ends_on: '2026-10-20' }),
+    ];
+    renderTracker();
+    await user.click(screen.getByLabelText('Tag'));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByText('pgconf'));
+    const call = loadTracker.mock.calls.find((c) => c[0]?.tag === 'pgconf');
+    const w = call![0].window as { from: string; to: string };
+    // Padded a day each side of the merged 05–20 Oct span.
+    expect(w.from).toBe('2026-10-04');
+    expect(w.to).toBe('2026-10-21');
+  });
+
+  it('a tag with only a start bound yields a from-only window (to is undefined)', async () => {
+    const user = userEvent.setup();
+    // effective_start with no end → tripSpan has start, null end.
+    state.trips = [trip({ id: 1, tags: ['oneway'], starts_on: '2026-10-10' })];
+    renderTracker();
+    await user.click(screen.getByLabelText('Tag'));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByText('oneway'));
+    const call = loadTracker.mock.calls.find((c) => c[0]?.tag === 'oneway');
+    const w = call![0].window as { from?: string; to?: string };
+    expect(w.from).toBe('2026-10-09');
+    expect(w.to).toBeUndefined();
+  });
+
+  it('a tag with only an end bound yields a to-only window (from is undefined)', async () => {
+    const user = userEvent.setup();
+    state.trips = [trip({ id: 1, tags: ['arrival'], ends_on: '2026-10-20' })];
+    renderTracker();
+    await user.click(screen.getByLabelText('Tag'));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByText('arrival'));
+    const call = loadTracker.mock.calls.find((c) => c[0]?.tag === 'arrival');
+    const w = call![0].window as { from?: string; to?: string };
+    expect(w.from).toBeUndefined();
+    expect(w.to).toBe('2026-10-21');
+  });
+
+  it('selecting a tag whose trips have no derivable span keeps the current window', async () => {
+    const user = userEvent.setup();
+    state.trackerWindow = { from: '2026-05-01', to: '2026-05-10' };
+    // A tagged trip with no dates at all → tagWindow returns null → keep `win`.
+    state.trips = [trip({ id: 1, tags: ['someday'] })];
+    renderTracker();
+    await user.click(screen.getByLabelText('Tag'));
+    const listbox = await screen.findByRole('listbox');
+    await user.click(within(listbox).getByText('someday'));
+    const call = loadTracker.mock.calls.find((c) => c[0]?.tag === 'someday');
+    expect(call).toBeTruthy();
+    expect(call![0].window).toEqual({ from: '2026-05-01', to: '2026-05-10' });
+  });
+
+  it('switching back to the untagged view (empty tag) keeps the current window', async () => {
+    const user = userEvent.setup();
+    state.trackerWindow = { from: '2026-05-01', to: '2026-05-10' };
+    state.trackerTag = 'pgconf';
+    state.trips = [trip({ id: 1, tags: ['pgconf'] })];
+    renderTracker();
+    await user.click(screen.getByLabelText('Tag'));
+    const listbox = await screen.findByRole('listbox');
+    // tagWindow('') returns null (no label), so the existing window is kept.
+    await user.click(within(listbox).getByText(/untagged view/i));
+    const call = loadTracker.mock.calls.find((c) => c[0]?.tag === '');
+    expect(call).toBeTruthy();
+    expect(call![0].window).toEqual({ from: '2026-05-01', to: '2026-05-10' });
   });
 });

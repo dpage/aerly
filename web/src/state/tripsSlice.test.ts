@@ -1,0 +1,213 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+import type { Plan, Trip } from '../api/types';
+
+vi.mock('../api/client', () => ({
+  ApiError: class {},
+  api: {
+    listTrips: vi.fn(),
+    getTrip: vi.fn(),
+    createTrip: vi.fn(),
+    updateTrip: vi.fn(),
+    deleteTrip: vi.fn(),
+    addTripMember: vi.fn(),
+    removeTripMember: vi.fn(),
+    setTripTags: vi.fn(),
+    suggestTags: vi.fn(),
+  },
+}));
+
+import { api } from '../api/client';
+import { useStore } from './store';
+
+const mockApi = api as unknown as Record<string, ReturnType<typeof vi.fn>>;
+
+function trip(over: Partial<Trip> = {}): Trip {
+  return {
+    id: 1,
+    name: 'NYC',
+    destination: 'New York',
+    my_role: 'owner',
+    members: [],
+    tags: [],
+    created_at: '',
+    updated_at: '',
+    ...over,
+  } as Trip;
+}
+
+function tripWithPlans(over: Partial<Trip> = {}, plans: Plan[] = []): Trip & { plans: Plan[] } {
+  return { ...trip(over), plans } as Trip & { plans: Plan[] };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  useStore.setState(
+    { trips: [], currentTrip: null, tripsLoading: false, tagSuggestions: [], error: null },
+    false,
+  );
+});
+
+describe('listTrips', () => {
+  it('loads trips on success', async () => {
+    mockApi.listTrips.mockResolvedValue([trip({ id: 1 }), trip({ id: 2 })]);
+    await useStore.getState().listTrips();
+    const s = useStore.getState();
+    expect(s.trips).toHaveLength(2);
+    expect(s.tripsLoading).toBe(false);
+  });
+
+  it('sets error and clears loading on failure', async () => {
+    mockApi.listTrips.mockRejectedValue(new Error('boom'));
+    await useStore.getState().listTrips();
+    const s = useStore.getState();
+    expect(s.error).toBe('boom');
+    expect(s.tripsLoading).toBe(false);
+  });
+
+  it('stringifies a non-Error rejection', async () => {
+    mockApi.listTrips.mockRejectedValue('strerr');
+    await useStore.getState().listTrips();
+    expect(useStore.getState().error).toBe('strerr');
+  });
+});
+
+describe('loadTrip', () => {
+  it('loads the trip into currentTrip on success', async () => {
+    mockApi.getTrip.mockResolvedValue(tripWithPlans({ id: 5 }));
+    await useStore.getState().loadTrip(5);
+    expect(useStore.getState().currentTrip?.id).toBe(5);
+  });
+
+  it('sets error on failure', async () => {
+    mockApi.getTrip.mockRejectedValue(new Error('nope'));
+    await useStore.getState().loadTrip(5);
+    expect(useStore.getState().error).toBe('nope');
+  });
+});
+
+describe('clearCurrentTrip', () => {
+  it('nulls the current trip', () => {
+    useStore.setState({ currentTrip: tripWithPlans({ id: 1 }) });
+    useStore.getState().clearCurrentTrip();
+    expect(useStore.getState().currentTrip).toBeNull();
+  });
+});
+
+describe('createTrip', () => {
+  it('appends the created trip and returns it', async () => {
+    useStore.setState({ trips: [trip({ id: 1 })] });
+    mockApi.createTrip.mockResolvedValue(trip({ id: 2 }));
+    const result = await useStore.getState().createTrip({ name: 'Paris' } as never);
+    expect(result?.id).toBe(2);
+    expect(useStore.getState().trips.map((t) => t.id)).toEqual([1, 2]);
+  });
+
+  it('sets error and returns undefined on failure', async () => {
+    mockApi.createTrip.mockRejectedValue(new Error('fail'));
+    const result = await useStore.getState().createTrip({ name: 'Paris' } as never);
+    expect(result).toBeUndefined();
+    expect(useStore.getState().error).toBe('fail');
+  });
+});
+
+describe('updateTrip', () => {
+  it('replaces the trip in the list and patches currentTrip when it matches', async () => {
+    useStore.setState({
+      trips: [trip({ id: 1, name: 'old' })],
+      currentTrip: tripWithPlans({ id: 1, name: 'old' }, [{ id: 9 } as Plan]),
+    });
+    mockApi.updateTrip.mockResolvedValue(trip({ id: 1, name: 'new' }));
+    await useStore.getState().updateTrip(1, { name: 'new' });
+    const s = useStore.getState();
+    expect(s.trips[0].name).toBe('new');
+    expect(s.currentTrip?.name).toBe('new');
+    // plans preserved
+    expect(s.currentTrip?.plans.map((p) => p.id)).toEqual([9]);
+  });
+
+  it('leaves currentTrip untouched when ids differ', async () => {
+    useStore.setState({
+      trips: [trip({ id: 2 })],
+      currentTrip: tripWithPlans({ id: 99, name: 'mine' }),
+    });
+    mockApi.updateTrip.mockResolvedValue(trip({ id: 2, name: 'new' }));
+    await useStore.getState().updateTrip(2, { name: 'new' });
+    expect(useStore.getState().currentTrip?.name).toBe('mine');
+  });
+
+  it('handles a null currentTrip', async () => {
+    useStore.setState({ trips: [trip({ id: 2 })], currentTrip: null });
+    mockApi.updateTrip.mockResolvedValue(trip({ id: 2, name: 'new' }));
+    await useStore.getState().updateTrip(2, { name: 'new' });
+    expect(useStore.getState().currentTrip).toBeNull();
+  });
+});
+
+describe('deleteTrip', () => {
+  it('removes the trip and clears currentTrip when it matches', async () => {
+    useStore.setState({
+      trips: [trip({ id: 1 }), trip({ id: 2 })],
+      currentTrip: tripWithPlans({ id: 1 }),
+    });
+    mockApi.deleteTrip.mockResolvedValue(undefined);
+    await useStore.getState().deleteTrip(1);
+    const s = useStore.getState();
+    expect(s.trips.map((t) => t.id)).toEqual([2]);
+    expect(s.currentTrip).toBeNull();
+  });
+
+  it('keeps currentTrip when a different trip is deleted', async () => {
+    useStore.setState({
+      trips: [trip({ id: 1 }), trip({ id: 2 })],
+      currentTrip: tripWithPlans({ id: 2 }),
+    });
+    mockApi.deleteTrip.mockResolvedValue(undefined);
+    await useStore.getState().deleteTrip(1);
+    expect(useStore.getState().currentTrip?.id).toBe(2);
+  });
+});
+
+describe('addTripMember', () => {
+  it('replaces the matching trip with the updated one', async () => {
+    useStore.setState({ trips: [trip({ id: 1, name: 'old' }), trip({ id: 2 })] });
+    mockApi.addTripMember.mockResolvedValue(trip({ id: 1, name: 'updated' }));
+    await useStore.getState().addTripMember(1, { user_id: 7 } as never);
+    expect(useStore.getState().trips.find((t) => t.id === 1)?.name).toBe('updated');
+  });
+});
+
+describe('removeTripMember', () => {
+  it('refetches the trip via loadTrip', async () => {
+    mockApi.removeTripMember.mockResolvedValue(undefined);
+    mockApi.getTrip.mockResolvedValue(tripWithPlans({ id: 3, name: 'reloaded' }));
+    await useStore.getState().removeTripMember(3, 7);
+    expect(mockApi.removeTripMember).toHaveBeenCalledWith(3, 7);
+    expect(useStore.getState().currentTrip?.name).toBe('reloaded');
+  });
+});
+
+describe('setTripTags', () => {
+  it('replaces the matching trip with the tagged one', async () => {
+    useStore.setState({ trips: [trip({ id: 1 })] });
+    mockApi.setTripTags.mockResolvedValue(trip({ id: 1, tags: [{ id: 1, label: 'beach' }] as never }));
+    await useStore.getState().setTripTags(1, ['beach']);
+    expect(useStore.getState().trips[0].tags).toHaveLength(1);
+  });
+});
+
+describe('suggestTags', () => {
+  it('stores suggestions on success', async () => {
+    mockApi.suggestTags.mockResolvedValue([{ label: 'beach', trip_count: 2 }]);
+    await useStore.getState().suggestTags('be');
+    expect(useStore.getState().tagSuggestions).toHaveLength(1);
+  });
+
+  it('swallows errors leaving state untouched', async () => {
+    useStore.setState({ tagSuggestions: [{ label: 'x', trip_count: 1 } as never] });
+    mockApi.suggestTags.mockRejectedValue(new Error('boom'));
+    await useStore.getState().suggestTags('x');
+    expect(useStore.getState().tagSuggestions).toHaveLength(1);
+    expect(useStore.getState().error).toBeNull();
+  });
+});

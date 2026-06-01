@@ -120,4 +120,102 @@ describe('CalendarSubscribeDialog', () => {
     render(<CalendarSubscribeDialog open scope="me" onClose={vi.fn()} />);
     expect(await screen.findByText('boom')).toBeInTheDocument();
   });
+
+  it('stringifies a non-Error listing failure', async () => {
+    h.api.listCalendarTokens.mockRejectedValue('string failure');
+    render(<CalendarSubscribeDialog open scope="me" onClose={vi.fn()} />);
+    expect(await screen.findByText('string failure')).toBeInTheDocument();
+  });
+
+  it('selects the feed URL text when the field is focused', async () => {
+    const user = userEvent.setup();
+    h.api.listCalendarTokens.mockResolvedValue([token()]);
+    render(<CalendarSubscribeDialog open scope="me" onClose={vi.fn()} />);
+    const field = await screen.findByLabelText('Feed URL');
+    const selectSpy = vi.spyOn(field as HTMLInputElement, 'select');
+    await user.click(field);
+    expect(selectSpy).toHaveBeenCalled();
+  });
+
+  it('renders the title in the dialog heading when provided', async () => {
+    h.api.listCalendarTokens.mockResolvedValue([token()]);
+    render(<CalendarSubscribeDialog open scope="me" title="My schedule" onClose={vi.fn()} />);
+    expect(await screen.findByText(/Subscribe to calendar — My schedule/)).toBeInTheDocument();
+  });
+
+  it('shows a tick (Copied!) after a successful copy, then clears it', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    h.api.listCalendarTokens.mockResolvedValue([token()]);
+    render(<CalendarSubscribeDialog open scope="me" onClose={vi.fn()} />);
+    await screen.findByLabelText('Feed URL');
+    await user.click(screen.getByRole('button', { name: /copy feed url/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    // copied=true branch: the success tick (CheckIcon) is shown.
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="CheckIcon"]')).toBeInTheDocument(),
+    );
+    // The 1.5s timer then resets copied to false (setCopied(false) callback) and
+    // the icon reverts to the copy glyph.
+    await waitFor(
+      () => expect(document.querySelector('[data-testid="ContentCopyIcon"]')).toBeInTheDocument(),
+      { timeout: 2500 },
+    );
+  });
+
+  it('swallows a clipboard write failure without surfacing an error', async () => {
+    const user = userEvent.setup();
+    writeText.mockRejectedValue(new Error('clipboard blocked'));
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    h.api.listCalendarTokens.mockResolvedValue([token()]);
+    render(<CalendarSubscribeDialog open scope="me" onClose={vi.fn()} />);
+    await screen.findByLabelText('Feed URL');
+    await user.click(screen.getByRole('button', { name: /copy feed url/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    // The catch path means no error is shown.
+    expect(screen.queryByText('clipboard blocked')).not.toBeInTheDocument();
+  });
+
+  it('surfaces an error when issuing a link fails', async () => {
+    const user = userEvent.setup();
+    h.api.listCalendarTokens.mockResolvedValue([]);
+    h.api.issueCalendarToken.mockRejectedValue(new Error('issue boom'));
+    render(<CalendarSubscribeDialog open scope="me" onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: /create feed link/i }));
+    expect(await screen.findByText('issue boom')).toBeInTheDocument();
+  });
+
+  it('surfaces an error when regenerating fails', async () => {
+    const user = userEvent.setup();
+    h.api.listCalendarTokens.mockResolvedValue([token()]);
+    h.api.revokeCalendarToken.mockRejectedValue(new Error('revoke boom'));
+    render(<CalendarSubscribeDialog open scope="me" onClose={vi.fn()} />);
+    await screen.findByLabelText('Feed URL');
+    await user.click(screen.getByRole('button', { name: /regenerate link/i }));
+    expect(await screen.findByText('revoke boom')).toBeInTheDocument();
+  });
+
+  it('treats a missing id for trip scope as resource 0', async () => {
+    // scope='trip' with no id → resourceId falls back to 0 via `id ?? 0`.
+    h.api.listCalendarTokens.mockResolvedValue([
+      token({ scope: 'trip', resource_id: 0, url: 'https://x/trip0.ics' }),
+    ]);
+    render(<CalendarSubscribeDialog open scope="trip" onClose={vi.fn()} />);
+    const field = await screen.findByLabelText('Feed URL');
+    expect(field).toHaveValue('https://x/trip0.ics');
+  });
+
+  it('closes via the Close button', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    h.api.listCalendarTokens.mockResolvedValue([]);
+    render(<CalendarSubscribeDialog open scope="me" onClose={onClose} />);
+    await user.click(await screen.findByRole('button', { name: /^close$/i }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('does not fetch when closed', () => {
+    render(<CalendarSubscribeDialog open={false} scope="me" onClose={vi.fn()} />);
+    expect(h.api.listCalendarTokens).not.toHaveBeenCalled();
+  });
 });

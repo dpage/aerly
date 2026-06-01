@@ -201,6 +201,26 @@ describe('PlanPrivacyDialog', () => {
     expect(screen.getByRole('radio', { name: /only visible to/i })).toBeChecked();
   });
 
+  it('renders nothing actionable when closed', () => {
+    render(<PlanPrivacyDialog open={false} plan={plan()} members={members} onClose={() => {}} />);
+    expect(screen.queryByRole('button', { name: /save visibility/i })).not.toBeInTheDocument();
+  });
+
+  it('falls back to a "User #id" label and initial for unknown passenger ids', () => {
+    // Passenger 999 is not in the users index → label() returns "User #999"
+    // and the avatar uses the label's first character.
+    render_(plan({ passenger_ids: [999] }));
+    expect(screen.getByText('User #999')).toBeInTheDocument();
+    expect(screen.getByLabelText(/remove passenger user #999/i)).toBeInTheDocument();
+  });
+
+  it('disables the add picker with a hint when there are no friends to add', () => {
+    h.state.friendships = [];
+    render_();
+    expect(screen.getByText(/No friends left to add\./i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Add passenger')).toHaveAttribute('aria-disabled', 'true');
+  });
+
   it('surfaces passenger remove errors via setError', async () => {
     h.removePlanPassenger.mockRejectedValue(new Error('rm pax boom'));
     render_(plan({ passenger_ids: [2] }));

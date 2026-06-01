@@ -90,6 +90,49 @@ describe('AlertPrefsDialog', () => {
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('save boom'));
   });
 
+  it('toggles the in-app channel off and saves it', async () => {
+    render(<AlertPrefsDialog open onClose={() => {}} />);
+    await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('checkbox', { name: /in-app/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith(
+        expect.objectContaining({ in_app: false }),
+      ),
+    );
+  });
+
+  it('clamps a negative threshold to 0', async () => {
+    render(<AlertPrefsDialog open onClose={() => {}} />);
+    await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
+    const field = screen.getByLabelText(/minimum delay in minutes/i);
+    await userEvent.clear(field);
+    await userEvent.type(field, '-5');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith(
+        expect.objectContaining({ min_delay_min: 0 }),
+      ),
+    );
+  });
+
+  it('stringifies a non-Error save failure', async () => {
+    h.updateAlertPrefs.mockRejectedValue('plain boom');
+    render(<AlertPrefsDialog open onClose={() => {}} />);
+    await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('plain boom'));
+  });
+
+  it('closes via Cancel without saving', async () => {
+    const onClose = vi.fn();
+    render(<AlertPrefsDialog open onClose={onClose} />);
+    await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onClose).toHaveBeenCalled();
+    expect(h.updateAlertPrefs).not.toHaveBeenCalled();
+  });
+
   it('falls back to defaults when prefs are absent', async () => {
     h.state.alertPrefs = null;
     render(<AlertPrefsDialog open onClose={() => {}} />);
