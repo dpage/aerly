@@ -24,7 +24,7 @@ import {
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 
 import { useStore } from '../state/store';
-import { planTypeLabel } from '../lib/trip-format';
+import { fmtPartPlaces, planTypeLabel } from '../lib/trip-format';
 import PlanTypeIcon from './PlanTypeIcon';
 import type {
   ConfirmPlanInput,
@@ -600,9 +600,11 @@ function toDraft(p: ProposedPlan): DraftPlan {
       start_label: part.start_label || undefined,
       start_lat: part.start_lat,
       start_lon: part.start_lon,
+      start_address: part.start_address || undefined,
       end_label: part.end_label || undefined,
       end_lat: part.end_lat,
       end_lon: part.end_lon,
+      end_address: part.end_address || undefined,
       flight: part.flight,
       hotel: part.hotel,
       train: part.train,
@@ -741,9 +743,15 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
             {d.parts.map((part, pIdx) => (
               <Box key={pIdx} sx={{ pl: 1, borderLeft: 2, borderColor: 'divider' }}>
                 <Typography variant="caption" color="text.secondary">
-                  {(part.start_label || planTypeLabel(part.type)) +
-                    (part.end_label ? ` → ${part.end_label}` : '')}
-                  {part.starts_at ? ` · ${fmtIso(part.starts_at)}` : ''}
+                  {fmtPartPlaces(part.type, part.start_label, part.end_label) ||
+                    planTypeLabel(part.type)}
+                  {part.type === 'hotel' && part.starts_at
+                    ? ` · Check in ${fmtIsoDate(part.starts_at)}${
+                        part.ends_at ? ` · Check out ${fmtIsoDate(part.ends_at)}` : ''
+                      }`
+                    : part.starts_at
+                      ? ` · ${fmtIso(part.starts_at)}`
+                      : ''}
                 </Typography>
               </Box>
             ))}
@@ -795,6 +803,13 @@ function fmtIso(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+// Date only (no time) — used for hotel check-in/out, which are days not instants.
+function fmtIsoDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 function placeholderFor(type: PlanType): string {

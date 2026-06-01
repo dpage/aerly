@@ -4,6 +4,7 @@ import type { Plan, PlanPart, Trip } from '../api/types';
 import {
   buildTimeline,
   classifyTrip,
+  fmtPartPlaces,
   fmtPartTimeRange,
   fmtTripDates,
   hotelNights,
@@ -202,6 +203,22 @@ describe('hotel band', () => {
 
   it('isHotelBand false for a flight', () => {
     expect(isHotelBand(part({ type: 'flight', ends_at: '2026-10-12T11:00:00Z' }))).toBe(false);
+  });
+});
+
+describe('fmtPartPlaces', () => {
+  it('shows an arrow for a transfer between two places', () => {
+    expect(fmtPartPlaces('flight', 'LHR', 'JFK')).toBe('LHR → JFK');
+    expect(fmtPartPlaces('ground', 'Home', 'LHR T5')).toBe('Home → LHR T5');
+  });
+  it('shows a single venue for a hotel, never "X → X"', () => {
+    expect(fmtPartPlaces('hotel', 'Tysons Corner Marriott', 'Tysons Corner Marriott')).toBe(
+      'Tysons Corner Marriott',
+    );
+    expect(fmtPartPlaces('dining', 'Nobu')).toBe('Nobu');
+  });
+  it('collapses identical transfer endpoints to one', () => {
+    expect(fmtPartPlaces('train', 'Paddington', 'Paddington')).toBe('Paddington');
   });
 });
 

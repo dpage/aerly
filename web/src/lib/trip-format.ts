@@ -235,6 +235,24 @@ function fmtDayHeader(iso: string, tz?: string): string {
   });
 }
 
+const TRANSFER_TYPES = new Set<PlanType>(['flight', 'train', 'ground']);
+
+/** Point-to-point types that go from one place to another. Others (hotel,
+ * dining, excursion) happen at a single place. */
+export function isTransferType(type: PlanType): boolean {
+  return TRANSFER_TYPES.has(type);
+}
+
+/** The place line for a part: "A → B" for a transfer between two distinct
+ * places, otherwise just the single venue — never "X → X" (a hotel's start and
+ * end label are both the property, which shouldn't read like a flight). */
+export function fmtPartPlaces(type: PlanType, startLabel?: string, endLabel?: string): string {
+  const start = (startLabel ?? '').trim();
+  const end = (endLabel ?? '').trim();
+  if (isTransferType(type) && end && end !== start) return `${start} → ${end}`;
+  return start || end;
+}
+
 /** Display label for a plan type, e.g. "Hotel", "Ground transport". */
 export function planTypeLabel(type: PlanType): string {
   switch (type) {
