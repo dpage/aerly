@@ -183,6 +183,24 @@ describe('PlanPrivacyDialog', () => {
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('pax boom'));
   });
 
+  it('keeps an unsaved visibility selection across a same-plan refetch', async () => {
+    const { rerender } = render(
+      <PlanPrivacyDialog open plan={plan()} members={members} onClose={() => {}} />,
+    );
+    // User switches to "only visible to" but has not saved yet.
+    await userEvent.click(screen.getByRole('radio', { name: /only visible to/i }));
+    expect(screen.getByRole('radio', { name: /only visible to/i })).toBeChecked();
+
+    // A passenger-add (or live SSE) refetch hands down a fresh plan object with
+    // the same id and same visibility but a new passenger_ids array reference.
+    rerender(
+      <PlanPrivacyDialog open plan={plan({ passenger_ids: [3] })} members={members} onClose={() => {}} />,
+    );
+
+    // The in-progress, unsaved selection must survive — not snap back to "everyone".
+    expect(screen.getByRole('radio', { name: /only visible to/i })).toBeChecked();
+  });
+
   it('surfaces passenger remove errors via setError', async () => {
     h.removePlanPassenger.mockRejectedValue(new Error('rm pax boom'));
     render_(plan({ passenger_ids: [2] }));

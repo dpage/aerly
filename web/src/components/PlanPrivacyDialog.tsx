@@ -58,13 +58,19 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
   const [pax, setPax] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
 
-  // Re-sync local state whenever the dialog (re)opens for a (possibly new) plan.
+  // Re-sync local state when the dialog (re)opens or switches to a different
+  // plan. Deliberately NOT keyed on plan.visibility.* — while the dialog is
+  // open, an unrelated refetch (e.g. adding a passenger, or a live SSE update)
+  // hands down a fresh plan object, and re-syncing then would clobber an
+  // in-progress, unsaved "Who can see this?" selection. The persisted values
+  // are picked up again on the next open.
   useEffect(() => {
     if (!open) return;
     setMode(plan.visibility.mode);
     setScopeIds(plan.visibility.user_ids);
     setPax('');
-  }, [open, plan.id, plan.visibility.mode, plan.visibility.user_ids]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sync only on (re)open / plan switch
+  }, [open, plan.id]);
 
   const userIndex = useMemo(() => {
     const m = new Map<number, User>();

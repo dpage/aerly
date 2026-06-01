@@ -19,6 +19,7 @@ import { useStore } from '../state/store';
 import type { Plan, PlanPart, Trip } from '../api/types';
 import PlanTypeIcon from '../components/PlanTypeIcon';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
+import PlanEditDialog from '../components/PlanEditDialog';
 import PlanAlertToggle from '../components/PlanAlertToggle';
 import {
   buildTimeline,
@@ -228,6 +229,7 @@ function PlanDetailDialog({ plan, trip, onClose }: { plan: Plan | null; trip: Tr
   const deletePlan = useStore((s) => s.deletePlan);
   const setError = useStore((s) => s.setError);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
@@ -296,6 +298,7 @@ function PlanDetailDialog({ plan, trip, onClose }: { plan: Plan | null; trip: Tr
               Delete
             </Button>
           )}
+          {canEdit && <Button onClick={() => setEditOpen(true)}>Edit</Button>}
           {canEdit && <Button onClick={() => setPrivacyOpen(true)}>Privacy &amp; passengers</Button>}
           <Button onClick={onClose}>Close</Button>
         </DialogActions>
@@ -307,6 +310,9 @@ function PlanDetailDialog({ plan, trip, onClose }: { plan: Plan | null; trip: Tr
           members={trip.members}
           onClose={() => setPrivacyOpen(false)}
         />
+      )}
+      {canEdit && editOpen && (
+        <PlanEditDialog open={editOpen} plan={plan} onClose={() => setEditOpen(false)} />
       )}
     </>
   );

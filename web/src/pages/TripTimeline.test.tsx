@@ -228,6 +228,7 @@ describe('TripTimeline', () => {
     await userEvent.click(screen.getByTestId('part-card-1'));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('button', { name: /Privacy & passengers/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /^Edit$/i })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /Delete/i })).toBeInTheDocument();
     // Owners receive alerts via their own prefs, so the per-plan opt-in is hidden.
     expect(within(dialog).queryByLabelText(/Notify me of changes/i)).not.toBeInTheDocument();
@@ -245,6 +246,7 @@ describe('TripTimeline', () => {
     expect(
       within(dialog).queryByRole('button', { name: /Privacy & passengers/i }),
     ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
   });
 });
