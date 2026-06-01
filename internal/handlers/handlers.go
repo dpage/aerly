@@ -11,6 +11,7 @@ import (
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/config"
 	"github.com/dpage/aerly/internal/emailingest"
+	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
@@ -28,6 +29,10 @@ type API struct {
 	// be nil when no LLM provider is configured — the ingest endpoints then
 	// return 503.
 	Extractor planops.Extractor
+
+	// Geocoder fills missing part coordinates from their addresses so they can
+	// be mapped. nil → geocoding is skipped (e.g. in tests).
+	Geocoder geocode.Geocoder
 
 	// SendVerifyEmail dispatches the verification message. Defaulted in
 	// New() to the real sendmail pipe; tests can override.

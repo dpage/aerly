@@ -179,6 +179,7 @@ func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, dto)
 		a.publishPlanUpdated(r.Context(), dto.TripID, dto.ID)
+		a.geocodePlanAsync(dto.TripID, dto.ID)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
