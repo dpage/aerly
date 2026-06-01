@@ -7,8 +7,9 @@ import maplibregl, {
 import { Box, Typography } from '@mui/material';
 
 import { useStore } from '../state/store';
-import type { Plan, PlanPart } from '../api/types';
+import type { Plan, PlanPart, PlanType } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
+import { planTypeLabel } from '../lib/trip-format';
 
 // Standard OSM raster style for the trip map (spec §11: MapLibre).
 const STYLE: StyleSpecification = {
@@ -30,7 +31,13 @@ const STYLE: StyleSpecification = {
 interface MapPoint {
   lat: number;
   lon: number;
-  label: string;
+  /** Plan title, shown bold in the marker popover. */
+  title: string;
+  type: PlanType;
+  /** Place name at this endpoint (start_label / end_label). */
+  location: string;
+  /** Formatted local date/time of this endpoint. */
+  when: string;
 }
 
 /** Secondary trip detail tab (spec §11): the trip's geocoded parts on a
@@ -99,8 +106,12 @@ export default function TripMap() {
       el.style.background = '#d97706';
       el.style.border = '2px solid #fff';
       el.style.boxShadow = '0 1px 2px rgba(0,0,0,0.4)';
-      el.title = p.label;
-      const marker = new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map);
+      el.style.cursor = 'pointer';
+      el.title = p.location || p.title;
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([p.lon, p.lat])
+        .setPopup(new maplibregl.Popup({ offset: 14, closeButton: false }).setDOMContent(popupContent(p)))
+        .addTo(map);
       markersRef.current.push(marker);
     }
     const bounds = boundsFor(points.map((p) => [p.lon, p.lat] as [number, number]));
@@ -127,17 +138,70 @@ export default function TripMap() {
 function collectPoints(plans: Plan[]): MapPoint[] {
   const points: MapPoint[] = [];
   for (const plan of plans) {
+    const title = plan.title || planTypeLabel(plan.type);
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
       if (part.start_lat != null && part.start_lon != null) {
-        points.push({ lat: part.start_lat, lon: part.start_lon, label: part.start_label || plan.title });
+        points.push({
+          lat: part.start_lat,
+          lon: part.start_lon,
+          title,
+          type: part.type,
+          location: part.start_label || plan.title,
+          when: fmtWhen(part.starts_at, part.start_tz),
+        });
       }
       if (part.end_lat != null && part.end_lon != null) {
-        points.push({ lat: part.end_lat, lon: part.end_lon, label: part.end_label || plan.title });
+        points.push({
+          lat: part.end_lat,
+          lon: part.end_lon,
+          title,
+          type: part.type,
+          location: part.end_label || plan.title,
+          when: fmtWhen(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz),
+        });
       }
     }
   }
   return points;
+}
+
+// Date + time for a marker popover. tz-less times (e.g. a hotel) render in UTC
+// without a label — the digits are the local wall-clock the booking stated.
+function fmtWhen(iso: string, tz?: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: tz || 'UTC',
+  });
+}
+
+// Marker popover content built with textContent (no HTML injection from
+// user/extracted strings).
+function popupContent(p: MapPoint): HTMLElement {
+  const root = document.createElement('div');
+  root.style.font = '12px/1.45 system-ui,-apple-system,sans-serif';
+  const title = document.createElement('div');
+  title.style.fontWeight = '600';
+  title.textContent = p.title;
+  root.append(title);
+  const meta = document.createElement('div');
+  meta.style.color = '#555';
+  meta.textContent = [planTypeLabel(p.type), p.when].filter(Boolean).join(' · ');
+  root.append(meta);
+  if (p.location && p.location !== p.title) {
+    const loc = document.createElement('div');
+    loc.style.color = '#555';
+    loc.textContent = p.location;
+    root.append(loc);
+  }
+  return root;
 }
 
 function buildLegs(plans: Plan[]): GeoJSON.FeatureCollection {

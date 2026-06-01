@@ -8,6 +8,7 @@ import { Box } from '@mui/material';
 
 import type { PlanPart, TrackerMarker, TrackerPart } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
+import { planTypeLabel } from '../lib/trip-format';
 
 const STYLE: StyleSpecification = {
   version: 8,
@@ -130,7 +131,10 @@ export default function TrackerMap({ parts, markers = [], focusedPartId, focused
       const el = marker?.getElement() ?? buildVenueEl();
       styleVenue(el, m.label);
       if (!marker) {
-        marker = new maplibregl.Marker({ element: el }).setLngLat([m.lon, m.lat]).addTo(map);
+        marker = new maplibregl.Marker({ element: el })
+          .setLngLat([m.lon, m.lat])
+          .setPopup(new maplibregl.Popup({ offset: 14, closeButton: false }).setDOMContent(venuePopup(m)))
+          .addTo(map);
         venueRef.current.set(key, marker);
       } else {
         marker.setLngLat([m.lon, m.lat]);
@@ -314,6 +318,22 @@ function styleVenue(el: HTMLElement, label: string): void {
   el.title = label;
   const span = el.querySelector('.tm-venue-label');
   if (span) span.textContent = label;
+}
+
+// Click popover for a venue marker: its label and plan type. Built with
+// textContent so extracted strings can't inject markup.
+function venuePopup(m: TrackerMarker): HTMLElement {
+  const root = document.createElement('div');
+  root.style.font = '12px/1.45 system-ui,-apple-system,sans-serif';
+  const title = document.createElement('div');
+  title.style.fontWeight = '600';
+  title.textContent = m.label;
+  root.append(title);
+  const meta = document.createElement('div');
+  meta.style.color = '#555';
+  meta.textContent = planTypeLabel(m.type);
+  root.append(meta);
+  return root;
 }
 
 function boundsFor(pts: [number, number][]): LngLatBoundsLike | null {
