@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Box, Button, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { Box, Button, Tab, Tabs, Typography } from '@mui/material';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
+import EditIcon from '@mui/icons-material/EditOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 
 import { useStore } from '../state/store';
 import TripMembersDialog from '../components/TripMembersDialog';
-import TagInput from '../components/TagInput';
+import TripEditDialog from '../components/TripEditDialog';
 import CalendarSubscribeDialog from '../components/CalendarSubscribeDialog';
 
 /** Trip detail layout (spec §11). Holds the Timeline / Map sub-tabs and loads
@@ -22,9 +23,9 @@ export default function TripDetail() {
   const currentTrip = useStore((s) => s.currentTrip);
   const loadTrip = useStore((s) => s.loadTrip);
   const clearCurrentTrip = useStore((s) => s.clearCurrentTrip);
-  const setTripTags = useStore((s) => s.setTripTags);
   const [shareOpen, setShareOpen] = useState(false);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     if (!Number.isFinite(tripId)) return;
@@ -48,6 +49,11 @@ export default function TripDetail() {
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           {title}
         </Typography>
+        {loaded && canEdit && (
+          <Button size="small" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
+            Edit
+          </Button>
+        )}
         {loaded && (
           <Button
             size="small"
@@ -65,17 +71,6 @@ export default function TripDetail() {
           Subscribe
         </Button>
       </Box>
-      {loaded && canEdit && (
-        <Box sx={{ px: 3, pt: 1.5 }}>
-          <Stack sx={{ maxWidth: 520 }}>
-            <TagInput
-              value={loaded.tags}
-              onChange={(labels) => void setTripTags(tripId, labels)}
-              helperText="Tags group trips so people find each other — they never grant access."
-            />
-          </Stack>
-        </Box>
-      )}
       <Tabs
         value={tab}
         onChange={(_e, v) => navigate(v === 'map' ? `/trips/${tripId}/map` : `/trips/${tripId}`)}
@@ -84,9 +79,17 @@ export default function TripDetail() {
         <Tab label="Timeline" value="timeline" />
         <Tab label="Map" value="map" />
       </Tabs>
-      <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
+      <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
         <Outlet />
       </Box>
+      {loaded && canEdit && (
+        <TripEditDialog
+          open={editOpen}
+          trip={loaded}
+          onClose={() => setEditOpen(false)}
+          onDeleted={() => navigate('/')}
+        />
+      )}
       {loaded && (
         <TripMembersDialog
           open={shareOpen}
