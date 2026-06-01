@@ -261,6 +261,8 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   const [notes, setNotes] = useState('');
   const [startLabel, setStartLabel] = useState('');
   const [endLabel, setEndLabel] = useState('');
+  const [startAddress, setStartAddress] = useState('');
+  const [endAddress, setEndAddress] = useState('');
   const [startsAt, setStartsAt] = useState<Date | null>(() => defaultStart());
   const [endsAt, setEndsAt] = useState<Date | null>(null);
 
@@ -277,6 +279,8 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
       ends_at: endsAt ? endsAt.toISOString() : undefined,
       start_label: startLabel.trim() || undefined,
       end_label: endLabel.trim() || undefined,
+      start_address: startAddress.trim() || undefined,
+      end_address: endAddress.trim() || undefined,
     };
     if (type === 'flight' && ident.trim()) {
       part.flight = { ident: ident.trim().toUpperCase() };
@@ -292,6 +296,8 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   };
 
   const isFlight = type === 'flight';
+  // Point-to-point types carry a distinct departure and arrival address.
+  const isTransfer = type === 'flight' || type === 'train' || type === 'ground';
   // Hotels span nights, so they always show an end ("check-out").
   const showEnd = type === 'hotel' || type === 'flight' || type === 'train' || type === 'ground';
 
@@ -349,6 +355,25 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
             label={endFieldLabel(type)}
             value={endLabel}
             onChange={(e) => setEndLabel(e.target.value)}
+            fullWidth
+          />
+        )}
+      </Stack>
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <TextField
+          label={`${startFieldLabel(type)} address`}
+          value={startAddress}
+          onChange={(e) => setStartAddress(e.target.value)}
+          placeholder="optional — used for the map"
+          fullWidth
+        />
+        {isTransfer && (
+          <TextField
+            label="To address"
+            value={endAddress}
+            onChange={(e) => setEndAddress(e.target.value)}
+            placeholder="optional"
             fullWidth
           />
         )}

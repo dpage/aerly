@@ -301,6 +301,15 @@ function PlanDetailDialog({ plan, trip, onClose }: { plan: Plan | null; trip: Tr
                 <Typography variant="caption" color="text.secondary">
                   {fmtPartTimeRange(part)}
                 </Typography>
+                {(part.start_address || part.end_address) && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', mt: 0.25 }}
+                  >
+                    {[part.start_address, part.end_address].filter(Boolean).join(' → ')}
+                  </Typography>
+                )}
               </Box>
             ))}
           </Stack>
