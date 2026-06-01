@@ -9,7 +9,9 @@ import {
   fmtLocalDateTime,
   fmtTripDates,
   plansOutsideTripDates,
+  splitLocal,
   tzAbbrev,
+  zonedTimeToUtc,
   hotelNights,
   isHotelBand,
   planTypeLabel,
@@ -302,6 +304,29 @@ describe('fmtLocalDateTime', () => {
     expect(fmtLocalDateTime('2026-07-01T14:00:00Z', 'America/New_York')).toMatch(
       /Jul.*10:00 EDT$/,
     );
+  });
+});
+
+describe('splitLocal / zonedTimeToUtc', () => {
+  it('splits an instant into local date + time in its tz', () => {
+    // 11:35Z is 12:35 in London (BST) on 12 Oct... actually Oct is BST→ +1.
+    expect(splitLocal('2026-10-12T11:35:00Z', 'Europe/London')).toEqual({
+      date: '2026-10-12',
+      time: '12:35',
+    });
+    expect(splitLocal('2026-10-12T19:55:00Z', 'America/New_York')).toEqual({
+      date: '2026-10-12',
+      time: '15:55',
+    });
+  });
+  it('recombines local date + time + tz back to the same instant', () => {
+    expect(zonedTimeToUtc('2026-10-12', '12:35', 'Europe/London')).toBe('2026-10-12T11:35:00.000Z');
+    expect(zonedTimeToUtc('2026-10-12', '15:55', 'America/New_York')).toBe(
+      '2026-10-12T19:55:00.000Z',
+    );
+  });
+  it('treats a blank tz as UTC', () => {
+    expect(zonedTimeToUtc('2026-10-12', '09:00', '')).toBe('2026-10-12T09:00:00.000Z');
   });
 });
 

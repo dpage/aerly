@@ -6,6 +6,7 @@ import type { Plan, Trip } from '../api/types';
 
 const h = vi.hoisted(() => ({
   updatePlan: vi.fn(),
+  updatePlanPart: vi.fn(),
   movePlan: vi.fn(),
   listTrips: vi.fn(),
   setError: vi.fn(),
@@ -17,13 +18,33 @@ vi.mock('../state/store', () => ({
     sel({
       trips: h.state.trips,
       updatePlan: h.updatePlan,
+      updatePlanPart: h.updatePlanPart,
       movePlan: h.movePlan,
       listTrips: h.listTrips,
       setError: h.setError,
     }),
 }));
 
+import type { PlanPart } from '../api/types';
 import PlanEditDialog from './PlanEditDialog';
+
+function part(over: Partial<PlanPart> = {}): PlanPart {
+  return {
+    id: 100,
+    plan_id: 42,
+    type: 'flight',
+    seq: 0,
+    starts_at: '2026-10-12T11:35:00Z',
+    ends_at: '2026-10-12T19:55:00Z',
+    start_tz: 'Europe/London',
+    end_tz: 'America/New_York',
+    start_label: 'LHR',
+    end_label: 'IAD',
+    status: 'planned',
+    effective_at: '2026-10-12T11:35:00Z',
+    ...over,
+  };
+}
 
 function trip(over: Partial<Trip> = {}): Trip {
   return {
@@ -124,9 +145,40 @@ describe('PlanEditDialog', () => {
     expect(screen.queryByRole('combobox', { name: /move to another trip/i })).not.toBeInTheDocument();
   });
 
+  it('edits a part time and saves it as a UTC instant in the part tz', async () => {
+    h.updatePlanPart.mockResolvedValue(undefined);
+    render_(plan({ parts: [part()] }));
+    // The departure time prefills as London-local 12:35 (11:35Z in BST).
+    const times = screen.getAllByLabelText(/^time$/i);
+    await userEvent.clear(times[0]);
+    await userEvent.type(times[0], '13:35');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [partId, patch] = h.updatePlanPart.mock.calls[0];
+    expect(partId).toBe(100);
+    // 13:35 BST → 12:35Z, carrying the tz.
+    expect(patch.starts_at).toBe('2026-10-12T12:35:00.000Z');
+    expect(patch.start_tz).toBe('Europe/London');
+  });
+
+  it('does not write parts that were not edited', async () => {
+    h.updatePlan.mockResolvedValue(undefined);
+    render_(plan({ parts: [part()] }));
+    const title = screen.getByRole('textbox', { name: /title/i });
+    await userEvent.clear(title);
+    await userEvent.type(title, 'BA999');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlan).toHaveBeenCalled());
+    expect(h.updatePlanPart).not.toHaveBeenCalled();
+  });
+
   it('surfaces save errors via setError', async () => {
     h.updatePlan.mockRejectedValue(new Error('save boom'));
     render_();
+    // Make a change so Save actually writes (an unchanged Save is a no-op).
+    const title = screen.getByRole('textbox', { name: /title/i });
+    await userEvent.clear(title);
+    await userEvent.type(title, 'BA999');
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('save boom'));
   });
