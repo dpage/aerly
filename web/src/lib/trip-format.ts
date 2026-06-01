@@ -247,6 +247,62 @@ export function fmtLocalDateTime(iso: string, tz?: string): string {
   return `${date}, ${time} ${tzAbbrev(iso, tz)}`;
 }
 
+/** Split an instant into its local date ("YYYY-MM-DD") + time ("HH:MM") in the
+ * given tz, for date/time form inputs. Empty strings for an unparseable iso. */
+export function splitLocal(iso: string, tz?: string): { date: string; time: string } {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { date: '', time: '' };
+  const zone = tz || 'UTC';
+  const date = d.toLocaleDateString('en-CA', { timeZone: zone });
+  const time = d.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: zone,
+  });
+  return { date, time };
+}
+
+/** Combine a local date ("YYYY-MM-DD") + time ("HH:MM") interpreted in tz into a
+ * UTC instant (ISO string) — the inverse of splitLocal. Handles DST via the
+ * zone's offset at that wall-clock. Returns "" for a malformed date. */
+export function zonedTimeToUtc(date: string, time: string, tz?: string): string {
+  const [y, mo, d] = date.split('-').map(Number);
+  const [h, mi] = (time || '00:00').split(':').map(Number);
+  if (!y || !mo || !d) return '';
+  const guess = Date.UTC(y, mo - 1, d, h || 0, mi || 0);
+  return new Date(guess - tzOffsetMs(tz || 'UTC', guess)).toISOString();
+}
+
+/** The offset (ms) of tz at the given UTC instant: how far the zone's local
+ * wall-clock is ahead of UTC. Used to invert a local time back to an instant. */
+function tzOffsetMs(tz: string, utcMs: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+    .formatToParts(new Date(utcMs))
+    .reduce<Record<string, string>>((a, p) => {
+      a[p.type] = p.value;
+      return a;
+    }, {});
+  const asUTC = Date.UTC(
+    +parts.year,
+    +parts.month - 1,
+    +parts.day,
+    +parts.hour,
+    +parts.minute,
+    +parts.second,
+  );
+  return asUTC - utcMs;
+}
+
 /** A part's local-time range: "14:30" for an instant, "14:30 → 18:05" when it
  * has an end. Ends render in their own tz so a flight reads in arrival-local. */
 export function fmtPartTimeRange(part: PlanPart): string {

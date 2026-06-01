@@ -421,6 +421,23 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// A changed address is re-geocoded synchronously so the map pin moves with
+	// the edit (the caller owns time/tz, so we only refresh coordinates).
+	// Explicit coordinates in the request, if any, still win.
+	if a.Geocoder != nil {
+		if cur, cerr := a.Store.PlanPartByID(r.Context(), id); cerr == nil {
+			if in.StartAddress != nil && *in.StartAddress != "" && *in.StartAddress != cur.StartAddress && in.StartLat == nil {
+				if lat, lon, ok, gerr := a.Geocoder.Geocode(r.Context(), *in.StartAddress); gerr == nil && ok {
+					in.StartLat, in.StartLon = &lat, &lon
+				}
+			}
+			if in.EndAddress != nil && *in.EndAddress != "" && *in.EndAddress != cur.EndAddress && in.EndLat == nil {
+				if lat, lon, ok, gerr := a.Geocoder.Geocode(r.Context(), *in.EndAddress); gerr == nil && ok {
+					in.EndLat, in.EndLon = &lat, &lon
+				}
+			}
+		}
+	}
 	part, err := a.Store.UpdatePlanPart(r.Context(), id, store.UpdatePlanPartPayload{
 		StartsAt:   in.StartsAt,
 		EndsAt:     in.EndsAt,
