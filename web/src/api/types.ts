@@ -362,23 +362,11 @@ export interface TrackerPart {
   latest_position?: Position;
 }
 
-/** A geocoded non-flight place overlaid on the tracker map (one per coordinate). */
-export interface TrackerMarker {
-  plan_part_id: number;
-  trip_id: number;
-  type: PlanType;
-  label: string;
-  lat: number;
-  lon: number;
-  /** Instant (RFC3339) + tz of this endpoint, for the map tooltip's local time. */
-  when?: string;
-  tz?: string;
-}
-
 /** The tracker payload: flight convergence parts plus in-window venue markers. */
+/** The unified tracker payload: every mappable, visible part in the window, as
+ * full PlanParts (flights carry their track + latest position). */
 export interface TrackerResponse {
-  parts: TrackerPart[];
-  markers: TrackerMarker[];
+  parts: PlanPart[];
 }
 
 /** A tag autocomplete candidate from /api/tags/suggest. */

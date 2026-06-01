@@ -261,18 +261,14 @@ export const api = {
   // -------------------------------------------------------------------------
   // Tracker (spec §5.2 / §7): convergence view of trackable parts.
   // -------------------------------------------------------------------------
-  getTracker: (opts?: { windowBefore?: string; windowAfter?: string; tag?: string }) => {
+  getTracker: (opts?: { from?: string; to?: string; tag?: string }) => {
     const params = new URLSearchParams();
-    if (opts?.windowBefore) params.set('window_before', opts.windowBefore);
-    if (opts?.windowAfter) params.set('window_after', opts.windowAfter);
+    if (opts?.from) params.set('from', opts.from);
+    if (opts?.to) params.set('to', opts.to);
     if (opts?.tag) params.set('tag', opts.tag);
     const qs = params.toString();
     return request<TrackerResponse>('GET', qs ? `/api/tracker?${qs}` : '/api/tracker');
   },
-  // Focused single-flight view: the full part with its flight detail, latest
-  // position AND the flown track (the convergence list stays position-only).
-  getTrackerPart: (partId: number) =>
-    request<PlanPart>('GET', `/api/tracker/part/${partId}`),
 
   // -------------------------------------------------------------------------
   // Alerts (spec §5.2 / §9).

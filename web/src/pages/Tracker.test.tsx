@@ -3,26 +3,25 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
-import type { PlanPart, Position, TrackerMarker, TrackerPart, Trip } from '../api/types';
-import maplibreMock, { resetMaplibreMock } from '../test/maplibre-mock';
+import type { PlanPart, Trip } from '../api/types';
 
-vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
+// Stub the MUI date picker: its date-fns adapter trips vitest's ESM resolution,
+// and these tests only need a labelled control, not real date parsing.
+vi.mock('@mui/x-date-pickers/DatePicker', () => ({
+  DatePicker: ({ label }: { label: string }) => <input aria-label={label} readOnly />,
+}));
 
 const loadTracker = vi.fn();
-const loadTrackerPart = vi.fn().mockResolvedValue(undefined);
 const setTrackerWindow = vi.fn().mockResolvedValue(undefined);
 const listTrips = vi.fn();
 
 const state = {
   loadTracker,
-  loadTrackerPart,
   setTrackerWindow,
   listTrips,
-  trackerParts: [] as TrackerPart[],
-  trackerMarkers: [] as TrackerMarker[],
-  focusedPart: null as PlanPart | null,
+  trackerParts: [] as PlanPart[],
   trackerTag: '',
-  trackerWindow: { before: '7d', after: '7d' },
+  trackerWindow: {} as { from?: string; to?: string },
   trackerLoading: false,
   trips: [] as Trip[],
 };
@@ -31,38 +30,16 @@ vi.mock('../state/store', () => ({
   useStore: (sel: (s: typeof state) => unknown) => sel(state),
 }));
 
+// PlanMapView is covered by its own test; capture the parts it receives.
+const planMapSpy = vi.fn();
+vi.mock('../components/PlanMapView', () => ({
+  default: (props: { parts: PlanPart[]; initialSelectedPartId?: number | null }) => {
+    planMapSpy(props);
+    return <div data-testid="plan-map-view" />;
+  },
+}));
+
 import Tracker from './Tracker';
-
-function pos(over: Partial<Position> = {}): Position {
-  return { ts: '2026-01-01T10:00:00Z', lat: 50, lon: 5, is_estimated: false, ...over };
-}
-
-function part(over: Partial<TrackerPart> = {}): TrackerPart {
-  return {
-    plan_part_id: 1,
-    plan_id: 1,
-    trip_id: 1,
-    title: 'BA1',
-    status: 'Enroute',
-    effective_at: '2026-01-01T10:00:00Z',
-    ident: 'BA1',
-    dest_iata: 'JFK',
-    latest_position: pos(),
-    ...over,
-  };
-}
-
-function marker(over: Partial<TrackerMarker> = {}): TrackerMarker {
-  return {
-    plan_part_id: 9,
-    trip_id: 1,
-    type: 'dining',
-    label: 'Venue',
-    lat: 50,
-    lon: 5,
-    ...over,
-  };
-}
 
 function trip(over: Partial<Trip> = {}): Trip {
   return {
@@ -88,50 +65,34 @@ function renderTracker(initial = '/tracker') {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resetMaplibreMock();
   state.trackerParts = [];
-  state.trackerMarkers = [];
-  state.focusedPart = null;
   state.trackerTag = '';
-  state.trackerWindow = { before: '7d', after: '7d' };
+  state.trackerWindow = {};
   state.trackerLoading = false;
   state.trips = [];
 });
 
 describe('Tracker page', () => {
-  it('loads the tracker on mount and renders the convergence controls', async () => {
+  it('loads on mount with a default From/To window and renders the controls', async () => {
     renderTracker();
     await waitFor(() => expect(loadTracker).toHaveBeenCalled());
+    const w = loadTracker.mock.calls[0][0].window as { from: string; to: string };
+    expect(w.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(w.to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(screen.getByLabelText('Tag')).toBeInTheDocument();
-    expect(screen.getByText(/before/i)).toBeInTheDocument();
-    expect(screen.getByText(/after/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('From')).toBeInTheDocument();
+    expect(screen.getByLabelText('To')).toBeInTheDocument();
   });
 
-  it('lists the in-window parts', () => {
-    state.trackerParts = [part({ plan_part_id: 1, ident: 'BA1' }), part({ plan_part_id: 2, ident: 'LH7' })];
-    renderTracker();
-    expect(screen.getByText('BA1')).toBeInTheDocument();
-    expect(screen.getByText('LH7')).toBeInTheDocument();
-  });
-
-  it('shows an empty-state when no parts are in the window', () => {
-    renderTracker();
-    expect(screen.getByText(/no travel in this window/i)).toBeInTheDocument();
-  });
-
-  it('focuses a single flight when ?part= is set: hides controls, narrows the list', () => {
-    state.trackerParts = [part({ plan_part_id: 1, ident: 'BA1' }), part({ plan_part_id: 2, ident: 'LH7' })];
-    renderTracker('/tracker?part=2');
-    expect(screen.getByText('Single flight')).toBeInTheDocument();
-    // Tag selector hidden in focus mode.
-    expect(screen.queryByLabelText('Tag')).not.toBeInTheDocument();
-    expect(screen.getByText('LH7')).toBeInTheDocument();
-    expect(screen.queryByText('BA1')).not.toBeInTheDocument();
-  });
-
-  it('fetches the focused part detail (track) when ?part= is set', async () => {
-    renderTracker('/tracker?part=2');
-    await waitFor(() => expect(loadTrackerPart).toHaveBeenCalledWith(2));
+  it('forwards the parts and ?part= selection to PlanMapView', () => {
+    state.trackerParts = [{ id: 5 } as PlanPart];
+    renderTracker('/tracker?part=5');
+    const props = planMapSpy.mock.calls.at(-1)![0] as {
+      parts: PlanPart[];
+      initialSelectedPartId?: number | null;
+    };
+    expect(props.parts).toHaveLength(1);
+    expect(props.initialSelectedPartId).toBe(5);
   });
 
   it('changing the tag seeds the window from the tag span and reloads', async () => {
@@ -150,21 +111,10 @@ describe('Tracker page', () => {
     await user.click(screen.getByLabelText('Tag'));
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByText('pgconf'));
-    // The seeded window is passed straight to loadTracker under the new tag, so
-    // a past-trip tag reloads with its own span rather than the default window.
     const call = loadTracker.mock.calls.find((c) => c[0]?.tag === 'pgconf');
     expect(call).toBeTruthy();
-    const seeded = call![0].window as { before: string; after: string };
-    expect(seeded.before).toMatch(/^\d+d$/);
-    expect(seeded.after).toMatch(/^\d+d$/);
-  });
-
-  it('lists non-flight venue events under a Places heading', () => {
-    state.trackerMarkers = [
-      marker({ plan_part_id: 9, type: 'dining', label: 'Founding Farmers', when: '2026-01-02T23:30:00Z' }),
-    ];
-    renderTracker();
-    expect(screen.getByText('Places')).toBeInTheDocument();
-    expect(screen.getByText('Founding Farmers')).toBeInTheDocument();
+    const w = call![0].window as { from?: string; to?: string };
+    expect(w.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(w.to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

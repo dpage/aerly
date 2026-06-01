@@ -85,16 +85,24 @@ beforeEach(() => {
 });
 
 describe('applyPlanPartUpdate', () => {
-  it('replaces a matching row in the tracker convergence list', () => {
-    useStore.setState({ trackerParts: [trackerPart({ status: 'Scheduled' })] });
-    useStore.getState().applyPlanPartUpdate(trackerPart({ status: 'Enroute' }));
-    expect(useStore.getState().trackerParts[0].status).toBe('Enroute');
+  it('folds a live update into the matching full part in place', () => {
+    const pos = { ts: '2024-01-01T12:00:00Z', lat: 51, lon: -1, is_estimated: false };
+    useStore.setState({ trackerParts: [part()] });
+    useStore
+      .getState()
+      .applyPlanPartUpdate(trackerPart({ status: 'Enroute', latest_position: pos }));
+    const row = useStore.getState().trackerParts[0];
+    // The thin update folds in without wiping the part's coords/detail.
+    expect(row.status).toBe('Enroute');
+    expect(row.flight?.flight_status).toBe('Enroute');
+    expect(row.flight?.latest_position).toEqual(pos);
+    expect(row.start_label).toBe('LHR'); // untouched
   });
 
   it('does not insert a part absent from the list (window/visibility-scoped)', () => {
-    useStore.setState({ trackerParts: [trackerPart({ plan_part_id: 1 })] });
+    useStore.setState({ trackerParts: [part({ id: 1 })] });
     useStore.getState().applyPlanPartUpdate(trackerPart({ plan_part_id: 999 }));
-    expect(useStore.getState().trackerParts.map((p) => p.plan_part_id)).toEqual([1]);
+    expect(useStore.getState().trackerParts.map((p) => p.id)).toEqual([1]);
   });
 
   it('folds live status/position into the matching part of the open trip', () => {

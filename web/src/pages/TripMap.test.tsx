@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 
 import type { Plan, PlanPart, Trip } from '../api/types';
-import maplibreMock, { FakeMap, FakeMarker, resetMaplibreMock } from '../test/maplibre-mock';
-
-vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
 const state = {
   currentTrip: null as (Trip & { plans: Plan[] }) | null,
@@ -12,6 +9,16 @@ const state = {
 
 vi.mock('../state/store', () => ({
   useStore: (sel: (s: typeof state) => unknown) => sel(state),
+}));
+
+// PlanMapView is exercised by its own test; here we only assert TripMap forwards
+// the trip's parts to it.
+const planMapSpy = vi.fn();
+vi.mock('../components/PlanMapView', () => ({
+  default: (props: { parts: PlanPart[] }) => {
+    planMapSpy(props);
+    return null;
+  },
 }));
 
 import TripMap from './TripMap';
@@ -27,9 +34,25 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
     end_tz: 'UTC',
     start_label: 'LHR',
     end_label: 'LIS',
+    start_address: '',
+    end_address: '',
     status: 'planned',
     effective_at: '2026-10-12T09:00:00Z',
     ...over,
+  };
+}
+
+function tripWith(plans: Plan[]): Trip & { plans: Plan[] } {
+  return {
+    id: 1,
+    name: 'Lisbon',
+    destination: 'Lisbon',
+    my_role: 'owner',
+    members: [],
+    tags: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    plans,
   };
 }
 
@@ -50,92 +73,23 @@ function plan(parts: PlanPart[]): Plan {
   };
 }
 
-function tripWith(plans: Plan[]): Trip & { plans: Plan[] } {
-  return {
-    id: 1,
-    name: 'Lisbon',
-    destination: 'Lisbon',
-    my_role: 'owner',
-    members: [],
-    tags: [],
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    plans,
-  };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
-  resetMaplibreMock();
   state.currentTrip = null;
 });
 
 describe('TripMap', () => {
-  it('shows an empty state when the trip has no mappable plans', () => {
-    state.currentTrip = tripWith([plan([part({ start_lat: undefined, start_lon: undefined, end_lat: undefined, end_lon: undefined })])]);
+  it('forwards the trip\'s flattened parts to PlanMapView', () => {
+    state.currentTrip = tripWith([plan([part({ id: 1 }), part({ id: 2 })])]);
     render(<TripMap />);
-    expect(screen.getByText(/No mappable plans/i)).toBeInTheDocument();
+    expect(planMapSpy).toHaveBeenCalled();
+    const props = planMapSpy.mock.calls.at(-1)![0] as { parts: PlanPart[] };
+    expect(props.parts.map((p) => p.id)).toEqual([1, 2]);
   });
 
-  it('creates the map and a markers + legs source, plotting geocoded parts', () => {
-    state.currentTrip = tripWith([
-      plan([
-        part({
-          id: 1,
-          start_lat: 51.47,
-          start_lon: -0.45,
-          end_lat: 38.77,
-          end_lon: -9.13,
-        }),
-      ]),
-    ]);
+  it('passes an empty list when there is no current trip', () => {
     render(<TripMap />);
-    const map = FakeMap.instances[0];
-    expect(map).toBeTruthy();
-    expect(map.sources.has('legs')).toBe(true);
-    // One marker per endpoint (start + end) of the single part.
-    expect(FakeMarker.instances).toHaveLength(2);
-    // A great-circle leg feature for the part with both ends geocoded.
-    const legs = map.getSource('legs')!.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
-    expect(legs.features.length).toBeGreaterThan(0);
-    // Two endpoints → bounds → fitBounds called.
-    expect(map.fitBounds).toHaveBeenCalled();
-    // Each marker carries a click popover with the plan title, type and place.
-    const popup = FakeMarker.instances[0].popup;
-    expect(popup?.html).toContain('Outbound');
-    expect(popup?.html).toContain('Flight');
-    expect(popup?.html).toContain('LHR');
-  });
-
-  it('plots a single geocoded endpoint without a leg line', () => {
-    state.currentTrip = tripWith([
-      plan([
-        part({
-          id: 1,
-          type: 'dining',
-          start_lat: 38.71,
-          start_lon: -9.14,
-          end_lat: undefined,
-          end_lon: undefined,
-        }),
-      ]),
-    ]);
-    render(<TripMap />);
-    const map = FakeMap.instances[0];
-    expect(FakeMarker.instances).toHaveLength(1);
-    const legs = map.getSource('legs')!.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
-    expect(legs.features).toHaveLength(0);
-  });
-
-  it('cleans up the map and markers on unmount', () => {
-    state.currentTrip = tripWith([
-      plan([part({ id: 1, start_lat: 51, start_lon: 0, end_lat: 40, end_lon: -73 })]),
-    ]);
-    const { unmount } = render(<TripMap />);
-    const map = FakeMap.instances[0];
-    const markers = [...FakeMarker.instances];
-    unmount();
-    expect(map.remove).toHaveBeenCalled();
-    markers.forEach((m) => expect(m.remove).toHaveBeenCalled());
+    const props = planMapSpy.mock.calls.at(-1)![0] as { parts: PlanPart[] };
+    expect(props.parts).toEqual([]);
   });
 });

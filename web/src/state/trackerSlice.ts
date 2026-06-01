@@ -1,23 +1,20 @@
 import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
-import type { PlanPart, TrackerMarker, TrackerPart } from '../api/types';
+import type { Plan, PlanPart, TrackerPart } from '../api/types';
 import type { StoreState } from './store';
 
-/** Default convergence window when the user hasn't set one. */
-const DEFAULT_WINDOW_BEFORE = '7d';
-const DEFAULT_WINDOW_AFTER = '7d';
-
-/** localStorage key for the tracker window, keyed per-tag, persisted the same
- * best-effort way as the `showAll` flag in coreSlice (spec §7). The empty tag
- * ('') is the untagged "everyone" view. */
+/** localStorage key for the tracker window, keyed per-tag (spec §7). The empty
+ * tag ('') is the untagged "everyone" view. */
 function windowKey(tag: string): string {
   return `tracker.window.${tag || '_all'}`;
 }
 
-interface TrackerWindow {
-  before: string;
-  after: string;
+/** Absolute From/To dates (YYYY-MM-DD) for the tracker window. Either may be
+ * unset, in which case the server falls back to its default span. */
+export interface TrackerWindow {
+  from?: string;
+  to?: string;
 }
 
 function loadWindow(tag: string): TrackerWindow {
@@ -25,14 +22,15 @@ function loadWindow(tag: string): TrackerWindow {
     const raw = window.localStorage.getItem(windowKey(tag));
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<TrackerWindow>;
-      if (typeof parsed.before === 'string' && typeof parsed.after === 'string') {
-        return { before: parsed.before, after: parsed.after };
-      }
+      const w: TrackerWindow = {};
+      if (typeof parsed.from === 'string') w.from = parsed.from;
+      if (typeof parsed.to === 'string') w.to = parsed.to;
+      return w;
     }
   } catch {
-    // SSR / privacy modes / malformed JSON — fall through to defaults.
+    // SSR / privacy modes / malformed JSON — fall through to empty.
   }
-  return { before: DEFAULT_WINDOW_BEFORE, after: DEFAULT_WINDOW_AFTER };
+  return {};
 }
 
 function persistWindow(tag: string, w: TrackerWindow): void {
@@ -43,125 +41,73 @@ function persistWindow(tag: string, w: TrackerWindow): void {
   }
 }
 
-/** State + actions for the tracker convergence view (spec §7).
- *
- * Wave 0b: a typed fetch into `trackerParts` plus the per-tag window flag
- * persisted to localStorage. Wave 1C/2 fleshes out single-part focus and the
- * map rendering. */
+/** State + actions for the unified tracker map+list view (spec §7, PRD §6.5).
+ * Holds the full mappable parts in the window (any type), the per-tag From/To
+ * window persisted to localStorage, and the live SSE merge. */
 export interface TrackerSlice {
-  trackerParts: TrackerPart[];
-  /** In-window non-flight venue markers overlaid on the tracker map. */
-  trackerMarkers: TrackerMarker[];
+  /** Every mappable part in the window, as full PlanParts. */
+  trackerParts: PlanPart[];
   trackerTag: string;
   trackerWindow: TrackerWindow;
   trackerLoading: boolean;
-  /** The focused single-flight part (with its flown track + latest position),
-   * loaded from /api/tracker/part/{id} when the view is opened with `?part=`.
-   * null in the convergence view or before the fetch resolves. */
-  focusedPart: PlanPart | null;
 
   loadTracker: (opts?: { tag?: string; window?: TrackerWindow }) => Promise<void>;
-  /** Fetch the focused part's full detail + track for the single-flight view.
-   * Pass null to clear the focus. */
-  loadTrackerPart: (partId: number | null) => Promise<void>;
   setTrackerWindow: (w: Partial<TrackerWindow>) => Promise<void>;
-  /** Apply a plan_part.updated SSE event (the poller broadcasts a
-   * TrackerPartDTO). Refreshes the convergence list in place and folds the
-   * live status/position into the open trip's timeline so the shared timeline
-   * updates without a reload (PRD §6). Idempotent: a part the viewer can't see
-   * (absent from the current list and not in the open trip) is a no-op. */
+  /** Apply a plan_part.updated SSE event (the poller broadcasts a thin
+   * TrackerPartDTO). Folds the live status/position into the matching full part
+   * in the tracker list AND the open trip's timeline — never replaces a row
+   * wholesale (that would wipe its coordinates + detail). Idempotent: a part not
+   * present in either is a no-op. */
   applyPlanPartUpdate: (part: TrackerPart) => void;
 }
 
 export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> = (set, get) => ({
   trackerParts: [],
-  trackerMarkers: [],
   trackerTag: '',
   trackerWindow: loadWindow(''),
   trackerLoading: false,
-  focusedPart: null,
 
   async loadTracker(opts) {
     const tag = opts?.tag ?? get().trackerTag;
-    // An explicit window (e.g. seeded from a tag's span on tag change) is
-    // persisted under the *target* tag and used for this load; otherwise fall
-    // back to that tag's saved window. Reading the saved window for a different
-    // tag than the one being loaded was the bug behind a past-trip tag showing
-    // no flights — the seed never reached the request.
+    // An explicit window (seeded from a tag's span on tag change, or set via the
+    // date pickers) is persisted under the *target* tag and used for this load;
+    // otherwise fall back to that tag's saved window.
     const w = opts?.window ?? loadWindow(tag);
     if (opts?.window) persistWindow(tag, opts.window);
     set({ trackerTag: tag, trackerWindow: w, trackerLoading: true });
     try {
-      const { parts, markers } = await api.getTracker({
-        windowBefore: w.before,
-        windowAfter: w.after,
-        tag: tag || undefined,
-      });
-      set({ trackerParts: parts, trackerMarkers: markers, trackerLoading: false });
+      const { parts } = await api.getTracker({ from: w.from, to: w.to, tag: tag || undefined });
+      set({ trackerParts: parts, trackerLoading: false });
     } catch (err) {
       set({ error: errorMessage(err), trackerLoading: false });
-    }
-  },
-
-  async loadTrackerPart(partId) {
-    if (partId == null) {
-      set({ focusedPart: null });
-      return;
-    }
-    try {
-      const focusedPart = await api.getTrackerPart(partId);
-      set({ focusedPart });
-    } catch (err) {
-      // A part the viewer can't see 404s; clear the focus and surface the error.
-      set({ focusedPart: null, error: errorMessage(err) });
     }
   },
 
   async setTrackerWindow(patch) {
     const tag = get().trackerTag;
     const next = { ...get().trackerWindow, ...patch };
-    persistWindow(tag, next);
-    set({ trackerWindow: next });
-    await get().loadTracker({ tag });
+    await get().loadTracker({ tag, window: next });
   },
 
-  applyPlanPartUpdate(part) {
+  applyPlanPartUpdate(update) {
     set((s) => {
-      // 1. Tracker convergence list: replace the matching row in place. Don't
-      //    insert a part that isn't already listed — the list is window- and
-      //    visibility-scoped server-side, and an out-of-window part shouldn't
-      //    suddenly appear from a live event.
-      const trackerIdx = s.trackerParts.findIndex((p) => p.plan_part_id === part.plan_part_id);
-      const trackerParts =
-        trackerIdx === -1
-          ? s.trackerParts
-          : s.trackerParts.map((p, i) => (i === trackerIdx ? part : p));
+      // 1. Tracker list: fold the live fields into the matching full part in
+      //    place. Don't insert a part that isn't already listed — the list is
+      //    window/visibility-scoped server-side.
+      const trackerParts = s.trackerParts.some((p) => p.id === update.plan_part_id)
+        ? s.trackerParts.map((p) => (p.id === update.plan_part_id ? foldUpdate(p, update) : p))
+        : s.trackerParts;
 
-      // 2. Open trip timeline: if the changed part belongs to the trip currently
-      //    on screen, fold the live fields (status / position / effective_at)
-      //    into the matching PlanPart so the timeline reflects the update
-      //    without a refetch. The TrackerPartDTO is a thin projection, so we
-      //    merge only the fields it carries and leave the rest of the part as-is.
+      // 2. Open trip timeline: same merge for the trip currently on screen.
       let currentTrip = s.currentTrip;
-      if (currentTrip && currentTrip.id === part.trip_id) {
+      if (currentTrip && currentTrip.id === update.trip_id) {
         let touched = false;
-        const plans = currentTrip.plans.map((plan) => {
-          if (plan.id !== part.plan_id) return plan;
+        const plans: Plan[] = currentTrip.plans.map((plan) => {
+          if (plan.id !== update.plan_id) return plan;
           const parts = plan.parts.map((pp) => {
-            if (pp.id !== part.plan_part_id) return pp;
+            if (pp.id !== update.plan_part_id) return pp;
             touched = true;
-            return {
-              ...pp,
-              status: (part.status || pp.status) as typeof pp.status,
-              effective_at: part.effective_at || pp.effective_at,
-              flight: pp.flight
-                ? {
-                    ...pp.flight,
-                    flight_status: part.status || pp.flight.flight_status,
-                    latest_position: part.latest_position ?? pp.flight.latest_position,
-                  }
-                : pp.flight,
-            };
+            return foldUpdate(pp, update);
           });
           return touched ? { ...plan, parts } : plan;
         });
@@ -172,6 +118,23 @@ export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> 
     });
   },
 });
+
+/** Fold a thin live update (status / effective_at / latest position) into a full
+ * PlanPart, leaving its coordinates + type detail untouched. */
+function foldUpdate(pp: PlanPart, u: TrackerPart): PlanPart {
+  return {
+    ...pp,
+    status: (u.status || pp.status) as typeof pp.status,
+    effective_at: u.effective_at || pp.effective_at,
+    flight: pp.flight
+      ? {
+          ...pp.flight,
+          flight_status: u.status || pp.flight.flight_status,
+          latest_position: u.latest_position ?? pp.flight.latest_position,
+        }
+      : pp.flight,
+  };
+}
 
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;

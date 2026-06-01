@@ -636,9 +636,25 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 	if err != nil {
 		return api.PlanDTO{}, err
 	}
+	// Batch-load the live position + flown track for this plan's flight parts so
+	// the map can draw them (parity with the tracker view).
+	flightIDs := make([]int64, 0, len(parts))
+	for _, p := range parts {
+		if p.Type == "flight" {
+			flightIDs = append(flightIDs, p.ID)
+		}
+	}
+	latest, err := a.Store.LatestPartPositions(ctx, flightIDs)
+	if err != nil {
+		return api.PlanDTO{}, err
+	}
+	tracks, err := a.Store.PartTracks(ctx, flightIDs, 0)
+	if err != nil {
+		return api.PlanDTO{}, err
+	}
 	partDTOs := make([]api.PlanPartDTO, 0, len(parts))
 	for _, p := range parts {
-		dto, err := a.partDTOWithFlights(ctx, p, flights)
+		dto, err := a.partDTOWithPositions(ctx, p, flights, latest[p.ID], tracks[p.ID])
 		if err != nil {
 			return api.PlanDTO{}, err
 		}
@@ -692,8 +708,15 @@ func (a *API) partDTO(ctx context.Context, p *store.PlanPart) (api.PlanPartDTO, 
 
 // partDTOWithFlights builds a part DTO with the correct satellite loaded and,
 // for hotel parts, the §10 smart check-in/out times derived from the supplied
-// trip flight parts.
+// trip flight parts. No live position/track is attached.
 func (a *API) partDTOWithFlights(ctx context.Context, p *store.PlanPart, tripFlights []*store.PlanPart) (api.PlanPartDTO, error) {
+	return a.partDTOWithPositions(ctx, p, tripFlights, nil, nil)
+}
+
+// partDTOWithPositions is partDTOWithFlights plus an optional latest position +
+// flown track for a flight part — so the map can draw the live marker + flown
+// polyline. latest/track are ignored for non-flight parts.
+func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripFlights []*store.PlanPart, latest *store.Position, track []*store.Position) (api.PlanPartDTO, error) {
 	var (
 		flight    *store.FlightDetail
 		hotel     *store.HotelDetail
@@ -720,7 +743,7 @@ func (a *API) partDTOWithFlights(ctx context.Context, p *store.PlanPart, tripFli
 	if err != nil {
 		return api.PlanPartDTO{}, err
 	}
-	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, nil, nil)
+	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, latest, track)
 	if p.Type == "hotel" && dto.Hotel != nil {
 		applyHotelSmartTimes(p, hotel, tripFlights, dto.Hotel)
 	}
