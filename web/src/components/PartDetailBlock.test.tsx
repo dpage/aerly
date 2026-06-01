@@ -24,32 +24,55 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
 }
 
 describe('PartDetailBlock PlaceSection', () => {
-  it('renders start/end labels and addresses when present', () => {
+  it('renders From/To labels and addresses for a transfer', () => {
     render(
       <PartDetailBlock
         part={part({
-          start_label: 'Hotel Lisboa',
-          start_address: 'Rua Augusta 1',
-          end_label: 'Airport',
-          end_address: 'LIS Terminal 1',
+          type: 'ground',
+          start_label: 'Home',
+          start_address: '1 Acacia Ave',
+          end_label: 'LHR',
+          end_address: 'Heathrow T5',
         })}
       />,
     );
     expect(screen.getByText('Where')).toBeInTheDocument();
-    expect(screen.getByText('Hotel Lisboa')).toBeInTheDocument();
-    expect(screen.getByText('Rua Augusta 1')).toBeInTheDocument();
-    expect(screen.getByText('Airport')).toBeInTheDocument();
-    expect(screen.getByText('LIS Terminal 1')).toBeInTheDocument();
+    expect(screen.getByText('From')).toBeInTheDocument();
+    expect(screen.getByText('Home')).toBeInTheDocument();
+    expect(screen.getByText('1 Acacia Ave')).toBeInTheDocument();
+    expect(screen.getByText('To')).toBeInTheDocument();
+    expect(screen.getByText('LHR')).toBeInTheDocument();
+    expect(screen.getByText('Heathrow T5')).toBeInTheDocument();
   });
 
-  it('renders the Where header but no value rows when place fields are empty', () => {
-    // PlaceSection always renders its header (its children are Row elements);
-    // each individual Row collapses to null when its value is empty.
+  it('shows a single "Address" (not Start/End) for a single-location plan', () => {
+    render(<PartDetailBlock part={part({ type: 'dining', start_address: 'Rua Augusta 1' })} />);
+    expect(screen.getByText('Address')).toBeInTheDocument();
+    expect(screen.getByText('Rua Augusta 1')).toBeInTheDocument();
+    // No transfer-style or "Start address" wording for a single venue.
+    expect(screen.queryByText('Start address')).not.toBeInTheDocument();
+    expect(screen.queryByText('From')).not.toBeInTheDocument();
+    expect(screen.queryByText('To')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the hotel detail address when the part has no start_address', () => {
+    render(
+      <PartDetailBlock
+        part={part({
+          type: 'hotel',
+          start_address: '',
+          hotel: { property_name: 'X', address: '5 Rua', phone: '', room_type: '' },
+        })}
+      />,
+    );
+    expect(screen.getByText('Address')).toBeInTheDocument();
+    expect(screen.getByText('5 Rua')).toBeInTheDocument();
+  });
+
+  it('collapses the Address row when there is no address at all', () => {
     render(<PartDetailBlock part={part({ type: 'hotel', hotel: undefined })} />);
     expect(screen.getByText('Where')).toBeInTheDocument();
-    expect(screen.queryByText('Start')).not.toBeInTheDocument();
-    expect(screen.queryByText('Start address')).not.toBeInTheDocument();
-    expect(screen.queryByText('End')).not.toBeInTheDocument();
+    expect(screen.queryByText('Address')).not.toBeInTheDocument();
   });
 });
 

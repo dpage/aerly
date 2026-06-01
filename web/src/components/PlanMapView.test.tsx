@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { PlanPart } from '../api/types';
-import maplibreMock, { FakeMap, resetMaplibreMock } from '../test/maplibre-mock';
+import maplibreMock, { FakeMap, FakeMarker, resetMaplibreMock } from '../test/maplibre-mock';
 
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
@@ -111,13 +111,31 @@ describe('PlanMapView', () => {
     expect(map.flyTo).toHaveBeenCalled();
   });
 
-  it('selecting a map feature highlights its list row (bidirectional)', async () => {
+  // Find the teardrop pin marker for a given part id.
+  const pinFor = (partId: number) =>
+    FakeMarker.instances.find((m) => m.getElement()?.dataset.partId === String(partId))!;
+
+  it('clicking a pin highlights its list row (bidirectional)', async () => {
     render(<PlanMapView parts={[flight(), hotel()]} />);
-    const map = FakeMap.instances[0];
-    // Simulate clicking the hotel's pin on the map.
-    map.fireLayer('click', 'pmv-points', { features: [{ properties: { partId: 2 } }] });
+    pinFor(2).getElement().dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(await screen.findByTestId('part-detail-block')).toBeInTheDocument();
     expect(screen.getByTestId('plan-row-2')).toHaveClass('Mui-selected');
+  });
+
+  it('clicking a transfer leg highlights its flight row', async () => {
+    render(<PlanMapView parts={[flight(), hotel()]} />);
+    const map = FakeMap.instances[0];
+    map.fireLayer('click', 'pmv-legs', { features: [{ properties: { partId: 1 } }] });
+    expect(await screen.findByTestId('flight-detail-card')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-row-1')).toHaveClass('Mui-selected');
+  });
+
+  it('builds a labelled popover for each pin', () => {
+    render(<PlanMapView parts={[hotel()]} />);
+    const pin = pinFor(2);
+    // setPopup was given DOM content with the venue's title + type.
+    expect(pin.popup?.html).toContain('Tysons Marriott');
+    expect(pin.popup?.html).toContain('Hotel');
   });
 
   it('shows an empty state when there are no mappable parts', () => {
@@ -163,31 +181,31 @@ describe('PlanMapView', () => {
     expect(screen.getByTestId('plan-row-2')).not.toHaveClass('Mui-selected');
   });
 
-  it('clicking the same map feature twice deselects it', async () => {
+  it('clicking the same pin twice deselects it', async () => {
     render(<PlanMapView parts={[flight(), hotel()]} />);
-    const map = FakeMap.instances[0];
-    map.fireLayer('click', 'pmv-points', { features: [{ properties: { partId: 2 } }] });
+    const el = pinFor(2).getElement();
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(await screen.findByTestId('plan-row-2')).toHaveClass('Mui-selected');
-    map.fireLayer('click', 'pmv-points', { features: [{ properties: { partId: 2 } }] });
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await waitFor(() =>
       expect(screen.getByTestId('plan-row-2')).not.toHaveClass('Mui-selected'),
     );
   });
 
-  it('ignores a map click whose feature has no numeric partId', () => {
+  it('ignores a leg click whose feature has no numeric partId', () => {
     render(<PlanMapView parts={[flight(), hotel()]} />);
     const map = FakeMap.instances[0];
-    map.fireLayer('click', 'pmv-points', { features: [{ properties: {} }] });
-    map.fireLayer('click', 'pmv-points', { features: undefined });
+    map.fireLayer('click', 'pmv-legs', { features: [{ properties: {} }] });
+    map.fireLayer('click', 'pmv-legs', { features: undefined });
     expect(screen.queryByTestId('part-detail-block')).not.toBeInTheDocument();
   });
 
-  it('sets/clears the pointer cursor on layer hover', () => {
+  it('sets/clears the pointer cursor on leg hover', () => {
     render(<PlanMapView parts={[flight()]} />);
     const map = FakeMap.instances[0];
-    map.fireLayer('mouseenter', 'pmv-points', {});
+    map.fireLayer('mouseenter', 'pmv-legs', {});
     expect(map.getCanvas().style.cursor).toBe('pointer');
-    map.fireLayer('mouseleave', 'pmv-points', {});
+    map.fireLayer('mouseleave', 'pmv-legs', {});
     expect(map.getCanvas().style.cursor).toBe('');
   });
 
