@@ -57,6 +57,57 @@ func TestCreatePlanWritesSatellite(t *testing.T) {
 	}
 }
 
+func TestPlanPartAddressesRoundTrip(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	start := time.Date(2026, 4, 7, 9, 0, 0, 0, time.UTC)
+
+	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
+		TripID: trip, Type: "ground", Title: "Kev's taxi",
+		Parts: []CreatePlanPartPayload{{
+			StartsAt:     start,
+			StartLabel:   "Honeysuckle Cottage",
+			StartAddress: "Honeysuckle Cottage, Somewhere Lane",
+			EndLabel:     "LHR T5",
+			EndAddress:   "Heathrow Terminal 5, Longford TW6 2GA",
+			Ground:       &GroundDetail{Provider: "Kev's taxi"},
+		}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	parts, err := s.PartsByPlan(ctx, plan.ID)
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("PartsByPlan = %d, %v", len(parts), err)
+	}
+	if parts[0].StartAddress != "Honeysuckle Cottage, Somewhere Lane" {
+		t.Errorf("start_address = %q", parts[0].StartAddress)
+	}
+	if parts[0].EndAddress != "Heathrow Terminal 5, Longford TW6 2GA" {
+		t.Errorf("end_address = %q", parts[0].EndAddress)
+	}
+
+	// And it can be edited.
+	newStart := "12 Somewhere Street"
+	if _, err := s.UpdatePlanPart(ctx, parts[0].ID, UpdatePlanPartPayload{StartAddress: &newStart}); err != nil {
+		t.Fatalf("UpdatePlanPart: %v", err)
+	}
+	got, err := s.PlanPartByID(ctx, parts[0].ID)
+	if err != nil {
+		t.Fatalf("PlanPartByID: %v", err)
+	}
+	if got.StartAddress != newStart {
+		t.Errorf("after edit start_address = %q, want %q", got.StartAddress, newStart)
+	}
+	if got.EndAddress != "Heathrow Terminal 5, Longford TW6 2GA" {
+		t.Errorf("end_address should be unchanged, got %q", got.EndAddress)
+	}
+}
+
 func TestCreatePlanHotelSatellite(t *testing.T) {
 	s := newStore(t)
 	if s == nil {

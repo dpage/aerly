@@ -41,9 +41,11 @@ type PlanPart struct {
 	StartLabel   string
 	StartLat     *float64
 	StartLon     *float64
+	StartAddress string
 	EndLabel     string
 	EndLat       *float64
 	EndLon       *float64
+	EndAddress   string
 	Status       string // planned|confirmed|cancelled
 	SupersedesID *int64
 	DismissedAt  *time.Time
@@ -172,9 +174,11 @@ type CreatePlanPartPayload struct {
 	StartLabel   string
 	StartLat     *float64
 	StartLon     *float64
+	StartAddress string
 	EndLabel     string
 	EndLat       *float64
 	EndLon       *float64
+	EndAddress   string
 	Status       string
 	SupersedesID *int64
 
@@ -198,15 +202,17 @@ type UpdatePlanPayload struct {
 type UpdatePlanPartPayload struct {
 	StartsAt   *time.Time
 	EndsAt     *time.Time
-	StartTZ    *string
-	EndTZ      *string
-	StartLabel *string
-	StartLat   *float64
-	StartLon   *float64
-	EndLabel   *string
-	EndLat     *float64
-	EndLon     *float64
-	Status     *string
+	StartTZ      *string
+	EndTZ        *string
+	StartLabel   *string
+	StartLat     *float64
+	StartLon     *float64
+	StartAddress *string
+	EndLabel     *string
+	EndLat       *float64
+	EndLon       *float64
+	EndAddress   *string
+	Status       *string
 }
 
 // ----- Plan CRUD -----
@@ -271,12 +277,12 @@ func insertPartTx(ctx context.Context, tx pgx.Tx, planID int64, planType string,
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO plan_parts (plan_id, seq, starts_at, ends_at, start_tz, end_tz,
 			start_label, start_lat, start_lon, end_label, end_lat, end_lon,
-			status, supersedes_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			status, supersedes_id, start_address, end_address)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING id`,
 		planID, in.Seq, in.StartsAt, in.EndsAt, in.StartTZ, in.EndTZ,
 		in.StartLabel, in.StartLat, in.StartLon, in.EndLabel, in.EndLat, in.EndLon,
-		status, in.SupersedesID).Scan(&partID); err != nil {
+		status, in.SupersedesID, in.StartAddress, in.EndAddress).Scan(&partID); err != nil {
 		return err
 	}
 	return insertDetailTx(ctx, tx, partID, planType, in)
@@ -430,14 +436,16 @@ func (s *Store) MovePlan(ctx context.Context, planID, destTripID int64) error {
 const planPartColumns = `part.id, part.plan_id, pl.type, part.seq, part.starts_at,
 	part.ends_at, part.start_tz, part.end_tz, part.start_label, part.start_lat,
 	part.start_lon, part.end_label, part.end_lat, part.end_lon, part.status,
-	part.supersedes_id, part.dismissed_at, part.created_at, part.updated_at`
+	part.supersedes_id, part.dismissed_at, part.created_at, part.updated_at,
+	part.start_address, part.end_address`
 
 func scanPart(row pgx.Row) (*PlanPart, error) {
 	var p PlanPart
 	err := row.Scan(&p.ID, &p.PlanID, &p.Type, &p.Seq, &p.StartsAt,
 		&p.EndsAt, &p.StartTZ, &p.EndTZ, &p.StartLabel, &p.StartLat,
 		&p.StartLon, &p.EndLabel, &p.EndLat, &p.EndLon, &p.Status,
-		&p.SupersedesID, &p.DismissedAt, &p.CreatedAt, &p.UpdatedAt)
+		&p.SupersedesID, &p.DismissedAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.StartAddress, &p.EndAddress)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -507,7 +515,9 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 			end_label   = COALESCE($12, end_label),
 			end_lat     = CASE WHEN $13::boolean THEN $14 ELSE end_lat END,
 			end_lon     = CASE WHEN $15::boolean THEN $16 ELSE end_lon END,
-			status      = COALESCE($17, status),
+			status        = COALESCE($17, status),
+			start_address = COALESCE($18, start_address),
+			end_address   = COALESCE($19, end_address),
 			updated_at  = NOW()
 		WHERE id = $1`,
 		id, in.StartsAt,
@@ -518,7 +528,7 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 		in.EndLabel,
 		in.EndLat != nil, in.EndLat,
 		in.EndLon != nil, in.EndLon,
-		in.Status)
+		in.Status, in.StartAddress, in.EndAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -908,7 +918,8 @@ func (s *Store) ListVisiblePlanParts(ctx context.Context, viewerID int64, opts L
 		part.start_label, part.start_lat, part.start_lon,
 		part.end_label, part.end_lat, part.end_lon,
 		part.status, part.supersedes_id, part.dismissed_at,
-		part.created_at, part.updated_at
+		part.created_at, part.updated_at,
+		part.start_address, part.end_address
 		FROM plan_parts part
 		JOIN plans pl ON pl.id = part.plan_id
 		JOIN trips t ON t.id = pl.trip_id`
@@ -929,7 +940,8 @@ func (s *Store) ListVisiblePlanParts(ctx context.Context, viewerID int64, opts L
 			&p.StartLabel, &p.StartLat, &p.StartLon,
 			&p.EndLabel, &p.EndLat, &p.EndLon,
 			&p.Status, &p.SupersedesID, &p.DismissedAt,
-			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.CreatedAt, &p.UpdatedAt,
+			&p.StartAddress, &p.EndAddress); err != nil {
 			return nil, err
 		}
 		out = append(out, &p)

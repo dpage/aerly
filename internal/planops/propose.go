@@ -28,11 +28,13 @@ type ProposedPart struct {
 	Type       string
 	StartsAt   time.Time
 	EndsAt     *time.Time
-	StartTZ    string
-	EndTZ      string
-	StartLabel string
-	EndLabel   string
-	Status     string
+	StartTZ      string
+	EndTZ        string
+	StartLabel   string
+	EndLabel     string
+	StartAddress string
+	EndAddress   string
+	Status       string
 
 	Flight    *store.FlightDetail
 	Hotel     *store.HotelDetail
@@ -139,7 +141,14 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 // confidence.
 func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPart, float64) {
 	conf := confidenceScore(part.Confidence)
-	out := ProposedPart{Type: part.Type, Status: "planned", StartLabel: part.StartLabel, EndLabel: part.EndLabel}
+	out := ProposedPart{
+		Type:         part.Type,
+		Status:       "planned",
+		StartLabel:   part.StartLabel,
+		EndLabel:     part.EndLabel,
+		StartAddress: part.StartAddress,
+		EndAddress:   part.EndAddress,
+	}
 	switch part.Type {
 	case "flight":
 		fd := enrichFlight(ctx, deps, part.Flight)

@@ -301,9 +301,11 @@ export interface PlanPart {
   start_label: string;
   start_lat?: number;
   start_lon?: number;
+  start_address: string;
   end_label: string;
   end_lat?: number;
   end_lon?: number;
+  end_address: string;
   status: PlanPartStatus;
   /** Derived COALESCE(actual_*, estimated_*, scheduled_*) used to sort/group
    * every part type uniformly on the timeline. */
@@ -407,9 +409,11 @@ export interface PlanPartInput {
   start_label?: string;
   start_lat?: number;
   start_lon?: number;
+  start_address?: string;
   end_label?: string;
   end_lat?: number;
   end_lon?: number;
+  end_address?: string;
   status?: PlanPartStatus;
   flight?: Partial<FlightDetail>;
   hotel?: Partial<HotelDetail>;
@@ -427,9 +431,11 @@ export interface UpdatePlanPartInput {
   start_label?: string;
   start_lat?: number;
   start_lon?: number;
+  start_address?: string;
   end_label?: string;
   end_lat?: number;
   end_lon?: number;
+  end_address?: string;
   status?: PlanPartStatus;
   flight?: Partial<FlightDetail>;
   hotel?: Partial<HotelDetail>;
