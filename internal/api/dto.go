@@ -18,6 +18,7 @@ type UserDTO struct {
 	IsSuperuser bool       `json:"is_superuser"`
 	IsActive    bool       `json:"is_active"`
 	HasLoggedIn bool       `json:"has_logged_in"`
+	HomeAddress string     `json:"home_address"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 }
 
@@ -32,6 +33,7 @@ func ToUserDTO(u *store.User) UserDTO {
 		// A user has "logged in" once any provider has linked an identity
 		// to them, which last_login_at tracks.
 		HasLoggedIn: u.LastLoginAt != nil,
+		HomeAddress: u.HomeAddress,
 		LastLoginAt: u.LastLoginAt,
 	}
 }

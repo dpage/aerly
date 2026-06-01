@@ -27,6 +27,7 @@ type User struct {
 	AvatarURL   string
 	IsSuperuser bool
 	IsActive    bool
+	HomeAddress string
 	LastLoginAt *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

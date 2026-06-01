@@ -6,6 +6,8 @@ export interface User {
   is_superuser: boolean;
   is_active: boolean;
   has_logged_in: boolean;
+  /** Free-text home address, used as ingest context (e.g. "taxi from home"). */
+  home_address: string;
   last_login_at?: string;
 }
 
