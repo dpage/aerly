@@ -69,6 +69,7 @@ export class FakeMarker {
   lngLat: [number, number] | null = null;
   rotation = 0;
   added = false;
+  popup: FakePopup | null = null;
   remove = vi.fn();
 
   constructor(opts?: { element?: HTMLElement }) {
@@ -78,6 +79,11 @@ export class FakeMarker {
 
   setLngLat(ll: [number, number]): this {
     this.lngLat = ll;
+    return this;
+  }
+
+  setPopup(p: FakePopup): this {
+    this.popup = p;
     return this;
   }
 
@@ -118,6 +124,11 @@ export class FakePopup {
 
   setHTML(h: string): this {
     this.html = h;
+    return this;
+  }
+
+  setDOMContent(node: Node): this {
+    this.html = (node as HTMLElement).textContent ?? '';
     return this;
   }
 
