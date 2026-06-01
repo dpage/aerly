@@ -26,6 +26,7 @@ import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import NotificationsIcon from '@mui/icons-material/NotificationsOutlined';
+import HomeIcon from '@mui/icons-material/HomeOutlined';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 
@@ -39,6 +40,7 @@ import EmailsDialog from './EmailsDialog';
 import FriendsDialog from './FriendsDialog';
 import StatsDialog from './StatsDialog';
 import CalendarSubscribeDialog from './CalendarSubscribeDialog';
+import HomeAddressDialog from './HomeAddressDialog';
 
 /** The authenticated app chrome for the trip-planning redesign (spec §11).
  *
@@ -62,6 +64,7 @@ export default function Layout() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [alertPrefsOpen, setAlertPrefsOpen] = useState(false);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
+  const [homeAddrOpen, setHomeAddrOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   const closeMenu = () => setMenuAnchor(null);
@@ -201,6 +204,17 @@ export default function Layout() {
             <MenuItem
               onClick={() => {
                 closeMenu();
+                setHomeAddrOpen(true);
+              }}
+            >
+              <ListItemIcon>
+                <HomeIcon fontSize="small" />
+              </ListItemIcon>
+              Home address…
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeMenu();
                 setSubscribeOpen(true);
               }}
             >
@@ -262,6 +276,7 @@ export default function Layout() {
       <FriendsDialog open={friendsOpen} onClose={() => setFriendsOpen(false)} />
       <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} />
       <AlertPrefsDialog open={alertPrefsOpen} onClose={() => setAlertPrefsOpen(false)} />
+      <HomeAddressDialog open={homeAddrOpen} onClose={() => setHomeAddrOpen(false)} />
       <CalendarSubscribeDialog
         open={subscribeOpen}
         onClose={() => setSubscribeOpen(false)}

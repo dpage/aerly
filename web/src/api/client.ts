@@ -91,6 +91,7 @@ export const api = {
   },
 
   getMe: () => request<User>('GET', '/api/me'),
+  updateMe: (patch: { home_address?: string }) => request<User>('PATCH', '/api/me', patch),
   getConfig: () => request<Capabilities>('GET', '/api/config'),
 
   // Lists the OAuth providers the backend has configured, so the login

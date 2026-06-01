@@ -57,6 +57,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	sup := a.Auth.RequireSuperuser
 
 	mux.Handle("GET /api/me", req(http.HandlerFunc(a.getMe)))
+	mux.Handle("PATCH /api/me", req(http.HandlerFunc(a.updateMe)))
 	mux.Handle("GET /api/config", req(http.HandlerFunc(a.getConfig)))
 	mux.Handle("GET /api/events", req(http.HandlerFunc(a.events)))
 	mux.Handle("GET /api/me/flights", req(http.HandlerFunc(a.listMyFlights)))
