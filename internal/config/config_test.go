@@ -298,6 +298,36 @@ func TestLoadEmailIngestOllamaSkipsAPIKey(t *testing.T) {
 	}
 }
 
+func TestLoadLLMConfiguredWithoutEmailIngest(t *testing.T) {
+	base(t)
+	t.Setenv("LLM_API_KEY", "sk-test")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.EmailIngestEnabled {
+		t.Error("email ingest should be off")
+	}
+	if !cfg.LLMConfigured() {
+		t.Error("expected LLMConfigured true when LLM_API_KEY is set")
+	}
+	if cfg.LLMProvider != "anthropic" || cfg.LLMModel != "claude-haiku-4-5" {
+		t.Errorf("default llm = %s/%s", cfg.LLMProvider, cfg.LLMModel)
+	}
+}
+
+func TestLLMConfiguredFalseWithoutKey(t *testing.T) {
+	base(t)
+	t.Setenv("LLM_API_KEY", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLMConfigured() {
+		t.Error("expected LLMConfigured false with no key and a non-ollama provider")
+	}
+}
+
 func TestLoadEmailIngestCustomMaxBytes(t *testing.T) {
 	emailIngestBase(t)
 	t.Setenv("EMAIL_INGEST_MAX_BODY_BYTES", "65536")

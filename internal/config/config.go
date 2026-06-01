@@ -113,6 +113,13 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("DEV_AUTH_BYPASS may only be used with a localhost PUBLIC_URL (got %q)", cfg.PublicURL)
 	}
 
+	// LLM config is independent of email ingest. A configured LLM enables the
+	// paste/upload ingest extractor (the HTTP propose/confirm endpoints) on its
+	// own; email ingest additionally requires it (checked below).
+	cfg.LLMProvider = getenv("LLM_PROVIDER", "anthropic")
+	cfg.LLMModel = getenv("LLM_MODEL", "claude-haiku-4-5")
+	cfg.LLMAPIKey = os.Getenv("LLM_API_KEY")
+
 	cfg.EmailIngestEnabled = os.Getenv("EMAIL_INGEST_ENABLED") == "1"
 	if cfg.EmailIngestEnabled {
 		cfg.EmailIngestMaildir = os.Getenv("EMAIL_INGEST_MAILDIR")
@@ -135,14 +142,19 @@ func Load() (*Config, error) {
 			cfg.EmailIngestMaxBodyBytes = n
 		}
 		cfg.EmailIngestSendmail = getenv("EMAIL_INGEST_SENDMAIL", cfg.SendmailPath)
-		cfg.LLMProvider = getenv("LLM_PROVIDER", "anthropic")
-		cfg.LLMModel = getenv("LLM_MODEL", "claude-haiku-4-5")
-		cfg.LLMAPIKey = os.Getenv("LLM_API_KEY")
-		if cfg.LLMProvider != "ollama" && cfg.LLMAPIKey == "" {
-			return nil, fmt.Errorf("LLM_API_KEY required when EMAIL_INGEST_ENABLED=1 and LLM_PROVIDER != ollama")
+		if !cfg.LLMConfigured() {
+			return nil, fmt.Errorf("EMAIL_INGEST_ENABLED=1 requires an LLM (set LLM_API_KEY, or LLM_PROVIDER=ollama)")
 		}
 	}
 	return cfg, nil
+}
+
+// LLMConfigured reports whether an LLM-backed extractor can be built: either an
+// API key is present, or the keyless local `ollama` provider is selected. It
+// drives whether the paste/upload ingest endpoints are active (and is required
+// for email ingest).
+func (c *Config) LLMConfigured() bool {
+	return c.LLMAPIKey != "" || c.LLMProvider == "ollama"
 }
 
 // UseOpenSky reports whether the OpenSky tracker should be used. We turn it

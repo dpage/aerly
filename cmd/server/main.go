@@ -128,18 +128,24 @@ func run() error {
 	p.PublicURL = cfg.PublicURL
 	go p.Run(rootCtx)
 
-	if cfg.EmailIngestEnabled {
-		if resolver == nil {
-			return errors.New("EMAIL_INGEST_ENABLED=1 requires a configured resolver (set AERODATABOX_RAPIDAPI_KEY)")
-		}
+	// A configured LLM enables the paste/upload ingest extractor (the HTTP
+	// propose/confirm endpoints) independent of email ingest; without one the
+	// endpoints stay nil and return 503. Email ingest reuses the same extractor.
+	var extractor *emailingest.Extractor
+	if cfg.LLMConfigured() {
 		llmClient, err := emailingest.NewRealLLM(cfg.LLMProvider, cfg.LLMModel, cfg.LLMAPIKey)
 		if err != nil {
 			return err
 		}
-		extractor := emailingest.NewExtractor(llmClient, cfg.LLMModel)
-		// Wire the same LLM-backed extractor into the HTTP ingest endpoints
-		// (paste/upload → propose/confirm).
+		extractor = emailingest.NewExtractor(llmClient, cfg.LLMModel)
 		api.Extractor = extractor
+		slog.Info("ingest extractor configured", "llm", cfg.LLMProvider+"/"+cfg.LLMModel)
+	}
+
+	if cfg.EmailIngestEnabled {
+		if resolver == nil {
+			return errors.New("EMAIL_INGEST_ENABLED=1 requires a configured resolver (set AERODATABOX_RAPIDAPI_KEY)")
+		}
 		svc := &emailingest.Service{
 			Cfg: emailingest.Config{
 				MaildirPath:   cfg.EmailIngestMaildir,
