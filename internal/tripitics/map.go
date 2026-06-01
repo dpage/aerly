@@ -28,8 +28,10 @@ type MappedTrip struct {
 const importSource = "upload"
 
 // flightRe matches a TripIt flight SUMMARY, e.g. "AY832 LHR to HEL": an
-// airline+number ident followed by an origin and destination IATA code.
-var flightRe = regexp.MustCompile(`^([A-Z]{2,3}[0-9]{1,4})\s+([A-Z]{3})\s+to\s+([A-Z]{3})$`)
+// airline+number ident followed by an origin and destination IATA code. The
+// airline designator may contain a digit (easyJet "U2", Wizz "W6", Sichuan
+// "3U"), so the leading group allows alphanumerics.
+var flightRe = regexp.MustCompile(`^([A-Z0-9]{2,3}[0-9]{1,4})\s+([A-Z]{3})\s+to\s+([A-Z]{3})$`)
 
 // transportRe matches a ground/rail SUMMARY, e.g.
 // "Bonny's Taxi - Home to Heathrow T3" → provider / from / to.

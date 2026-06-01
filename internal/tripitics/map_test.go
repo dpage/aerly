@@ -2,6 +2,7 @@ package tripitics
 
 import (
 	"testing"
+	"time"
 
 	"github.com/dpage/aerly/internal/planops"
 )
@@ -103,6 +104,28 @@ func TestMapCalaisEurotunnelAsTrain(t *testing.T) {
 		if part.Train == nil || part.Train.Operator != "Eurotunnel" {
 			t.Errorf("train operator = %+v, want Eurotunnel", part.Train)
 		}
+	}
+}
+
+func TestMapAlphanumericAirlineCode(t *testing.T) {
+	// IATA airline designators can carry a digit (easyJet U2, Wizz W6). The
+	// pinned fixtures are all-letter carriers, so synthesize a leg here.
+	out := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	in := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	cal := &Calendar{Events: []Event{{
+		UID:         "item-x@tripit.com",
+		Summary:     "U21234 LHR to AGP",
+		Description: "[Flight] LHR to AGP",
+		Start:       DateTime{Raw: "20260701T090000Z", Time: out, HasTime: true, IsUTC: true},
+		End:         DateTime{Raw: "20260701T120000Z", Time: in, HasTime: true, IsUTC: true},
+	}}}
+	mt := MapCalendar(cal)
+	if len(mt.Plans) != 1 || mt.Plans[0].Type != "flight" {
+		t.Fatalf("got %d plans (%v), want 1 flight", len(mt.Plans), mt.Plans)
+	}
+	fd := mt.Plans[0].Parts[0].Flight
+	if fd.Ident != "U21234" || fd.OriginIATA != "LHR" || fd.DestIATA != "AGP" {
+		t.Errorf("mapped flight = %s %s→%s, want U21234 LHR→AGP", fd.Ident, fd.OriginIATA, fd.DestIATA)
 	}
 }
 

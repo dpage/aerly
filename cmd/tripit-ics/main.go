@@ -10,6 +10,7 @@
 //
 //	go run ./cmd/tripit-ics path/to/trip.ics
 //	go run ./cmd/tripit-ics -raw path/to/trip.ics   # dump every raw property
+//	go run ./cmd/tripit-ics -map path/to/trip.ics   # dry-run the mapped trip/plans
 package main
 
 import (
