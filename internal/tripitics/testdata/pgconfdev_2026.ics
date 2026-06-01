@@ -1,0 +1,106 @@
+BEGIN:VCALENDAR
+METHOD:PUBLISH
+X-WR-CALNAME:Dave Page (TripIt - PGConf.dev 2026)
+X-WR-CALDESC:PGConf.dev 2026 (Trip Shared by Dave Page)
+PRODID:-//John Papaioannou/NONSGML Bennu 0.1//EN
+VERSION:2.0
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+UID:1c0e3215-c668-9000-0001-0000166d0947@tripit.com
+DTSTART;VALUE=DATE:20260518
+DTEND;VALUE=DATE:20260525
+SUMMARY:PGConf.dev 2026
+LOCATION:Vancouver\, BC\, Canada
+GEO:49.24966;-123.11934
+TRANSP:TRANSPARENT
+DESCRIPTION:Dave Page is in Vancouver\, BC\, Canada from May 18 to 24\, 20
+ 26\nView and/or edit details in TripIt : https://www.tripit.com/trip/show?
+ id=376244551\nTripIt - organize your travel at https://www.tripit.com\n
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20260518T111500Z
+LOCATION:Home
+TRANSP:TRANSPARENT
+UID:item-36fb4826-bfa6-9000-0003-00013b47d1c1@tripit.com
+DTSTART:20260518T094500Z
+SUMMARY:Kev's Taxi (TBC) - Home to LHR T5
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/376244551\n \n\nMon\, May 18\n10:45 AM BST\n[Transportation] Ke
+ v's Taxi (TBC) - Home to LHR T5\nDepart Home \n \n12:15 PM BST\nArrive LHR
+  T5 \n \n\n \n\nTripIt - organize your travel at https://www.tripit.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20260518T230000Z
+SUMMARY:BA87 LHR to YVR
+LOCATION:London (LHR)
+UID:item-60ae2e4d-5a72-9000-0003-00013b47bc21@tripit.com
+DTSTART:20260518T131500Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/376244551\n \n\n2:15 PM BST\n[Flight] LHR to YVR\n \n\nBritish 
+ Airways 87\, Terminal 5\, Gate B39\n \n\n3:33 PM PDT\nArrive Vancouver (YV
+ R)\nTerminal I\, Gate D58\n \n\n \nTripIt - organize your travel at https:
+ //www.tripit.com
+GEO:49.24966;-123.11934
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121537Z
+SUMMARY:Check-in: Delta Hotels Vancouver Downtown Suites
+TRANSP:TRANSPARENT
+UID:item-a9cc44a0-2377-9000-0003-00013b47bc79@tripit.com
+DTSTART:20260518T230000Z
+DTEND:20260519T000000Z
+LOCATION:550 West Hastings Street Vancouver\, British Columbia V6B 1L6 Can
+ ada
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/376244551\n \n\n4:00 PM PDT\n[Lodging] Arrive Delta Hotels Vanc
+ ouver Downtown Suites\nCheck-In: 4:00pm\n550 West Hastings Street Vancouve
+ r\, British Columbia V6B 1L6 Canada\n+1-604-689-8188\n \n\n \nTripIt - org
+ anize your travel at https://www.tripit.com
+GEO:49.2842411;-123.1125785
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121537Z
+SUMMARY:Check-out: Delta Hotels Vancouver Downtown Suites
+TRANSP:TRANSPARENT
+UID:item-3ae3030e-b2f7-9000-0003-00013b47bc7d@tripit.com
+DTSTART:20260523T180000Z
+DTEND:20260523T190000Z
+LOCATION:550 West Hastings Street Vancouver\, British Columbia V6B 1L6 Can
+ ada
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/376244551\n \n\nSat\, May 23\n11:00 AM PDT\n[Lodging] Depart De
+ lta Hotels Vancouver Downtown Suites\nCheck-Out: 11:00am\n550 West Hasting
+ s Street Vancouver\, British Columbia V6B 1L6 Canada\n+1-604-689-8188\n \n
+ \n \nTripIt - organize your travel at https://www.tripit.com
+GEO:49.2842411;-123.1125785
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121537Z
+DTEND:20260524T101000Z
+SUMMARY:BA86 YVR to LHR
+LOCATION:Vancouver (YVR)
+UID:item-177c3b26-650a-9000-0003-00013b47bc25@tripit.com
+DTSTART:20260524T005000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/376244551\n \n\n5:50 PM PDT\n[Flight] YVR to LHR\n \n\nBritish 
+ Airways 86\, Terminal M\, Gate \n \n\n \nSun\, May 24\n11:10 AM BST\nArriv
+ e London (LHR)\nTerminal 5\, Gate \n \n\n \nTripIt - organize your travel 
+ at https://www.tripit.com
+GEO:51.50853;-0.12574
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121537Z
+DTEND:20260524T121000Z
+LOCATION:LHR T5
+TRANSP:TRANSPARENT
+UID:item-9bc1deb9-08ee-9000-0003-00013b47d1cd@tripit.com
+DTSTART:20260524T104000Z
+SUMMARY:Kev's Taxi (TBC) - LHR T5 to Home
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/376244551\n \n\n11:40 AM BST\n[Transportation] Kev's Taxi (TBC)
+  - LHR T5 to Home\nDepart LHR T5 \n \n1:10 PM BST\nArrive Home \n \n\n \n\
+ nTripIt - organize your travel at https://www.tripit.com
+END:VEVENT
+END:VCALENDAR

@@ -1,0 +1,131 @@
+BEGIN:VCALENDAR
+METHOD:PUBLISH
+X-WR-CALNAME:Dave Page (TripIt - PGConf.EU 2016)
+X-WR-CALDESC:PGConf.EU 2016 (Trip Shared by Dave Page)
+PRODID:-//John Papaioannou/NONSGML Bennu 0.1//EN
+VERSION:2.0
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+UID:b7cabfb7-eaea-9000-0001-00000a709f6d@tripit.com
+DTSTART;VALUE=DATE:20161030
+DTEND;VALUE=DATE:20161107
+SUMMARY:PGConf.EU 2016
+LOCATION:Tallinn\, Estonia
+GEO:59.43696;24.75353
+TRANSP:TRANSPARENT
+DESCRIPTION:Dave Page is in Tallinn\, Estonia from Oct 30 to Nov 6\, 2016\
+ nView and/or edit details in TripIt : https://www.tripit.com/trip/show?id=
+ 175153005\nTripIt - organize your travel at https://www.tripit.com\n
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+DTEND:20161030T082000Z
+LOCATION:Home
+TRANSP:TRANSPARENT
+UID:item-e6fdef01-989b-9000-0003-0000720ab34c@tripit.com
+DTSTART:20161030T072000Z
+SUMMARY:Bonny's Taxi - Home to Heathrow T3
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/175153005\n \n\nSun\, Oct 30\n7:20 AM GMT\n[Ground Transportati
+ on] Bonny's Taxi - Home to Heathrow T3\nDepart Home \n \n8:20 AM GMT\nArri
+ ve Heathrow T3 \n \n\n \n\nTripIt - organize your travel at https://www.tr
+ ipit.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+DTEND:20161030T131500Z
+SUMMARY:AY832 LHR to HEL
+LOCATION:London (LHR)
+UID:item-0b2b5b34-3658-9000-0003-00007170692f@tripit.com
+DTSTART:20161030T102000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/175153005\n \n\n10:20 AM GMT\n[Flight] LHR to HEL\n \n\nFinnair
+  832\, Terminal 3\, Gate \n \n\n3:15 PM EET\nArrive Helsinki (HEL)\nTermin
+ al 2\, Gate \, 1h\, 10m layover\n \n\n \nTripIt - organize your travel at 
+ https://www.tripit.com
+GEO:60.175556;24.934167
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+DTEND:20161030T150000Z
+SUMMARY:AY113 HEL to TLL
+LOCATION:Helsinki (HEL)
+UID:item-07964994-d667-9000-0003-000071706930@tripit.com
+DTSTART:20161030T142500Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/175153005\n \n\n4:25 PM EET\n[Flight] HEL to TLL\n \n\nFinnair 
+ 113\, Terminal 2\, Gate \n \n\n5:00 PM EET\nArrive Tallinn (TLL)\nTerminal
+  \, Gate \n \n\n \nTripIt - organize your travel at https://www.tripit.com
+GEO:59.433889;24.728056
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+SUMMARY:Check-in: Radisson Blu Hotel Olumpia\, Tallinn
+TRANSP:TRANSPARENT
+UID:item-d463f7a2-2cff-9000-0003-000073b8220f@tripit.com
+DTSTART:20161030T150000Z
+DTEND:20161030T160000Z
+LOCATION:Liivalaia 33\, Tallinn 10118\, Estonia
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/175153005\n \n\n5:00 PM EET\n[Lodging] Arrive Radisson Blu Hote
+ l Olumpia\, Tallinn\nCheck-In: 5:00pm\nLiivalaia 33\, Tallinn 10118\, Esto
+ nia\n+372 631-5333\n \n\n \nTripIt - organize your travel at https://www.t
+ ripit.com
+GEO:59.4302772;24.7577102
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+SUMMARY:Check-out: Radisson Blu Hotel Olumpia\, Tallinn
+TRANSP:TRANSPARENT
+UID:item-379c41bb-c42b-9000-0003-000073b82210@tripit.com
+DTSTART:20161106T100000Z
+DTEND:20161106T110000Z
+LOCATION:Liivalaia 33\, Tallinn 10118\, Estonia
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/175153005\n \n\nSun\, Nov 6\n12:00 PM EET\n[Lodging] Depart Rad
+ isson Blu Hotel Olumpia\, Tallinn\nCheck-Out: 12:00pm\nLiivalaia 33\, Tall
+ inn 10118\, Estonia\n+372 631-5333\n \n\n \nTripIt - organize your travel 
+ at https://www.tripit.com
+GEO:59.4302772;24.7577102
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+DTEND:20161106T105000Z
+SUMMARY:AY110 TLL to HEL
+LOCATION:Tallinn (TLL)
+UID:item-b536f441-5418-9000-0003-000071706931@tripit.com
+DTSTART:20161106T101500Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/175153005\n \n\n12:15 PM EET\n[Flight] TLL to HEL\n \n\nFinnair
+  110\, Terminal \, Gate \n \n\n12:50 PM EET\nArrive Helsinki (HEL)\nTermin
+ al 2\, Gate \, 1h\, 10m layover\n \n\n \nTripIt - organize your travel at 
+ https://www.tripit.com
+GEO:60.175556;24.934167
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+DTEND:20161106T151000Z
+SUMMARY:AY839 HEL to LHR
+LOCATION:Helsinki (HEL)
+UID:item-ed46048e-4d32-9000-0003-000071706932@tripit.com
+DTSTART:20161106T120000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/175153005\n \n\n2:00 PM EET\n[Flight] HEL to LHR\n \n\nFinnair 
+ 839\, Terminal 2\, Gate \n \n\n3:10 PM GMT\nArrive London (LHR)\nTerminal 
+ 3\, Gate \n \n\n \nTripIt - organize your travel at https://www.tripit.com
+GEO:51.5;-0.116667
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121915Z
+DTEND:20161106T163000Z
+LOCATION:Heathrow T3
+TRANSP:TRANSPARENT
+UID:item-80067082-162e-9000-0003-0000720ab34d@tripit.com
+DTSTART:20161106T153000Z
+SUMMARY:Bonny's Taxi - Heathrow T3 to Home
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/175153005\n \n\n3:30 PM GMT\n[Ground Transportation] Bonny's Ta
+ xi - Heathrow T3 to Home\nDepart Heathrow T3 \n \n4:30 PM GMT\nArrive Home
+  \n \n\n \n\nTripIt - organize your travel at https://www.tripit.com
+END:VEVENT
+END:VCALENDAR
