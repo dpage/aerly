@@ -101,6 +101,21 @@ export default function TagInput({
           label={label}
           placeholder="Add a tag…"
           helperText={helperText ?? 'Type to create or match a shared tag, e.g. pgconf-eu-26.'}
+          // The global theme paints the shrunk outlined label a solid paper
+          // colour to cover the border (the Safari notch workaround in
+          // theme.ts). This input sits on `background.default`, not a Paper
+          // surface, so repaint its label to match — otherwise the paper
+          // colour shows as a faint lighter seam behind the label (most
+          // visible in dark mode).
+          slotProps={{
+            inputLabel: {
+              sx: {
+                '&.MuiInputLabel-shrink.MuiInputLabel-outlined': {
+                  backgroundColor: 'background.default',
+                },
+              },
+            },
+          }}
         />
       )}
     />

@@ -126,7 +126,7 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
                   onChange={(e) => setPick(e.target.value === '' ? '' : Number(e.target.value))}
                   disabled={candidates.length === 0}
                   helperText={candidates.length === 0 ? 'No friends left to add.' : undefined}
-                  slotProps={{ select: { displayEmpty: true } }}
+                  slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
                 >
                   <MenuItem value="" disabled>
                     Choose a friend…

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -218,5 +218,33 @@ describe('TripTimeline', () => {
     expect(dialog).toHaveTextContent('ABC123');
     expect(dialog).toHaveTextContent('LHR');
     expect(dialog).toHaveTextContent('LIS');
+  });
+
+  it('surfaces privacy/passenger and delete controls to owners/editors', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    await userEvent.click(screen.getByTestId('part-card-1'));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('button', { name: /Privacy & passengers/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /Delete/i })).toBeInTheDocument();
+    // Owners receive alerts via their own prefs, so the per-plan opt-in is hidden.
+    expect(within(dialog).queryByLabelText(/Notify me of changes/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces the per-plan alert opt-in to viewers, not the edit controls', async () => {
+    state.currentTrip = {
+      ...tripWith([plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' })]),
+      my_role: 'viewer',
+    };
+    renderTimeline();
+    await userEvent.click(screen.getByTestId('part-card-1'));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText(/Notify me of changes/i)).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole('button', { name: /Privacy & passengers/i }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
   });
 });

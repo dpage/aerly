@@ -160,7 +160,9 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
 
             {mode !== 'everyone' && (
               <FormControl size="small" sx={{ mt: 1 }} fullWidth>
-                <InputLabel id="plan-scope-label">{scopeLabel}</InputLabel>
+                <InputLabel id="plan-scope-label" shrink>
+                  {scopeLabel}
+                </InputLabel>
                 <Select
                   multiple
                   displayEmpty
@@ -244,7 +246,7 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
                 onChange={(e) => setPax(e.target.value === '' ? '' : Number(e.target.value))}
                 disabled={paxCandidates.length === 0}
                 helperText={paxCandidates.length === 0 ? 'No friends left to add.' : undefined}
-                slotProps={{ select: { displayEmpty: true } }}
+                slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
               >
                 <MenuItem value="" disabled>
                   Choose a friend…

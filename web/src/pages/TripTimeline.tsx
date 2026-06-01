@@ -2,9 +2,11 @@ import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
+  Button,
   Card,
   Chip,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
   Link,
@@ -14,8 +16,10 @@ import {
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 import { useStore } from '../state/store';
-import type { Plan, PlanPart } from '../api/types';
+import type { Plan, PlanPart, Trip } from '../api/types';
 import PlanTypeIcon from '../components/PlanTypeIcon';
+import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
+import PlanAlertToggle from '../components/PlanAlertToggle';
 import {
   buildTimeline,
   fmtPartTimeRange,
@@ -61,7 +65,14 @@ export default function TripTimeline() {
     return new Set([...counts].filter(([, n]) => n > 1).map(([id]) => id));
   }, [days]);
 
-  const [planDetail, setPlanDetail] = useState<Plan | null>(null);
+  // Track the open plan by id (not a captured snapshot) so the detail dialog
+  // reflects live updates after a privacy/passenger/alert mutation reloads the
+  // trip, rather than showing a stale copy.
+  const [planDetailId, setPlanDetailId] = useState<number | null>(null);
+  const planDetail = useMemo(
+    () => plans.find((p) => p.id === planDetailId) ?? null,
+    [plans, planDetailId],
+  );
 
   if (!currentTrip) {
     return (
@@ -109,14 +120,14 @@ export default function TripTimeline() {
                 plan={plan}
                 accent={accentFor(planIds, plan.id)}
                 multiPart={multiPartPlanIds.has(plan.id)}
-                onOpenPlan={() => setPlanDetail(plan)}
+                onOpenPlan={() => setPlanDetailId(plan.id)}
               />
             ))}
           </Stack>
         </Box>
       ))}
 
-      <PlanDetailDialog plan={planDetail} onClose={() => setPlanDetail(null)} />
+      <PlanDetailDialog plan={planDetail} trip={currentTrip} onClose={() => setPlanDetailId(null)} />
     </Box>
   );
 }
@@ -210,45 +221,93 @@ function PartCard({ part, plan, accent, multiPart, onOpenPlan }: PartCardProps) 
 }
 
 /** Tap-through detail: lists the whole plan and all its parts so a user who
- * tapped any one part sees the entire booking (PRD §6.2). */
-function PlanDetailDialog({ plan, onClose }: { plan: Plan | null; onClose: () => void }) {
+ * tapped any one part sees the entire booking (PRD §6.2). Owners/editors get
+ * the per-plan "Who can see this?" + passengers control and a delete action
+ * (PRD §6.4); viewers get the per-plan "Notify me of changes" opt-in (§6.8). */
+function PlanDetailDialog({ plan, trip, onClose }: { plan: Plan | null; trip: Trip; onClose: () => void }) {
+  const deletePlan = useStore((s) => s.deletePlan);
+  const setError = useStore((s) => s.setError);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
+  const isViewer = trip.my_role === 'viewer';
+
   if (!plan) return null;
   const parts = [...plan.parts].sort(
     (a, b) => new Date(a.effective_at ?? a.starts_at).getTime() - new Date(b.effective_at ?? b.starts_at).getTime(),
   );
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete "${plan.title || planTypeLabel(plan.type)}" from this trip?`)) return;
+    setBusy(true);
+    try {
+      await deletePlan(plan.id);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <Dialog open={plan !== null} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle>
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <PlanTypeIcon type={plan.type} fontSize="small" />
-          <span>{plan.title || planTypeLabel(plan.type)}</span>
-        </Stack>
-      </DialogTitle>
-      <DialogContent>
-        {plan.confirmation_ref && (
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Confirmation: {plan.confirmation_ref}
-          </Typography>
-        )}
-        <Stack spacing={1.5} sx={{ mt: 1 }}>
-          {parts.map((part) => (
-            <Box key={part.id} sx={{ opacity: part.dismissed_at ? 0.5 : 1 }}>
-              <Typography variant="subtitle2">
-                {part.start_label}
-                {part.end_label ? ` → ${part.end_label}` : ''}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {fmtPartTimeRange(part)}
-              </Typography>
+    <>
+      <Dialog open={plan !== null} onClose={onClose} fullWidth maxWidth="xs">
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <PlanTypeIcon type={plan.type} fontSize="small" />
+            <span>{plan.title || planTypeLabel(plan.type)}</span>
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          {plan.confirmation_ref && (
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Confirmation: {plan.confirmation_ref}
+            </Typography>
+          )}
+          <Stack spacing={1.5} sx={{ mt: 1 }}>
+            {parts.map((part) => (
+              <Box key={part.id} sx={{ opacity: part.dismissed_at ? 0.5 : 1 }}>
+                <Typography variant="subtitle2">
+                  {part.start_label}
+                  {part.end_label ? ` → ${part.end_label}` : ''}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {fmtPartTimeRange(part)}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+          {plan.notes && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>
+              {plan.notes}
+            </Typography>
+          )}
+          {isViewer && (
+            <Box sx={{ mt: 2, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+              <PlanAlertToggle plan={plan} />
             </Box>
-          ))}
-        </Stack>
-        {plan.notes && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>
-            {plan.notes}
-          </Typography>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {canEdit && (
+            <Button color="error" onClick={() => void handleDelete()} disabled={busy} sx={{ mr: 'auto' }}>
+              Delete
+            </Button>
+          )}
+          {canEdit && <Button onClick={() => setPrivacyOpen(true)}>Privacy &amp; passengers</Button>}
+          <Button onClick={onClose}>Close</Button>
+        </DialogActions>
+      </Dialog>
+      {canEdit && privacyOpen && (
+        <PlanPrivacyDialog
+          open={privacyOpen}
+          plan={plan}
+          members={trip.members}
+          onClose={() => setPrivacyOpen(false)}
+        />
+      )}
+    </>
   );
 }
