@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Box, Button, Tab, Tabs, Typography } from '@mui/material';
+import { Alert, Box, Button, Tab, Tabs, Typography } from '@mui/material';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import EditIcon from '@mui/icons-material/EditOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 
 import { useStore } from '../state/store';
+import { plansOutsideTripDates } from '../lib/trip-format';
 import TripMembersDialog from '../components/TripMembersDialog';
 import TripEditDialog from '../components/TripEditDialog';
 import CalendarSubscribeDialog from '../components/CalendarSubscribeDialog';
@@ -39,6 +40,7 @@ export default function TripDetail() {
   const title = loaded ? loaded.name : `Trip #${tripId}`;
   // Only owners/editors get the tag editor; viewers see nothing to change.
   const canEdit = loaded != null && loaded.my_role !== 'viewer';
+  const datesMismatch = loaded != null && plansOutsideTripDates(loaded, loaded.plans);
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -71,6 +73,14 @@ export default function TripDetail() {
           Subscribe
         </Button>
       </Box>
+      {datesMismatch && (
+        <Box sx={{ px: 3, pt: 1 }}>
+          <Alert severity="warning" sx={{ py: 0 }}>
+            Some plans fall outside this trip&apos;s dates
+            {canEdit ? ' — check the dates with Edit.' : '.'}
+          </Alert>
+        </Box>
+      )}
       <Tabs
         value={tab}
         onChange={(_e, v) => navigate(v === 'map' ? `/trips/${tripId}/map` : `/trips/${tripId}`)}
