@@ -209,7 +209,9 @@ export function fmtTimeOfDay(iso: string, tz?: string): string {
     hour12: false,
     timeZone: tz || 'UTC',
   });
-  return tz ? base : `${base} UTC`;
+  // Always carry the local tz abbreviation so every plan reads consistently in
+  // local time (PRD §6.2) — falling back to "UTC" when the zone is unknown.
+  return `${base} ${tzAbbrev(iso, tz)}`;
 }
 
 /** The local timezone abbreviation for an instant in a tz, e.g. "BST", "EDT",

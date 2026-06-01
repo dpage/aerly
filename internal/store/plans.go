@@ -215,6 +215,15 @@ type UpdatePlanPartPayload struct {
 	Status       *string
 }
 
+// IsEmpty reports whether the payload sets no fields (so an update would be a
+// no-op and can be skipped).
+func (p UpdatePlanPartPayload) IsEmpty() bool {
+	return p.StartsAt == nil && p.EndsAt == nil && p.StartTZ == nil && p.EndTZ == nil &&
+		p.StartLabel == nil && p.StartLat == nil && p.StartLon == nil && p.StartAddress == nil &&
+		p.EndLabel == nil && p.EndLat == nil && p.EndLon == nil && p.EndAddress == nil &&
+		p.Status == nil
+}
+
 // ----- Plan CRUD -----
 
 const planColumns = `id, trip_id, type, title, confirmation_ref, notes, source, created_by, created_at, updated_at`
@@ -463,6 +472,34 @@ func (s *Store) PartsByPlan(ctx context.Context, planID int64) ([]*PlanPart, err
 		JOIN plans pl ON pl.id = part.plan_id
 		WHERE part.plan_id = $1
 		ORDER BY part.seq, part.starts_at`, planID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*PlanPart
+	for rows.Next() {
+		p, err := scanPart(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// PartsNeedingTZ returns non-dismissed parts that have a coordinate but a
+// still-empty start or end timezone — the candidates for one-off tz anchoring
+// of historical rows ingested before coordinate-based tz resolution existed.
+func (s *Store) PartsNeedingTZ(ctx context.Context) ([]*PlanPart, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+planPartColumns+`
+		FROM plan_parts part
+		JOIN plans pl ON pl.id = part.plan_id
+		WHERE part.dismissed_at IS NULL
+		  AND ((part.start_tz = '' AND part.start_lat IS NOT NULL)
+		    OR (part.end_tz = '' AND part.ends_at IS NOT NULL
+		        AND (part.end_lat IS NOT NULL OR part.start_lat IS NOT NULL)))
+		ORDER BY part.id`)
 	if err != nil {
 		return nil, err
 	}
