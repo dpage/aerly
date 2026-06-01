@@ -452,11 +452,12 @@ type TrackerMarkerDTO struct {
 	Tz   string  `json:"tz,omitempty"`
 }
 
-// TrackerResponseDTO is the tracker payload: flight convergence parts plus the
-// in-window venue markers overlaid on the same map.
+// TrackerResponseDTO is the unified map+list payload: every mappable, visible
+// part in the window (any type), as full PlanPartDTOs so the map can draw paths
+// + pins and the list can expand to flight/venue detail (PRD §6.5/§11). Flight
+// parts carry their latest position + flown track.
 type TrackerResponseDTO struct {
-	Parts   []TrackerPartDTO   `json:"parts"`
-	Markers []TrackerMarkerDTO `json:"markers"`
+	Parts []PlanPartDTO `json:"parts"`
 }
 
 // TagSuggestionDTO is one autocomplete entry for GET /api/tags/suggest.

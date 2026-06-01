@@ -104,11 +104,12 @@ func TestTrackerVenueMarkers(t *testing.T) {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
 	resp := decodeBody[api.TrackerResponseDTO](t, w)
-	if len(resp.Markers) != 1 {
-		t.Fatalf("expected 1 venue marker, got %d: %+v", len(resp.Markers), resp.Markers)
+	if len(resp.Parts) != 1 {
+		t.Fatalf("expected 1 venue part, got %d: %+v", len(resp.Parts), resp.Parts)
 	}
-	if resp.Markers[0].Type != "hotel" || resp.Markers[0].Label != "Hotel Lisboa" || resp.Markers[0].Lat != 38.72 {
-		t.Errorf("unexpected marker: %+v", resp.Markers[0])
+	p := resp.Parts[0]
+	if p.Type != "hotel" || p.StartLabel != "Hotel Lisboa" || p.StartLat == nil || *p.StartLat != 38.72 {
+		t.Errorf("unexpected part: %+v", p)
 	}
 }
 
@@ -132,7 +133,7 @@ func TestTrackerConvergenceWindow(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected exactly the in-window part, got %d: %+v", len(got), got)
 	}
-	if got[0].PlanPartID != inPart || got[0].Ident != "IN1" {
+	if got[0].ID != inPart || got[0].Flight == nil || got[0].Flight.Ident != "IN1" {
 		t.Errorf("wrong part returned: %+v", got[0])
 	}
 }
@@ -155,7 +156,7 @@ func TestTrackerHiddenPlanNotVisible(t *testing.T) {
 	// The owner still sees it.
 	w := e.req(t, "GET", "/api/tracker", nil, owner)
 	owns := decodeBody[api.TrackerResponseDTO](t, w).Parts
-	if len(owns) != 1 || owns[0].PlanPartID != partID {
+	if len(owns) != 1 || owns[0].ID != partID {
 		t.Fatalf("owner should see their own part, got %d: %+v", len(owns), owns)
 	}
 
@@ -166,7 +167,7 @@ func TestTrackerHiddenPlanNotVisible(t *testing.T) {
 	}
 	hidden := decodeBody[api.TrackerResponseDTO](t, w).Parts
 	for _, p := range hidden {
-		if p.PlanPartID == partID {
+		if p.ID == partID {
 			t.Fatalf("hidden part %d leaked into viewer's convergence results: %+v", partID, hidden)
 		}
 	}
@@ -203,7 +204,7 @@ func TestTrackerTagWindow(t *testing.T) {
 	// With the tag, the derived span includes it.
 	w = e.req(t, "GET", "/api/tracker?tag=ski", nil, owner)
 	got := decodeBody[api.TrackerResponseDTO](t, w).Parts
-	if len(got) != 1 || got[0].PlanPartID != farPart {
+	if len(got) != 1 || got[0].ID != farPart {
 		t.Fatalf("tag-derived window should include the far part, got %d: %+v", len(got), got)
 	}
 }

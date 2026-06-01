@@ -13,6 +13,8 @@ export class FakeMap {
   static instances: FakeMap[] = [];
   opts: unknown;
   handlers: Record<string, Array<() => void>> = {};
+  // Layer-scoped handlers (map.on('click', layerId, cb)), keyed "evt:layer".
+  layerHandlers: Record<string, Array<(e: unknown) => void>> = {};
   onceHandlers: Record<string, Array<() => void>> = {};
   sources = new Map<string, FakeSource>();
   layers: unknown[] = [];
@@ -24,16 +26,27 @@ export class FakeMap {
   fitBounds = vi.fn();
   flyTo = vi.fn();
   remove = vi.fn();
+  getCanvas = vi.fn(() => ({ style: {} as CSSStyleDeclaration }));
 
   constructor(opts: unknown) {
     this.opts = opts;
     FakeMap.instances.push(this);
   }
 
-  on(evt: string, cb: () => void): void {
-    (this.handlers[evt] ??= []).push(cb);
-    // Fire 'load' immediately so addSource/addLayer code runs deterministically.
-    if (evt === 'load') cb();
+  // Overloaded: on(evt, cb) for map events, on(evt, layer, cb) for layer events.
+  on(evt: string, a: ((e?: unknown) => void) | string, b?: (e: unknown) => void): void {
+    if (typeof a === 'function') {
+      (this.handlers[evt] ??= []).push(a as () => void);
+      // Fire 'load' immediately so addSource/addLayer code runs deterministically.
+      if (evt === 'load') (a as () => void)();
+      return;
+    }
+    (this.layerHandlers[`${evt}:${a}`] ??= []).push(b!);
+  }
+
+  /** Test helper: simulate a feature click/hover on a layer. */
+  fireLayer(evt: string, layer: string, e: unknown): void {
+    for (const cb of this.layerHandlers[`${evt}:${layer}`] ?? []) cb(e);
   }
 
   once(evt: string, cb: () => void): void {

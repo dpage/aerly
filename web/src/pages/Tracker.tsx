@@ -1,51 +1,32 @@
 import { useEffect, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Box,
-  Chip,
   Divider,
   FormControl,
   InputLabel,
-  List,
-  ListItemButton,
-  ListItemText,
-  ListSubheader,
   MenuItem,
   Select,
-  Slider,
   Stack,
   Typography,
 } from '@mui/material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { format, parseISO } from 'date-fns';
 
 import { useStore } from '../state/store';
-import { fmtTimeOfDay, planTypeLabel, tripSpan } from '../lib/trip-format';
-import { planTypeColor } from '../lib/plan-marker';
+import type { TrackerWindow } from '../state/trackerSlice';
+import { tripSpan } from '../lib/trip-format';
 import { labelOnDefaultBgSx } from '../theme';
-import TrackerMap from '../components/TrackerMap';
-
-/** Parse a window token like "7d" into a day count. Defaults to 7 on garbage. */
-function parseDays(token: string): number {
-  const m = /^(\d+)d$/.exec(token.trim());
-  if (!m) return 7;
-  return Math.max(0, Math.min(366, Number(m[1])));
-}
-
-function days(n: number): string {
-  return `${n}d`;
-}
+import PlanMapView from '../components/PlanMapView';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ymd = (d: Date): string => format(d, 'yyyy-MM-dd');
+const toDate = (s?: string): Date | null => (s ? parseISO(s) : null);
 
-/** Tracker convergence view (PRD §6.5). Two modes, selected by how it's opened:
- *
- * - `?part={id}` → single-flight focus: the map fits to that one part and the
- *   list narrows to it.
- * - otherwise → the "who's on their way" map of every in-window trackable part
- *   across visible trips, with a list alongside. No ranking/leaderboard.
- *
- * A tag selector scopes the view to a shared tag and seeds the default window
- * from that tag's trip span (§6.6); the −/+ day sliders then widen or narrow it,
- * persisted per-tag to localStorage via the store. */
+/** Global tracker (PRD §6.5): the unified map+list view over every mappable part
+ * in a date window, optionally scoped to a tag. Identical to the trip Map tab
+ * except for the From/To date pickers + tag selector. `?part=` deep-links a
+ * pre-selected part. */
 export default function Tracker() {
   const [searchParams] = useSearchParams();
   const focusedPartId = useMemo(() => {
@@ -56,29 +37,28 @@ export default function Tracker() {
   }, [searchParams]);
 
   const loadTracker = useStore((s) => s.loadTracker);
-  const loadTrackerPart = useStore((s) => s.loadTrackerPart);
   const setTrackerWindow = useStore((s) => s.setTrackerWindow);
   const parts = useStore((s) => s.trackerParts);
-  const markers = useStore((s) => s.trackerMarkers);
-  const focusedPart = useStore((s) => s.focusedPart);
   const tag = useStore((s) => s.trackerTag);
   const win = useStore((s) => s.trackerWindow);
   const loading = useStore((s) => s.trackerLoading);
   const trips = useStore((s) => s.trips);
   const listTrips = useStore((s) => s.listTrips);
 
+  // Initial load: default the window to now−7d … now+30d when none is persisted.
   useEffect(() => {
-    void loadTracker();
-  }, [loadTracker]);
+    const w: TrackerWindow =
+      win.from || win.to
+        ? win
+        : {
+            from: ymd(new Date(Date.now() - 7 * DAY_MS)),
+            to: ymd(new Date(Date.now() + 30 * DAY_MS)),
+          };
+    void loadTracker({ window: w });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
+  }, []);
 
-  // Single-flight focus: fetch the focused part's full detail + flown track so
-  // the map can draw the polyline + great-circle. Clears when leaving focus.
-  useEffect(() => {
-    void loadTrackerPart(focusedPartId);
-  }, [focusedPartId, loadTrackerPart]);
-
-  // The tag selector's options come from the tags on trips the viewer can see;
-  // we need the trip list for both that and the tag-derived default window.
+  // The trip list backs the tag options and the tag-derived default span.
   useEffect(() => {
     if (trips.length === 0) void listTrips();
   }, [trips.length, listTrips]);
@@ -89,266 +69,78 @@ export default function Tracker() {
     return [...set].sort();
   }, [trips]);
 
-  // Default window spanning the tagged trips the viewer can see (§6.6): the
-  // furthest-back start and furthest-forward end, expressed as whole days
-  // before/after now. The user can still widen/narrow with the sliders.
-  const tagWindow = (label: string): { before: string; after: string } | null => {
+  // Default window spanning the tagged trips the viewer can see (§6.6), padded a
+  // day each side. Used when switching tags.
+  const tagWindow = (label: string): TrackerWindow | null => {
     if (!label) return null;
-    const now = Date.now();
-    let before = 0;
-    let after = 0;
-    let any = false;
+    let lo: number | null = null;
+    let hi: number | null = null;
     for (const t of trips) {
       if (!t.tags.includes(label)) continue;
       const span = tripSpan(t);
-      if (span.start != null) {
-        before = Math.max(before, Math.ceil((now - span.start) / DAY_MS));
-        any = true;
-      }
-      if (span.end != null) {
-        after = Math.max(after, Math.ceil((span.end - now) / DAY_MS));
-        any = true;
-      }
+      if (span.start != null) lo = lo == null ? span.start : Math.min(lo, span.start);
+      if (span.end != null) hi = hi == null ? span.end : Math.max(hi, span.end);
     }
-    if (!any) return null;
-    // Pad by a day so trips that start/end today aren't clipped. Clamp to a
-    // year so an older past trip's whole span is still covered — the previous
-    // 60-day cap silently clipped trips further back than two months.
+    if (lo == null && hi == null) return null;
     return {
-      before: days(Math.max(1, Math.min(366, before + 1))),
-      after: days(Math.max(1, Math.min(366, after + 1))),
+      from: lo != null ? ymd(new Date(lo - DAY_MS)) : undefined,
+      to: hi != null ? ymd(new Date(hi + DAY_MS)) : undefined,
     };
   };
 
   const onTagChange = (label: string) => {
-    // Seed the window from the tag's span and load in one step, so the seed is
-    // persisted + sent under the new tag (a past-trip tag would otherwise reload
-    // with the default 7d window and show nothing).
-    void loadTracker({ tag: label, window: tagWindow(label) ?? undefined });
+    // Seed the window from the tag's span (so a past-trip tag isn't clipped),
+    // else keep the current window.
+    void loadTracker({ tag: label, window: tagWindow(label) ?? win });
   };
-
-  const before = parseDays(win.before);
-  const after = parseDays(win.after);
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ px: 3, pt: 2, pb: 1 }}>
-        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1 }}>
-          <Typography variant="h5" sx={{ flexGrow: 1 }}>
-            Tracker
-          </Typography>
-          {focusedPartId != null && (
-            <Chip label="Single flight" color="primary" size="small" variant="outlined" />
-          )}
-        </Stack>
-
-        {focusedPartId == null && (
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={3}
-            alignItems={{ sm: 'center' }}
-            sx={{ mb: 1 }}
-          >
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel id="tracker-tag-label" sx={labelOnDefaultBgSx}>
-                Tag
-              </InputLabel>
-              <Select
-                labelId="tracker-tag-label"
-                label="Tag"
-                value={tag}
-                onChange={(e) => onTagChange(e.target.value)}
-              >
-                <MenuItem value="">
-                  <em>Everyone (untagged view)</em>
+        <Typography variant="h5" sx={{ mb: 1.5 }}>
+          Tracker
+        </Typography>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="tracker-tag-label" sx={labelOnDefaultBgSx}>
+              Tag
+            </InputLabel>
+            <Select
+              labelId="tracker-tag-label"
+              label="Tag"
+              value={tag}
+              onChange={(e) => onTagChange(e.target.value)}
+            >
+              <MenuItem value="">
+                <em>Everyone (untagged view)</em>
+              </MenuItem>
+              {tagOptions.map((label) => (
+                <MenuItem key={label} value={label}>
+                  {label}
                 </MenuItem>
-                {tagOptions.map((label) => (
-                  <MenuItem key={label} value={label}>
-                    {label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <Box sx={{ minWidth: 180, px: 2 }}>
-              <Typography variant="caption" color="text.secondary" id="tracker-before-label">
-                From {before}d before
-              </Typography>
-              <Slider
-                aria-labelledby="tracker-before-label"
-                value={before}
-                min={0}
-                max={30}
-                step={1}
-                marks={[
-                  { value: 0, label: 'now' },
-                  { value: 7, label: '7d' },
-                  { value: 30, label: '30d' },
-                ]}
-                onChangeCommitted={(_e, v) => void setTrackerWindow({ before: days(v as number) })}
-              />
-            </Box>
-
-            <Box sx={{ minWidth: 180, px: 2 }}>
-              <Typography variant="caption" color="text.secondary" id="tracker-after-label">
-                To {after}d after
-              </Typography>
-              <Slider
-                aria-labelledby="tracker-after-label"
-                value={after}
-                min={0}
-                max={30}
-                step={1}
-                marks={[
-                  { value: 0, label: 'now' },
-                  { value: 7, label: '7d' },
-                  { value: 30, label: '30d' },
-                ]}
-                onChangeCommitted={(_e, v) => void setTrackerWindow({ after: days(v as number) })}
-              />
-            </Box>
-          </Stack>
-        )}
+              ))}
+            </Select>
+          </FormControl>
+          <DatePicker
+            label="From"
+            value={toDate(win.from)}
+            onChange={(d) => d && setTrackerWindow({ from: ymd(d) })}
+            slotProps={{ textField: { size: 'small' } }}
+          />
+          <DatePicker
+            label="To"
+            value={toDate(win.to)}
+            onChange={(d) => d && setTrackerWindow({ to: ymd(d) })}
+            slotProps={{ textField: { size: 'small' } }}
+          />
+        </Stack>
       </Box>
 
       <Divider />
 
-      <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: { xs: 'column', md: 'row' } }}>
-        <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 280 }}>
-          <TrackerMap
-            parts={parts}
-            markers={markers}
-            focusedPartId={focusedPartId}
-            focusedPart={focusedPart}
-          />
-        </Box>
-        <Box
-          sx={{
-            width: { xs: '100%', md: 300 },
-            borderLeft: { md: 1 },
-            borderTop: { xs: 1, md: 0 },
-            borderColor: 'divider',
-            overflowY: 'auto',
-          }}
-        >
-          <TrackerList
-            parts={parts}
-            markers={markers}
-            focusedPartId={focusedPartId}
-            loading={loading}
-          />
-        </Box>
+      <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0 }}>
+        <PlanMapView parts={parts} loading={loading} initialSelectedPartId={focusedPartId} />
       </Box>
     </Box>
   );
-}
-
-interface TrackerListProps {
-  parts: import('../api/types').TrackerPart[];
-  markers: import('../api/types').TrackerMarker[];
-  focusedPartId: number | null;
-  loading: boolean;
-}
-
-function TrackerList({ parts, markers, focusedPartId, loading }: TrackerListProps) {
-  const [, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const shownParts =
-    focusedPartId != null ? parts.filter((p) => p.plan_part_id === focusedPartId) : parts;
-  // Venue events only show in the convergence view, not the single-flight focus.
-  // A part can yield two markers (a taxi's pickup + dropoff) — keep the earliest
-  // per part so each event lists once.
-  const shownVenues = focusedPartId != null ? [] : dedupeVenues(markers);
-
-  if (shownParts.length === 0 && shownVenues.length === 0) {
-    return (
-      <Box sx={{ p: 2 }}>
-        <Typography variant="body2" color="text.secondary">
-          {loading ? 'Loading…' : 'No travel in this window.'}
-        </Typography>
-      </Box>
-    );
-  }
-
-  return (
-    <List dense disablePadding>
-      {shownParts.map((p) => {
-        const pos = p.latest_position;
-        const secondary = [
-          p.dest_iata ? `→ ${p.dest_iata}` : '',
-          p.status,
-          pos?.is_estimated ? '(estimated)' : '',
-        ]
-          .filter(Boolean)
-          .join(' · ');
-        return (
-          <ListItemButton
-            key={`f${p.plan_part_id}`}
-            selected={focusedPartId === p.plan_part_id}
-            onClick={() =>
-              setSearchParams(
-                focusedPartId === p.plan_part_id ? {} : { part: String(p.plan_part_id) },
-              )
-            }
-          >
-            <ListItemText
-              primary={p.ident || p.title || `#${p.plan_part_id}`}
-              secondary={secondary || undefined}
-            />
-            {pos && (
-              <Chip
-                size="small"
-                label="live"
-                color={pos.is_estimated ? 'default' : 'success'}
-                variant="outlined"
-              />
-            )}
-          </ListItemButton>
-        );
-      })}
-
-      {shownVenues.length > 0 && (
-        <ListSubheader disableSticky sx={{ bgcolor: 'transparent', lineHeight: '32px' }}>
-          Places
-        </ListSubheader>
-      )}
-      {shownVenues.map((m) => {
-        const secondary = [planTypeLabel(m.type), m.when ? fmtTimeOfDay(m.when, m.tz) : '']
-          .filter(Boolean)
-          .join(' · ');
-        return (
-          <ListItemButton
-            key={`v${m.plan_part_id}:${m.lat},${m.lon}`}
-            onClick={() => navigate(`/trips/${m.trip_id}`)}
-          >
-            <Box
-              component="span"
-              sx={{
-                width: 10,
-                height: 10,
-                borderRadius: '50%',
-                bgcolor: planTypeColor(m.type),
-                flex: 'none',
-                mr: 1.5,
-              }}
-            />
-            <ListItemText primary={m.label} secondary={secondary || undefined} />
-          </ListItemButton>
-        );
-      })}
-    </List>
-  );
-}
-
-/** Keep one marker per plan part (the earliest by time), so a taxi's pickup +
- * dropoff list as a single event rather than twice. */
-function dedupeVenues(
-  markers: import('../api/types').TrackerMarker[],
-): import('../api/types').TrackerMarker[] {
-  const byPart = new Map<number, import('../api/types').TrackerMarker>();
-  for (const m of markers) {
-    const cur = byPart.get(m.plan_part_id);
-    if (!cur || (m.when ?? '') < (cur.when ?? '')) byPart.set(m.plan_part_id, m);
-  }
-  return [...byPart.values()].sort((a, b) => (a.when ?? '').localeCompare(b.when ?? ''));
 }

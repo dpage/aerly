@@ -241,9 +241,9 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(headers['Content-Type']).toBeUndefined();
   });
 
-  it('getTrackerPart fetches the single-part detail endpoint', async () => {
-    await api.getTrackerPart(42);
-    expect(last()[0]).toBe('/api/tracker/part/42');
+  it('getTracker passes the from/to/tag query params', async () => {
+    await api.getTracker({ from: '2026-10-01', to: '2026-10-31', tag: 'pgconf' });
+    expect(last()[0]).toBe('/api/tracker?from=2026-10-01&to=2026-10-31&tag=pgconf');
     expect(last()[1]?.method).toBe('GET');
   });
 });

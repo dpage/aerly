@@ -34,16 +34,31 @@ func (a *API) getTracker(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
 
+	// Absolute From/To dates (the front-end date pickers) win; then the legacy
+	// duration window (window_before/window_after); then a tag-derived span; then
+	// the default window. parseDate accepts YYYY-MM-DD; To is inclusive of the
+	// whole day, so push it to end-of-day.
+	fromDate, _ := parseDate(strPtrIfSet(r.URL.Query().Get("from")))
+	toDate, _ := parseDate(strPtrIfSet(r.URL.Query().Get("to")))
 	before, beforeOK := parseWindow(r.URL.Query().Get("window_before"))
 	after, afterOK := parseWindow(r.URL.Query().Get("window_after"))
 
 	now := time.Now()
 	var from, to time.Time
-
-	// When the caller gave no explicit window AND a tag is set, derive the
-	// default span server-side from the tagged trips' min/max (spec §7). An
-	// explicit window always wins — it stays overridable.
-	if !beforeOK && !afterOK && tag != "" {
+	switch {
+	case fromDate != nil || toDate != nil:
+		if fromDate != nil {
+			from = *fromDate
+		} else {
+			from = now.Add(-defaultTrackerWindow)
+		}
+		if toDate != nil {
+			to = toDate.Add(24*time.Hour - time.Second)
+		} else {
+			to = now.Add(defaultTrackerWindow)
+		}
+	case !beforeOK && !afterOK && tag != "":
+		// No explicit window AND a tag: derive the span from the tagged trips.
 		spanFrom, spanTo, ok, err := a.Store.TaggedTripSpan(r.Context(), me.ID, tag)
 		if err != nil {
 			handleStoreErr(w, err)
@@ -63,62 +78,46 @@ func (a *API) getTracker(w http.ResponseWriter, r *http.Request) {
 		from, to = now.Add(-before), now.Add(after)
 	}
 
-	parts, err := a.Store.ConvergenceParts(r.Context(), me.ID, from, to, tag)
+	parts, err := a.Store.ConvergencePartsAll(r.Context(), me.ID, from, to, tag)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
-	ids := make([]int64, 0, len(parts))
-	for _, p := range parts {
-		ids = append(ids, p.PlanPartID)
-	}
-	latest, err := a.Store.LatestPartPositions(r.Context(), ids)
+	out, err := a.trackerPartDTOs(r.Context(), parts)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
 	}
-	out := make([]api.TrackerPartDTO, 0, len(parts))
-	for _, p := range parts {
-		out = append(out, toTrackerPartDTO(p, latest[p.PlanPartID]))
-	}
-
-	// In-window venue overlay: geocoded non-flight parts in the same window.
-	markerRows, err := a.Store.ConvergenceMarkers(r.Context(), me.ID, from, to, tag)
-	if err != nil {
-		handleStoreErr(w, err)
-		return
-	}
-	markers := make([]api.TrackerMarkerDTO, 0, len(markerRows))
-	for _, m := range markerRows {
-		if m.StartLat != nil && m.StartLon != nil {
-			when := m.StartsAt.UTC().Format(time.RFC3339)
-			markers = append(markers, api.TrackerMarkerDTO{
-				PlanPartID: m.PlanPartID, TripID: m.TripID, Type: m.Type,
-				Label: firstNonEmpty(m.StartLabel, m.Title), Lat: *m.StartLat, Lon: *m.StartLon,
-				When: &when, Tz: m.StartTz,
-			})
-		}
-		if m.EndLat != nil && m.EndLon != nil {
-			var when *string
-			if m.EndsAt != nil {
-				w := m.EndsAt.UTC().Format(time.RFC3339)
-				when = &w
-			}
-			markers = append(markers, api.TrackerMarkerDTO{
-				PlanPartID: m.PlanPartID, TripID: m.TripID, Type: m.Type,
-				Label: firstNonEmpty(m.EndLabel, m.Title), Lat: *m.EndLat, Lon: *m.EndLon,
-				When: when, Tz: firstNonEmpty(m.EndTz, m.StartTz),
-			})
-		}
-	}
-	writeJSON(w, http.StatusOK, api.TrackerResponseDTO{Parts: out, Markers: markers})
+	writeJSON(w, http.StatusOK, api.TrackerResponseDTO{Parts: out})
 }
 
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
+// trackerPartDTOs assembles full PlanPartDTOs for the unified map+list view:
+// each part's type detail (via the same loader the trip detail uses) plus, for
+// flight parts, the latest position + flown track (batch-loaded once).
+func (a *API) trackerPartDTOs(ctx context.Context, parts []*store.PlanPart) ([]api.PlanPartDTO, error) {
+	flightIDs := make([]int64, 0, len(parts))
+	for _, p := range parts {
+		if p.Type == "flight" {
+			flightIDs = append(flightIDs, p.ID)
+		}
 	}
-	return b
+	latest, err := a.Store.LatestPartPositions(ctx, flightIDs)
+	if err != nil {
+		return nil, err
+	}
+	tracks, err := a.Store.PartTracks(ctx, flightIDs, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]api.PlanPartDTO, 0, len(parts))
+	for _, p := range parts {
+		dto, err := a.partDTOWithPositions(ctx, p, nil, latest[p.ID], tracks[p.ID])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, dto)
+	}
+	return out, nil
 }
 
 // getTrackerPart is the focused single-flight view: one trackable part with its
@@ -179,28 +178,6 @@ func (a *API) trackerPartDetailDTO(ctx context.Context, p *store.PlanPart) (api.
 		track = trackMap[p.ID]
 	}
 	return api.ToPlanPartDTO(p, flight, nil, nil, nil, nil, nil, latest, track), nil
-}
-
-// toTrackerPartDTO projects a store.TrackerPart (+ optional latest position)
-// into the locked TrackerPartDTO. Built here rather than in the api package so
-// dto.go's json tags stay untouched.
-func toTrackerPartDTO(p *store.TrackerPart, latest *store.Position) api.TrackerPartDTO {
-	dto := api.TrackerPartDTO{
-		PlanPartID:  p.PlanPartID,
-		PlanID:      p.PlanID,
-		TripID:      p.TripID,
-		OwnerID:     p.OwnerID,
-		Title:       p.Title,
-		Status:      p.Status,
-		EffectiveAt: p.EffectiveAt,
-		Ident:       p.Ident,
-		DestIATA:    p.DestIATA,
-	}
-	if latest != nil {
-		pd := api.ToPositionDTO(latest)
-		dto.LatestPosition = &pd
-	}
-	return dto
 }
 
 // parseWindow parses a window duration string. It accepts a trailing "d" (days)

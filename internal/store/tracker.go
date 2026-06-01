@@ -355,6 +355,50 @@ func (s *Store) ConvergenceParts(ctx context.Context, viewerID int64, from, to t
 	return out, rows.Err()
 }
 
+// ConvergencePartsAll returns every mappable (has at least one geocoded
+// endpoint), viewer-visible (spec §4 gate), non-dismissed part of any type whose
+// window overlaps [from, to], across trips, optionally scoped to a tag. It backs
+// the unified map+list view (PRD §6.5/§11): flights are windowed by effective
+// arrival (matching ConvergenceParts), every other type by its start/end span
+// (matching ConvergenceMarkers). Ordered by start time so the list reads
+// chronologically. The caller loads each part's type detail + flight positions.
+func (s *Store) ConvergencePartsAll(ctx context.Context, viewerID int64, from, to time.Time, tag string) ([]*PlanPart, error) {
+	args := []any{viewerID, from, to}
+	q := `SELECT ` + planPartColumns + `
+		FROM plan_parts part
+		JOIN plans pl ON pl.id = part.plan_id
+		JOIN trips t ON t.id = pl.trip_id
+		LEFT JOIN flight_details fd ON fd.plan_part_id = part.id
+		WHERE part.dismissed_at IS NULL
+		  AND (part.start_lat IS NOT NULL OR part.end_lat IS NOT NULL)
+		  AND (
+		    (pl.type = 'flight' AND ` + effectiveArrival + ` BETWEEN $2 AND $3)
+		    OR (pl.type <> 'flight' AND part.starts_at <= $3
+		        AND COALESCE(part.ends_at, part.starts_at) >= $2)
+		  )
+		  AND ` + trackerVisible
+	if norm := normalizeTag(tag); norm != "" {
+		args = append(args, norm)
+		q += ` AND EXISTS (SELECT 1 FROM trip_tags tt
+		                   WHERE tt.trip_id = pl.trip_id AND tt.label_norm = $4)`
+	}
+	q += ` ORDER BY part.starts_at ASC`
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*PlanPart
+	for rows.Next() {
+		p, err := scanPart(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // TrackerMarker is a non-flight, addressed part with coordinates that falls in
 // the tracker window — plotted as a static marker beside the flight tracks.
 // Either endpoint may carry coordinates (e.g. a taxi has both).
