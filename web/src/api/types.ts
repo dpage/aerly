@@ -358,6 +358,22 @@ export interface TrackerPart {
   latest_position?: Position;
 }
 
+/** A geocoded non-flight place overlaid on the tracker map (one per coordinate). */
+export interface TrackerMarker {
+  plan_part_id: number;
+  trip_id: number;
+  type: PlanType;
+  label: string;
+  lat: number;
+  lon: number;
+}
+
+/** The tracker payload: flight convergence parts plus in-window venue markers. */
+export interface TrackerResponse {
+  parts: TrackerPart[];
+  markers: TrackerMarker[];
+}
+
 /** A tag autocomplete candidate from /api/tags/suggest. */
 export interface TagSuggestion {
   label: string;

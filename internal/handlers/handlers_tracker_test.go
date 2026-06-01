@@ -75,6 +75,43 @@ func hideFrom(t *testing.T, e *testEnv, planID, userID int64) {
 
 // TestTrackerConvergenceWindow: an in-window visible flight part shows up; one
 // whose arrival is outside the window does not. No ranking — just the parts.
+func TestTrackerVenueMarkers(t *testing.T) {
+	e := setup(t, nil, nil)
+	if e == nil {
+		return
+	}
+	owner := e.user(t, "owner", false)
+	ctx := context.Background()
+	now := time.Now()
+	var tripID, planID int64
+	if err := e.pool.QueryRow(ctx, `INSERT INTO trips (name, created_by) VALUES ('Trip', $1) RETURNING id`, owner).Scan(&tripID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(ctx, `INSERT INTO trip_members (trip_id, user_id, role) VALUES ($1,$2,'owner')`, tripID, owner); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.pool.QueryRow(ctx, `INSERT INTO plans (trip_id, type, title, created_by) VALUES ($1,'hotel','Hotel Lisboa',$2) RETURNING id`, tripID, owner).Scan(&planID); err != nil {
+		t.Fatal(err)
+	}
+	// In-window hotel with geocoded coordinates.
+	if _, err := e.pool.Exec(ctx, `INSERT INTO plan_parts (plan_id, starts_at, ends_at, start_label, start_address, start_lat, start_lon, status)
+		VALUES ($1,$2,$3,'Hotel Lisboa','Lisbon, Portugal',38.72,-9.15,'confirmed')`,
+		planID, now.Add(-time.Hour), now.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	w := e.req(t, "GET", "/api/tracker", nil, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+	resp := decodeBody[api.TrackerResponseDTO](t, w)
+	if len(resp.Markers) != 1 {
+		t.Fatalf("expected 1 venue marker, got %d: %+v", len(resp.Markers), resp.Markers)
+	}
+	if resp.Markers[0].Type != "hotel" || resp.Markers[0].Label != "Hotel Lisboa" || resp.Markers[0].Lat != 38.72 {
+		t.Errorf("unexpected marker: %+v", resp.Markers[0])
+	}
+}
+
 func TestTrackerConvergenceWindow(t *testing.T) {
 	e := setup(t, nil, nil)
 	if e == nil {
@@ -91,7 +128,7 @@ func TestTrackerConvergenceWindow(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /api/tracker = %d, body=%s", w.Code, w.Body.String())
 	}
-	got := decodeBody[[]api.TrackerPartDTO](t, w)
+	got := decodeBody[api.TrackerResponseDTO](t, w).Parts
 	if len(got) != 1 {
 		t.Fatalf("expected exactly the in-window part, got %d: %+v", len(got), got)
 	}
@@ -117,7 +154,7 @@ func TestTrackerHiddenPlanNotVisible(t *testing.T) {
 
 	// The owner still sees it.
 	w := e.req(t, "GET", "/api/tracker", nil, owner)
-	owns := decodeBody[[]api.TrackerPartDTO](t, w)
+	owns := decodeBody[api.TrackerResponseDTO](t, w).Parts
 	if len(owns) != 1 || owns[0].PlanPartID != partID {
 		t.Fatalf("owner should see their own part, got %d: %+v", len(owns), owns)
 	}
@@ -127,7 +164,7 @@ func TestTrackerHiddenPlanNotVisible(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /api/tracker (viewer) = %d, body=%s", w.Code, w.Body.String())
 	}
-	hidden := decodeBody[[]api.TrackerPartDTO](t, w)
+	hidden := decodeBody[api.TrackerResponseDTO](t, w).Parts
 	for _, p := range hidden {
 		if p.PlanPartID == partID {
 			t.Fatalf("hidden part %d leaked into viewer's convergence results: %+v", partID, hidden)
@@ -159,13 +196,13 @@ func TestTrackerTagWindow(t *testing.T) {
 
 	// Without the tag, the default 7d window excludes it.
 	w := e.req(t, "GET", "/api/tracker", nil, owner)
-	if n := len(decodeBody[[]api.TrackerPartDTO](t, w)); n != 0 {
+	if n := len(decodeBody[api.TrackerResponseDTO](t, w).Parts); n != 0 {
 		t.Fatalf("default window should exclude the far part, got %d", n)
 	}
 
 	// With the tag, the derived span includes it.
 	w = e.req(t, "GET", "/api/tracker?tag=ski", nil, owner)
-	got := decodeBody[[]api.TrackerPartDTO](t, w)
+	got := decodeBody[api.TrackerResponseDTO](t, w).Parts
 	if len(got) != 1 || got[0].PlanPartID != farPart {
 		t.Fatalf("tag-derived window should include the far part, got %d: %+v", len(got), got)
 	}

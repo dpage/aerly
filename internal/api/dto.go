@@ -434,6 +434,24 @@ type TrackerPartDTO struct {
 	LatestPosition *PositionDTO `json:"latest_position,omitempty"`
 }
 
+// TrackerMarkerDTO is one geocoded non-flight place plotted on the tracker map
+// (a hotel, a taxi pickup/dropoff, a dining spot…) — one per coordinate.
+type TrackerMarkerDTO struct {
+	PlanPartID int64   `json:"plan_part_id"`
+	TripID     int64   `json:"trip_id"`
+	Type       string  `json:"type"`
+	Label      string  `json:"label"`
+	Lat        float64 `json:"lat"`
+	Lon        float64 `json:"lon"`
+}
+
+// TrackerResponseDTO is the tracker payload: flight convergence parts plus the
+// in-window venue markers overlaid on the same map.
+type TrackerResponseDTO struct {
+	Parts   []TrackerPartDTO   `json:"parts"`
+	Markers []TrackerMarkerDTO `json:"markers"`
+}
+
 // TagSuggestionDTO is one autocomplete entry for GET /api/tags/suggest.
 type TagSuggestionDTO struct {
 	Label string `json:"label"`

@@ -57,6 +57,7 @@ export default function Tracker() {
   const loadTrackerPart = useStore((s) => s.loadTrackerPart);
   const setTrackerWindow = useStore((s) => s.setTrackerWindow);
   const parts = useStore((s) => s.trackerParts);
+  const markers = useStore((s) => s.trackerMarkers);
   const focusedPart = useStore((s) => s.focusedPart);
   const tag = useStore((s) => s.trackerTag);
   const win = useStore((s) => s.trackerWindow);
@@ -213,7 +214,12 @@ export default function Tracker() {
 
       <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: { xs: 'column', md: 'row' } }}>
         <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 280 }}>
-          <TrackerMap parts={parts} focusedPartId={focusedPartId} focusedPart={focusedPart} />
+          <TrackerMap
+            parts={parts}
+            markers={markers}
+            focusedPartId={focusedPartId}
+            focusedPart={focusedPart}
+          />
         </Box>
         <Box
           sx={{

@@ -355,6 +355,65 @@ func (s *Store) ConvergenceParts(ctx context.Context, viewerID int64, from, to t
 	return out, rows.Err()
 }
 
+// TrackerMarker is a non-flight, addressed part with coordinates that falls in
+// the tracker window — plotted as a static marker beside the flight tracks.
+// Either endpoint may carry coordinates (e.g. a taxi has both).
+type TrackerMarker struct {
+	PlanPartID int64
+	TripID     int64
+	Type       string
+	Title      string
+	StartLabel string
+	StartLat   *float64
+	StartLon   *float64
+	EndLabel   string
+	EndLat     *float64
+	EndLon     *float64
+}
+
+// ConvergenceMarkers returns the viewer-visible non-flight parts whose span
+// overlaps [from, to] and that have at least one geocoded endpoint, optionally
+// scoped to a tag — the venue overlay for the tracker map. Mirrors the
+// visibility + tag scoping of ConvergenceParts.
+func (s *Store) ConvergenceMarkers(ctx context.Context, viewerID int64, from, to time.Time, tag string) ([]*TrackerMarker, error) {
+	args := []any{viewerID, from, to}
+	q := `SELECT part.id, pl.trip_id, pl.type,
+		COALESCE(NULLIF(pl.title, ''), part.start_label) AS title,
+		part.start_label, part.start_lat, part.start_lon,
+		part.end_label, part.end_lat, part.end_lon
+		FROM plan_parts part
+		JOIN plans pl ON pl.id = part.plan_id
+		JOIN trips t ON t.id = pl.trip_id
+		WHERE pl.type <> 'flight'
+		  AND part.dismissed_at IS NULL
+		  AND (part.start_lat IS NOT NULL OR part.end_lat IS NOT NULL)
+		  AND part.starts_at <= $3
+		  AND COALESCE(part.ends_at, part.starts_at) >= $2
+		  AND ` + trackerVisible
+	if norm := normalizeTag(tag); norm != "" {
+		args = append(args, norm)
+		q += ` AND EXISTS (SELECT 1 FROM trip_tags tt
+		                   WHERE tt.trip_id = pl.trip_id AND tt.label_norm = $4)`
+	}
+	q += ` ORDER BY part.starts_at ASC`
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*TrackerMarker
+	for rows.Next() {
+		var m TrackerMarker
+		if err := rows.Scan(&m.PlanPartID, &m.TripID, &m.Type, &m.Title,
+			&m.StartLabel, &m.StartLat, &m.StartLon,
+			&m.EndLabel, &m.EndLat, &m.EndLon); err != nil {
+			return nil, err
+		}
+		out = append(out, &m)
+	}
+	return out, rows.Err()
+}
+
 // TrackerPartByID returns the convergence row for a single visible flight part,
 // or ErrNotFound when the viewer can't see it / it isn't a flight part. Backs
 // the focused single-flight view and the poller's SSE publish.

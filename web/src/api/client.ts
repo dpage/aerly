@@ -23,7 +23,7 @@ import type {
   ResolveFlightInput,
   ResolvedFlight,
   TagSuggestion,
-  TrackerPart,
+  TrackerResponse,
   Trip,
   UpdateAlertPrefsInput,
   UpdatePlanInput,
@@ -267,7 +267,7 @@ export const api = {
     if (opts?.windowAfter) params.set('window_after', opts.windowAfter);
     if (opts?.tag) params.set('tag', opts.tag);
     const qs = params.toString();
-    return request<TrackerPart[]>('GET', qs ? `/api/tracker?${qs}` : '/api/tracker');
+    return request<TrackerResponse>('GET', qs ? `/api/tracker?${qs}` : '/api/tracker');
   },
   // Focused single-flight view: the full part with its flight detail, latest
   // position AND the flown track (the convergence list stays position-only).
