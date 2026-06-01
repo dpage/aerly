@@ -370,6 +370,9 @@ export interface TrackerMarker {
   label: string;
   lat: number;
   lon: number;
+  /** Instant (RFC3339) + tz of this endpoint, for the map tooltip's local time. */
+  when?: string;
+  tz?: string;
 }
 
 /** The tracker payload: flight convergence parts plus in-window venue markers. */

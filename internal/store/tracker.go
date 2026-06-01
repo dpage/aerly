@@ -369,6 +369,11 @@ type TrackerMarker struct {
 	EndLabel   string
 	EndLat     *float64
 	EndLon     *float64
+	// Times + tz of each endpoint, so the map tooltip can show a local time.
+	StartsAt time.Time
+	EndsAt   *time.Time
+	StartTz  string
+	EndTz    string
 }
 
 // ConvergenceMarkers returns the viewer-visible non-flight parts whose span
@@ -380,7 +385,8 @@ func (s *Store) ConvergenceMarkers(ctx context.Context, viewerID int64, from, to
 	q := `SELECT part.id, pl.trip_id, pl.type,
 		COALESCE(NULLIF(pl.title, ''), part.start_label) AS title,
 		part.start_label, part.start_lat, part.start_lon,
-		part.end_label, part.end_lat, part.end_lon
+		part.end_label, part.end_lat, part.end_lon,
+		part.starts_at, part.ends_at, part.start_tz, part.end_tz
 		FROM plan_parts part
 		JOIN plans pl ON pl.id = part.plan_id
 		JOIN trips t ON t.id = pl.trip_id
@@ -406,7 +412,8 @@ func (s *Store) ConvergenceMarkers(ctx context.Context, viewerID int64, from, to
 		var m TrackerMarker
 		if err := rows.Scan(&m.PlanPartID, &m.TripID, &m.Type, &m.Title,
 			&m.StartLabel, &m.StartLat, &m.StartLon,
-			&m.EndLabel, &m.EndLat, &m.EndLon); err != nil {
+			&m.EndLabel, &m.EndLat, &m.EndLon,
+			&m.StartsAt, &m.EndsAt, &m.StartTz, &m.EndTz); err != nil {
 			return nil, err
 		}
 		out = append(out, &m)
