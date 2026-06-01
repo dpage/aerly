@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
-import type { PlanPart, TrackerPart } from '../api/types';
+import type { PlanPart, TrackerMarker, TrackerPart } from '../api/types';
 import type { StoreState } from './store';
 
 /** Default convergence window when the user hasn't set one. */
@@ -50,6 +50,8 @@ function persistWindow(tag: string, w: TrackerWindow): void {
  * map rendering. */
 export interface TrackerSlice {
   trackerParts: TrackerPart[];
+  /** In-window non-flight venue markers overlaid on the tracker map. */
+  trackerMarkers: TrackerMarker[];
   trackerTag: string;
   trackerWindow: TrackerWindow;
   trackerLoading: boolean;
@@ -73,6 +75,7 @@ export interface TrackerSlice {
 
 export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> = (set, get) => ({
   trackerParts: [],
+  trackerMarkers: [],
   trackerTag: '',
   trackerWindow: loadWindow(''),
   trackerLoading: false,
@@ -83,12 +86,12 @@ export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> 
     const w = loadWindow(tag);
     set({ trackerTag: tag, trackerWindow: w, trackerLoading: true });
     try {
-      const trackerParts = await api.getTracker({
+      const { parts, markers } = await api.getTracker({
         windowBefore: w.before,
         windowAfter: w.after,
         tag: tag || undefined,
       });
-      set({ trackerParts, trackerLoading: false });
+      set({ trackerParts: parts, trackerMarkers: markers, trackerLoading: false });
     } catch (err) {
       set({ error: errorMessage(err), trackerLoading: false });
     }

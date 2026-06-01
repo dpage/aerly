@@ -6,7 +6,7 @@ import maplibregl, {
 } from 'maplibre-gl';
 import { Box } from '@mui/material';
 
-import type { PlanPart, TrackerPart } from '../api/types';
+import type { PlanPart, TrackerMarker, TrackerPart } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
 
 const STYLE: StyleSpecification = {
@@ -27,6 +27,9 @@ const STYLE: StyleSpecification = {
 interface TrackerMapProps {
   /** Parts to plot — only those with a `latest_position` get a marker. */
   parts: TrackerPart[];
+  /** In-window non-flight venues (hotels, taxis…) to overlay as static pins.
+   * Shown only in the convergence view, not the single-flight focus. */
+  markers?: TrackerMarker[];
   /** When set, the map focuses (fits to) the single part with this id. */
   focusedPartId?: number | null;
   /** The focused part's full detail (with its flown track), loaded for the
@@ -66,10 +69,12 @@ function multiLineCollection(lines: [number, number][][]): GeoJSON.FeatureCollec
  * Uses the standard MapLibre lifecycle (init once, sync markers on data
  * change, fit bounds) over the lighter `TrackerPart` shape, which only carries
  * a latest position. */
-export default function TrackerMap({ parts, focusedPartId, focusedPart }: TrackerMapProps) {
+export default function TrackerMap({ parts, markers = [], focusedPartId, focusedPart }: TrackerMapProps) {
   const containerRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const markersRef = useRef<Map<number, maplibregl.Marker>>(new Map());
+  // Venue overlay markers, keyed by part id + coordinate (a taxi has two).
+  const venueRef = useRef<Map<string, maplibregl.Marker>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -104,10 +109,40 @@ export default function TrackerMap({ parts, focusedPartId, focusedPart }: Tracke
     return () => {
       markersRef.current.forEach((m) => m.remove());
       markersRef.current.clear();
+      venueRef.current.forEach((m) => m.remove());
+      venueRef.current.clear();
       map.remove();
       mapRef.current = null;
     };
   }, []);
+
+  // Sync the venue overlay (hotels, taxis, …). Only in the convergence view —
+  // the single-flight focus is about the one flight's route.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const show = focusedPartId == null ? markers : [];
+    const live = new Set<string>();
+    for (const m of show) {
+      const key = `${m.plan_part_id}:${m.lat},${m.lon}`;
+      live.add(key);
+      let marker = venueRef.current.get(key);
+      const el = marker?.getElement() ?? buildVenueEl();
+      styleVenue(el, m.label);
+      if (!marker) {
+        marker = new maplibregl.Marker({ element: el }).setLngLat([m.lon, m.lat]).addTo(map);
+        venueRef.current.set(key, marker);
+      } else {
+        marker.setLngLat([m.lon, m.lat]);
+      }
+    }
+    for (const [key, marker] of venueRef.current) {
+      if (!live.has(key)) {
+        marker.remove();
+        venueRef.current.delete(key);
+      }
+    }
+  }, [markers, focusedPartId]);
 
   // Sync one marker per plotted part. Markers carry a text label (the ident, or
   // the title as a fallback) so a cluster of friends heading to the same place
@@ -197,6 +232,10 @@ export default function TrackerMap({ parts, focusedPartId, focusedPart }: Tracke
       p.latest_position!.lon,
       p.latest_position!.lat,
     ]);
+    // Include the venue overlay so the convergence view frames them too.
+    if (focusedPartId == null) {
+      for (const m of markers) pts.push([m.lon, m.lat]);
+    }
 
     // In the single-flight focus, widen the fit to the whole route: the part's
     // start/end coordinates plus every flown-track point, so the polyline +
@@ -224,7 +263,7 @@ export default function TrackerMap({ parts, focusedPartId, focusedPart }: Tracke
     const fit = () => map.fitBounds(bounds, { padding: 80, maxZoom: 6, duration: 600 });
     if (map.isStyleLoaded()) fit();
     else map.once('load', fit);
-  }, [parts, focusedPartId, focusedPart]);
+  }, [parts, markers, focusedPartId, focusedPart]);
 
   return <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} data-testid="tracker-map" />;
 }
@@ -251,6 +290,29 @@ function styleMarker(el: HTMLElement, label: string, focused: boolean, estimated
   el.style.opacity = estimated ? '0.7' : '1';
   el.title = label + (estimated ? ' (estimated)' : '');
   const span = el.querySelector('.tm-label');
+  if (span) span.textContent = label;
+}
+
+// Venue pin: a small green dot with a label, visually distinct from the blue
+// flight markers so the overlay reads as "places", not "people on their way".
+function buildVenueEl(): HTMLElement {
+  const el = document.createElement('div');
+  el.style.display = 'flex';
+  el.style.alignItems = 'center';
+  el.style.gap = '4px';
+  el.style.cursor = 'default';
+  el.innerHTML = `
+    <span style="width:11px;height:11px;border-radius:50%;background:#2e7d32;
+      border:2px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,0.4);flex:none"></span>
+    <span class="tm-venue-label" style="font:600 11px/1 system-ui,-apple-system,sans-serif;
+      background:rgba(255,255,255,0.9);color:#111;padding:2px 5px;border-radius:4px;
+      white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.3)"></span>`;
+  return el;
+}
+
+function styleVenue(el: HTMLElement, label: string): void {
+  el.title = label;
+  const span = el.querySelector('.tm-venue-label');
   if (span) span.textContent = label;
 }
 
