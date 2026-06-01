@@ -1,6 +1,7 @@
 # Go
 /bin/
 aerly
+/tripit-ics
 *.test
 *.out
 coverage.txt
