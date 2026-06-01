@@ -88,6 +88,12 @@ describe('TripTimeline', () => {
     expect(screen.getByText(/Nothing on this trip yet/i)).toBeInTheDocument();
   });
 
+  it('makes the empty-state "Add to trip" a clickable control', () => {
+    state.currentTrip = tripWith([]);
+    renderTimeline();
+    expect(screen.getByRole('button', { name: /add to trip/i })).toBeInTheDocument();
+  });
+
   it('renders day headers and a card per part', () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1, effective_at: '2026-10-12T09:00:00Z' })], {

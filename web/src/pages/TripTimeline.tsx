@@ -21,6 +21,7 @@ import PlanTypeIcon from '../components/PlanTypeIcon';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
 import PlanAlertToggle from '../components/PlanAlertToggle';
+import AddToTripDialog from '../components/AddToTripDialog';
 import {
   buildTimeline,
   fmtPartTimeRange,
@@ -74,6 +75,7 @@ export default function TripTimeline() {
     () => plans.find((p) => p.id === planDetailId) ?? null,
     [plans, planDetailId],
   );
+  const [addOpen, setAddOpen] = useState(false);
 
   if (!currentTrip) {
     return (
@@ -87,9 +89,20 @@ export default function TripTimeline() {
     return (
       <Box sx={{ p: 3 }}>
         <Typography color="text.secondary">
-          Nothing on this trip yet. Use <strong>Add to trip</strong> to add a flight, hotel, or
-          other plan.
+          Nothing on this trip yet. Use{' '}
+          <Link
+            component="button"
+            type="button"
+            onClick={() => setAddOpen(true)}
+            sx={{ verticalAlign: 'baseline', fontWeight: 600 }}
+          >
+            Add to trip
+          </Link>{' '}
+          to add a flight, hotel, or other plan.
         </Typography>
+        {addOpen && (
+          <AddToTripDialog open={addOpen} tripId={currentTrip.id} onClose={() => setAddOpen(false)} />
+        )}
       </Box>
     );
   }
