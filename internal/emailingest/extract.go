@@ -96,7 +96,7 @@ If a leg's ident or date is ambiguous, set confidence to "low" and the caller wi
 // excursion — each with one or more parts. The flight schema is identical to
 // the flights-only prompt so the resolver-backed enrich + manual fallback
 // still apply to flight parts.
-const plansSystemPrompt = `You receive the body of a forwarded travel email (and possibly attached tickets). Extract every booking the traveller has made and group them into plans. One booking = one plan; a round-trip or multi-leg booking is one plan with several parts. Return JSON only, no prose, matching this schema:
+const plansSystemPrompt = `You receive the body of a forwarded travel email (and possibly attached tickets). Extract every booking the traveller has made and group them into plans. One booking = one plan; a round-trip or multi-leg booking is one plan with several parts. Extract only what this message is itself booking or confirming: when a flight, train, or other journey is named only as context for a different booking — for example a taxi confirmation that says the cab returns the traveller "on BA292" is telling the driver when to collect them, not booking a flight — treat it as timing context for that booking and do NOT emit a separate plan for it. Return JSON only, no prose, matching this schema:
 
 {
   "plans": [{
