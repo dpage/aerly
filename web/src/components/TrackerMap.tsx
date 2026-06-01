@@ -8,7 +8,7 @@ import { Box } from '@mui/material';
 
 import type { PlanPart, TrackerMarker, TrackerPart } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
-import { planTypeLabel } from '../lib/trip-format';
+import { buildMarkerPopup, buildPinEl } from '../lib/plan-marker';
 
 const STYLE: StyleSpecification = {
   version: 8,
@@ -128,12 +128,16 @@ export default function TrackerMap({ parts, markers = [], focusedPartId, focused
       const key = `${m.plan_part_id}:${m.lat},${m.lon}`;
       live.add(key);
       let marker = venueRef.current.get(key);
-      const el = marker?.getElement() ?? buildVenueEl();
-      styleVenue(el, m.label);
       if (!marker) {
-        marker = new maplibregl.Marker({ element: el })
+        const el = buildPinEl(m.type);
+        el.title = m.label;
+        marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
           .setLngLat([m.lon, m.lat])
-          .setPopup(new maplibregl.Popup({ offset: 14, closeButton: false }).setDOMContent(venuePopup(m)))
+          .setPopup(
+            new maplibregl.Popup({ offset: 30, closeButton: false }).setDOMContent(
+              buildMarkerPopup({ title: m.label, type: m.type, iso: m.when, tz: m.tz }),
+            ),
+          )
           .addTo(map);
         venueRef.current.set(key, marker);
       } else {
@@ -295,45 +299,6 @@ function styleMarker(el: HTMLElement, label: string, focused: boolean, estimated
   el.title = label + (estimated ? ' (estimated)' : '');
   const span = el.querySelector('.tm-label');
   if (span) span.textContent = label;
-}
-
-// Venue pin: a small green dot with a label, visually distinct from the blue
-// flight markers so the overlay reads as "places", not "people on their way".
-function buildVenueEl(): HTMLElement {
-  const el = document.createElement('div');
-  el.style.display = 'flex';
-  el.style.alignItems = 'center';
-  el.style.gap = '4px';
-  el.style.cursor = 'default';
-  el.innerHTML = `
-    <span style="width:11px;height:11px;border-radius:50%;background:#2e7d32;
-      border:2px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,0.4);flex:none"></span>
-    <span class="tm-venue-label" style="font:600 11px/1 system-ui,-apple-system,sans-serif;
-      background:rgba(255,255,255,0.9);color:#111;padding:2px 5px;border-radius:4px;
-      white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.3)"></span>`;
-  return el;
-}
-
-function styleVenue(el: HTMLElement, label: string): void {
-  el.title = label;
-  const span = el.querySelector('.tm-venue-label');
-  if (span) span.textContent = label;
-}
-
-// Click popover for a venue marker: its label and plan type. Built with
-// textContent so extracted strings can't inject markup.
-function venuePopup(m: TrackerMarker): HTMLElement {
-  const root = document.createElement('div');
-  root.style.font = '12px/1.45 system-ui,-apple-system,sans-serif';
-  const title = document.createElement('div');
-  title.style.fontWeight = '600';
-  title.textContent = m.label;
-  root.append(title);
-  const meta = document.createElement('div');
-  meta.style.color = '#555';
-  meta.textContent = planTypeLabel(m.type);
-  root.append(meta);
-  return root;
 }
 
 function boundsFor(pts: [number, number][]): LngLatBoundsLike | null {

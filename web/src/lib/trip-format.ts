@@ -212,6 +212,39 @@ export function fmtTimeOfDay(iso: string, tz?: string): string {
   return tz ? base : `${base} UTC`;
 }
 
+/** The local timezone abbreviation for an instant in a tz, e.g. "BST", "EDT",
+ * "UTC". Falls back to "UTC" when the tz is unknown (the instant is stored UTC
+ * and the digits are the wall-clock the booking stated). */
+export function tzAbbrev(iso: string, tz?: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz || 'UTC',
+    timeZoneName: 'short',
+  }).formatToParts(d);
+  return parts.find((p) => p.type === 'timeZoneName')?.value ?? 'UTC';
+}
+
+/** A full local date + time + tz abbreviation for a marker tooltip, e.g.
+ * "Sun 25 Oct, 16:00 BST". Empty for an unparseable instant. */
+export function fmtLocalDateTime(iso: string, tz?: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const date = d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: tz || 'UTC',
+  });
+  const time = d.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: tz || 'UTC',
+  });
+  return `${date}, ${time} ${tzAbbrev(iso, tz)}`;
+}
+
 /** A part's local-time range: "14:30" for an instant, "14:30 → 18:05" when it
  * has an end. Ends render in their own tz so a flight reads in arrival-local. */
 export function fmtPartTimeRange(part: PlanPart): string {

@@ -446,6 +446,10 @@ type TrackerMarkerDTO struct {
 	Label      string  `json:"label"`
 	Lat        float64 `json:"lat"`
 	Lon        float64 `json:"lon"`
+	// Instant (RFC3339) + tz of this endpoint, so the map tooltip shows a
+	// local time. Null when the endpoint has no meaningful time.
+	When *string `json:"when,omitempty"`
+	Tz   string  `json:"tz,omitempty"`
 }
 
 // TrackerResponseDTO is the tracker payload: flight convergence parts plus the

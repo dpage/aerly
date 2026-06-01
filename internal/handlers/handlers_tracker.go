@@ -91,15 +91,23 @@ func (a *API) getTracker(w http.ResponseWriter, r *http.Request) {
 	markers := make([]api.TrackerMarkerDTO, 0, len(markerRows))
 	for _, m := range markerRows {
 		if m.StartLat != nil && m.StartLon != nil {
+			when := m.StartsAt.UTC().Format(time.RFC3339)
 			markers = append(markers, api.TrackerMarkerDTO{
 				PlanPartID: m.PlanPartID, TripID: m.TripID, Type: m.Type,
 				Label: firstNonEmpty(m.StartLabel, m.Title), Lat: *m.StartLat, Lon: *m.StartLon,
+				When: &when, Tz: m.StartTz,
 			})
 		}
 		if m.EndLat != nil && m.EndLon != nil {
+			var when *string
+			if m.EndsAt != nil {
+				w := m.EndsAt.UTC().Format(time.RFC3339)
+				when = &w
+			}
 			markers = append(markers, api.TrackerMarkerDTO{
 				PlanPartID: m.PlanPartID, TripID: m.TripID, Type: m.Type,
 				Label: firstNonEmpty(m.EndLabel, m.Title), Lat: *m.EndLat, Lon: *m.EndLon,
+				When: when, Tz: firstNonEmpty(m.EndTz, m.StartTz),
 			})
 		}
 	}

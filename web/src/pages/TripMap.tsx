@@ -10,6 +10,7 @@ import { useStore } from '../state/store';
 import type { Plan, PlanPart, PlanType } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { planTypeLabel } from '../lib/trip-format';
+import { buildMarkerPopup, buildPinEl } from '../lib/plan-marker';
 
 // Standard OSM raster style for the trip map (spec §11: MapLibre).
 const STYLE: StyleSpecification = {
@@ -36,8 +37,9 @@ interface MapPoint {
   type: PlanType;
   /** Place name at this endpoint (start_label / end_label). */
   location: string;
-  /** Formatted local date/time of this endpoint. */
-  when: string;
+  /** Instant + tz of this endpoint, for the popover's local date/time. */
+  iso: string;
+  tz?: string;
 }
 
 /** Secondary trip detail tab (spec §11): the trip's geocoded parts on a
@@ -99,18 +101,15 @@ export default function TripMap() {
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
     for (const p of points) {
-      const el = document.createElement('div');
-      el.style.width = '14px';
-      el.style.height = '14px';
-      el.style.borderRadius = '50%';
-      el.style.background = '#d97706';
-      el.style.border = '2px solid #fff';
-      el.style.boxShadow = '0 1px 2px rgba(0,0,0,0.4)';
-      el.style.cursor = 'pointer';
+      const el = buildPinEl(p.type);
       el.title = p.location || p.title;
-      const marker = new maplibregl.Marker({ element: el })
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
         .setLngLat([p.lon, p.lat])
-        .setPopup(new maplibregl.Popup({ offset: 14, closeButton: false }).setDOMContent(popupContent(p)))
+        .setPopup(
+          new maplibregl.Popup({ offset: 30, closeButton: false }).setDOMContent(
+            buildMarkerPopup({ title: p.title, type: p.type, location: p.location, iso: p.iso, tz: p.tz }),
+          ),
+        )
         .addTo(map);
       markersRef.current.push(marker);
     }
@@ -148,7 +147,8 @@ function collectPoints(plans: Plan[]): MapPoint[] {
           title,
           type: part.type,
           location: part.start_label || plan.title,
-          when: fmtWhen(part.starts_at, part.start_tz),
+          iso: part.starts_at,
+          tz: part.start_tz,
         });
       }
       if (part.end_lat != null && part.end_lon != null) {
@@ -158,50 +158,13 @@ function collectPoints(plans: Plan[]): MapPoint[] {
           title,
           type: part.type,
           location: part.end_label || plan.title,
-          when: fmtWhen(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz),
+          iso: part.ends_at ?? part.starts_at,
+          tz: part.end_tz || part.start_tz,
         });
       }
     }
   }
   return points;
-}
-
-// Date + time for a marker popover. tz-less times (e.g. a hotel) render in UTC
-// without a label — the digits are the local wall-clock the booking stated.
-function fmtWhen(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz || 'UTC',
-  });
-}
-
-// Marker popover content built with textContent (no HTML injection from
-// user/extracted strings).
-function popupContent(p: MapPoint): HTMLElement {
-  const root = document.createElement('div');
-  root.style.font = '12px/1.45 system-ui,-apple-system,sans-serif';
-  const title = document.createElement('div');
-  title.style.fontWeight = '600';
-  title.textContent = p.title;
-  root.append(title);
-  const meta = document.createElement('div');
-  meta.style.color = '#555';
-  meta.textContent = [planTypeLabel(p.type), p.when].filter(Boolean).join(' · ');
-  root.append(meta);
-  if (p.location && p.location !== p.title) {
-    const loc = document.createElement('div');
-    loc.style.color = '#555';
-    loc.textContent = p.location;
-    root.append(loc);
-  }
-  return root;
 }
 
 function buildLegs(plans: Plan[]): GeoJSON.FeatureCollection {
