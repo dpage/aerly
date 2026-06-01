@@ -149,6 +149,18 @@ func TestAeroDataBoxEmptyArray(t *testing.T) {
 	}
 }
 
+func TestAeroDataBoxQueriesByLocalDepartureDate(t *testing.T) {
+	var gotQuery string
+	a := newADB(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`[]`))
+	})
+	_, _ = a.Resolve(context.Background(), "BA292", time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC))
+	if !strings.Contains(gotQuery, "dateLocalRole=Departure") {
+		t.Errorf("query %q missing dateLocalRole=Departure (date must match local departure)", gotQuery)
+	}
+}
+
 func TestAeroDataBoxPicksOperatorAndBuilds(t *testing.T) {
 	body := `[
 	  {"number":"BA 999","codeshareStatus":"IsCodeshared","departure":{"airport":{"iata":"XXX"}},"arrival":{"airport":{"iata":"YYY"}}},
