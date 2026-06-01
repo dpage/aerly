@@ -57,6 +57,7 @@ const LOW_CONFIDENCE = 0.6;
  * "From email" surfaces the forwarding address the backend exposes. */
 export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDialogProps) {
   const trips = useStore((s) => s.trips);
+  const listTrips = useStore((s) => s.listTrips);
   const currentTrip = useStore((s) => s.currentTrip);
   const capabilities = useStore((s) => s.capabilities);
   const createPlan = useStore((s) => s.createPlan);
@@ -85,7 +86,11 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
     setBusy(false);
     setSubmitted(false);
     clearIngest();
-  }, [open, tripId, currentTrip, clearIngest]);
+    // Populate the trip picker. The list is only fetched on the trip-list page,
+    // so opening this dialog from inside a trip would otherwise show an empty
+    // dropdown (the selected current trip has no matching option to render).
+    void listTrips();
+  }, [open, tripId, currentTrip, clearIngest, listTrips]);
 
   const effectiveTripId = tripId ?? selectedTrip;
 
