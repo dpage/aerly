@@ -364,7 +364,34 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 		}
 		out = append(out, ep)
 	}
-	return out, nil
+	return mergeSameBooking(out), nil
+}
+
+// mergeSameBooking folds plans that are really one booking — same type and a
+// shared non-empty confirmation reference — into a single plan with all their
+// parts. A round-trip is meant to be one plan with several legs (PRD §6.3), but
+// the model doesn't always group it that way; without this a return flight
+// arrives as two separate plans, so deleting "the flight" only removes one leg.
+// Order is preserved; the first plan of each booking keeps its title.
+func mergeSameBooking(plans []planops.ExtractedPlan) []planops.ExtractedPlan {
+	type key struct{ typ, ref string }
+	idx := make(map[key]int, len(plans))
+	out := make([]planops.ExtractedPlan, 0, len(plans))
+	for _, p := range plans {
+		ref := strings.ToUpper(strings.TrimSpace(p.ConfirmationRef))
+		if ref == "" {
+			out = append(out, p)
+			continue
+		}
+		k := key{p.Type, ref}
+		if i, ok := idx[k]; ok {
+			out[i].Parts = append(out[i].Parts, p.Parts...)
+			continue
+		}
+		idx[k] = len(out)
+		out = append(out, p)
+	}
+	return out
 }
 
 var validExtractType = map[string]bool{
