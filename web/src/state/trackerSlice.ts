@@ -60,7 +60,7 @@ export interface TrackerSlice {
    * null in the convergence view or before the fetch resolves. */
   focusedPart: PlanPart | null;
 
-  loadTracker: (opts?: { tag?: string }) => Promise<void>;
+  loadTracker: (opts?: { tag?: string; window?: TrackerWindow }) => Promise<void>;
   /** Fetch the focused part's full detail + track for the single-flight view.
    * Pass null to clear the focus. */
   loadTrackerPart: (partId: number | null) => Promise<void>;
@@ -83,7 +83,13 @@ export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> 
 
   async loadTracker(opts) {
     const tag = opts?.tag ?? get().trackerTag;
-    const w = loadWindow(tag);
+    // An explicit window (e.g. seeded from a tag's span on tag change) is
+    // persisted under the *target* tag and used for this load; otherwise fall
+    // back to that tag's saved window. Reading the saved window for a different
+    // tag than the one being loaded was the bug behind a past-trip tag showing
+    // no flights — the seed never reached the request.
+    const w = opts?.window ?? loadWindow(tag);
+    if (opts?.window) persistWindow(tag, opts.window);
     set({ trackerTag: tag, trackerWindow: w, trackerLoading: true });
     try {
       const { parts, markers } = await api.getTracker({

@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
-import type { PlanPart, Position, TrackerPart, Trip } from '../api/types';
+import type { PlanPart, Position, TrackerMarker, TrackerPart, Trip } from '../api/types';
 import maplibreMock, { resetMaplibreMock } from '../test/maplibre-mock';
 
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
@@ -19,6 +19,7 @@ const state = {
   setTrackerWindow,
   listTrips,
   trackerParts: [] as TrackerPart[],
+  trackerMarkers: [] as TrackerMarker[],
   focusedPart: null as PlanPart | null,
   trackerTag: '',
   trackerWindow: { before: '7d', after: '7d' },
@@ -51,6 +52,18 @@ function part(over: Partial<TrackerPart> = {}): TrackerPart {
   };
 }
 
+function marker(over: Partial<TrackerMarker> = {}): TrackerMarker {
+  return {
+    plan_part_id: 9,
+    trip_id: 1,
+    type: 'dining',
+    label: 'Venue',
+    lat: 50,
+    lon: 5,
+    ...over,
+  };
+}
+
 function trip(over: Partial<Trip> = {}): Trip {
   return {
     id: 1,
@@ -77,6 +90,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetMaplibreMock();
   state.trackerParts = [];
+  state.trackerMarkers = [];
   state.focusedPart = null;
   state.trackerTag = '';
   state.trackerWindow = { before: '7d', after: '7d' };
@@ -136,10 +150,21 @@ describe('Tracker page', () => {
     await user.click(screen.getByLabelText('Tag'));
     const listbox = await screen.findByRole('listbox');
     await user.click(within(listbox).getByText('pgconf'));
-    // Window seeded from the tag's span before reloading for the tag.
-    expect(setTrackerWindow).toHaveBeenCalled();
-    const seeded = setTrackerWindow.mock.calls[0][0] as { before: string; after: string };
+    // The seeded window is passed straight to loadTracker under the new tag, so
+    // a past-trip tag reloads with its own span rather than the default window.
+    const call = loadTracker.mock.calls.find((c) => c[0]?.tag === 'pgconf');
+    expect(call).toBeTruthy();
+    const seeded = call![0].window as { before: string; after: string };
     expect(seeded.before).toMatch(/^\d+d$/);
     expect(seeded.after).toMatch(/^\d+d$/);
+  });
+
+  it('lists non-flight venue events under a Places heading', () => {
+    state.trackerMarkers = [
+      marker({ plan_part_id: 9, type: 'dining', label: 'Founding Farmers', when: '2026-01-02T23:30:00Z' }),
+    ];
+    renderTracker();
+    expect(screen.getByText('Places')).toBeInTheDocument();
+    expect(screen.getByText('Founding Farmers')).toBeInTheDocument();
   });
 });
