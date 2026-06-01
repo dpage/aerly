@@ -11,6 +11,32 @@ import (
 	"github.com/dpage/aerly/internal/planops"
 )
 
+func TestRoundTripTitle(t *testing.T) {
+	fl := func(ident, o, d string) planops.ExtractedPart {
+		return planops.ExtractedPart{Type: "flight", Flight: planops.FlightFields{Ident: ident, OriginIATA: o, DestIATA: d}}
+	}
+	rt := planops.ExtractedPlan{Type: "flight", Title: "BA217 out",
+		Parts: []planops.ExtractedPart{fl("BA217", "LHR", "IAD"), fl("BA292", "IAD", "LHR")}}
+	if got, ok := roundTripTitle(rt); !ok || got != "BA217 LHR ↔ IAD" {
+		t.Errorf("round-trip title = %q, %v; want %q, true", got, ok, "BA217 LHR ↔ IAD")
+	}
+	// One-way: not a round trip.
+	if _, ok := roundTripTitle(planops.ExtractedPlan{Type: "flight",
+		Parts: []planops.ExtractedPart{fl("BA286", "LHR", "LIS")}}); ok {
+		t.Error("one-way flight should not get a round-trip title")
+	}
+	// Open-jaw (doesn't return to the origin): keep the extracted title.
+	if _, ok := roundTripTitle(planops.ExtractedPlan{Type: "flight",
+		Parts: []planops.ExtractedPart{fl("X1", "LHR", "JFK"), fl("X2", "JFK", "LAX")}}); ok {
+		t.Error("open-jaw itinerary should not get a round-trip title")
+	}
+	// Non-flight: untouched.
+	if _, ok := roundTripTitle(planops.ExtractedPlan{Type: "ground",
+		Parts: []planops.ExtractedPart{{Type: "ground"}, {Type: "ground"}}}); ok {
+		t.Error("non-flight should not get a round-trip title")
+	}
+}
+
 func TestMergeSameBooking(t *testing.T) {
 	leg := func(ident string) planops.ExtractedPart {
 		return planops.ExtractedPart{Type: "flight", Confidence: "high", Flight: planops.FlightFields{Ident: ident}}

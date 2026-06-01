@@ -364,7 +364,44 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 		}
 		out = append(out, ep)
 	}
-	return mergeSameBooking(out), nil
+	merged := mergeSameBooking(out)
+	for i := range merged {
+		if t, ok := roundTripTitle(merged[i]); ok {
+			merged[i].Title = t
+		}
+	}
+	return merged, nil
+}
+
+// roundTripTitle builds a tidy title for a there-and-back flight plan, e.g.
+// "BA217 LHR ↔ IAD" — the outbound flight number and route, with a two-way
+// arrow signalling the return. ok is false for anything that isn't a clean
+// round trip (one-way, multi-city / open-jaw, or missing endpoints), so the
+// caller keeps the extracted title.
+func roundTripTitle(p planops.ExtractedPlan) (string, bool) {
+	if p.Type != "flight" || len(p.Parts) < 2 {
+		return "", false
+	}
+	first, last := p.Parts[0], p.Parts[len(p.Parts)-1]
+	origin := firstNonEmpty(first.Flight.OriginIATA, first.StartLabel)
+	dest := firstNonEmpty(first.Flight.DestIATA, first.EndLabel)
+	backTo := firstNonEmpty(last.Flight.DestIATA, last.EndLabel)
+	// A round trip ends where it began.
+	if origin == "" || dest == "" || !strings.EqualFold(origin, backTo) {
+		return "", false
+	}
+	route := strings.ToUpper(origin) + " ↔ " + strings.ToUpper(dest)
+	if ident := strings.ToUpper(strings.TrimSpace(first.Flight.Ident)); ident != "" {
+		return ident + " " + route, true
+	}
+	return route, true
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
 }
 
 // mergeSameBooking folds plans that are really one booking — same type and a
