@@ -71,7 +71,7 @@ export default function TripDetail() {
             <TagInput
               value={loaded.tags}
               onChange={(labels) => void setTripTags(tripId, labels)}
-              helperText="Tags group trips so people find each other — they never grant access (PRD §6.6)."
+              helperText="Tags group trips so people find each other — they never grant access."
             />
           </Stack>
         </Box>
