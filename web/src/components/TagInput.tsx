@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Autocomplete, Chip, TextField } from '@mui/material';
 
 import { useStore } from '../state/store';
+import { labelOnDefaultBgSx } from '../theme';
 
 /** Normalise a label the way the backend does: trimmed, lower-cased. Keeps the
  * de-dupe in the combo consistent with what `setTripTags` will store. */
@@ -101,21 +102,9 @@ export default function TagInput({
           label={label}
           placeholder="Add a tag…"
           helperText={helperText ?? 'Type to create or match a shared tag, e.g. pgconf-eu-26.'}
-          // The global theme paints the shrunk outlined label a solid paper
-          // colour to cover the border (the Safari notch workaround in
-          // theme.ts). This input sits on `background.default`, not a Paper
-          // surface, so repaint its label to match — otherwise the paper
-          // colour shows as a faint lighter seam behind the label (most
-          // visible in dark mode).
-          slotProps={{
-            inputLabel: {
-              sx: {
-                '&.MuiInputLabel-shrink.MuiInputLabel-outlined': {
-                  backgroundColor: 'background.default',
-                },
-              },
-            },
-          }}
+          // This input sits on background.default, not a Paper surface, so its
+          // shrunk label needs to match that surface — see labelOnDefaultBgSx.
+          slotProps={{ inputLabel: { sx: labelOnDefaultBgSx } }}
         />
       )}
     />

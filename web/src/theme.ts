@@ -1,10 +1,22 @@
 import { useEffect, useState } from 'react';
-import { createTheme, type Theme } from '@mui/material';
+import { createTheme, type SxProps, type Theme } from '@mui/material';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ThemeMode = 'light' | 'dark';
 
 export const THEME_STORAGE_KEY = 'aerly:theme';
+
+/** sx for an outlined input/select label that sits on `background.default`
+ * rather than a Paper surface. The global MuiInputLabel override paints the
+ * shrunk label a solid paper colour to cover the border (the Safari notch
+ * workaround below); on a non-paper surface that paper colour shows as a
+ * mismatched seam, so repaint the label to match the surface it's actually on.
+ * Apply to the InputLabel (directly, or via TextField slotProps.inputLabel). */
+export const labelOnDefaultBgSx: SxProps<Theme> = {
+  '&.MuiInputLabel-shrink.MuiInputLabel-outlined': {
+    backgroundColor: 'background.default',
+  },
+};
 
 export function createAppTheme(mode: ThemeMode): Theme {
   return createTheme({

@@ -18,6 +18,7 @@ import {
 
 import { useStore } from '../state/store';
 import { tripSpan } from '../lib/trip-format';
+import { labelOnDefaultBgSx } from '../theme';
 import TrackerMap from '../components/TrackerMap';
 
 /** Parse a window token like "7d" into a day count. Defaults to 7 on garbage. */
@@ -147,7 +148,9 @@ export default function Tracker() {
             sx={{ mb: 1 }}
           >
             <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel id="tracker-tag-label">Tag</InputLabel>
+              <InputLabel id="tracker-tag-label" sx={labelOnDefaultBgSx}>
+                Tag
+              </InputLabel>
               <Select
                 labelId="tracker-tag-label"
                 label="Tag"
@@ -165,7 +168,7 @@ export default function Tracker() {
               </Select>
             </FormControl>
 
-            <Box sx={{ minWidth: 180 }}>
+            <Box sx={{ minWidth: 180, px: 2 }}>
               <Typography variant="caption" color="text.secondary" id="tracker-before-label">
                 From {before}d before
               </Typography>
@@ -184,7 +187,7 @@ export default function Tracker() {
               />
             </Box>
 
-            <Box sx={{ minWidth: 180 }}>
+            <Box sx={{ minWidth: 180, px: 2 }}>
               <Typography variant="caption" color="text.secondary" id="tracker-after-label">
                 To {after}d after
               </Typography>
