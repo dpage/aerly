@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import maplibregl, {
-  type ExpressionSpecification,
   type LngLatBoundsLike,
   type Map as MlMap,
   type MapGeoJSONFeature,
@@ -8,9 +7,9 @@ import maplibregl, {
 } from 'maplibre-gl';
 import { Box, Collapse, List, ListItemButton, ListItemText, Typography } from '@mui/material';
 
-import type { PlanPart, PlanType } from '../api/types';
+import type { PlanPart } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
-import { planTypeColor } from '../lib/plan-marker';
+import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
 import {
   fmtPartPlaces,
   fmtPartTimeRange,
@@ -35,21 +34,8 @@ const STYLE: StyleSpecification = {
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
 };
 
-const POINTS = 'pmv-points';
 const LEGS = 'pmv-legs';
 const TRACK = 'pmv-track';
-
-const PLAN_TYPES: PlanType[] = ['flight', 'train', 'hotel', 'ground', 'dining', 'excursion'];
-
-// Data-driven colour for a feature, keyed off its `type` property — the same
-// per-type palette the pins use (web/src/lib/plan-marker.ts). Built as a plain
-// array and cast: the `match` tuple shape doesn't survive a spread in TS.
-const typeColor = [
-  'match',
-  ['get', 'type'],
-  ...PLAN_TYPES.flatMap((t) => [t, planTypeColor(t)]),
-  '#6b7280',
-] as unknown as ExpressionSpecification;
 
 interface Props {
   /** All mappable parts to plot (those with ≥1 coordinate are shown). */
@@ -72,6 +58,8 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
   const containerRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const readyRef = useRef(false);
+  // One teardrop pin per geocoded endpoint, keyed by part + role + coordinate.
+  const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
 
   // Mappable parts only (need at least one coordinate), time-ordered.
   const ordered = useMemo(() => {
@@ -93,6 +81,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
   // --- map init (once) ------------------------------------------------------
   useEffect(() => {
     if (!containerRef.current) return;
+    const markers = markersRef.current;
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: STYLE,
@@ -102,20 +91,23 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     mapRef.current = map;
     map.once('load', () => {
-      for (const id of [LEGS, TRACK, POINTS]) {
+      for (const id of [LEGS, TRACK]) {
         map.addSource(id, { type: 'geojson', data: emptyFC() });
       }
+      // The planned great-circle per transfer, coloured by type, the selected
+      // one drawn solid + wide. (Pins are DOM markers, synced separately.)
       map.addLayer({
         id: LEGS,
         type: 'line',
         source: LEGS,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': typeColor,
+          'line-color': ['get', 'color'],
           'line-width': ['case', ['get', 'selected'], 4, 2],
           'line-opacity': ['case', ['get', 'selected'], 1, 0.45],
         },
       });
+      // The selected flight's flown track over the planned arc.
       map.addLayer({
         id: TRACK,
         type: 'line',
@@ -123,38 +115,26 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#d97706', 'line-width': 3 },
       });
-      map.addLayer({
-        id: POINTS,
-        type: 'circle',
-        source: POINTS,
-        paint: {
-          'circle-color': typeColor,
-          'circle-radius': ['case', ['get', 'selected'], 9, 6],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#fff',
-          'circle-opacity': ['case', ['get', 'dim'], 0.4, 1],
-        },
-      });
       readyRef.current = true;
-      // Select on feature click (both layers); pointer cursor on hover.
-      for (const layer of [POINTS, LEGS]) {
-        map.on('click', layer, (e) => {
-          const f = e.features?.[0] as MapGeoJSONFeature | undefined;
-          const pid = f?.properties?.partId;
-          if (typeof pid === 'number') setSelectedId((cur) => (cur === pid ? null : pid));
-        });
-        map.on('mouseenter', layer, () => {
-          map.getCanvas().style.cursor = 'pointer';
-        });
-        map.on('mouseleave', layer, () => {
-          map.getCanvas().style.cursor = '';
-        });
-      }
+      // Clicking a leg selects its part; pointer cursor on hover.
+      map.on('click', LEGS, (e) => {
+        const f = e.features?.[0] as MapGeoJSONFeature | undefined;
+        const pid = f?.properties?.partId;
+        if (typeof pid === 'number') setSelectedId((cur) => (cur === pid ? null : pid));
+      });
+      map.on('mouseenter', LEGS, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', LEGS, () => {
+        map.getCanvas().style.cursor = '';
+      });
       // Trigger the first data sync now that the sources exist.
       syncRef.current?.();
     });
     return () => {
       readyRef.current = false;
+      markers.forEach((m) => m.remove());
+      markers.clear();
       map.remove();
       mapRef.current = null;
     };
@@ -166,14 +146,55 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
   syncRef.current = () => {
     const map = mapRef.current;
     if (!map || !readyRef.current) return;
-    const pointsSrc = map.getSource(POINTS) as maplibregl.GeoJSONSource | undefined;
     const legsSrc = map.getSource(LEGS) as maplibregl.GeoJSONSource | undefined;
     const trackSrc = map.getSource(TRACK) as maplibregl.GeoJSONSource | undefined;
-    if (!pointsSrc || !legsSrc || !trackSrc) return;
-    const anySel = selectedId != null;
-    pointsSrc.setData(pointsFC(ordered, selectedId, anySel));
+    if (!legsSrc || !trackSrc) return;
     legsSrc.setData(legsFC(ordered, selectedId));
     trackSrc.setData(trackFC(selected));
+
+    // Sync the teardrop pins (one per geocoded endpoint). Reuse existing
+    // markers, drop stale ones, and dim the unselected when something's picked.
+    const anySel = selectedId != null;
+    const live = new Set<string>();
+    for (const p of ordered) {
+      for (const ep of endpoints(p)) {
+        const key = `${p.id}:${ep.role}:${ep.lon},${ep.lat}`;
+        live.add(key);
+        let marker = markersRef.current.get(key);
+        if (!marker) {
+          const el = buildPinEl(p.type);
+          el.dataset.partId = String(p.id);
+          el.dataset.role = ep.role;
+          el.addEventListener('click', () =>
+            setSelectedId((cur) => (cur === p.id ? null : p.id)),
+          );
+          marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+            .setLngLat([ep.lon, ep.lat])
+            .setPopup(
+              new maplibregl.Popup({ offset: 30, closeButton: false }).setDOMContent(
+                buildMarkerPopup({
+                  title: partTitle(p),
+                  type: p.type,
+                  location: ep.label,
+                  iso: ep.iso,
+                  tz: ep.tz,
+                }),
+              ),
+            )
+            .addTo(map);
+          markersRef.current.set(key, marker);
+        }
+        const el = marker.getElement();
+        el.style.opacity = anySel && p.id !== selectedId ? '0.4' : '1';
+        el.style.zIndex = p.id === selectedId ? '1' : '0';
+      }
+    }
+    for (const [key, marker] of markersRef.current) {
+      if (!live.has(key)) {
+        marker.remove();
+        markersRef.current.delete(key);
+      }
+    }
   };
 
   useEffect(() => {
@@ -323,19 +344,39 @@ function hasBothEnds(p: PlanPart): boolean {
   );
 }
 
-function pointsFC(parts: PlanPart[], selectedId: number | null, anySel: boolean): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = [];
-  for (const p of parts) {
-    const sel = p.id === selectedId;
-    const props = { partId: p.id, type: p.type, selected: sel, dim: anySel && !sel };
-    if (p.start_lat != null && p.start_lon != null) {
-      features.push(pt([p.start_lon, p.start_lat], props));
-    }
-    if (p.end_lat != null && p.end_lon != null) {
-      features.push(pt([p.end_lon, p.end_lat], props));
-    }
+/** A geocoded endpoint of a part, for plotting a pin + its tooltip. */
+interface Endpoint {
+  role: 'start' | 'end';
+  lat: number;
+  lon: number;
+  label: string;
+  iso: string;
+  tz?: string;
+}
+
+function endpoints(p: PlanPart): Endpoint[] {
+  const out: Endpoint[] = [];
+  if (p.start_lat != null && p.start_lon != null) {
+    out.push({
+      role: 'start',
+      lat: p.start_lat,
+      lon: p.start_lon,
+      label: p.start_label,
+      iso: p.starts_at,
+      tz: p.start_tz,
+    });
   }
-  return { type: 'FeatureCollection', features };
+  if (p.end_lat != null && p.end_lon != null) {
+    out.push({
+      role: 'end',
+      lat: p.end_lat,
+      lon: p.end_lon,
+      label: p.end_label,
+      iso: p.ends_at ?? p.starts_at,
+      tz: p.end_tz || p.start_tz,
+    });
+  }
+  return out;
 }
 
 function legsFC(parts: PlanPart[], selectedId: number | null): GeoJSON.FeatureCollection {
@@ -346,7 +387,7 @@ function legsFC(parts: PlanPart[], selectedId: number | null): GeoJSON.FeatureCo
     if (arc.length === 0) continue;
     features.push({
       type: 'Feature',
-      properties: { partId: p.id, type: p.type, selected: p.id === selectedId },
+      properties: { partId: p.id, color: planTypeColor(p.type), selected: p.id === selectedId },
       geometry:
         arc.length === 1
           ? { type: 'LineString', coordinates: arc[0] }
@@ -369,10 +410,6 @@ function trackFC(selected: PlanPart | null): GeoJSON.FeatureCollection {
       },
     ],
   };
-}
-
-function pt(coordinates: [number, number], properties: Record<string, unknown>): GeoJSON.Feature {
-  return { type: 'Feature', properties, geometry: { type: 'Point', coordinates } };
 }
 
 function emptyFC(): GeoJSON.FeatureCollection {

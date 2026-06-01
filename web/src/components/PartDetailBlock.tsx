@@ -1,6 +1,7 @@
 import { Stack } from '@mui/material';
 
 import type { PlanPart } from '../api/types';
+import { isTransferType } from '../lib/trip-format';
 import { Row, Section } from './DetailRows';
 
 /** The expanded detail for a non-flight part in the map list: the type-specific
@@ -17,12 +18,23 @@ export default function PartDetailBlock({ part }: { part: PlanPart }) {
 }
 
 function PlaceSection({ part }: { part: PlanPart }) {
+  // Transfers go between two places, so From/To (each with its address) makes
+  // sense. Everything else happens at a single venue — show just one "Address"
+  // (no "Start"/"End"), which the title already names.
+  if (isTransferType(part.type)) {
+    return (
+      <Section title="Where">
+        <Row label="From" value={part.start_label || null} />
+        <Row label="From address" value={part.start_address || null} />
+        <Row label="To" value={part.end_label || null} />
+        <Row label="To address" value={part.end_address || null} />
+      </Section>
+    );
+  }
+  const address = part.start_address || part.hotel?.address || '';
   return (
     <Section title="Where">
-      <Row label="Start" value={part.start_label || null} />
-      <Row label="Start address" value={part.start_address || null} />
-      <Row label="End" value={part.end_label || null} />
-      <Row label="End address" value={part.end_address || null} />
+      <Row label="Address" value={address || null} />
     </Section>
   );
 }
@@ -33,7 +45,6 @@ function TypeSection({ part }: { part: PlanPart }) {
     return (
       <Section title="Hotel">
         <Row label="Property" value={h.property_name || null} />
-        <Row label="Address" value={h.address || null} />
         <Row label="Phone" value={h.phone || null} />
         <Row label="Room" value={h.room_type || null} />
         <Row label="Guests" value={h.guests ?? null} />
