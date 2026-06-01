@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -43,7 +44,14 @@ type Event struct {
 	Location    string
 	Start       DateTime
 	End         DateTime
+	Geo         *LatLon // the GEO property, when present and parseable
 	Props       []Property
+}
+
+// LatLon is a decoded iCalendar GEO value ("lat;lon").
+type LatLon struct {
+	Lat float64
+	Lon float64
 }
 
 // DateTime is a parsed DTSTART/DTEND value. iCalendar permits three forms:
@@ -130,6 +138,8 @@ func Parse(r io.Reader) (*Calendar, error) {
 			cur.Start = parseDateTime(p)
 		case "DTEND":
 			cur.End = parseDateTime(p)
+		case "GEO":
+			cur.Geo = parseGeo(p.Value)
 		}
 	}
 	if cur != nil {
@@ -235,6 +245,21 @@ func parseDateTime(p Property) DateTime {
 		dt.Time = t
 	}
 	return dt
+}
+
+// parseGeo decodes an iCalendar GEO value, "lat;lon" (RFC 5545 §3.8.1.6), into
+// a LatLon. Returns nil when the value isn't two parseable floats.
+func parseGeo(v string) *LatLon {
+	lat, lon, ok := strings.Cut(strings.TrimSpace(v), ";")
+	if !ok {
+		return nil
+	}
+	la, err1 := strconv.ParseFloat(strings.TrimSpace(lat), 64)
+	lo, err2 := strconv.ParseFloat(strings.TrimSpace(lon), 64)
+	if err1 != nil || err2 != nil {
+		return nil
+	}
+	return &LatLon{Lat: la, Lon: lo}
 }
 
 // indexUnquoted returns the index of the first occurrence of b that is not

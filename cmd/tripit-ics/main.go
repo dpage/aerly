@@ -22,9 +22,10 @@ import (
 
 func main() {
 	raw := flag.Bool("raw", false, "print every raw property of each event")
+	mapMode := flag.Bool("map", false, "show the Aerly trip/plans the .ics would import to (dry run)")
 	flag.Parse()
 	if flag.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: tripit-ics [-raw] path/to/trip.ics")
+		fmt.Fprintln(os.Stderr, "usage: tripit-ics [-raw] [-map] path/to/trip.ics")
 		os.Exit(2)
 	}
 
@@ -43,6 +44,11 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "parse:", err)
 		os.Exit(1)
+	}
+
+	if *mapMode {
+		printMapped(tripitics.MapCalendar(cal))
+		return
 	}
 
 	if cal.ProdID != "" {
@@ -64,6 +70,46 @@ func main() {
 			fmt.Printf("  RAW:\n")
 			for _, p := range ev.Props {
 				fmt.Printf("    %s%s = %q\n", p.Name, fmtParams(p.Params), p.Value)
+			}
+		}
+		fmt.Println()
+	}
+}
+
+// printMapped renders the dry-run import: the trip and the plans (with their
+// single part's key fields) that MapCalendar produced.
+func printMapped(mt *tripitics.MappedTrip) {
+	span := "(no dates)"
+	if mt.StartsOn != nil && mt.EndsOn != nil {
+		span = fmt.Sprintf("%s → %s", mt.StartsOn.Format("2006-01-02"), mt.EndsOn.Format("2006-01-02"))
+	}
+	fmt.Printf("TRIP: %s   %s\n", mt.Name, span)
+	fmt.Printf("%d plan(s):\n\n", len(mt.Plans))
+	for _, p := range mt.Plans {
+		fmt.Printf("  [%s] %s\n", p.Type, p.Title)
+		for _, part := range p.Parts {
+			when := part.StartsAt.Format("2006-01-02 15:04 MST")
+			if part.StartTZ != "" {
+				when += " (" + part.StartTZ + ")"
+			}
+			fmt.Printf("      start: %s\n", when)
+			if part.EndsAt != nil {
+				end := part.EndsAt.Format("2006-01-02 15:04 MST")
+				if part.EndTZ != "" {
+					end += " (" + part.EndTZ + ")"
+				}
+				fmt.Printf("      end:   %s\n", end)
+			}
+			switch {
+			case part.Flight != nil:
+				fmt.Printf("      flight %s %s→%s, status=%s\n",
+					part.Flight.Ident, part.Flight.OriginIATA, part.Flight.DestIATA, part.Flight.FlightStatus)
+			case part.Hotel != nil:
+				fmt.Printf("      hotel %q  %s\n", part.Hotel.PropertyName, part.Hotel.Phone)
+			case part.Train != nil:
+				fmt.Printf("      train %q  %s→%s\n", part.Train.Operator, part.StartLabel, part.EndLabel)
+			case part.Ground != nil:
+				fmt.Printf("      ground %q  %s→%s\n", part.Ground.Provider, part.StartLabel, part.EndLabel)
 			}
 		}
 		fmt.Println()
