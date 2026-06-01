@@ -179,6 +179,7 @@ func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, dto)
 		a.publishPlanUpdated(r.Context(), dto.TripID, dto.ID)
+		a.geocodePlanAsync(dto.TripID, dto.ID)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -207,13 +208,15 @@ func toConfirmPlanInput(p ingestConfirmPlanReq) planops.ConfirmPlanInput {
 			EndsAt:     cp.EndsAt,
 			StartTZ:    cp.StartTZ,
 			EndTZ:      cp.EndTZ,
-			StartLabel: cp.StartLabel,
-			StartLat:   cp.StartLat,
-			StartLon:   cp.StartLon,
-			EndLabel:   cp.EndLabel,
-			EndLat:     cp.EndLat,
-			EndLon:     cp.EndLon,
-			Status:     cp.Status,
+			StartLabel:   cp.StartLabel,
+			StartLat:     cp.StartLat,
+			StartLon:     cp.StartLon,
+			StartAddress: cp.StartAddress,
+			EndLabel:     cp.EndLabel,
+			EndLat:       cp.EndLat,
+			EndLon:       cp.EndLon,
+			EndAddress:   cp.EndAddress,
+			Status:       cp.Status,
 			Flight:     cp.Flight,
 			Hotel:      cp.Hotel,
 			Train:      cp.Train,
@@ -244,11 +247,13 @@ func toProposedPlanDTO(p planops.ProposedPlan) api.ProposedPlanDTO {
 			Seq:        i,
 			StartsAt:   part.StartsAt,
 			EndsAt:     part.EndsAt,
-			StartTZ:    part.StartTZ,
-			EndTZ:      part.EndTZ,
-			StartLabel: part.StartLabel,
-			EndLabel:   part.EndLabel,
-			Status:     part.Status,
+			StartTZ:      part.StartTZ,
+			EndTZ:        part.EndTZ,
+			StartLabel:   part.StartLabel,
+			EndLabel:     part.EndLabel,
+			StartAddress: part.StartAddress,
+			EndAddress:   part.EndAddress,
+			Status:       part.Status,
 		}
 		dto.Parts = append(dto.Parts, api.ToPlanPartDTO(sp,
 			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, nil))

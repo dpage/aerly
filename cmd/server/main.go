@@ -21,6 +21,7 @@ import (
 	"github.com/dpage/aerly/internal/config"
 	"github.com/dpage/aerly/internal/db"
 	"github.com/dpage/aerly/internal/emailingest"
+	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/handlers"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/poller"
@@ -95,6 +96,12 @@ func run() error {
 		slog.Info("resolver: aerodatabox (cached, ttl=24h; poller uses uncached)")
 	}
 	api := handlers.New(s, authH, hub, cfg, resolver)
+	// Geocode part addresses (hotels, taxis, …) into map coordinates via the
+	// public OSM Nominatim service. The User-Agent identifies us per policy.
+	api.Geocoder = geocode.NewNominatim("aerly (+" + cfg.PublicURL + ")")
+	// One-off: anchor any historical parts that have coordinates but no
+	// timezone to their real zone (idempotent, best-effort).
+	go api.BackfillPartTimezones(context.Background())
 
 	// Pick the upstream tracker. OpenSky if credentials are configured (or
 	// anonymous OpenSky if requested), otherwise the in-memory stub. The

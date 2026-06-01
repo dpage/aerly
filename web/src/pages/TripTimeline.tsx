@@ -1,14 +1,12 @@
-import { useMemo, useState } from 'react';
+import { type MouseEvent, useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Button,
   Card,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
+  Collapse,
+  Divider,
   Link,
   Stack,
   Typography,
@@ -24,6 +22,7 @@ import PlanAlertToggle from '../components/PlanAlertToggle';
 import AddToTripDialog from '../components/AddToTripDialog';
 import {
   buildTimeline,
+  fmtPartPlaces,
   fmtPartTimeRange,
   fmtTimeOfDay,
   planTypeLabel,
@@ -73,14 +72,16 @@ export default function TripTimeline() {
     return new Set([...partsByPlan].filter(([, s]) => s.size > 1).map(([id]) => id));
   }, [days]);
 
-  // Track the open plan by id (not a captured snapshot) so the detail dialog
-  // reflects live updates after a privacy/passenger/alert mutation reloads the
-  // trip, rather than showing a stale copy.
-  const [planDetailId, setPlanDetailId] = useState<number | null>(null);
-  const planDetail = useMemo(
-    () => plans.find((p) => p.id === planDetailId) ?? null,
-    [plans, planDetailId],
-  );
+  // Tiles expand in place (multiple at once) rather than opening a modal, so a
+  // whole day can be unfolded side by side. Keyed by the tile key.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const [addOpen, setAddOpen] = useState(false);
 
   if (!currentTrip) {
@@ -133,22 +134,25 @@ export default function TripTimeline() {
             {day.label}
           </Typography>
           <Stack spacing={1.5} sx={{ mt: 1.5 }}>
-            {day.parts.map(({ part, plan, edge }) => (
-              <PartCard
-                key={`${part.id}${edge ? `-${edge}` : ''}`}
-                part={part}
-                plan={plan}
-                edge={edge}
-                accent={accentFor(planIds, plan.id)}
-                multiPart={multiPartPlanIds.has(plan.id)}
-                onOpenPlan={() => setPlanDetailId(plan.id)}
-              />
-            ))}
+            {day.parts.map(({ part, plan, edge }) => {
+              const key = `${part.id}${edge ? `-${edge}` : ''}`;
+              return (
+                <PartCard
+                  key={key}
+                  part={part}
+                  plan={plan}
+                  trip={currentTrip}
+                  edge={edge}
+                  accent={accentFor(planIds, plan.id)}
+                  multiPart={multiPartPlanIds.has(plan.id)}
+                  expanded={expanded.has(key)}
+                  onToggle={() => toggle(key)}
+                />
+              );
+            })}
           </Stack>
         </Box>
       ))}
-
-      <PlanDetailDialog plan={planDetail} trip={currentTrip} onClose={() => setPlanDetailId(null)} />
     </Box>
   );
 }
@@ -156,14 +160,29 @@ export default function TripTimeline() {
 interface PartCardProps {
   part: PlanPart;
   plan: Plan;
+  trip: Trip;
   /** Set for the two tiles of a multi-night hotel stay (see buildTimeline). */
   edge?: 'check-in' | 'check-out';
   accent: string;
   multiPart: boolean;
-  onOpenPlan: () => void;
+  expanded: boolean;
+  onToggle: () => void;
 }
 
-function PartCard({ part, plan, edge, accent, multiPart, onOpenPlan }: PartCardProps) {
+/** A timeline tile. Tapping the header expands it in place (PRD §6.2 tap-through
+ * to the whole plan) to reveal the address, type-specific detail, notes and the
+ * per-plan actions — owners/editors get Edit / "Privacy & passengers" / Delete
+ * (§6.4), viewers get the "Notify me of changes" opt-in (§6.8). */
+function PartCard({ part, plan, trip, edge, accent, multiPart, expanded, onToggle }: PartCardProps) {
+  const deletePlan = useStore((s) => s.deletePlan);
+  const setError = useStore((s) => s.setError);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
+  const isViewer = trip.my_role === 'viewer';
+
   // A cancelled part stays on the timeline, greyed out, until it's tidied
   // away (PRD §6.2/§6.9). On a rebooking the OLD part is the one stamped
   // `status='cancelled'` and marked superseded — the NEW part carries
@@ -171,21 +190,42 @@ function PartCard({ part, plan, edge, accent, multiPart, onOpenPlan }: PartCardP
   // `status === 'cancelled'`, which also correctly greys a plain cancellation.
   // Dismissed parts are already dropped by buildTimeline().
   const greyed = part.status === 'cancelled';
+  const places = fmtPartPlaces(part.type, part.start_label, part.end_label);
+  const addr = fmtPartPlaces(part.type, part.start_address, part.end_address);
+  const details = partDetailLines(part);
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete "${plan.title || planTypeLabel(plan.type)}" from this trip?`)) return;
+    setBusy(true);
+    try {
+      await deletePlan(plan.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Clicks inside the expanded body shouldn't fold the card back up.
+  const stop = (e: MouseEvent) => e.stopPropagation();
 
   return (
     <Card
       variant="outlined"
-      onClick={onOpenPlan}
+      onClick={onToggle}
       sx={{
         position: 'relative',
-        cursor: 'pointer',
         opacity: greyed ? 0.55 : 1,
         borderLeft: `4px solid ${accent}`,
-        '&:hover': { boxShadow: 1 },
       }}
       data-testid={`part-card-${part.id}${edge ? `-${edge}` : ''}`}
     >
-      <Stack direction="row" spacing={1.5} sx={{ p: 1.5 }} alignItems="flex-start">
+      <Stack
+        direction="row"
+        spacing={1.5}
+        sx={{ p: 1.5, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+        alignItems="flex-start"
+      >
         <PlanTypeIcon type={part.type} sx={{ color: accent, mt: 0.25 }} />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
@@ -208,10 +248,11 @@ function PartCard({ part, plan, edge, accent, multiPart, onOpenPlan }: PartCardP
             )}
           </Stack>
 
-          <Typography variant="body2" color="text.secondary" noWrap>
-            {part.start_label}
-            {part.end_label ? ` → ${part.end_label}` : ''}
-          </Typography>
+          {places && places !== (plan.title || planTypeLabel(part.type)) && (
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {places}
+            </Typography>
+          )}
 
           <Typography variant="caption" color="text.secondary">
             {edge === 'check-in'
@@ -231,7 +272,7 @@ function PartCard({ part, plan, edge, accent, multiPart, onOpenPlan }: PartCardP
             <Link
               component={RouterLink}
               to={`/tracker?part=${part.id}`}
-              onClick={(e) => e.stopPropagation()}
+              onClick={stop}
               variant="caption"
               sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}
             >
@@ -240,92 +281,46 @@ function PartCard({ part, plan, edge, accent, multiPart, onOpenPlan }: PartCardP
           )}
         </Box>
       </Stack>
-    </Card>
-  );
-}
 
-/** Tap-through detail: lists the whole plan and all its parts so a user who
- * tapped any one part sees the entire booking (PRD §6.2). Owners/editors get
- * the per-plan "Who can see this?" + passengers control and a delete action
- * (PRD §6.4); viewers get the per-plan "Notify me of changes" opt-in (§6.8). */
-function PlanDetailDialog({ plan, trip, onClose }: { plan: Plan | null; trip: Trip; onClose: () => void }) {
-  const deletePlan = useStore((s) => s.deletePlan);
-  const setError = useStore((s) => s.setError);
-  const [privacyOpen, setPrivacyOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
-  const isViewer = trip.my_role === 'viewer';
-
-  if (!plan) return null;
-  const parts = [...plan.parts].sort(
-    (a, b) => new Date(a.effective_at ?? a.starts_at).getTime() - new Date(b.effective_at ?? b.starts_at).getTime(),
-  );
-
-  const handleDelete = async () => {
-    if (!window.confirm(`Delete "${plan.title || planTypeLabel(plan.type)}" from this trip?`)) return;
-    setBusy(true);
-    try {
-      await deletePlan(plan.id);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <Dialog open={plan !== null} onClose={onClose} fullWidth maxWidth="xs">
-        <DialogTitle>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <PlanTypeIcon type={plan.type} fontSize="small" />
-            <span>{plan.title || planTypeLabel(plan.type)}</span>
-          </Stack>
-        </DialogTitle>
-        <DialogContent>
-          {plan.confirmation_ref && (
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              Confirmation: {plan.confirmation_ref}
+      <Collapse in={expanded} unmountOnExit>
+        <Box onClick={stop} sx={{ px: 1.5, pb: 1.5, pl: 5.5 }}>
+          <Divider sx={{ mb: 1 }} />
+          {addr && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {addr}
             </Typography>
           )}
-          <Stack spacing={1.5} sx={{ mt: 1 }}>
-            {parts.map((part) => (
-              <Box key={part.id} sx={{ opacity: part.dismissed_at ? 0.5 : 1 }}>
-                <Typography variant="subtitle2">
-                  {part.start_label}
-                  {part.end_label ? ` → ${part.end_label}` : ''}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {fmtPartTimeRange(part)}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
+          {details.map((line, i) => (
+            <Typography key={i} variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {line}
+            </Typography>
+          ))}
           {plan.notes && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
               {plan.notes}
             </Typography>
           )}
           {isViewer && (
-            <Box sx={{ mt: 2, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+            <Box sx={{ mt: 0.5 }}>
               <PlanAlertToggle plan={plan} />
             </Box>
           )}
-        </DialogContent>
-        <DialogActions>
           {canEdit && (
-            <Button color="error" onClick={() => void handleDelete()} disabled={busy} sx={{ mr: 'auto' }}>
-              Delete
-            </Button>
+            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+              <Button size="small" onClick={() => setEditOpen(true)}>
+                Edit
+              </Button>
+              <Button size="small" onClick={() => setPrivacyOpen(true)}>
+                Privacy &amp; passengers
+              </Button>
+              <Button size="small" color="error" onClick={() => void handleDelete()} disabled={busy}>
+                Delete
+              </Button>
+            </Stack>
           )}
-          {canEdit && <Button onClick={() => setEditOpen(true)}>Edit</Button>}
-          {canEdit && <Button onClick={() => setPrivacyOpen(true)}>Privacy &amp; passengers</Button>}
-          <Button onClick={onClose}>Close</Button>
-        </DialogActions>
-      </Dialog>
+        </Box>
+      </Collapse>
+
       {canEdit && privacyOpen && (
         <PlanPrivacyDialog
           open={privacyOpen}
@@ -337,6 +332,50 @@ function PlanDetailDialog({ plan, trip, onClose }: { plan: Plan | null; trip: Tr
       {canEdit && editOpen && (
         <PlanEditDialog open={editOpen} plan={plan} onClose={() => setEditOpen(false)} />
       )}
-    </>
+    </Card>
   );
+}
+
+/** Type-specific detail lines for the plan-detail dialog, so a tapped plan
+ * shows what it actually is (room type, operator, reservation…) not just a
+ * place and time. Each returned string renders as its own caption line. */
+function partDetailLines(part: PlanPart): string[] {
+  const join = (...bits: (string | undefined)[]) => bits.filter(Boolean).join(' · ');
+  const out: string[] = [];
+  switch (part.type) {
+    case 'hotel':
+      if (part.hotel) out.push(join(part.hotel.room_type, part.hotel.phone));
+      break;
+    case 'train':
+      if (part.train) {
+        out.push(join(part.train.operator, part.train.service_no, part.train.class));
+        out.push(
+          join(
+            part.train.coach && `Coach ${part.train.coach}`,
+            part.train.seat && `Seat ${part.train.seat}`,
+            part.train.platform && `Platform ${part.train.platform}`,
+          ),
+        );
+      }
+      break;
+    case 'ground':
+      if (part.ground) out.push(join(part.ground.provider, part.ground.vehicle, part.ground.phone));
+      break;
+    case 'dining':
+      if (part.dining)
+        out.push(
+          join(
+            part.dining.reservation_name && `Reservation: ${part.dining.reservation_name}`,
+            part.dining.phone,
+          ),
+        );
+      break;
+    case 'excursion':
+      if (part.excursion) out.push(part.excursion.provider);
+      break;
+    case 'flight':
+      if (part.flight) out.push(join(part.flight.ident, part.flight.flight_status));
+      break;
+  }
+  return out.filter(Boolean);
 }

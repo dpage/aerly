@@ -3,6 +3,7 @@ package planops
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,13 +36,15 @@ func (e env) mkUser(t *testing.T) int64 {
 	return testsupport.InsertUser(t, e.pool, fmt.Sprintf("user%d", userSeq.Add(1)), false, true)
 }
 
-// fakeExtractor returns canned plans, ignoring its inputs.
+// fakeExtractor returns canned plans, recording the body it was called with.
 type fakeExtractor struct {
-	plans []ExtractedPlan
-	err   error
+	plans    []ExtractedPlan
+	err      error
+	lastBody string
 }
 
-func (f *fakeExtractor) ExtractPlans(_ context.Context, _ string, _ []Document) ([]ExtractedPlan, error) {
+func (f *fakeExtractor) ExtractPlans(_ context.Context, body string, _ []Document) ([]ExtractedPlan, error) {
+	f.lastBody = body
 	return f.plans, f.err
 }
 
@@ -81,6 +84,33 @@ func (e env) mkFlightPlan(t *testing.T, tripID, userID int64, ident, ref string,
 		t.Fatalf("PartsByPlan = %d, %v", len(parts), err)
 	}
 	return plan.ID, parts[0].ID
+}
+
+// TestPropose_InjectsHomeAddressContext checks the traveller's home address is
+// prepended to the extractor input so references like "from home" resolve.
+func TestPropose_InjectsHomeAddressContext(t *testing.T) {
+	e := newEnv(t)
+	s := e.s
+	owner := e.mkUser(t)
+	addr := "12 Acacia Avenue, Reading"
+	if _, err := s.UpdateUser(ctx, owner, store.UpdateUserPayload{HomeAddress: &addr}); err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+	trip := e.mkTrip(t, owner)
+	fx := &fakeExtractor{plans: []ExtractedPlan{{
+		Type: "ground", Title: "Taxi",
+		Parts: []ExtractedPart{{Type: "ground", Confidence: "high", StartDate: "2026-04-07"}},
+	}}}
+	deps := Deps{Store: s, Extractor: fx}
+	if _, err := Propose(ctx, deps, owner, trip, "Taxi from home to LHR T5", nil); err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	if !strings.Contains(fx.lastBody, addr) {
+		t.Errorf("extractor body missing home address: %q", fx.lastBody)
+	}
+	if !strings.Contains(fx.lastBody, "Taxi from home to LHR T5") {
+		t.Errorf("extractor body dropped original text: %q", fx.lastBody)
+	}
 }
 
 // TestPropose_RebookingMatchByPNR proposes a flight that shares the trip's

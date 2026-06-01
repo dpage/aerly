@@ -18,6 +18,7 @@ type UserDTO struct {
 	IsSuperuser bool       `json:"is_superuser"`
 	IsActive    bool       `json:"is_active"`
 	HasLoggedIn bool       `json:"has_logged_in"`
+	HomeAddress string     `json:"home_address"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 }
 
@@ -32,6 +33,7 @@ func ToUserDTO(u *store.User) UserDTO {
 		// A user has "logged in" once any provider has linked an identity
 		// to them, which last_login_at tracks.
 		HasLoggedIn: u.LastLoginAt != nil,
+		HomeAddress: u.HomeAddress,
 		LastLoginAt: u.LastLoginAt,
 	}
 }
@@ -256,6 +258,9 @@ type TripDTO struct {
 	Destination string          `json:"destination"`
 	StartsOn    *string         `json:"starts_on,omitempty"` // YYYY-MM-DD
 	EndsOn      *string         `json:"ends_on,omitempty"`
+	// Inferred from the trip's parts when StartsOn/EndsOn aren't set (list only).
+	EffectiveStart *string      `json:"effective_start,omitempty"` // YYYY-MM-DD
+	EffectiveEnd   *string      `json:"effective_end,omitempty"`
 	CreatedBy   *int64          `json:"created_by,omitempty"`
 	MyRole      string          `json:"my_role"` // owner|editor|viewer
 	Members     []TripMemberDTO `json:"members"`
@@ -333,9 +338,11 @@ type PlanPartDTO struct {
 	StartLabel   string              `json:"start_label"`
 	StartLat     *float64            `json:"start_lat,omitempty"`
 	StartLon     *float64            `json:"start_lon,omitempty"`
+	StartAddress string              `json:"start_address"`
 	EndLabel     string              `json:"end_label"`
 	EndLat       *float64            `json:"end_lat,omitempty"`
 	EndLon       *float64            `json:"end_lon,omitempty"`
+	EndAddress   string              `json:"end_address"`
 	Status       string              `json:"status"`
 	EffectiveAt  time.Time           `json:"effective_at"`
 	SupersedesID *int64              `json:"supersedes_id,omitempty"`
@@ -430,6 +437,28 @@ type TrackerPartDTO struct {
 	LatestPosition *PositionDTO `json:"latest_position,omitempty"`
 }
 
+// TrackerMarkerDTO is one geocoded non-flight place plotted on the tracker map
+// (a hotel, a taxi pickup/dropoff, a dining spot…) — one per coordinate.
+type TrackerMarkerDTO struct {
+	PlanPartID int64   `json:"plan_part_id"`
+	TripID     int64   `json:"trip_id"`
+	Type       string  `json:"type"`
+	Label      string  `json:"label"`
+	Lat        float64 `json:"lat"`
+	Lon        float64 `json:"lon"`
+	// Instant (RFC3339) + tz of this endpoint, so the map tooltip shows a
+	// local time. Null when the endpoint has no meaningful time.
+	When *string `json:"when,omitempty"`
+	Tz   string  `json:"tz,omitempty"`
+}
+
+// TrackerResponseDTO is the tracker payload: flight convergence parts plus the
+// in-window venue markers overlaid on the same map.
+type TrackerResponseDTO struct {
+	Parts   []TrackerPartDTO   `json:"parts"`
+	Markers []TrackerMarkerDTO `json:"markers"`
+}
+
 // TagSuggestionDTO is one autocomplete entry for GET /api/tags/suggest.
 type TagSuggestionDTO struct {
 	Label string `json:"label"`
@@ -463,6 +492,14 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 	if t.EndsOn != nil {
 		s := t.EndsOn.Format("2006-01-02")
 		dto.EndsOn = &s
+	}
+	if t.EffectiveStart != nil {
+		s := t.EffectiveStart.UTC().Format("2006-01-02")
+		dto.EffectiveStart = &s
+	}
+	if t.EffectiveEnd != nil {
+		s := t.EffectiveEnd.UTC().Format("2006-01-02")
+		dto.EffectiveEnd = &s
 	}
 	return dto
 }
@@ -501,9 +538,11 @@ func ToPlanPartDTO(
 		StartLabel:   p.StartLabel,
 		StartLat:     p.StartLat,
 		StartLon:     p.StartLon,
+		StartAddress: p.StartAddress,
 		EndLabel:     p.EndLabel,
 		EndLat:       p.EndLat,
 		EndLon:       p.EndLon,
+		EndAddress:   p.EndAddress,
 		Status:       p.Status,
 		EffectiveAt:  p.EffectiveAt(),
 		SupersedesID: p.SupersedesID,

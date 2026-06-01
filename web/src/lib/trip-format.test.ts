@@ -4,8 +4,12 @@ import type { Plan, PlanPart, Trip } from '../api/types';
 import {
   buildTimeline,
   classifyTrip,
+  fmtPartPlaces,
   fmtPartTimeRange,
+  fmtLocalDateTime,
   fmtTripDates,
+  plansOutsideTripDates,
+  tzAbbrev,
   hotelNights,
   isHotelBand,
   planTypeLabel,
@@ -125,6 +129,41 @@ describe('fmtTripDates', () => {
   it('handles no dates', () => {
     expect(fmtTripDates(trip())).toMatch(/decided/i);
   });
+  it('falls back to the inferred span (marked ~) when no explicit dates', () => {
+    const out = fmtTripDates(trip({ effective_start: '2026-10-20', effective_end: '2026-10-24' }));
+    expect(out).toContain('~');
+    expect(out).toMatch(/20.*Oct.*24.*Oct/);
+  });
+  it('prefers explicit dates over the inferred span (no ~)', () => {
+    const out = fmtTripDates(
+      trip({ starts_on: '2026-10-12', ends_on: '2026-10-18', effective_start: '2026-10-20' }),
+    );
+    expect(out).not.toContain('~');
+  });
+});
+
+describe('plansOutsideTripDates', () => {
+  const within = part({ id: 1, starts_at: '2026-10-13T09:00:00Z', effective_at: '2026-10-13T09:00:00Z' });
+  it('false when no explicit trip dates', () => {
+    expect(plansOutsideTripDates(trip(), [plan([within])])).toBe(false);
+  });
+  it('false when all parts are within the dates', () => {
+    expect(
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([within])]),
+    ).toBe(false);
+  });
+  it('true when a part starts before the trip', () => {
+    const early = part({ id: 2, starts_at: '2026-10-01T09:00:00Z', effective_at: '2026-10-01T09:00:00Z' });
+    expect(
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([early])]),
+    ).toBe(true);
+  });
+  it('true when a part ends after the trip', () => {
+    const late = part({ id: 3, starts_at: '2026-10-25T09:00:00Z', effective_at: '2026-10-25T09:00:00Z' });
+    expect(
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([late])]),
+    ).toBe(true);
+  });
 });
 
 describe('buildTimeline', () => {
@@ -205,19 +244,35 @@ describe('hotel band', () => {
   });
 });
 
+describe('fmtPartPlaces', () => {
+  it('shows an arrow for a transfer between two places', () => {
+    expect(fmtPartPlaces('flight', 'LHR', 'JFK')).toBe('LHR → JFK');
+    expect(fmtPartPlaces('ground', 'Home', 'LHR T5')).toBe('Home → LHR T5');
+  });
+  it('shows a single venue for a hotel, never "X → X"', () => {
+    expect(fmtPartPlaces('hotel', 'Tysons Corner Marriott', 'Tysons Corner Marriott')).toBe(
+      'Tysons Corner Marriott',
+    );
+    expect(fmtPartPlaces('dining', 'Nobu')).toBe('Nobu');
+  });
+  it('collapses identical transfer endpoints to one', () => {
+    expect(fmtPartPlaces('train', 'Paddington', 'Paddington')).toBe('Paddington');
+  });
+});
+
 describe('fmtPartTimeRange', () => {
-  it('renders a single time without an end', () => {
+  it('renders a single time with its tz abbreviation', () => {
     expect(fmtPartTimeRange(part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined }))).toBe(
-      '09:00',
+      '09:00 UTC',
     );
   });
 
-  it('adds a UTC suffix when the tz is unknown', () => {
+  it('falls back to a UTC suffix when the tz is unknown', () => {
     expect(
       fmtPartTimeRange(part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, start_tz: '' })),
     ).toBe('09:00 UTC');
   });
-  it('renders a range with each end in its own tz', () => {
+  it('renders a range with each end in its own tz + abbreviation', () => {
     const out = fmtPartTimeRange(
       part({
         starts_at: '2026-07-01T10:00:00Z',
@@ -226,7 +281,27 @@ describe('fmtPartTimeRange', () => {
         end_tz: 'America/New_York',
       }),
     );
-    expect(out).toBe('11:00 → 10:00');
+    // 11:00 BST (London summer) → 10:00 EDT (New York summer); the exact London
+    // abbreviation (BST vs GMT+1) depends on the runtime ICU, so match loosely.
+    expect(out).toMatch(/^11:00 \S+ → 10:00 EDT$/);
+  });
+});
+
+describe('tzAbbrev', () => {
+  it('returns a real abbreviation for a known zone', () => {
+    expect(tzAbbrev('2026-07-01T14:00:00Z', 'America/New_York')).toBe('EDT');
+  });
+  it('falls back to UTC when the zone is unknown', () => {
+    expect(tzAbbrev('2026-07-01T14:00:00Z', '')).toBe('UTC');
+  });
+});
+
+describe('fmtLocalDateTime', () => {
+  it('renders date + local time + tz abbreviation', () => {
+    // 14:00Z → 10:00 EDT on the same day.
+    expect(fmtLocalDateTime('2026-07-01T14:00:00Z', 'America/New_York')).toMatch(
+      /Jul.*10:00 EDT$/,
+    );
   });
 });
 

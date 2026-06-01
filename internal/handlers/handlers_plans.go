@@ -21,13 +21,15 @@ type planPartReq struct {
 	EndsAt     *time.Time `json:"ends_at"`
 	StartTZ    string     `json:"start_tz"`
 	EndTZ      string     `json:"end_tz"`
-	StartLabel string     `json:"start_label"`
-	StartLat   *float64   `json:"start_lat"`
-	StartLon   *float64   `json:"start_lon"`
-	EndLabel   string     `json:"end_label"`
-	EndLat     *float64   `json:"end_lat"`
-	EndLon     *float64   `json:"end_lon"`
-	Status     string     `json:"status"`
+	StartLabel   string     `json:"start_label"`
+	StartLat     *float64   `json:"start_lat"`
+	StartLon     *float64   `json:"start_lon"`
+	StartAddress string     `json:"start_address"`
+	EndLabel     string     `json:"end_label"`
+	EndLat       *float64   `json:"end_lat"`
+	EndLon       *float64   `json:"end_lon"`
+	EndAddress   string     `json:"end_address"`
+	Status       string     `json:"status"`
 
 	Flight    *flightDetailReq    `json:"flight"`
 	Hotel     *hotelDetailReq     `json:"hotel"`
@@ -117,13 +119,15 @@ type updatePlanPartReq struct {
 	EndsAt     *time.Time `json:"ends_at,omitempty"`
 	StartTZ    *string    `json:"start_tz,omitempty"`
 	EndTZ      *string    `json:"end_tz,omitempty"`
-	StartLabel *string    `json:"start_label,omitempty"`
-	StartLat   *float64   `json:"start_lat,omitempty"`
-	StartLon   *float64   `json:"start_lon,omitempty"`
-	EndLabel   *string    `json:"end_label,omitempty"`
-	EndLat     *float64   `json:"end_lat,omitempty"`
-	EndLon     *float64   `json:"end_lon,omitempty"`
-	Status     *string    `json:"status,omitempty"`
+	StartLabel   *string    `json:"start_label,omitempty"`
+	StartLat     *float64   `json:"start_lat,omitempty"`
+	StartLon     *float64   `json:"start_lon,omitempty"`
+	StartAddress *string    `json:"start_address,omitempty"`
+	EndLabel     *string    `json:"end_label,omitempty"`
+	EndLat       *float64   `json:"end_lat,omitempty"`
+	EndLon       *float64   `json:"end_lon,omitempty"`
+	EndAddress   *string    `json:"end_address,omitempty"`
+	Status       *string    `json:"status,omitempty"`
 }
 
 type moveReq struct {
@@ -197,6 +201,7 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.publishPlanUpdated(r.Context(), tripID, plan.ID)
+	a.geocodePlanAsync(tripID, plan.ID)
 	writeJSON(w, http.StatusCreated, dto)
 }
 
@@ -419,15 +424,17 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 	part, err := a.Store.UpdatePlanPart(r.Context(), id, store.UpdatePlanPartPayload{
 		StartsAt:   in.StartsAt,
 		EndsAt:     in.EndsAt,
-		StartTZ:    in.StartTZ,
-		EndTZ:      in.EndTZ,
-		StartLabel: in.StartLabel,
-		StartLat:   in.StartLat,
-		StartLon:   in.StartLon,
-		EndLabel:   in.EndLabel,
-		EndLat:     in.EndLat,
-		EndLon:     in.EndLon,
-		Status:     in.Status,
+		StartTZ:      in.StartTZ,
+		EndTZ:        in.EndTZ,
+		StartLabel:   in.StartLabel,
+		StartLat:     in.StartLat,
+		StartLon:     in.StartLon,
+		StartAddress: in.StartAddress,
+		EndLabel:     in.EndLabel,
+		EndLat:       in.EndLat,
+		EndLon:       in.EndLon,
+		EndAddress:   in.EndAddress,
+		Status:       in.Status,
 	})
 	if err != nil {
 		handleStoreErr(w, err)
@@ -468,18 +475,20 @@ func (a *API) dismissPlanPart(w http.ResponseWriter, r *http.Request) {
 
 func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPayload {
 	out := store.CreatePlanPartPayload{
-		Seq:        p.Seq,
-		StartsAt:   p.StartsAt,
-		EndsAt:     p.EndsAt,
-		StartTZ:    p.StartTZ,
-		EndTZ:      p.EndTZ,
-		StartLabel: p.StartLabel,
-		StartLat:   p.StartLat,
-		StartLon:   p.StartLon,
-		EndLabel:   p.EndLabel,
-		EndLat:     p.EndLat,
-		EndLon:     p.EndLon,
-		Status:     p.Status,
+		Seq:          p.Seq,
+		StartsAt:     p.StartsAt,
+		EndsAt:       p.EndsAt,
+		StartTZ:      p.StartTZ,
+		EndTZ:        p.EndTZ,
+		StartLabel:   p.StartLabel,
+		StartLat:     p.StartLat,
+		StartLon:     p.StartLon,
+		StartAddress: p.StartAddress,
+		EndLabel:     p.EndLabel,
+		EndLat:       p.EndLat,
+		EndLon:       p.EndLon,
+		EndAddress:   p.EndAddress,
+		Status:       p.Status,
 	}
 	switch planType {
 	case "flight":

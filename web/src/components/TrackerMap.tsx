@@ -6,8 +6,9 @@ import maplibregl, {
 } from 'maplibre-gl';
 import { Box } from '@mui/material';
 
-import type { PlanPart, TrackerPart } from '../api/types';
+import type { PlanPart, TrackerMarker, TrackerPart } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
+import { buildMarkerPopup, buildPinEl } from '../lib/plan-marker';
 
 const STYLE: StyleSpecification = {
   version: 8,
@@ -27,6 +28,9 @@ const STYLE: StyleSpecification = {
 interface TrackerMapProps {
   /** Parts to plot — only those with a `latest_position` get a marker. */
   parts: TrackerPart[];
+  /** In-window non-flight venues (hotels, taxis…) to overlay as static pins.
+   * Shown only in the convergence view, not the single-flight focus. */
+  markers?: TrackerMarker[];
   /** When set, the map focuses (fits to) the single part with this id. */
   focusedPartId?: number | null;
   /** The focused part's full detail (with its flown track), loaded for the
@@ -66,10 +70,12 @@ function multiLineCollection(lines: [number, number][][]): GeoJSON.FeatureCollec
  * Uses the standard MapLibre lifecycle (init once, sync markers on data
  * change, fit bounds) over the lighter `TrackerPart` shape, which only carries
  * a latest position. */
-export default function TrackerMap({ parts, focusedPartId, focusedPart }: TrackerMapProps) {
+export default function TrackerMap({ parts, markers = [], focusedPartId, focusedPart }: TrackerMapProps) {
   const containerRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const markersRef = useRef<Map<number, maplibregl.Marker>>(new Map());
+  // Venue overlay markers, keyed by part id + coordinate (a taxi has two).
+  const venueRef = useRef<Map<string, maplibregl.Marker>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -104,10 +110,47 @@ export default function TrackerMap({ parts, focusedPartId, focusedPart }: Tracke
     return () => {
       markersRef.current.forEach((m) => m.remove());
       markersRef.current.clear();
+      venueRef.current.forEach((m) => m.remove());
+      venueRef.current.clear();
       map.remove();
       mapRef.current = null;
     };
   }, []);
+
+  // Sync the venue overlay (hotels, taxis, …). Only in the convergence view —
+  // the single-flight focus is about the one flight's route.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const show = focusedPartId == null ? markers : [];
+    const live = new Set<string>();
+    for (const m of show) {
+      const key = `${m.plan_part_id}:${m.lat},${m.lon}`;
+      live.add(key);
+      let marker = venueRef.current.get(key);
+      if (!marker) {
+        const el = buildPinEl(m.type);
+        el.title = m.label;
+        marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+          .setLngLat([m.lon, m.lat])
+          .setPopup(
+            new maplibregl.Popup({ offset: 30, closeButton: false }).setDOMContent(
+              buildMarkerPopup({ title: m.label, type: m.type, iso: m.when, tz: m.tz }),
+            ),
+          )
+          .addTo(map);
+        venueRef.current.set(key, marker);
+      } else {
+        marker.setLngLat([m.lon, m.lat]);
+      }
+    }
+    for (const [key, marker] of venueRef.current) {
+      if (!live.has(key)) {
+        marker.remove();
+        venueRef.current.delete(key);
+      }
+    }
+  }, [markers, focusedPartId]);
 
   // Sync one marker per plotted part. Markers carry a text label (the ident, or
   // the title as a fallback) so a cluster of friends heading to the same place
@@ -197,6 +240,10 @@ export default function TrackerMap({ parts, focusedPartId, focusedPart }: Tracke
       p.latest_position!.lon,
       p.latest_position!.lat,
     ]);
+    // Include the venue overlay so the convergence view frames them too.
+    if (focusedPartId == null) {
+      for (const m of markers) pts.push([m.lon, m.lat]);
+    }
 
     // In the single-flight focus, widen the fit to the whole route: the part's
     // start/end coordinates plus every flown-track point, so the polyline +
@@ -224,7 +271,7 @@ export default function TrackerMap({ parts, focusedPartId, focusedPart }: Tracke
     const fit = () => map.fitBounds(bounds, { padding: 80, maxZoom: 6, duration: 600 });
     if (map.isStyleLoaded()) fit();
     else map.once('load', fit);
-  }, [parts, focusedPartId, focusedPart]);
+  }, [parts, markers, focusedPartId, focusedPart]);
 
   return <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} data-testid="tracker-map" />;
 }

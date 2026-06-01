@@ -81,7 +81,44 @@ func (a *API) getTracker(w http.ResponseWriter, r *http.Request) {
 	for _, p := range parts {
 		out = append(out, toTrackerPartDTO(p, latest[p.PlanPartID]))
 	}
-	writeJSON(w, http.StatusOK, out)
+
+	// In-window venue overlay: geocoded non-flight parts in the same window.
+	markerRows, err := a.Store.ConvergenceMarkers(r.Context(), me.ID, from, to, tag)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	markers := make([]api.TrackerMarkerDTO, 0, len(markerRows))
+	for _, m := range markerRows {
+		if m.StartLat != nil && m.StartLon != nil {
+			when := m.StartsAt.UTC().Format(time.RFC3339)
+			markers = append(markers, api.TrackerMarkerDTO{
+				PlanPartID: m.PlanPartID, TripID: m.TripID, Type: m.Type,
+				Label: firstNonEmpty(m.StartLabel, m.Title), Lat: *m.StartLat, Lon: *m.StartLon,
+				When: &when, Tz: m.StartTz,
+			})
+		}
+		if m.EndLat != nil && m.EndLon != nil {
+			var when *string
+			if m.EndsAt != nil {
+				w := m.EndsAt.UTC().Format(time.RFC3339)
+				when = &w
+			}
+			markers = append(markers, api.TrackerMarkerDTO{
+				PlanPartID: m.PlanPartID, TripID: m.TripID, Type: m.Type,
+				Label: firstNonEmpty(m.EndLabel, m.Title), Lat: *m.EndLat, Lon: *m.EndLon,
+				When: when, Tz: firstNonEmpty(m.EndTz, m.StartTz),
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, api.TrackerResponseDTO{Parts: out, Markers: markers})
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // getTrackerPart is the focused single-flight view: one trackable part with its

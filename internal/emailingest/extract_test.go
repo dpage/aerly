@@ -7,7 +7,60 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dpage/aerly/internal/planops"
 )
+
+func TestRoundTripTitle(t *testing.T) {
+	fl := func(ident, o, d string) planops.ExtractedPart {
+		return planops.ExtractedPart{Type: "flight", Flight: planops.FlightFields{Ident: ident, OriginIATA: o, DestIATA: d}}
+	}
+	rt := planops.ExtractedPlan{Type: "flight", Title: "BA217 out",
+		Parts: []planops.ExtractedPart{fl("BA217", "LHR", "IAD"), fl("BA292", "IAD", "LHR")}}
+	if got, ok := roundTripTitle(rt); !ok || got != "BA217 LHR ↔ IAD" {
+		t.Errorf("round-trip title = %q, %v; want %q, true", got, ok, "BA217 LHR ↔ IAD")
+	}
+	// One-way: not a round trip.
+	if _, ok := roundTripTitle(planops.ExtractedPlan{Type: "flight",
+		Parts: []planops.ExtractedPart{fl("BA286", "LHR", "LIS")}}); ok {
+		t.Error("one-way flight should not get a round-trip title")
+	}
+	// Open-jaw (doesn't return to the origin): keep the extracted title.
+	if _, ok := roundTripTitle(planops.ExtractedPlan{Type: "flight",
+		Parts: []planops.ExtractedPart{fl("X1", "LHR", "JFK"), fl("X2", "JFK", "LAX")}}); ok {
+		t.Error("open-jaw itinerary should not get a round-trip title")
+	}
+	// Non-flight: untouched.
+	if _, ok := roundTripTitle(planops.ExtractedPlan{Type: "ground",
+		Parts: []planops.ExtractedPart{{Type: "ground"}, {Type: "ground"}}}); ok {
+		t.Error("non-flight should not get a round-trip title")
+	}
+}
+
+func TestMergeSameBooking(t *testing.T) {
+	leg := func(ident string) planops.ExtractedPart {
+		return planops.ExtractedPart{Type: "flight", Confidence: "high", Flight: planops.FlightFields{Ident: ident}}
+	}
+	in := []planops.ExtractedPlan{
+		{Type: "flight", Title: "BA217 out", ConfirmationRef: "XIIVFQ", Parts: []planops.ExtractedPart{leg("BA217")}},
+		{Type: "flight", Title: "BA292 back", ConfirmationRef: "xiivfq", Parts: []planops.ExtractedPart{leg("BA292")}},
+		{Type: "hotel", Title: "Marriott", ConfirmationRef: "XIIVFQ", Parts: []planops.ExtractedPart{{Type: "hotel"}}},
+		{Type: "flight", Title: "No-ref leg", ConfirmationRef: "", Parts: []planops.ExtractedPart{leg("BA999")}},
+		{Type: "flight", Title: "Other booking", ConfirmationRef: "ZZZ", Parts: []planops.ExtractedPart{leg("BA111")}},
+	}
+	out := mergeSameBooking(in)
+	// The two XIIVFQ flights merge (case-insensitive); the same-ref hotel stays
+	// separate (different type); the no-ref and other-ref flights stay separate.
+	if len(out) != 4 {
+		t.Fatalf("got %d plans, want 4: %+v", len(out), out)
+	}
+	if out[0].Title != "BA217 out" || len(out[0].Parts) != 2 {
+		t.Errorf("first plan should be the merged round-trip with 2 legs, got %q with %d", out[0].Title, len(out[0].Parts))
+	}
+	if out[1].Type != "hotel" {
+		t.Errorf("hotel (same ref, different type) should not merge into the flight")
+	}
+}
 
 type fakeLLM struct {
 	response   string

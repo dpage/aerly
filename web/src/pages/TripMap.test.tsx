@@ -100,6 +100,11 @@ describe('TripMap', () => {
     expect(legs.features.length).toBeGreaterThan(0);
     // Two endpoints → bounds → fitBounds called.
     expect(map.fitBounds).toHaveBeenCalled();
+    // Each marker carries a click popover with the plan title, type and place.
+    const popup = FakeMarker.instances[0].popup;
+    expect(popup?.html).toContain('Outbound');
+    expect(popup?.html).toContain('Flight');
+    expect(popup?.html).toContain('LHR');
   });
 
   it('plots a single geocoded endpoint without a leg line', () => {

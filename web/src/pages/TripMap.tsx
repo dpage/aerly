@@ -7,8 +7,10 @@ import maplibregl, {
 import { Box, Typography } from '@mui/material';
 
 import { useStore } from '../state/store';
-import type { Plan, PlanPart } from '../api/types';
+import type { Plan, PlanPart, PlanType } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
+import { planTypeLabel } from '../lib/trip-format';
+import { buildMarkerPopup, buildPinEl } from '../lib/plan-marker';
 
 // Standard OSM raster style for the trip map (spec §11: MapLibre).
 const STYLE: StyleSpecification = {
@@ -30,7 +32,14 @@ const STYLE: StyleSpecification = {
 interface MapPoint {
   lat: number;
   lon: number;
-  label: string;
+  /** Plan title, shown bold in the marker popover. */
+  title: string;
+  type: PlanType;
+  /** Place name at this endpoint (start_label / end_label). */
+  location: string;
+  /** Instant + tz of this endpoint, for the popover's local date/time. */
+  iso: string;
+  tz?: string;
 }
 
 /** Secondary trip detail tab (spec §11): the trip's geocoded parts on a
@@ -92,15 +101,16 @@ export default function TripMap() {
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
     for (const p of points) {
-      const el = document.createElement('div');
-      el.style.width = '14px';
-      el.style.height = '14px';
-      el.style.borderRadius = '50%';
-      el.style.background = '#d97706';
-      el.style.border = '2px solid #fff';
-      el.style.boxShadow = '0 1px 2px rgba(0,0,0,0.4)';
-      el.title = p.label;
-      const marker = new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map);
+      const el = buildPinEl(p.type);
+      el.title = p.location || p.title;
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([p.lon, p.lat])
+        .setPopup(
+          new maplibregl.Popup({ offset: 30, closeButton: false }).setDOMContent(
+            buildMarkerPopup({ title: p.title, type: p.type, location: p.location, iso: p.iso, tz: p.tz }),
+          ),
+        )
+        .addTo(map);
       markersRef.current.push(marker);
     }
     const bounds = boundsFor(points.map((p) => [p.lon, p.lat] as [number, number]));
@@ -127,13 +137,30 @@ export default function TripMap() {
 function collectPoints(plans: Plan[]): MapPoint[] {
   const points: MapPoint[] = [];
   for (const plan of plans) {
+    const title = plan.title || planTypeLabel(plan.type);
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
       if (part.start_lat != null && part.start_lon != null) {
-        points.push({ lat: part.start_lat, lon: part.start_lon, label: part.start_label || plan.title });
+        points.push({
+          lat: part.start_lat,
+          lon: part.start_lon,
+          title,
+          type: part.type,
+          location: part.start_label || plan.title,
+          iso: part.starts_at,
+          tz: part.start_tz,
+        });
       }
       if (part.end_lat != null && part.end_lon != null) {
-        points.push({ lat: part.end_lat, lon: part.end_lon, label: part.end_label || plan.title });
+        points.push({
+          lat: part.end_lat,
+          lon: part.end_lon,
+          title,
+          type: part.type,
+          location: part.end_label || plan.title,
+          iso: part.ends_at ?? part.starts_at,
+          tz: part.end_tz || part.start_tz,
+        });
       }
     }
   }

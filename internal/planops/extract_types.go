@@ -45,6 +45,11 @@ type ExtractedPart struct {
 	EndTime    string
 	StartLabel string
 	EndLabel   string
+	// Free-text postal addresses for the start/end of the part, when the
+	// source states or implies them (e.g. an airport terminal). Geocoded into
+	// coordinates downstream for map markers.
+	StartAddress string
+	EndAddress   string
 
 	Flight FlightFields // Type=="flight"
 

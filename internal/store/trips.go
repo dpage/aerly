@@ -20,6 +20,12 @@ type Trip struct {
 	CreatedBy   *int64
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	// EffectiveStart/EffectiveEnd are the min/max of the trip's (non-dismissed)
+	// part instants — used to show inferred dates when StartsOn/EndsOn aren't
+	// set. Only populated by ListTrips (the detail payload carries parts, so the
+	// client derives it there).
+	EffectiveStart *time.Time
+	EffectiveEnd   *time.Time
 }
 
 // TripMember is one (trip, user, role) edge — the sharing boundary. Role is
@@ -68,7 +74,13 @@ func scanTrip(row pgx.Row) (*Trip, error) {
 // newest-updated first.
 func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+tripColumns+`
+		SELECT `+prefixed(tripColumns, "t.")+`,
+			(SELECT min(p.starts_at) FROM plan_parts p
+			   JOIN plans pl ON pl.id = p.plan_id
+			  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL),
+			(SELECT max(COALESCE(p.ends_at, p.starts_at)) FROM plan_parts p
+			   JOIN plans pl ON pl.id = p.plan_id
+			  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL)
 		FROM trips t
 		WHERE t.created_by = $1
 		   OR EXISTS (SELECT 1 FROM trip_members tm
@@ -80,11 +92,13 @@ func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) 
 	defer rows.Close()
 	var out []*Trip
 	for rows.Next() {
-		t, err := scanTrip(rows)
-		if err != nil {
+		var t Trip
+		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
+			&t.EffectiveStart, &t.EffectiveEnd); err != nil {
 			return nil, err
 		}
-		out = append(out, t)
+		out = append(out, &t)
 	}
 	return out, rows.Err()
 }

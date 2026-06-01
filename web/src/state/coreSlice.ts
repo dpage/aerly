@@ -43,6 +43,7 @@ export interface CoreSlice {
   updateUser: (id: number, patch: UpdateUserInput) => Promise<void>;
   deleteUser: (id: number) => Promise<void>;
 
+  setHomeAddress: (address: string) => Promise<void>;
   logout: () => Promise<void>;
   setShowAll: (v: boolean) => Promise<void>;
   setError: (msg: string | null) => void;
@@ -130,6 +131,14 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
   async deleteUser(id) {
     await api.deleteUser(id);
     set((s) => ({ users: s.users.filter((u) => u.id !== id) }));
+  },
+
+  async setHomeAddress(address) {
+    const updated = await api.updateMe({ home_address: address });
+    set((s) => ({
+      me: updated,
+      users: s.users.map((u) => (u.id === updated.id ? updated : u)),
+    }));
   },
 
   async logout() {

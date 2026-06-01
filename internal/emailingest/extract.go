@@ -123,6 +123,8 @@ const plansSystemPrompt = `You receive the body of a forwarded travel email (and
       "end_time":   "HH:MM (24h, local; optional)",
       "start_label": "<place name, e.g. station, restaurant, pickup point>",
       "end_label":   "<destination place name, when relevant>",
+      "start_address": "<full postal address of the start place, when stated or well-known; else ''>",
+      "end_address":   "<full postal address of the end place, when stated or well-known; else ''>",
 
       "hotel":     { "property_name": "", "address": "", "phone": "", "room_type": "" },
       "train":     { "operator": "", "service_no": "", "class": "" },
@@ -134,7 +136,7 @@ const plansSystemPrompt = `You receive the body of a forwarded travel email (and
   "notes": "optional short note"
 }
 
-Only populate the per-type detail object that matches the part's type; leave the others absent or empty. For flight parts fill the "flight" object exactly as for a flights-only extraction (ident + date are required; origin/dest/times are strongly preferred). For every non-flight part fill start_date (required) and as many of the generic + per-type fields as the email states. Set a part's confidence to "low" when its core identity (flight ident+date, or a non-flight start_date) is ambiguous and the caller will skip it. Leave any field empty ("") when the email genuinely doesn't say. Today is %s.`
+Only populate the per-type detail object that matches the part's type; leave the others absent or empty. For flight parts fill the "flight" object exactly as for a flights-only extraction (ident + date are required; origin/dest/times are strongly preferred). For every non-flight part fill start_date (required) and as many of the generic + per-type fields as the email states. Fill start_address/end_address with a full postal address whenever the message states it or the place is well-known — for instance, infer the street address of a named airport terminal such as "LHR T5". When a taxi or other transfer runs out and back (a drop-off now and a return pickup later), capture BOTH runs as separate ground plans, each with its own start/end place and address. Set a part's confidence to "low" when its core identity (flight ident+date, or a non-flight start_date) is ambiguous and the caller will skip it. Leave any field empty ("") when the email genuinely doesn't say. Today is %s.`
 
 var identRe = regexp.MustCompile(`^[A-Z0-9]{2,3}[0-9]{1,4}[A-Z]?$`)
 var dateRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
@@ -246,12 +248,14 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 					ArriveDate string `json:"arrive_date"`
 					ArriveTime string `json:"arrive_time"`
 				} `json:"flight"`
-				StartDate  string `json:"start_date"`
-				StartTime  string `json:"start_time"`
-				EndDate    string `json:"end_date"`
-				EndTime    string `json:"end_time"`
-				StartLabel string `json:"start_label"`
-				EndLabel   string `json:"end_label"`
+				StartDate    string `json:"start_date"`
+				StartTime    string `json:"start_time"`
+				EndDate      string `json:"end_date"`
+				EndTime      string `json:"end_time"`
+				StartLabel   string `json:"start_label"`
+				EndLabel     string `json:"end_label"`
+				StartAddress string `json:"start_address"`
+				EndAddress   string `json:"end_address"`
 				Hotel      struct {
 					PropertyName string `json:"property_name"`
 					Address      string `json:"address"`
@@ -295,12 +299,14 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 				continue
 			}
 			part := planops.ExtractedPart{
-				Type:       partType,
-				Confidence: p.Confidence,
-				StartDate:  p.StartDate,
-				EndDate:    p.EndDate,
-				StartLabel: strings.TrimSpace(p.StartLabel),
-				EndLabel:   strings.TrimSpace(p.EndLabel),
+				Type:         partType,
+				Confidence:   p.Confidence,
+				StartDate:    p.StartDate,
+				EndDate:      p.EndDate,
+				StartLabel:   strings.TrimSpace(p.StartLabel),
+				EndLabel:     strings.TrimSpace(p.EndLabel),
+				StartAddress: strings.TrimSpace(p.StartAddress),
+				EndAddress:   strings.TrimSpace(p.EndAddress),
 			}
 			if timeRe.MatchString(p.StartTime) {
 				part.StartTime = p.StartTime
@@ -358,7 +364,71 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 		}
 		out = append(out, ep)
 	}
-	return out, nil
+	merged := mergeSameBooking(out)
+	for i := range merged {
+		if t, ok := roundTripTitle(merged[i]); ok {
+			merged[i].Title = t
+		}
+	}
+	return merged, nil
+}
+
+// roundTripTitle builds a tidy title for a there-and-back flight plan, e.g.
+// "BA217 LHR ↔ IAD" — the outbound flight number and route, with a two-way
+// arrow signalling the return. ok is false for anything that isn't a clean
+// round trip (one-way, multi-city / open-jaw, or missing endpoints), so the
+// caller keeps the extracted title.
+func roundTripTitle(p planops.ExtractedPlan) (string, bool) {
+	if p.Type != "flight" || len(p.Parts) < 2 {
+		return "", false
+	}
+	first, last := p.Parts[0], p.Parts[len(p.Parts)-1]
+	origin := firstNonEmpty(first.Flight.OriginIATA, first.StartLabel)
+	dest := firstNonEmpty(first.Flight.DestIATA, first.EndLabel)
+	backTo := firstNonEmpty(last.Flight.DestIATA, last.EndLabel)
+	// A round trip ends where it began.
+	if origin == "" || dest == "" || !strings.EqualFold(origin, backTo) {
+		return "", false
+	}
+	route := strings.ToUpper(origin) + " ↔ " + strings.ToUpper(dest)
+	if ident := strings.ToUpper(strings.TrimSpace(first.Flight.Ident)); ident != "" {
+		return ident + " " + route, true
+	}
+	return route, true
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
+}
+
+// mergeSameBooking folds plans that are really one booking — same type and a
+// shared non-empty confirmation reference — into a single plan with all their
+// parts. A round-trip is meant to be one plan with several legs (PRD §6.3), but
+// the model doesn't always group it that way; without this a return flight
+// arrives as two separate plans, so deleting "the flight" only removes one leg.
+// Order is preserved; the first plan of each booking keeps its title.
+func mergeSameBooking(plans []planops.ExtractedPlan) []planops.ExtractedPlan {
+	type key struct{ typ, ref string }
+	idx := make(map[key]int, len(plans))
+	out := make([]planops.ExtractedPlan, 0, len(plans))
+	for _, p := range plans {
+		ref := strings.ToUpper(strings.TrimSpace(p.ConfirmationRef))
+		if ref == "" {
+			out = append(out, p)
+			continue
+		}
+		k := key{p.Type, ref}
+		if i, ok := idx[k]; ok {
+			out[i].Parts = append(out[i].Parts, p.Parts...)
+			continue
+		}
+		idx[k] = len(out)
+		out = append(out, p)
+	}
+	return out
 }
 
 var validExtractType = map[string]bool{

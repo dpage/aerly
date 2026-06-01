@@ -24,7 +24,7 @@ import {
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 
 import { useStore } from '../state/store';
-import { planTypeLabel } from '../lib/trip-format';
+import { fmtPartPlaces, planTypeLabel } from '../lib/trip-format';
 import PlanTypeIcon from './PlanTypeIcon';
 import type {
   ConfirmPlanInput,
@@ -57,6 +57,7 @@ const LOW_CONFIDENCE = 0.6;
  * "From email" surfaces the forwarding address the backend exposes. */
 export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDialogProps) {
   const trips = useStore((s) => s.trips);
+  const listTrips = useStore((s) => s.listTrips);
   const currentTrip = useStore((s) => s.currentTrip);
   const capabilities = useStore((s) => s.capabilities);
   const createPlan = useStore((s) => s.createPlan);
@@ -85,7 +86,11 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
     setBusy(false);
     setSubmitted(false);
     clearIngest();
-  }, [open, tripId, currentTrip, clearIngest]);
+    // Populate the trip picker. The list is only fetched on the trip-list page,
+    // so opening this dialog from inside a trip would otherwise show an empty
+    // dropdown (the selected current trip has no matching option to render).
+    void listTrips();
+  }, [open, tripId, currentTrip, clearIngest, listTrips]);
 
   const effectiveTripId = tripId ?? selectedTrip;
 
@@ -261,6 +266,8 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   const [notes, setNotes] = useState('');
   const [startLabel, setStartLabel] = useState('');
   const [endLabel, setEndLabel] = useState('');
+  const [startAddress, setStartAddress] = useState('');
+  const [endAddress, setEndAddress] = useState('');
   const [startsAt, setStartsAt] = useState<Date | null>(() => defaultStart());
   const [endsAt, setEndsAt] = useState<Date | null>(null);
 
@@ -277,6 +284,8 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
       ends_at: endsAt ? endsAt.toISOString() : undefined,
       start_label: startLabel.trim() || undefined,
       end_label: endLabel.trim() || undefined,
+      start_address: startAddress.trim() || undefined,
+      end_address: endAddress.trim() || undefined,
     };
     if (type === 'flight' && ident.trim()) {
       part.flight = { ident: ident.trim().toUpperCase() };
@@ -292,6 +301,8 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   };
 
   const isFlight = type === 'flight';
+  // Point-to-point types carry a distinct departure and arrival address.
+  const isTransfer = type === 'flight' || type === 'train' || type === 'ground';
   // Hotels span nights, so they always show an end ("check-out").
   const showEnd = type === 'hotel' || type === 'flight' || type === 'train' || type === 'ground';
 
@@ -349,6 +360,25 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
             label={endFieldLabel(type)}
             value={endLabel}
             onChange={(e) => setEndLabel(e.target.value)}
+            fullWidth
+          />
+        )}
+      </Stack>
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <TextField
+          label={`${startFieldLabel(type)} address`}
+          value={startAddress}
+          onChange={(e) => setStartAddress(e.target.value)}
+          placeholder="optional — used for the map"
+          fullWidth
+        />
+        {isTransfer && (
+          <TextField
+            label="To address"
+            value={endAddress}
+            onChange={(e) => setEndAddress(e.target.value)}
+            placeholder="optional"
             fullWidth
           />
         )}
@@ -575,9 +605,11 @@ function toDraft(p: ProposedPlan): DraftPlan {
       start_label: part.start_label || undefined,
       start_lat: part.start_lat,
       start_lon: part.start_lon,
+      start_address: part.start_address || undefined,
       end_label: part.end_label || undefined,
       end_lat: part.end_lat,
       end_lon: part.end_lon,
+      end_address: part.end_address || undefined,
       flight: part.flight,
       hotel: part.hotel,
       train: part.train,
@@ -716,9 +748,15 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
             {d.parts.map((part, pIdx) => (
               <Box key={pIdx} sx={{ pl: 1, borderLeft: 2, borderColor: 'divider' }}>
                 <Typography variant="caption" color="text.secondary">
-                  {(part.start_label || planTypeLabel(part.type)) +
-                    (part.end_label ? ` → ${part.end_label}` : '')}
-                  {part.starts_at ? ` · ${fmtIso(part.starts_at)}` : ''}
+                  {fmtPartPlaces(part.type, part.start_label, part.end_label) ||
+                    planTypeLabel(part.type)}
+                  {part.type === 'hotel' && part.starts_at
+                    ? ` · Check in ${fmtIsoDate(part.starts_at)}${
+                        part.ends_at ? ` · Check out ${fmtIsoDate(part.ends_at)}` : ''
+                      }`
+                    : part.starts_at
+                      ? ` · ${fmtIso(part.starts_at)}`
+                      : ''}
                 </Typography>
               </Box>
             ))}
@@ -770,6 +808,13 @@ function fmtIso(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+// Date only (no time) — used for hotel check-in/out, which are days not instants.
+function fmtIsoDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 function placeholderFor(type: PlanType): string {

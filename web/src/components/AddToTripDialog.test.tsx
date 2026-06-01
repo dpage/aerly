@@ -28,6 +28,7 @@ vi.mock('@mui/x-date-pickers/DateTimePicker', () => ({
 const h = vi.hoisted(() => ({
   state: {
     trips: [] as Trip[],
+    listTrips: vi.fn(),
     currentTrip: null as (Trip & { plans: [] }) | null,
     capabilities: { resolver_available: false } as Capabilities,
     ingestProposals: [] as ProposedPlan[],

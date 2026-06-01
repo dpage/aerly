@@ -6,6 +6,8 @@ export interface User {
   is_superuser: boolean;
   is_active: boolean;
   has_logged_in: boolean;
+  /** Free-text home address, used as ingest context (e.g. "taxi from home"). */
+  home_address: string;
   last_login_at?: string;
 }
 
@@ -210,6 +212,10 @@ export interface Trip {
   starts_on?: string;
   /** YYYY-MM-DD; absent when the trip has no fixed end. */
   ends_on?: string;
+  /** YYYY-MM-DD span inferred from the trip's parts (list payload), used to show
+   * dates when starts_on/ends_on aren't set. */
+  effective_start?: string;
+  effective_end?: string;
   created_by?: number;
   /** The viewer's role on this trip. */
   my_role: TripRole;
@@ -301,9 +307,11 @@ export interface PlanPart {
   start_label: string;
   start_lat?: number;
   start_lon?: number;
+  start_address: string;
   end_label: string;
   end_lat?: number;
   end_lon?: number;
+  end_address: string;
   status: PlanPartStatus;
   /** Derived COALESCE(actual_*, estimated_*, scheduled_*) used to sort/group
    * every part type uniformly on the timeline. */
@@ -352,6 +360,25 @@ export interface TrackerPart {
   ident: string;
   dest_iata: string;
   latest_position?: Position;
+}
+
+/** A geocoded non-flight place overlaid on the tracker map (one per coordinate). */
+export interface TrackerMarker {
+  plan_part_id: number;
+  trip_id: number;
+  type: PlanType;
+  label: string;
+  lat: number;
+  lon: number;
+  /** Instant (RFC3339) + tz of this endpoint, for the map tooltip's local time. */
+  when?: string;
+  tz?: string;
+}
+
+/** The tracker payload: flight convergence parts plus in-window venue markers. */
+export interface TrackerResponse {
+  parts: TrackerPart[];
+  markers: TrackerMarker[];
 }
 
 /** A tag autocomplete candidate from /api/tags/suggest. */
@@ -407,9 +434,11 @@ export interface PlanPartInput {
   start_label?: string;
   start_lat?: number;
   start_lon?: number;
+  start_address?: string;
   end_label?: string;
   end_lat?: number;
   end_lon?: number;
+  end_address?: string;
   status?: PlanPartStatus;
   flight?: Partial<FlightDetail>;
   hotel?: Partial<HotelDetail>;
@@ -427,9 +456,11 @@ export interface UpdatePlanPartInput {
   start_label?: string;
   start_lat?: number;
   start_lon?: number;
+  start_address?: string;
   end_label?: string;
   end_lat?: number;
   end_lon?: number;
+  end_address?: string;
   status?: PlanPartStatus;
   flight?: Partial<FlightDetail>;
   hotel?: Partial<HotelDetail>;

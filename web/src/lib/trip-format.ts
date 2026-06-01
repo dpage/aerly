@@ -34,8 +34,10 @@ export function tripSpan(trip: Trip, plans?: Plan[]): TripSpan {
   if (instants.length > 0) {
     return { start: Math.min(...instants), end: Math.max(...instants) };
   }
-  const start = parseDateOnly(trip.starts_on);
-  const end = parseDateOnly(trip.ends_on);
+  // No parts in this payload: prefer the explicit dates, then the span the
+  // server inferred from the trip's parts (the list payload carries no parts).
+  const start = parseDateOnly(trip.starts_on) ?? parseDateOnly(trip.effective_start);
+  const end = parseDateOnly(trip.ends_on) ?? parseDateOnly(trip.effective_end);
   return { start, end };
 }
 
@@ -60,12 +62,34 @@ export function classifyTrip(span: TripSpan, now: number = Date.now()): TripBuck
  * "Oct 2026" (no fixed dates). Uses UTC so YYYY-MM-DD columns render on the
  * day the user typed regardless of runtime locale. */
 export function fmtTripDates(trip: Trip): string {
-  const s = trip.starts_on;
-  const e = trip.ends_on;
+  // Explicit dates win; otherwise fall back to the span inferred from the
+  // trip's plans, marked with "~" so it reads as a guess. Only "Dates to be
+  // decided" when there's nothing to go on at all.
+  const explicit = Boolean(trip.starts_on || trip.ends_on);
+  const s = trip.starts_on ?? trip.effective_start;
+  const e = trip.ends_on ?? trip.effective_end;
   if (!s && !e) return 'Dates to be decided';
-  if (s && !e) return fmtDay(s);
+  const prefix = explicit ? '' : '~';
+  if (s && !e) return `${prefix}${fmtDay(s)}`;
   if (!s && e) return `until ${fmtDay(e)}`;
-  return `${fmtDay(s!)} – ${fmtDay(e!)}`;
+  return `${prefix}${fmtDay(s!)} – ${fmtDay(e!)}`;
+}
+
+/** True when the trip has explicit dates and at least one (non-dismissed) part
+ * falls outside them — so the UI can flag a likely mistake. Compares the part's
+ * local day (in its own tz) against the trip's YYYY-MM-DD bounds. */
+export function plansOutsideTripDates(trip: Trip, plans: Plan[]): boolean {
+  if (!trip.starts_on && !trip.ends_on) return false;
+  for (const plan of plans) {
+    for (const part of plan.parts) {
+      if (part.dismissed_at) continue;
+      const startDay = localDayKey(part.effective_at ?? part.starts_at, part.start_tz);
+      if (trip.starts_on && startDay < trip.starts_on) return true;
+      const endDay = localDayKey(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz);
+      if (trip.ends_on && endDay > trip.ends_on) return true;
+    }
+  }
+  return false;
 }
 
 function fmtDay(dateOnly: string): string {
@@ -185,7 +209,42 @@ export function fmtTimeOfDay(iso: string, tz?: string): string {
     hour12: false,
     timeZone: tz || 'UTC',
   });
-  return tz ? base : `${base} UTC`;
+  // Always carry the local tz abbreviation so every plan reads consistently in
+  // local time (PRD §6.2) — falling back to "UTC" when the zone is unknown.
+  return `${base} ${tzAbbrev(iso, tz)}`;
+}
+
+/** The local timezone abbreviation for an instant in a tz, e.g. "BST", "EDT",
+ * "UTC". Falls back to "UTC" when the tz is unknown (the instant is stored UTC
+ * and the digits are the wall-clock the booking stated). */
+export function tzAbbrev(iso: string, tz?: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz || 'UTC',
+    timeZoneName: 'short',
+  }).formatToParts(d);
+  return parts.find((p) => p.type === 'timeZoneName')?.value ?? 'UTC';
+}
+
+/** A full local date + time + tz abbreviation for a marker tooltip, e.g.
+ * "Sun 25 Oct, 16:00 BST". Empty for an unparseable instant. */
+export function fmtLocalDateTime(iso: string, tz?: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const date = d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: tz || 'UTC',
+  });
+  const time = d.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: tz || 'UTC',
+  });
+  return `${date}, ${time} ${tzAbbrev(iso, tz)}`;
 }
 
 /** A part's local-time range: "14:30" for an instant, "14:30 → 18:05" when it
@@ -233,6 +292,24 @@ function fmtDayHeader(iso: string, tz?: string): string {
     year: 'numeric',
     timeZone: tz || 'UTC',
   });
+}
+
+const TRANSFER_TYPES = new Set<PlanType>(['flight', 'train', 'ground']);
+
+/** Point-to-point types that go from one place to another. Others (hotel,
+ * dining, excursion) happen at a single place. */
+export function isTransferType(type: PlanType): boolean {
+  return TRANSFER_TYPES.has(type);
+}
+
+/** The place line for a part: "A → B" for a transfer between two distinct
+ * places, otherwise just the single venue — never "X → X" (a hotel's start and
+ * end label are both the property, which shouldn't read like a flight). */
+export function fmtPartPlaces(type: PlanType, startLabel?: string, endLabel?: string): string {
+  const start = (startLabel ?? '').trim();
+  const end = (endLabel ?? '').trim();
+  if (isTransferType(type) && end && end !== start) return `${start} → ${end}`;
+  return start || end;
 }
 
 /** Display label for a plan type, e.g. "Hotel", "Ground transport". */
