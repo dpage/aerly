@@ -21,9 +21,15 @@ import (
 
 // Calendar is the parsed contents of one .ics file.
 type Calendar struct {
-	// ProdID is the PRODID header value, if present — useful to confirm a file
-	// actually came from TripIt (e.g. contains "TripIt").
+	// ProdID is the PRODID header value. Note TripIt's exports are produced by
+	// "Bennu", so PRODID does NOT identify TripIt — the @tripit.com UIDs and the
+	// X-WR-CAL* headers do.
 	ProdID string
+	// Name / Desc are the X-WR-CALNAME / X-WR-CALDESC headers. TripIt puts the
+	// trip name here, e.g. Name="Dave Page (TripIt - PGConf.EU 2016)" and
+	// Desc="PGConf.EU 2016 (Trip Shared by Dave Page)".
+	Name   string
+	Desc   string
 	Events []Event
 }
 
@@ -94,6 +100,16 @@ func Parse(r io.Reader) (*Calendar, error) {
 		case "PRODID":
 			if cur == nil {
 				cal.ProdID = p.Value
+			}
+			continue
+		case "X-WR-CALNAME":
+			if cur == nil {
+				cal.Name = p.Value
+			}
+			continue
+		case "X-WR-CALDESC":
+			if cur == nil {
+				cal.Desc = p.Value
 			}
 			continue
 		}

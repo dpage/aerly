@@ -1,0 +1,82 @@
+BEGIN:VCALENDAR
+METHOD:PUBLISH
+X-WR-CALNAME:Dave Page (TripIt - 50's, Hopefully)
+X-WR-CALDESC:50's, Hopefully (Trip Shared by Dave Page)
+PRODID:-//John Papaioannou/NONSGML Bennu 0.1//EN
+VERSION:2.0
+BEGIN:VEVENT
+DTSTAMP:20260601T121628Z
+UID:a7fe7e98-69df-9000-0001-000016025277@tripit.com
+DTSTART;VALUE=DATE:20250912
+DTEND;VALUE=DATE:20250921
+SUMMARY:50's\, Hopefully
+LOCATION:Calais\, France
+GEO:50.95194;1.85635
+TRANSP:TRANSPARENT
+DESCRIPTION:Dave Page is in Calais\, France from Sep 12 to 20\, 2025\nView
+  and/or edit details in TripIt : https://www.tripit.com/trip/show?id=36925
+ 0935\nTripIt - organize your travel at https://www.tripit.com\n
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121628Z
+DTEND:20250912T095900Z
+LOCATION:Folkestone\; Folkestone
+TRANSP:TRANSPARENT
+UID:item-f791dee9-a957-9000-0003-000130506b61@tripit.com
+DTSTART:20250912T092400Z
+SUMMARY:Eurotunnel - Folkestone to Calais
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/369250935\n \n\nFri\, Sep 12\n10:24 AM BST\n[Ground Transportat
+ ion] Eurotunnel - Folkestone to Calais\nDepart Folkestone Folkestone\n \n1
+ 1:59 AM CEST\nArrive Calais Calais\n \n\n \n\nTripIt - organize your trave
+ l at https://www.tripit.com
+GEO:50.95194;1.85635
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121628Z
+SUMMARY:Check-in: Ablacus Naufrage
+TRANSP:TRANSPARENT
+UID:item-aabb7d89-aac5-9000-0003-000130507971@tripit.com
+DTSTART:20250912T130000Z
+DTEND:20250912T140000Z
+LOCATION:Z.A. de Mondétour 3 route de Gasville Bois Paris 28630 Nogent-Le-
+ Phaye France
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/369250935\n \n\n3:00 PM CEST\n[Lodging] Arrive Ablacus Naufrage
+ \nCheck-In: 3:00pm\nZ.A. de Mondétour 3 route de Gasville Bois Paris 28630
+  Nogent-Le-Phaye France\n \n\n \nTripIt - organize your travel at https://
+ www.tripit.com
+GEO:48.4618739;1.5714336
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121628Z
+SUMMARY:Check-out: Ablacus Naufrage
+TRANSP:TRANSPARENT
+UID:item-038bc06c-9560-9000-0003-000130507979@tripit.com
+DTSTART:20250920T090000Z
+DTEND:20250920T100000Z
+LOCATION:Z.A. de Mondétour 3 route de Gasville Bois Paris 28630 Nogent-Le-
+ Phaye France
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/369250935\n \n\nSat\, Sep 20\n11:00 AM CEST\n[Lodging] Depart A
+ blacus Naufrage\nCheck-Out: 11:00am\nZ.A. de Mondétour 3 route de Gasville
+  Bois Paris 28630 Nogent-Le-Phaye France\n \n\n \nTripIt - organize your t
+ ravel at https://www.tripit.com
+GEO:48.4618739;1.5714336
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121628Z
+DTEND:20250920T155900Z
+LOCATION:Calais\; Calais
+TRANSP:TRANSPARENT
+UID:item-5a92ff62-6366-9000-0003-000130506b65@tripit.com
+DTSTART:20250920T152400Z
+SUMMARY:Eurotunnel - Calais to Folkestone
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/369250935\n \n\n5:24 PM CEST\n[Ground Transportation] Eurotunne
+ l - Calais to Folkestone\nDepart Calais Calais\n \n4:59 PM BST\nArrive Fol
+ kestone Folkestone\n \n\n \n\nTripIt - organize your travel at https://www
+ .tripit.com
+GEO:51.08169;1.16734
+END:VEVENT
+END:VCALENDAR
