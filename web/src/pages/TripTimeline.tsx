@@ -24,6 +24,7 @@ import PlanAlertToggle from '../components/PlanAlertToggle';
 import AddToTripDialog from '../components/AddToTripDialog';
 import {
   buildTimeline,
+  fmtPartPlaces,
   fmtPartTimeRange,
   fmtTimeOfDay,
   planTypeLabel,
@@ -208,16 +209,22 @@ function PartCard({ part, plan, edge, accent, multiPart, onOpenPlan }: PartCardP
             )}
           </Stack>
 
-          <Typography variant="body2" color="text.secondary" noWrap>
-            {part.start_label}
-            {part.end_label ? ` → ${part.end_label}` : ''}
-          </Typography>
+          {(() => {
+            const places = fmtPartPlaces(part.type, part.start_label, part.end_label);
+            // Skip when it just repeats the title (e.g. a hotel whose title and
+            // place are both the property name).
+            return places && places !== (plan.title || planTypeLabel(part.type)) ? (
+              <Typography variant="body2" color="text.secondary" noWrap>
+                {places}
+              </Typography>
+            ) : null;
+          })()}
 
           <Typography variant="caption" color="text.secondary">
             {edge === 'check-in'
-              ? `Check in · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
+              ? `Check in · ${localClock(part.starts_at, part.start_tz)}`
               : edge === 'check-out'
-                ? `Check out · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
+                ? `Check out · ${localClock(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
                 : fmtPartTimeRange(part)}
           </Typography>
 
@@ -242,6 +249,58 @@ function PartCard({ part, plan, edge, accent, multiPart, onOpenPlan }: PartCardP
       </Stack>
     </Card>
   );
+}
+
+// A hotel check-in/out is a local wall-clock at the property. We don't store
+// the property's timezone, so drop the "UTC" suffix fmtTimeOfDay adds for
+// tz-less times — the digits are the local check-in/out the booking stated, and
+// labelling them "UTC" is misleading.
+function localClock(iso: string, tz?: string): string {
+  return fmtTimeOfDay(iso, tz).replace(/\s*UTC$/, '');
+}
+
+/** Type-specific detail lines for the plan-detail dialog, so a tapped plan
+ * shows what it actually is (room type, operator, reservation…) not just a
+ * place and time. Each returned string renders as its own caption line. */
+function partDetailLines(part: PlanPart): string[] {
+  const join = (...bits: (string | undefined)[]) => bits.filter(Boolean).join(' · ');
+  const out: string[] = [];
+  switch (part.type) {
+    case 'hotel':
+      if (part.hotel) out.push(join(part.hotel.room_type, part.hotel.phone));
+      break;
+    case 'train':
+      if (part.train) {
+        out.push(join(part.train.operator, part.train.service_no, part.train.class));
+        out.push(
+          join(
+            part.train.coach && `Coach ${part.train.coach}`,
+            part.train.seat && `Seat ${part.train.seat}`,
+            part.train.platform && `Platform ${part.train.platform}`,
+          ),
+        );
+      }
+      break;
+    case 'ground':
+      if (part.ground) out.push(join(part.ground.provider, part.ground.vehicle, part.ground.phone));
+      break;
+    case 'dining':
+      if (part.dining)
+        out.push(
+          join(
+            part.dining.reservation_name && `Reservation: ${part.dining.reservation_name}`,
+            part.dining.phone,
+          ),
+        );
+      break;
+    case 'excursion':
+      if (part.excursion) out.push(part.excursion.provider);
+      break;
+    case 'flight':
+      if (part.flight) out.push(join(part.flight.ident, part.flight.flight_status));
+      break;
+  }
+  return out.filter(Boolean);
 }
 
 /** Tap-through detail: lists the whole plan and all its parts so a user who
@@ -295,21 +354,32 @@ function PlanDetailDialog({ plan, trip, onClose }: { plan: Plan | null; trip: Tr
             {parts.map((part) => (
               <Box key={part.id} sx={{ opacity: part.dismissed_at ? 0.5 : 1 }}>
                 <Typography variant="subtitle2">
-                  {part.start_label}
-                  {part.end_label ? ` → ${part.end_label}` : ''}
+                  {fmtPartPlaces(part.type, part.start_label, part.end_label) ||
+                    plan.title ||
+                    planTypeLabel(part.type)}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                   {fmtPartTimeRange(part)}
                 </Typography>
-                {(part.start_address || part.end_address) && (
+                {fmtPartPlaces(part.type, part.start_address, part.end_address) && (
                   <Typography
                     variant="caption"
                     color="text.secondary"
                     sx={{ display: 'block', mt: 0.25 }}
                   >
-                    {[part.start_address, part.end_address].filter(Boolean).join(' → ')}
+                    {fmtPartPlaces(part.type, part.start_address, part.end_address)}
                   </Typography>
                 )}
+                {partDetailLines(part).map((line, i) => (
+                  <Typography
+                    key={i}
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block' }}
+                  >
+                    {line}
+                  </Typography>
+                ))}
               </Box>
             ))}
           </Stack>
