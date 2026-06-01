@@ -108,24 +108,38 @@ func TestMapCalaisEurotunnelAsTrain(t *testing.T) {
 }
 
 func TestMapAlphanumericAirlineCode(t *testing.T) {
-	// IATA airline designators can carry a digit (easyJet U2, Wizz W6). The
-	// pinned fixtures are all-letter carriers, so synthesize a leg here.
+	// IATA airline designators can carry a digit in either position — easyJet
+	// "U2" (position 2), Sichuan "3U" (position 1). The pinned fixtures are all
+	// all-letter carriers, so synthesize legs for both shapes here.
+	cases := []struct {
+		name        string
+		summary     string
+		ident, o, d string
+	}{
+		{"digit in position 2", "U21234 LHR to AGP", "U21234", "LHR", "AGP"},
+		{"digit in position 1", "3U8888 CTU to PKX", "3U8888", "CTU", "PKX"},
+	}
 	out := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	in := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
-	cal := &Calendar{Events: []Event{{
-		UID:         "item-x@tripit.com",
-		Summary:     "U21234 LHR to AGP",
-		Description: "[Flight] LHR to AGP",
-		Start:       DateTime{Raw: "20260701T090000Z", Time: out, HasTime: true, IsUTC: true},
-		End:         DateTime{Raw: "20260701T120000Z", Time: in, HasTime: true, IsUTC: true},
-	}}}
-	mt := MapCalendar(cal)
-	if len(mt.Plans) != 1 || mt.Plans[0].Type != "flight" {
-		t.Fatalf("got %d plans (%v), want 1 flight", len(mt.Plans), mt.Plans)
-	}
-	fd := mt.Plans[0].Parts[0].Flight
-	if fd.Ident != "U21234" || fd.OriginIATA != "LHR" || fd.DestIATA != "AGP" {
-		t.Errorf("mapped flight = %s %s→%s, want U21234 LHR→AGP", fd.Ident, fd.OriginIATA, fd.DestIATA)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cal := &Calendar{Events: []Event{{
+				UID:         "item-x@tripit.com",
+				Summary:     tc.summary,
+				Description: "[Flight] " + tc.o + " to " + tc.d,
+				Start:       DateTime{Raw: "20260701T090000Z", Time: out, HasTime: true, IsUTC: true},
+				End:         DateTime{Raw: "20260701T120000Z", Time: in, HasTime: true, IsUTC: true},
+			}}}
+			mt := MapCalendar(cal)
+			if len(mt.Plans) != 1 || mt.Plans[0].Type != "flight" {
+				t.Fatalf("got %d plans (%v), want 1 flight", len(mt.Plans), mt.Plans)
+			}
+			fd := mt.Plans[0].Parts[0].Flight
+			if fd.Ident != tc.ident || fd.OriginIATA != tc.o || fd.DestIATA != tc.d {
+				t.Errorf("mapped flight = %s %s→%s, want %s %s→%s",
+					fd.Ident, fd.OriginIATA, fd.DestIATA, tc.ident, tc.o, tc.d)
+			}
+		})
 	}
 }
 
