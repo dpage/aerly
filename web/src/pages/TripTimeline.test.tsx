@@ -215,26 +215,25 @@ describe('TripTimeline', () => {
     expect(link).toHaveAttribute('href', '/tracker?part=4');
   });
 
-  it('opens the whole-plan detail dialog when a card is tapped', async () => {
+  it('expands a tile inline (no modal) when tapped, and allows several open at once', async () => {
     state.currentTrip = tripWith([
-      plan(
-        [
-          part({ id: 1, plan_id: 1, effective_at: '2026-10-12T09:00:00Z', start_label: 'LHR', end_label: 'LIS' }),
-          part({ id: 2, plan_id: 1, effective_at: '2026-10-18T09:00:00Z', start_label: 'LIS', end_label: 'LHR' }),
-        ],
-        { id: 1, title: 'Return flights', confirmation_ref: 'ABC123' },
-      ),
+      plan([part({ id: 1, plan_id: 1, effective_at: '2026-10-12T09:00:00Z' })], {
+        id: 1,
+        title: 'Outbound',
+      }),
+      plan([part({ id: 2, plan_id: 2, effective_at: '2026-10-18T09:00:00Z' })], { id: 2, title: 'Return' }),
     ]);
     renderTimeline();
+    // Collapsed: the per-plan actions aren't mounted, and there's no modal.
+    expect(screen.queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId('part-card-1'));
-    const dialog = screen.getByRole('dialog');
-    // The dialog lists the whole booking — both legs and the confirmation ref.
-    expect(dialog).toHaveTextContent('ABC123');
-    expect(dialog).toHaveTextContent('LHR');
-    expect(dialog).toHaveTextContent('LIS');
+    await userEvent.click(screen.getByTestId('part-card-2'));
+    // Both expanded at once → an Edit action per tile, and never a dialog.
+    expect(screen.getAllByRole('button', { name: /^Edit$/i })).toHaveLength(2);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('shows part addresses in the plan detail dialog', async () => {
+  it('shows part addresses when a tile is expanded', async () => {
     state.currentTrip = tripWith([
       plan(
         [
@@ -252,24 +251,24 @@ describe('TripTimeline', () => {
       ),
     ]);
     renderTimeline();
-    await userEvent.click(screen.getByTestId('part-card-1'));
-    const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveTextContent('12 Acacia Avenue, Reading');
-    expect(dialog).toHaveTextContent('Heathrow Terminal 5');
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    expect(card).toHaveTextContent('12 Acacia Avenue, Reading');
+    expect(card).toHaveTextContent('Heathrow Terminal 5');
   });
 
-  it('surfaces privacy/passenger and delete controls to owners/editors', async () => {
+  it('surfaces privacy/passenger, edit and delete in the expanded tile (owner/editor)', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
     ]);
     renderTimeline();
-    await userEvent.click(screen.getByTestId('part-card-1'));
-    const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByRole('button', { name: /Privacy & passengers/i })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: /^Edit$/i })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: /Delete/i })).toBeInTheDocument();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    expect(within(card).getByRole('button', { name: /Privacy & passengers/i })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: /^Edit$/i })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: /Delete/i })).toBeInTheDocument();
     // Owners receive alerts via their own prefs, so the per-plan opt-in is hidden.
-    expect(within(dialog).queryByLabelText(/Notify me of changes/i)).not.toBeInTheDocument();
+    expect(within(card).queryByLabelText(/Notify me of changes/i)).not.toBeInTheDocument();
   });
 
   it('surfaces the per-plan alert opt-in to viewers, not the edit controls', async () => {
@@ -278,13 +277,11 @@ describe('TripTimeline', () => {
       my_role: 'viewer',
     };
     renderTimeline();
-    await userEvent.click(screen.getByTestId('part-card-1'));
-    const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByLabelText(/Notify me of changes/i)).toBeInTheDocument();
-    expect(
-      within(dialog).queryByRole('button', { name: /Privacy & passengers/i }),
-    ).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    expect(within(card).getByLabelText(/Notify me of changes/i)).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: /Privacy & passengers/i })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
   });
 });
