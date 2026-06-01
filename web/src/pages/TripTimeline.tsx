@@ -25,8 +25,7 @@ import AddToTripDialog from '../components/AddToTripDialog';
 import {
   buildTimeline,
   fmtPartTimeRange,
-  hotelNights,
-  isHotelBand,
+  fmtTimeOfDay,
   planTypeLabel,
 } from '../lib/trip-format';
 
@@ -59,12 +58,19 @@ export default function TripTimeline() {
     return seen;
   }, [days]);
 
-  // Which plan ids span more than one timeline part — only those get the
-  // "part of a multi-part booking" connector treatment.
+  // Which plan ids have more than one distinct part — only those get the
+  // "part of a multi-part booking" connector treatment. Count distinct part
+  // ids (not timeline tiles), so a single hotel stay shown as two check-in /
+  // check-out tiles isn't mistaken for a multi-part booking.
   const multiPartPlanIds = useMemo(() => {
-    const counts = new Map<number, number>();
-    for (const d of days) for (const { plan } of d.parts) counts.set(plan.id, (counts.get(plan.id) ?? 0) + 1);
-    return new Set([...counts].filter(([, n]) => n > 1).map(([id]) => id));
+    const partsByPlan = new Map<number, Set<number>>();
+    for (const d of days)
+      for (const { plan, part } of d.parts) {
+        let set = partsByPlan.get(plan.id);
+        if (!set) partsByPlan.set(plan.id, (set = new Set()));
+        set.add(part.id);
+      }
+    return new Set([...partsByPlan].filter(([, s]) => s.size > 1).map(([id]) => id));
   }, [days]);
 
   // Track the open plan by id (not a captured snapshot) so the detail dialog
@@ -127,11 +133,12 @@ export default function TripTimeline() {
             {day.label}
           </Typography>
           <Stack spacing={1.5} sx={{ mt: 1.5 }}>
-            {day.parts.map(({ part, plan }) => (
+            {day.parts.map(({ part, plan, edge }) => (
               <PartCard
-                key={part.id}
+                key={`${part.id}${edge ? `-${edge}` : ''}`}
                 part={part}
                 plan={plan}
+                edge={edge}
                 accent={accentFor(planIds, plan.id)}
                 multiPart={multiPartPlanIds.has(plan.id)}
                 onOpenPlan={() => setPlanDetailId(plan.id)}
@@ -149,12 +156,14 @@ export default function TripTimeline() {
 interface PartCardProps {
   part: PlanPart;
   plan: Plan;
+  /** Set for the two tiles of a multi-night hotel stay (see buildTimeline). */
+  edge?: 'check-in' | 'check-out';
   accent: string;
   multiPart: boolean;
   onOpenPlan: () => void;
 }
 
-function PartCard({ part, plan, accent, multiPart, onOpenPlan }: PartCardProps) {
+function PartCard({ part, plan, edge, accent, multiPart, onOpenPlan }: PartCardProps) {
   // A cancelled part stays on the timeline, greyed out, until it's tidied
   // away (PRD §6.2/§6.9). On a rebooking the OLD part is the one stamped
   // `status='cancelled'` and marked superseded — the NEW part carries
@@ -162,7 +171,6 @@ function PartCard({ part, plan, accent, multiPart, onOpenPlan }: PartCardProps) 
   // `status === 'cancelled'`, which also correctly greys a plain cancellation.
   // Dismissed parts are already dropped by buildTimeline().
   const greyed = part.status === 'cancelled';
-  const band = isHotelBand(part);
 
   return (
     <Card
@@ -173,11 +181,9 @@ function PartCard({ part, plan, accent, multiPart, onOpenPlan }: PartCardProps) 
         cursor: 'pointer',
         opacity: greyed ? 0.55 : 1,
         borderLeft: `4px solid ${accent}`,
-        // The hotel band reads as a continuous strip across its nights.
-        ...(band ? { bgcolor: 'action.hover' } : {}),
         '&:hover': { boxShadow: 1 },
       }}
-      data-testid={`part-card-${part.id}`}
+      data-testid={`part-card-${part.id}${edge ? `-${edge}` : ''}`}
     >
       <Stack direction="row" spacing={1.5} sx={{ p: 1.5 }} alignItems="flex-start">
         <PlanTypeIcon type={part.type} sx={{ color: accent, mt: 0.25 }} />
@@ -208,7 +214,11 @@ function PartCard({ part, plan, accent, multiPart, onOpenPlan }: PartCardProps) 
           </Typography>
 
           <Typography variant="caption" color="text.secondary">
-            {band ? `${hotelNights(part)} night${hotelNights(part) === 1 ? '' : 's'}` : fmtPartTimeRange(part)}
+            {edge === 'check-in'
+              ? `Check in · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
+              : edge === 'check-out'
+                ? `Check out · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
+                : fmtPartTimeRange(part)}
           </Typography>
 
           {plan.confirmation_ref && (

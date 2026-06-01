@@ -83,6 +83,11 @@ function fmtDay(dateOnly: string): string {
 export interface TimelinePart {
   part: PlanPart;
   plan: Plan;
+  /** For a multi-night hotel stay, which end of the stay this tile marks — so
+   * the stay shows a check-in tile on its first day and a check-out tile on its
+   * last day. Undefined for every other part (and same-day stays), which render
+   * as a single tile. */
+  edge?: 'check-in' | 'check-out';
 }
 
 /** A single day's worth of timeline parts under one local-day header. */
@@ -102,24 +107,49 @@ export interface TimelineDay {
  *   part's `start_tz` so a red-eye lands on its departure day's header and the
  *   header reads in the local time of where it happens. */
 export function buildTimeline(plans: Plan[]): TimelineDay[] {
-  const flat: TimelinePart[] = [];
+  // Each entry carries the instant + iso/tz used to place and sort it, so a
+  // multi-night hotel can contribute two entries: a check-in on its first day
+  // and a check-out on its last day.
+  interface Entry {
+    tp: TimelinePart;
+    instant: number;
+    iso: string;
+    tz?: string;
+  }
+  const flat: Entry[] = [];
   for (const plan of plans) {
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
-      flat.push({ part, plan });
+      if (isHotelBand(part) && part.ends_at) {
+        flat.push({
+          tp: { part, plan, edge: 'check-in' },
+          instant: parseInstant(part.starts_at) ?? 0,
+          iso: part.starts_at,
+          tz: part.start_tz,
+        });
+        flat.push({
+          tp: { part, plan, edge: 'check-out' },
+          instant: parseInstant(part.ends_at) ?? 0,
+          iso: part.ends_at,
+          tz: part.end_tz || part.start_tz,
+        });
+      } else {
+        const iso = part.effective_at ?? part.starts_at;
+        flat.push({ tp: { part, plan }, instant: instantOf(part), iso, tz: part.start_tz });
+      }
     }
   }
-  flat.sort((a, b) => instantOf(a.part) - instantOf(b.part));
+  flat.sort((a, b) => a.instant - b.instant);
 
   const days = new Map<string, TimelineDay>();
-  for (const tp of flat) {
-    const key = localDayKey(tp.part.effective_at ?? tp.part.starts_at, tp.part.start_tz);
+  for (const e of flat) {
+    const key = localDayKey(e.iso, e.tz);
     let day = days.get(key);
     if (!day) {
-      day = { dayKey: key, label: fmtDayHeader(tp.part.starts_at, tp.part.start_tz), parts: [] };
+      day = { dayKey: key, label: fmtDayHeader(e.iso, e.tz), parts: [] };
       days.set(key, day);
     }
-    day.parts.push(tp);
+    day.parts.push(e.tp);
   }
   return [...days.values()];
 }

@@ -132,7 +132,7 @@ describe('TripTimeline', () => {
     expect(screen.getAllByText('multi-part')).toHaveLength(2);
   });
 
-  it('renders a multi-night hotel as a band with a nights label', () => {
+  it('renders a multi-night hotel as separate check-in and check-out tiles', () => {
     state.currentTrip = tripWith([
       plan(
         [
@@ -141,6 +141,7 @@ describe('TripTimeline', () => {
             plan_id: 2,
             type: 'hotel',
             starts_at: '2026-10-12T15:00:00Z',
+            effective_at: '2026-10-12T15:00:00Z',
             ends_at: '2026-10-15T10:00:00Z',
             start_label: 'Hotel Lisboa',
             end_label: '',
@@ -150,7 +151,14 @@ describe('TripTimeline', () => {
       ),
     ]);
     renderTimeline();
-    expect(screen.getByText(/3 nights/)).toBeInTheDocument();
+    // One tile on the check-in day, one on the check-out day — not a single band.
+    expect(screen.getByTestId('part-card-9-check-in')).toBeInTheDocument();
+    expect(screen.getByTestId('part-card-9-check-out')).toBeInTheDocument();
+    expect(screen.getByText(/Check in/)).toBeInTheDocument();
+    expect(screen.getByText(/Check out/)).toBeInTheDocument();
+    // Day headers for both the arrival and departure dates.
+    expect(screen.getByText(/12 Oct 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/15 Oct 2026/)).toBeInTheDocument();
   });
 
   it('greys a cancelled (superseded old) part and tags it, not the replacement', () => {
