@@ -234,6 +234,30 @@ describe('TripTimeline', () => {
     expect(dialog).toHaveTextContent('LIS');
   });
 
+  it('shows part addresses in the plan detail dialog', async () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            type: 'ground',
+            start_label: 'Home',
+            end_label: 'LHR T5',
+            start_address: '12 Acacia Avenue, Reading',
+            end_address: 'Heathrow Terminal 5',
+          }),
+        ],
+        { id: 1, type: 'ground', title: "Kev's taxi" },
+      ),
+    ]);
+    renderTimeline();
+    await userEvent.click(screen.getByTestId('part-card-1'));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('12 Acacia Avenue, Reading');
+    expect(dialog).toHaveTextContent('Heathrow Terminal 5');
+  });
+
   it('surfaces privacy/passenger and delete controls to owners/editors', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
