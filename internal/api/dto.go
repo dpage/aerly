@@ -333,9 +333,11 @@ type PlanPartDTO struct {
 	StartLabel   string              `json:"start_label"`
 	StartLat     *float64            `json:"start_lat,omitempty"`
 	StartLon     *float64            `json:"start_lon,omitempty"`
+	StartAddress string              `json:"start_address"`
 	EndLabel     string              `json:"end_label"`
 	EndLat       *float64            `json:"end_lat,omitempty"`
 	EndLon       *float64            `json:"end_lon,omitempty"`
+	EndAddress   string              `json:"end_address"`
 	Status       string              `json:"status"`
 	EffectiveAt  time.Time           `json:"effective_at"`
 	SupersedesID *int64              `json:"supersedes_id,omitempty"`
@@ -501,9 +503,11 @@ func ToPlanPartDTO(
 		StartLabel:   p.StartLabel,
 		StartLat:     p.StartLat,
 		StartLon:     p.StartLon,
+		StartAddress: p.StartAddress,
 		EndLabel:     p.EndLabel,
 		EndLat:       p.EndLat,
 		EndLon:       p.EndLon,
+		EndAddress:   p.EndAddress,
 		Status:       p.Status,
 		EffectiveAt:  p.EffectiveAt(),
 		SupersedesID: p.SupersedesID,

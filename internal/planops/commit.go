@@ -16,15 +16,17 @@ type ConfirmPartInput struct {
 	Seq        int
 	StartsAt   time.Time
 	EndsAt     *time.Time
-	StartTZ    string
-	EndTZ      string
-	StartLabel string
-	StartLat   *float64
-	StartLon   *float64
-	EndLabel   string
-	EndLat     *float64
-	EndLon     *float64
-	Status     string
+	StartTZ      string
+	EndTZ        string
+	StartLabel   string
+	StartLat     *float64
+	StartLon     *float64
+	StartAddress string
+	EndLabel     string
+	EndLat       *float64
+	EndLon       *float64
+	EndAddress   string
+	Status       string
 
 	Flight    *store.FlightDetail
 	Hotel     *store.HotelDetail
@@ -87,13 +89,15 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 				EndsAt:     p.EndsAt,
 				StartTZ:    p.StartTZ,
 				EndTZ:      p.EndTZ,
-				StartLabel: p.StartLabel,
-				StartLat:   p.StartLat,
-				StartLon:   p.StartLon,
-				EndLabel:   p.EndLabel,
-				EndLat:     p.EndLat,
-				EndLon:     p.EndLon,
-				Status:     p.Status,
+				StartLabel:   p.StartLabel,
+				StartLat:     p.StartLat,
+				StartLon:     p.StartLon,
+				StartAddress: p.StartAddress,
+				EndLabel:     p.EndLabel,
+				EndLat:       p.EndLat,
+				EndLon:       p.EndLon,
+				EndAddress:   p.EndAddress,
+				Status:       p.Status,
 				Flight:     p.Flight,
 				Hotel:      p.Hotel,
 				Train:      p.Train,
