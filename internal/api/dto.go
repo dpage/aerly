@@ -258,6 +258,9 @@ type TripDTO struct {
 	Destination string          `json:"destination"`
 	StartsOn    *string         `json:"starts_on,omitempty"` // YYYY-MM-DD
 	EndsOn      *string         `json:"ends_on,omitempty"`
+	// Inferred from the trip's parts when StartsOn/EndsOn aren't set (list only).
+	EffectiveStart *string      `json:"effective_start,omitempty"` // YYYY-MM-DD
+	EffectiveEnd   *string      `json:"effective_end,omitempty"`
 	CreatedBy   *int64          `json:"created_by,omitempty"`
 	MyRole      string          `json:"my_role"` // owner|editor|viewer
 	Members     []TripMemberDTO `json:"members"`
@@ -485,6 +488,14 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 	if t.EndsOn != nil {
 		s := t.EndsOn.Format("2006-01-02")
 		dto.EndsOn = &s
+	}
+	if t.EffectiveStart != nil {
+		s := t.EffectiveStart.UTC().Format("2006-01-02")
+		dto.EffectiveStart = &s
+	}
+	if t.EffectiveEnd != nil {
+		s := t.EffectiveEnd.UTC().Format("2006-01-02")
+		dto.EffectiveEnd = &s
 	}
 	return dto
 }

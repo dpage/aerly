@@ -34,8 +34,10 @@ export function tripSpan(trip: Trip, plans?: Plan[]): TripSpan {
   if (instants.length > 0) {
     return { start: Math.min(...instants), end: Math.max(...instants) };
   }
-  const start = parseDateOnly(trip.starts_on);
-  const end = parseDateOnly(trip.ends_on);
+  // No parts in this payload: prefer the explicit dates, then the span the
+  // server inferred from the trip's parts (the list payload carries no parts).
+  const start = parseDateOnly(trip.starts_on) ?? parseDateOnly(trip.effective_start);
+  const end = parseDateOnly(trip.ends_on) ?? parseDateOnly(trip.effective_end);
   return { start, end };
 }
 
@@ -60,12 +62,34 @@ export function classifyTrip(span: TripSpan, now: number = Date.now()): TripBuck
  * "Oct 2026" (no fixed dates). Uses UTC so YYYY-MM-DD columns render on the
  * day the user typed regardless of runtime locale. */
 export function fmtTripDates(trip: Trip): string {
-  const s = trip.starts_on;
-  const e = trip.ends_on;
+  // Explicit dates win; otherwise fall back to the span inferred from the
+  // trip's plans, marked with "~" so it reads as a guess. Only "Dates to be
+  // decided" when there's nothing to go on at all.
+  const explicit = Boolean(trip.starts_on || trip.ends_on);
+  const s = trip.starts_on ?? trip.effective_start;
+  const e = trip.ends_on ?? trip.effective_end;
   if (!s && !e) return 'Dates to be decided';
-  if (s && !e) return fmtDay(s);
+  const prefix = explicit ? '' : '~';
+  if (s && !e) return `${prefix}${fmtDay(s)}`;
   if (!s && e) return `until ${fmtDay(e)}`;
-  return `${fmtDay(s!)} – ${fmtDay(e!)}`;
+  return `${prefix}${fmtDay(s!)} – ${fmtDay(e!)}`;
+}
+
+/** True when the trip has explicit dates and at least one (non-dismissed) part
+ * falls outside them — so the UI can flag a likely mistake. Compares the part's
+ * local day (in its own tz) against the trip's YYYY-MM-DD bounds. */
+export function plansOutsideTripDates(trip: Trip, plans: Plan[]): boolean {
+  if (!trip.starts_on && !trip.ends_on) return false;
+  for (const plan of plans) {
+    for (const part of plan.parts) {
+      if (part.dismissed_at) continue;
+      const startDay = localDayKey(part.effective_at ?? part.starts_at, part.start_tz);
+      if (trip.starts_on && startDay < trip.starts_on) return true;
+      const endDay = localDayKey(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz);
+      if (trip.ends_on && endDay > trip.ends_on) return true;
+    }
+  }
+  return false;
 }
 
 function fmtDay(dateOnly: string): string {

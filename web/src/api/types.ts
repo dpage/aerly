@@ -212,6 +212,10 @@ export interface Trip {
   starts_on?: string;
   /** YYYY-MM-DD; absent when the trip has no fixed end. */
   ends_on?: string;
+  /** YYYY-MM-DD span inferred from the trip's parts (list payload), used to show
+   * dates when starts_on/ends_on aren't set. */
+  effective_start?: string;
+  effective_end?: string;
   created_by?: number;
   /** The viewer's role on this trip. */
   my_role: TripRole;

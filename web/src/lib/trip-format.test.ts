@@ -7,6 +7,7 @@ import {
   fmtPartPlaces,
   fmtPartTimeRange,
   fmtTripDates,
+  plansOutsideTripDates,
   hotelNights,
   isHotelBand,
   planTypeLabel,
@@ -125,6 +126,41 @@ describe('fmtTripDates', () => {
   });
   it('handles no dates', () => {
     expect(fmtTripDates(trip())).toMatch(/decided/i);
+  });
+  it('falls back to the inferred span (marked ~) when no explicit dates', () => {
+    const out = fmtTripDates(trip({ effective_start: '2026-10-20', effective_end: '2026-10-24' }));
+    expect(out).toContain('~');
+    expect(out).toMatch(/20.*Oct.*24.*Oct/);
+  });
+  it('prefers explicit dates over the inferred span (no ~)', () => {
+    const out = fmtTripDates(
+      trip({ starts_on: '2026-10-12', ends_on: '2026-10-18', effective_start: '2026-10-20' }),
+    );
+    expect(out).not.toContain('~');
+  });
+});
+
+describe('plansOutsideTripDates', () => {
+  const within = part({ id: 1, starts_at: '2026-10-13T09:00:00Z', effective_at: '2026-10-13T09:00:00Z' });
+  it('false when no explicit trip dates', () => {
+    expect(plansOutsideTripDates(trip(), [plan([within])])).toBe(false);
+  });
+  it('false when all parts are within the dates', () => {
+    expect(
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([within])]),
+    ).toBe(false);
+  });
+  it('true when a part starts before the trip', () => {
+    const early = part({ id: 2, starts_at: '2026-10-01T09:00:00Z', effective_at: '2026-10-01T09:00:00Z' });
+    expect(
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([early])]),
+    ).toBe(true);
+  });
+  it('true when a part ends after the trip', () => {
+    const late = part({ id: 3, starts_at: '2026-10-25T09:00:00Z', effective_at: '2026-10-25T09:00:00Z' });
+    expect(
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([late])]),
+    ).toBe(true);
   });
 });
 
