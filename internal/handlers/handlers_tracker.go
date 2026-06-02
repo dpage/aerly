@@ -96,10 +96,12 @@ func (a *API) getTracker(w http.ResponseWriter, r *http.Request) {
 // flight parts, the latest position + flown track (batch-loaded once).
 func (a *API) trackerPartDTOs(ctx context.Context, parts []*store.PlanPart) ([]api.PlanPartDTO, error) {
 	flightIDs := make([]int64, 0, len(parts))
+	planIDset := map[int64]struct{}{}
 	for _, p := range parts {
 		if p.Type == "flight" {
 			flightIDs = append(flightIDs, p.ID)
 		}
+		planIDset[p.PlanID] = struct{}{}
 	}
 	latest, err := a.Store.LatestPartPositions(ctx, flightIDs)
 	if err != nil {
@@ -109,11 +111,53 @@ func (a *API) trackerPartDTOs(ctx context.Context, parts []*store.PlanPart) ([]a
 	if err != nil {
 		return nil, err
 	}
+
+	// Who added each plan + who's on it, so the tracker can show "who is on
+	// which flight". Batch-load owners + passengers + the users they reference.
+	planIDs := make([]int64, 0, len(planIDset))
+	for id := range planIDset {
+		planIDs = append(planIDs, id)
+	}
+	owners, err := a.Store.PlanOwners(ctx, planIDs)
+	if err != nil {
+		return nil, err
+	}
+	pax, err := a.Store.PassengersByPlan(ctx, planIDs)
+	if err != nil {
+		return nil, err
+	}
+	userIDset := map[int64]struct{}{}
+	for _, uid := range owners {
+		userIDset[uid] = struct{}{}
+	}
+	for _, ids := range pax {
+		for _, uid := range ids {
+			userIDset[uid] = struct{}{}
+		}
+	}
+	userIDs := make([]int64, 0, len(userIDset))
+	for id := range userIDset {
+		userIDs = append(userIDs, id)
+	}
+	users, err := a.Store.UsersByIDs(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]api.PlanPartDTO, 0, len(parts))
 	for _, p := range parts {
 		dto, err := a.partDTOWithPositions(ctx, p, nil, latest[p.ID], tracks[p.ID])
 		if err != nil {
 			return nil, err
+		}
+		if u := users[owners[p.PlanID]]; u != nil {
+			od := api.ToUserDTO(u)
+			dto.Owner = &od
+		}
+		for _, uid := range pax[p.PlanID] {
+			if u := users[uid]; u != nil {
+				dto.Passengers = append(dto.Passengers, api.ToUserDTO(u))
+			}
 		}
 		out = append(out, dto)
 	}

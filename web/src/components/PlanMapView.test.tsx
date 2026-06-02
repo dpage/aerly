@@ -2,12 +2,26 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { PlanPart } from '../api/types';
+import type { PlanPart, User } from '../api/types';
 import maplibreMock, { FakeMap, FakeMarker, resetMaplibreMock } from '../test/maplibre-mock';
 
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
 import PlanMapView from './PlanMapView';
+
+function user(over: Partial<User> = {}): User {
+  return {
+    id: 1,
+    username: 'u',
+    name: 'User',
+    avatar_url: '',
+    is_superuser: false,
+    is_active: true,
+    has_logged_in: true,
+    home_address: '',
+    ...over,
+  };
+}
 
 function flight(over: Partial<PlanPart> = {}): PlanPart {
   return {
@@ -141,6 +155,26 @@ describe('PlanMapView', () => {
   it('shows an empty state when there are no mappable parts', () => {
     render(<PlanMapView parts={[]} />);
     expect(screen.getByText(/no mappable plans/i)).toBeInTheDocument();
+  });
+
+  it('shows the plan owner (text) and passenger avatars on the list row', () => {
+    render(
+      <PlanMapView
+        parts={[
+          flight({
+            owner: user({ id: 9, name: 'Dave Page' }),
+            passengers: [
+              user({ id: 2, name: 'Bob', avatar_url: 'https://gravatar/bob.png' }),
+              user({ id: 3, name: 'Carol' }),
+            ],
+          }),
+        ]}
+      />,
+    );
+    const row = screen.getByTestId('plan-row-1');
+    expect(row).toHaveTextContent(/Added by Dave Page/);
+    // Passenger avatars: the one with a url renders an <img>.
+    expect(row.querySelector('img[src="https://gravatar/bob.png"]')).not.toBeNull();
   });
 
   it('shows a loading state (not the empty copy) while parts are pending', () => {

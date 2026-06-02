@@ -90,4 +90,32 @@ describe('buildMarkerPopup', () => {
     const el = buildMarkerPopup({ title: 'X', type: 'mystery' as PlanType });
     expect(el.outerHTML).toContain('#6b7280');
   });
+
+  it('shows the owner as an "Added by" row', () => {
+    const el = buildMarkerPopup({ title: 'BA217', type: 'flight', owner: 'Dave Page' });
+    expect(el.textContent).toContain('Added by');
+    expect(el.textContent).toContain('Dave Page');
+  });
+
+  it('renders passenger avatars: a gravatar image and an initials fallback', () => {
+    const el = buildMarkerPopup({
+      title: 'BA217',
+      type: 'flight',
+      passengers: [
+        { name: 'Avatar Person', avatarUrl: 'https://gravatar/x.png' },
+        { name: 'No Pic' },
+      ],
+    });
+    expect(el.textContent).toContain('On board');
+    const img = el.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('https://gravatar/x.png');
+    expect(img?.getAttribute('title')).toBe('Avatar Person');
+    // The pic-less passenger renders an initial.
+    expect(el.textContent).toContain('N');
+  });
+
+  it('omits the passenger row when there are none', () => {
+    const el = buildMarkerPopup({ title: 'BA217', type: 'flight', passengers: [] });
+    expect(el.textContent).not.toContain('On board');
+  });
 });

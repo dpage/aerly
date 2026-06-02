@@ -5,10 +5,21 @@ import maplibregl, {
   type MapGeoJSONFeature,
   type StyleSpecification,
 } from 'maplibre-gl';
-import { Box, Collapse, List, ListItemButton, ListItemText, Typography } from '@mui/material';
+import {
+  Avatar,
+  AvatarGroup,
+  Box,
+  Collapse,
+  List,
+  ListItemButton,
+  ListItemText,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 
 import type { PlanPart } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
+import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
 import {
   fmtPartPlaces,
@@ -178,6 +189,11 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
                   location: ep.label,
                   iso: ep.iso,
                   tz: ep.tz,
+                  owner: p.owner ? userName(p.owner) : undefined,
+                  passengers: (p.passengers ?? []).map((u) => ({
+                    name: userName(u),
+                    avatarUrl: u.avatar_url || undefined,
+                  })),
                 }),
               ),
             )
@@ -300,8 +316,28 @@ function PartRow({
         />
         <ListItemText
           primary={partTitle(part)}
-          secondary={[planTypeLabel(part.type), fmtPartTimeRange(part)].filter(Boolean).join(' · ')}
+          secondary={[
+            planTypeLabel(part.type),
+            fmtPartTimeRange(part),
+            part.owner ? `Added by ${userName(part.owner)}` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         />
+        {part.passengers && part.passengers.length > 0 && (
+          <AvatarGroup
+            max={4}
+            sx={{ ml: 1, '& .MuiAvatar-root': { width: 24, height: 24, fontSize: 12 } }}
+          >
+            {part.passengers.map((u) => (
+              <Tooltip key={u.id} title={userName(u)}>
+                <Avatar src={u.avatar_url || undefined} alt={userName(u)}>
+                  {userInitial(u)}
+                </Avatar>
+              </Tooltip>
+            ))}
+          </AvatarGroup>
+        )}
       </ListItemButton>
       <Collapse in={selected} unmountOnExit>
         <Box sx={{ px: 2, py: 1.5, bgcolor: 'action.hover' }}>

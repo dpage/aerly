@@ -755,6 +755,29 @@ func (s *Store) PassengersByPlan(ctx context.Context, planIDs []int64) (map[int6
 	return out, rows.Err()
 }
 
+// PlanOwners returns the creator (owner) user id for each plan id, in one
+// query. Used to label tracker parts with who added them.
+func (s *Store) PlanOwners(ctx context.Context, planIDs []int64) (map[int64]int64, error) {
+	out := map[int64]int64{}
+	if len(planIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, created_by FROM plans WHERE id = ANY($1)`, planIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var planID, ownerID int64
+		if err := rows.Scan(&planID, &ownerID); err != nil {
+			return nil, err
+		}
+		out[planID] = ownerID
+	}
+	return out, rows.Err()
+}
+
 // ----- Per-plan visibility -----
 
 // PlanVisibility is the per-plan privacy override. A nil result (ErrNotFound)

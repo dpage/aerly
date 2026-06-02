@@ -42,6 +42,28 @@ func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 		`SELECT `+userColumns+` FROM users WHERE id = $1`, id))
 }
 
+// UsersByIDs fetches users by id in one query, keyed by id. Missing ids are
+// simply absent from the map. An empty input returns an empty map.
+func (s *Store) UsersByIDs(ctx context.Context, ids []int64) (map[int64]*User, error) {
+	out := map[int64]*User{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+userColumns+` FROM users WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[u.ID] = u
+	}
+	return out, rows.Err()
+}
+
 // UserByIdentity looks up a user via a linked external identity. Returns
 // ErrNotFound when no row matches (provider, providerUserID).
 func (s *Store) UserByIdentity(ctx context.Context, provider, providerUserID string) (*User, error) {

@@ -136,6 +136,10 @@ func TestTrackerConvergenceWindow(t *testing.T) {
 	if got[0].ID != inPart || got[0].Flight == nil || got[0].Flight.Ident != "IN1" {
 		t.Errorf("wrong part returned: %+v", got[0])
 	}
+	// The plan owner is surfaced so the tracker can show whose flight it is.
+	if got[0].Owner == nil || got[0].Owner.ID != owner {
+		t.Errorf("expected the plan owner on the part, got %+v", got[0].Owner)
+	}
 }
 
 // TestTrackerHiddenPlanNotVisible is the required privacy test: a flight part

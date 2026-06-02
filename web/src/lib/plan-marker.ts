@@ -69,12 +69,21 @@ export function buildPinEl(type: PlanType): HTMLElement {
 /** A labelled popover for a map marker: a coloured type glyph + the title, then
  * a Type / Location / When field list. Built with textContent so extracted
  * strings can't inject markup. Pass `iso`+`tz` to render a local When line. */
+export interface MarkerPerson {
+  name: string;
+  avatarUrl?: string;
+}
+
 export function buildMarkerPopup(opts: {
   title: string;
   type: PlanType;
   location?: string;
   iso?: string;
   tz?: string;
+  /** Who added the plan (shown as text). */
+  owner?: string;
+  /** Who's on the plan (shown as small avatars). */
+  passengers?: MarkerPerson[];
 }): HTMLElement {
   const s = styleFor(opts.type);
   const root = document.createElement('div');
@@ -101,6 +110,7 @@ export function buildMarkerPopup(opts: {
     ['Type', planTypeLabel(opts.type)],
     ['Location', opts.location && opts.location !== opts.title ? opts.location : ''],
     ['When', when],
+    ['Added by', opts.owner ?? ''],
   ];
   const grid = document.createElement('div');
   grid.style.display = 'grid';
@@ -118,5 +128,45 @@ export function buildMarkerPopup(opts: {
     grid.append(k, v);
   }
   root.append(grid);
+
+  // Passengers as a row of small avatars (gravatar image, or initials).
+  if (opts.passengers && opts.passengers.length > 0) {
+    const paxRow = document.createElement('div');
+    paxRow.style.display = 'flex';
+    paxRow.style.alignItems = 'center';
+    paxRow.style.gap = '4px';
+    paxRow.style.marginTop = '6px';
+    const label = document.createElement('span');
+    label.style.color = '#888';
+    label.textContent = 'On board';
+    paxRow.append(label);
+    for (const p of opts.passengers) {
+      paxRow.append(avatarEl(p));
+    }
+    root.append(paxRow);
+  }
   return root;
+}
+
+/** A 20px round avatar: the gravatar image when available, else an initial. */
+function avatarEl(person: MarkerPerson): HTMLElement {
+  const initial = (person.name.trim()[0] ?? '?').toUpperCase();
+  if (person.avatarUrl) {
+    const img = document.createElement('img');
+    img.src = person.avatarUrl;
+    img.alt = person.name;
+    img.title = person.name;
+    img.width = 20;
+    img.height = 20;
+    img.style.borderRadius = '50%';
+    img.style.display = 'block';
+    return img;
+  }
+  const el = document.createElement('span');
+  el.title = person.name;
+  el.textContent = initial;
+  el.style.cssText =
+    'display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;' +
+    'border-radius:50%;background:#bbb;color:#fff;font-size:11px;font-weight:600;flex:none';
+  return el;
 }
