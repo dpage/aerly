@@ -43,7 +43,7 @@ export default function HomeAddressDialog({ open, onClose }: { open: boolean; on
       <DialogContent>
         <DialogContentText sx={{ mb: 2 }}>
           Used as context when adding plans from text — so a confirmation like “taxi from home to
-          the airport” knows where home is. Only you can see it.
+          the airport” knows where home is.
         </DialogContentText>
         <TextField
           label="Home address"
