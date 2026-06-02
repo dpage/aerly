@@ -775,6 +775,12 @@ func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripF
 	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, latest, track)
 	if p.Type == "hotel" && dto.Hotel != nil {
 		applyHotelSmartTimes(p, hotel, tripFlights, dto.Hotel)
+		// Order the timeline/map by the smart check-in (after the inbound
+		// flight's arrival) rather than the raw default check-in, so a hotel
+		// doesn't sort ahead of the flight that gets you there.
+		if dto.Hotel.CheckinSuggested != nil {
+			dto.EffectiveAt = *dto.Hotel.CheckinSuggested
+		}
 	}
 	return dto, nil
 }
@@ -788,28 +794,43 @@ func applyHotelSmartTimes(stay *store.PlanPart, detail *store.HotelDetail, tripF
 	out.CheckoutSuggested = res.Checkout
 }
 
-// flankingFlights finds the inbound (latest arriving before the stay begins)
-// and outbound (earliest departing after the stay begins) flight parts.
+// flankingFlights finds the inbound (the flight that brought the traveller to
+// the stay) and outbound (the one that takes them home) flight parts.
+//
+// Classification is by calendar day, NOT by the stored check-in/out instant:
+// a hotel's stored check-in is often just the property's default (15:00), which
+// can be *earlier* than the flight that actually arrives that afternoon. Keying
+// off the instant then mistakes the arriving flight for an outbound one and the
+// smart-times calc finds no inbound. So: a flight arriving on or before the
+// check-in day is an inbound candidate (latest arrival wins); one departing on
+// or after the check-out day is an outbound candidate (earliest departure wins).
 func flankingFlights(stay *store.PlanPart, flights []*store.PlanPart) planops.HotelTimeFlights {
 	var f planops.HotelTimeFlights
-	stayStart := stay.StartsAt
+	ciDay := dayOf(stay.StartsAt)
+	coDay := ciDay
+	if stay.EndsAt != nil {
+		coDay = dayOf(*stay.EndsAt)
+	}
 	for _, fl := range flights {
-		arrival := fl.StartsAt
-		if fl.EndsAt != nil {
-			arrival = *fl.EndsAt
-		}
-		if !arrival.After(stayStart) {
+		arrival := inboundArrival(fl)
+		if !dayOf(arrival).After(ciDay) {
 			if f.Inbound == nil || arrival.After(inboundArrival(f.Inbound)) {
 				f.Inbound = fl
 			}
 		}
-		if fl.StartsAt.After(stayStart) {
+		if !dayOf(fl.StartsAt).Before(coDay) {
 			if f.Outbound == nil || fl.StartsAt.Before(f.Outbound.StartsAt) {
 				f.Outbound = fl
 			}
 		}
 	}
 	return f
+}
+
+// dayOf truncates an instant to its UTC calendar day, for day-granular
+// comparisons that don't depend on the (sometimes defaulted) time of day.
+func dayOf(t time.Time) time.Time {
+	return t.UTC().Truncate(24 * time.Hour)
 }
 
 func inboundArrival(p *store.PlanPart) time.Time {
