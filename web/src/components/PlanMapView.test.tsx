@@ -129,7 +129,7 @@ describe('PlanMapView', () => {
   const pinFor = (partId: number) =>
     FakeMarker.instances.find((m) => m.getElement()?.dataset.partId === String(partId))!;
 
-  it('shows a single pickup (start) pin for ground transport, not the drop-off', () => {
+  it('plots both endpoints of a ground transfer with a grey crow-flight leg', () => {
     const ground: PlanPart = {
       ...hotel(),
       id: 3,
@@ -144,10 +144,20 @@ describe('PlanMapView', () => {
       hotel: undefined,
     };
     render(<PlanMapView parts={[ground]} />);
+    // Both pickup and drop-off pins are plotted.
     const pins = FakeMarker.instances.filter((m) => m.getElement()?.dataset.partId === '3');
-    expect(pins).toHaveLength(1);
-    // It's plotted at the pickup (start) coordinate, not the drop-off.
-    expect(pins[0].lngLat).toEqual([-0.55, 38.28]);
+    expect(pins).toHaveLength(2);
+    expect(pins.map((p) => p.lngLat)).toEqual(
+      expect.arrayContaining([
+        [-0.55, 38.28],
+        [-0.1, 38.54],
+      ]),
+    );
+    // The connecting leg is drawn grey (a crow-flight connector, not a route).
+    const legsSrc = FakeMap.instances[0].getSource('pmv-legs')!;
+    const lastData = legsSrc.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
+    const leg = lastData.features.find((f) => f.properties?.partId === 3);
+    expect(leg?.properties?.color).toBe('#9e9e9e');
   });
 
   it('clicking a pin highlights its list row (bidirectional)', async () => {

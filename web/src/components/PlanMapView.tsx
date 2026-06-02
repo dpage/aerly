@@ -47,6 +47,9 @@ const STYLE: StyleSpecification = {
 
 const LEGS = 'pmv-legs';
 const TRACK = 'pmv-track';
+// Neutral grey for a ground transfer's crow-flight connector (not an actual
+// route), distinct from the type-coloured flight/train arcs.
+const GROUND_LEG_COLOR = '#9e9e9e';
 
 interface Props {
   /** All mappable parts to plot (those with ≥1 coordinate are shown). */
@@ -413,10 +416,6 @@ function endpoints(p: PlanPart): Endpoint[] {
           tz: p.end_tz || p.start_tz,
         }
       : null;
-  // Ground transport shows a single pin at the pickup (start) point — where
-  // you're collected / board — not the drop-off, which just clutters the map.
-  // Fall back to the drop-off only when the pickup isn't located.
-  if (p.type === 'ground') return [start ?? end].filter((e): e is Endpoint => e != null);
   return [start, end].filter((e): e is Endpoint => e != null);
 }
 
@@ -428,7 +427,14 @@ function legsFC(parts: PlanPart[], selectedId: number | null): GeoJSON.FeatureCo
     if (arc.length === 0) continue;
     features.push({
       type: 'Feature',
-      properties: { partId: p.id, color: planTypeColor(p.type), selected: p.id === selectedId },
+      // Ground transfers get a neutral grey crow-flight line (it's an
+      // as-the-crow-flies connector, not an actual driven route); flights/trains
+      // keep their type colour.
+      properties: {
+        partId: p.id,
+        color: p.type === 'ground' ? GROUND_LEG_COLOR : planTypeColor(p.type),
+        selected: p.id === selectedId,
+      },
       geometry:
         arc.length === 1
           ? { type: 'LineString', coordinates: arc[0] }
