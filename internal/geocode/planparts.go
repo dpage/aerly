@@ -2,6 +2,7 @@ package geocode
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/dpage/aerly/internal/geotz"
@@ -68,22 +69,32 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 }
 
 // geocodeEndpoint resolves an endpoint to coordinates: the postal address first,
-// then the place label as a fallback when there's no address or the address
-// didn't resolve. Flight parts never fall back to the label (their labels are
-// IATA codes, located via the airport table / poller). Returns ok=false when
-// nothing resolved.
+// then — only for an airport-like label — the label as a fallback (when there's
+// no address or the address didn't resolve). The label fallback is deliberately
+// limited to airports: a bare place/home name like "Honeysuckle Cottage" is too
+// ambiguous to geocode safely (it resolved to a same-named place on the wrong
+// continent), so those rely on a real address. Flight parts never fall back to
+// the label. Returns ok=false when nothing resolved.
 func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label string) (float64, float64, bool) {
 	if address != "" {
 		if lat, lon, ok, err := g.Geocode(ctx, address); err == nil && ok {
 			return lat, lon, true
 		}
 	}
-	if partType != "flight" && label != "" {
+	if partType != "flight" && isAirportLabel(label) {
 		if lat, lon, ok, err := g.Geocode(ctx, label); err == nil && ok {
 			return lat, lon, true
 		}
 	}
 	return 0, 0, false
+}
+
+// isAirportLabel reports whether a place label clearly denotes an airport (so
+// geocoding the bare name is safe). Conservative on purpose — only "airport" /
+// "terminal" — to avoid mis-placing ambiguous names.
+func isAirportLabel(label string) bool {
+	l := strings.ToLower(label)
+	return strings.Contains(l, "airport") || strings.Contains(l, "terminal")
 }
 
 // ResolvePartTZ resolves a still-empty start/end tz from the part's coordinates

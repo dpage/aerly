@@ -31,11 +31,12 @@ func TestGeocodeEndpoint(t *testing.T) {
 		wantLat               float64
 	}{
 		{"address resolves", "hotel", "1 Main St", "Hotel", true, 1},
-		{"no address, label fallback", "ground", "", "Alicante Airport", true, 38},
-		{"address fails, label fallback", "ground", "Nowhere Addr", "London Heathrow Terminal 5", true, 51},
+		{"no address, airport label fallback", "ground", "", "Alicante Airport", true, 38},
+		{"address fails, terminal label fallback", "ground", "Nowhere Addr", "London Heathrow Terminal 5", true, 51},
+		{"ambiguous place label is NOT geocoded", "ground", "", "Honeysuckle Cottage", false, 0},
 		{"flight never uses label", "flight", "", "LHR", false, 0},
 		{"flight still uses a resolving address", "flight", "1 Main St", "LHR", true, 1},
-		{"nothing resolves", "ground", "", "Unknown Place", false, 0},
+		{"airport label that doesn't resolve", "ground", "", "Faro Airport", false, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

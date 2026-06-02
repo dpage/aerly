@@ -531,8 +531,10 @@ func (s *Store) PlanIDsNeedingGeocode(ctx context.Context) ([]int64, error) {
 		JOIN plans pl ON pl.id = part.plan_id
 		WHERE part.dismissed_at IS NULL
 		  AND pl.type <> 'flight'
-		  AND ((part.start_lat IS NULL AND (part.start_address <> '' OR part.start_label <> ''))
-		    OR (part.end_lat IS NULL AND (part.end_address <> '' OR part.end_label <> '')))
+		  AND ((part.start_lat IS NULL AND (part.start_address <> ''
+		        OR part.start_label ILIKE '%airport%' OR part.start_label ILIKE '%terminal%'))
+		    OR (part.end_lat IS NULL AND (part.end_address <> ''
+		        OR part.end_label ILIKE '%airport%' OR part.end_label ILIKE '%terminal%')))
 		ORDER BY part.plan_id`)
 	if err != nil {
 		return nil, err
