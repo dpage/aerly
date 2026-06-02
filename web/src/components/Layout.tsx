@@ -27,12 +27,14 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import NotificationsIcon from '@mui/icons-material/NotificationsOutlined';
 import HomeIcon from '@mui/icons-material/HomeOutlined';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 
 import { useStore } from '../state/store';
 import { userInitial, userName } from '../lib/format';
 import { useThemeMode, type ThemePreference } from '../theme';
 import AdminDialog from './AdminDialog';
+import HelpPanel from './HelpPanel';
 import AlertPrefsDialog from './AlertPrefsDialog';
 import EmailsDialog from './EmailsDialog';
 import FriendsDialog from './FriendsDialog';
@@ -42,15 +44,15 @@ import HomeAddressDialog from './HomeAddressDialog';
 
 /** The authenticated app chrome for the trip-planning redesign (spec §11).
  *
- * Holds the top bar (Trips / Tracker nav, the "New trip"/"Add to trip" primary
- * action that replaces the old "Add flight", and the account menu) plus the
- * account-level dialogs, and renders the routed page via `<Outlet>`. This is the
- * sole app shell now that the legacy flight-centric `AppShell` has been retired.
- * Dialogs live below routing, exactly as before. */
+ * Holds the top bar (Trips / Tracker nav, a Help button, and the account menu)
+ * plus the account-level dialogs and the help panel, and renders the routed page
+ * via `<Outlet>`. Plan capture now lives on the trip page (the "New plan"
+ * action), not in this global chrome. */
 export default function Layout() {
   const me = useStore((s) => s.me);
   const logout = useStore((s) => s.logout);
   const capabilities = useStore((s) => s.capabilities);
+  const openHelp = useStore((s) => s.openHelp);
   const pendingRequests = useStore((s) => s.notifications.friend_requests_pending);
   const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
   const location = useLocation();
@@ -66,6 +68,12 @@ export default function Layout() {
 
   const closeMenu = () => setMenuAnchor(null);
   const onTracker = location.pathname.startsWith('/tracker');
+  // Open help to the topic relevant to the current screen.
+  const helpContext = onTracker
+    ? 'overview'
+    : location.pathname.startsWith('/trips/')
+      ? 'plans'
+      : 'trips';
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -98,6 +106,16 @@ export default function Layout() {
             Tracker
           </Button>
           <Box sx={{ flexGrow: 1 }} />
+          <Tooltip title="Help">
+            <IconButton
+              size="small"
+              onClick={() => openHelp(helpContext)}
+              aria-label="Help"
+              sx={{ mr: 1 }}
+            >
+              <HelpOutlineIcon />
+            </IconButton>
+          </Tooltip>
           {me?.is_superuser && (
             <Tooltip title="Manage users">
               <IconButton size="small" onClick={() => setAdminOpen(true)} sx={{ mr: 1 }}>
@@ -270,6 +288,7 @@ export default function Layout() {
         onClose={() => setSubscribeOpen(false)}
         scope="me"
       />
+      <HelpPanel />
     </Box>
   );
 }

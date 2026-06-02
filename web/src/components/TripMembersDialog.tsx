@@ -44,6 +44,7 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
   const addTripMember = useStore((s) => s.addTripMember);
   const removeTripMember = useStore((s) => s.removeTripMember);
   const setError = useStore((s) => s.setError);
+  const openHelp = useStore((s) => s.openHelp);
   const friends = useFriendUsers();
 
   const [pick, setPick] = useState<number | ''>('');
@@ -227,7 +228,10 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
           </Box>
         </Stack>
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ justifyContent: 'space-between' }}>
+        <Button size="small" color="inherit" onClick={() => openHelp('sharing')}>
+          How sharing works
+        </Button>
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>

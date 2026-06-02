@@ -110,10 +110,10 @@ describe('TripTimeline', () => {
     expect(screen.getByText(/Nothing on this trip yet/i)).toBeInTheDocument();
   });
 
-  it('makes the empty-state "Add to trip" a clickable control', () => {
+  it('makes the empty-state "New plan" a clickable control', () => {
     state.currentTrip = tripWith([]);
     renderTimeline();
-    expect(screen.getByRole('button', { name: /add to trip/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new plan/i })).toBeInTheDocument();
   });
 
   it('renders day headers and a card per part', () => {
@@ -307,10 +307,10 @@ describe('TripTimeline', () => {
     expect(within(card).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
   });
 
-  it('opens the empty-state Add to trip dialog when the link is clicked', async () => {
+  it('opens the empty-state New plan dialog when the link is clicked', async () => {
     state.currentTrip = tripWith([]);
     renderTimeline();
-    await userEvent.click(screen.getByRole('button', { name: /add to trip/i }));
+    await userEvent.click(screen.getByRole('button', { name: /new plan/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 

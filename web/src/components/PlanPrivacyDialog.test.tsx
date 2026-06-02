@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   addPlanPassenger: vi.fn(),
   removePlanPassenger: vi.fn(),
   setError: vi.fn(),
+  openHelp: vi.fn(),
   state: {
     users: [] as User[],
     friendships: [] as Friendship[],
@@ -26,6 +27,7 @@ vi.mock('../state/store', () => ({
       addPlanPassenger: h.addPlanPassenger,
       removePlanPassenger: h.removePlanPassenger,
       setError: h.setError,
+      openHelp: h.openHelp,
     }),
 }));
 
@@ -88,6 +90,12 @@ function render_(p: Plan = plan()) {
 }
 
 describe('PlanPrivacyDialog', () => {
+  it('opens the sharing help via "How sharing works"', async () => {
+    render_();
+    await userEvent.click(screen.getByRole('button', { name: /how sharing works/i }));
+    expect(h.openHelp).toHaveBeenCalledWith('sharing');
+  });
+
   it('defaults to "everyone" and saves it with an empty user list', async () => {
     h.setPlanVisibility.mockResolvedValue(undefined);
     render_();

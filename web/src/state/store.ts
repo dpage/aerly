@@ -6,6 +6,7 @@ import { createPlansSlice, type PlansSlice } from './plansSlice';
 import { createTrackerSlice, type TrackerSlice } from './trackerSlice';
 import { createIngestSlice, type IngestSlice } from './ingestSlice';
 import { createAlertsSlice, type AlertsSlice } from './alertsSlice';
+import { createHelpSlice, type HelpSlice } from './helpSlice';
 
 /** The full store type — the union of every domain slice. Slices reference
  * this type in their `StateCreator` so they can call across slice boundaries
@@ -18,7 +19,8 @@ export type StoreState = CoreSlice &
   PlansSlice &
   TrackerSlice &
   IngestSlice &
-  AlertsSlice;
+  AlertsSlice &
+  HelpSlice;
 
 export const useStore = create<StoreState>()((...a) => ({
   ...createCoreSlice(...a),
@@ -27,4 +29,5 @@ export const useStore = create<StoreState>()((...a) => ({
   ...createTrackerSlice(...a),
   ...createIngestSlice(...a),
   ...createAlertsSlice(...a),
+  ...createHelpSlice(...a),
 }));

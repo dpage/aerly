@@ -103,7 +103,7 @@ export default function TripTimeline() {
             onClick={() => setAddOpen(true)}
             sx={{ verticalAlign: 'baseline', fontWeight: 600 }}
           >
-            Add to trip
+            New plan
           </Link>{' '}
           to add a flight, hotel, or other plan.
         </Typography>

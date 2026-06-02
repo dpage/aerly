@@ -8,6 +8,7 @@ import type { User } from '../api/types';
 const h = vi.hoisted(() => ({
   logout: vi.fn(),
   setPreference: vi.fn(),
+  openHelp: vi.fn(),
   state: {
     me: null as User | null,
     capabilities: { email_ingest_enabled: false } as { email_ingest_enabled: boolean },
@@ -22,8 +23,12 @@ vi.mock('../state/store', () => ({
       logout: h.logout,
       capabilities: h.state.capabilities,
       notifications: h.state.notifications,
+      openHelp: h.openHelp,
     }),
 }));
+
+// The help panel renders once in Layout; stub it (covered by its own test).
+vi.mock('./HelpPanel', () => ({ default: () => null }));
 
 vi.mock('../theme', () => ({
   useThemeMode: () => ({ preference: 'system', setPreference: h.setPreference }),
@@ -73,6 +78,7 @@ function renderLayout(initial = '/') {
         <Route element={<Layout />}>
           <Route path="/" element={<div data-testid="page">trips page</div>} />
           <Route path="/tracker" element={<div data-testid="page">tracker page</div>} />
+          <Route path="/trips/:id" element={<div data-testid="page">trip page</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -108,6 +114,24 @@ describe('Layout', () => {
   it('no longer shows a global Add to trip action (moved to the trip page)', () => {
     renderLayout();
     expect(screen.queryByRole('button', { name: /add to trip/i })).not.toBeInTheDocument();
+  });
+
+  it('opens help to the topic for the current screen', async () => {
+    renderLayout('/'); // trips list
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(h.openHelp).toHaveBeenCalledWith('trips');
+  });
+
+  it('opens help to the overview on the tracker screen', async () => {
+    renderLayout('/tracker');
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(h.openHelp).toHaveBeenCalledWith('overview');
+  });
+
+  it('opens help to plans on a trip screen', async () => {
+    renderLayout('/trips/7');
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(h.openHelp).toHaveBeenCalledWith('plans');
   });
 
   it('hides the admin button for non-superusers', () => {

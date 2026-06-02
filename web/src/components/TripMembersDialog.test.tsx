@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   addTripMember: vi.fn(),
   removeTripMember: vi.fn(),
   setError: vi.fn(),
+  openHelp: vi.fn(),
   state: {
     users: [] as User[],
     friendships: [] as Friendship[],
@@ -24,6 +25,7 @@ vi.mock('../state/store', () => ({
       addTripMember: h.addTripMember,
       removeTripMember: h.removeTripMember,
       setError: h.setError,
+      openHelp: h.openHelp,
     }),
 }));
 
@@ -70,6 +72,12 @@ function render_(members: TripMember[], role: 'owner' | 'editor' | 'viewer' = 'o
 }
 
 describe('TripMembersDialog', () => {
+  it('opens the sharing help via "How sharing works"', async () => {
+    render_([{ user_id: 100, role: 'owner' }]);
+    await userEvent.click(screen.getByRole('button', { name: /how sharing works/i }));
+    expect(h.openHelp).toHaveBeenCalledWith('sharing');
+  });
+
   it('lists current members with their roles', () => {
     render_([
       { user_id: 100, role: 'owner' },

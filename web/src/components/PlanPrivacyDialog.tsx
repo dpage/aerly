@@ -51,6 +51,7 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
   const addPlanPassenger = useStore((s) => s.addPlanPassenger);
   const removePlanPassenger = useStore((s) => s.removePlanPassenger);
   const setError = useStore((s) => s.setError);
+  const openHelp = useStore((s) => s.openHelp);
   const friends = useFriendUsers();
 
   const [mode, setMode] = useState<PlanVisibilityMode>(plan.visibility.mode);
@@ -274,11 +275,16 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
           </Box>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={() => void handleSave()} disabled={busy}>
-          Save visibility
+      <DialogActions sx={{ justifyContent: 'space-between' }}>
+        <Button size="small" color="inherit" onClick={() => openHelp('sharing')}>
+          How sharing works
         </Button>
+        <Box>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="contained" onClick={() => void handleSave()} disabled={busy}>
+            Save visibility
+          </Button>
+        </Box>
       </DialogActions>
     </Dialog>
   );
