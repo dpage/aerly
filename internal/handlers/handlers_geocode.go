@@ -33,6 +33,39 @@ func (a *API) geocodePlanAsync(tripID, planID int64) {
 	}()
 }
 
+// BackfillPartCoordinates geocodes any historical plan parts that have a
+// free-text address but no coordinates — plans ingested before address
+// geocoding existed, or while Nominatim was unavailable — so they finally plot
+// on the map. Best-effort and idempotent (a part with coordinates no longer
+// matches); a no-op without a configured geocoder. Runs in the background at
+// startup. Geocoding is rate-limited (≈1 req/s via Nominatim), so this paces
+// itself; we don't publish SSE per plan — open clients pick the coordinates up
+// on their next trip fetch.
+func (a *API) BackfillPartCoordinates(ctx context.Context) {
+	if a.Geocoder == nil {
+		return
+	}
+	planIDs, err := a.Store.PlanIDsNeedingGeocode(ctx)
+	if err != nil {
+		slog.Warn("geocode backfill: query failed", "err", err)
+		return
+	}
+	var fixed int
+	for _, planID := range planIDs {
+		changed, gerr := geocode.PlanParts(ctx, a.Store, a.Geocoder, planID)
+		if gerr != nil {
+			slog.Warn("geocode backfill: plan failed", "err", gerr, "plan", planID)
+			continue
+		}
+		if changed {
+			fixed++
+		}
+	}
+	if fixed > 0 {
+		slog.Info("geocode backfill: geocoded plan parts", "plans", fixed)
+	}
+}
+
 // BackfillPartTimezones anchors any historical parts that have coordinates but
 // no timezone (ingested before coordinate-based tz resolution existed) to their
 // real zone, shifting the stored instant so the local wall-clock is preserved.

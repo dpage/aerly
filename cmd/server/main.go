@@ -99,9 +99,14 @@ func run() error {
 	// Geocode part addresses (hotels, taxis, …) into map coordinates via the
 	// public OSM Nominatim service. The User-Agent identifies us per policy.
 	api.Geocoder = geocode.NewNominatim("aerly (+" + cfg.PublicURL + ")")
-	// One-off: anchor any historical parts that have coordinates but no
-	// timezone to their real zone (idempotent, best-effort).
-	go api.BackfillPartTimezones(context.Background())
+	// One-off, best-effort, idempotent startup backfills: geocode any addressed
+	// parts still missing coordinates (e.g. ingested before address geocoding),
+	// then anchor any parts that have coordinates but no timezone to their real
+	// zone. Geocode first so newly-filled coordinates can drive tz resolution.
+	go func() {
+		api.BackfillPartCoordinates(context.Background())
+		api.BackfillPartTimezones(context.Background())
+	}()
 
 	// Pick the upstream tracker. OpenSky if credentials are configured (or
 	// anonymous OpenSky if requested), otherwise the in-memory stub. The

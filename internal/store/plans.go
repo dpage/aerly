@@ -515,6 +515,34 @@ func (s *Store) PartsNeedingTZ(ctx context.Context) ([]*PlanPart, error) {
 	return out, rows.Err()
 }
 
+// PlanIDsNeedingGeocode returns the distinct plan ids that have at least one
+// non-dismissed part with a free-text address but no coordinates — i.e. parts
+// that could be plotted on the map once geocoded. Used by the startup backfill
+// to fill plans ingested before address geocoding existed (or while it was
+// unavailable). Idempotent: once a part has coordinates it stops matching.
+func (s *Store) PlanIDsNeedingGeocode(ctx context.Context) ([]int64, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT part.plan_id
+		FROM plan_parts part
+		WHERE part.dismissed_at IS NULL
+		  AND ((part.start_address <> '' AND part.start_lat IS NULL)
+		    OR (part.end_address <> '' AND part.end_lat IS NULL))
+		ORDER BY part.plan_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // PlanPartByID returns a single part by id (with its owning plan's type).
 func (s *Store) PlanPartByID(ctx context.Context, id int64) (*PlanPart, error) {
 	return scanPart(s.pool.QueryRow(ctx, `
