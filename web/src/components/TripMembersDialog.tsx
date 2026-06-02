@@ -116,7 +116,10 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
                 Add a friend to this trip
               </Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
+              {/* Align to the top of the inputs: the Friend field's helper
+                  text ("No friends left to add.") makes it taller, and centring
+                  would drag Role + Add down out of line with it. */}
+              <Stack direction="row" spacing={1} alignItems="flex-start">
                 <TextField
                   select
                   size="small"

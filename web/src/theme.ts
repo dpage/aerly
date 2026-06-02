@@ -40,6 +40,21 @@ export function createAppTheme(mode: ThemeMode): Theme {
           '#root': { '--aerly-label-bg': bgDefault },
         },
       },
+      // In dark mode MUI tints elevated Paper with a white gradient overlay
+      // (background-image). The shrunk-label cover panel is a *solid* colour, and
+      // Safari renders a hairline seam where that solid sits over the gradient.
+      // Flatten dialog Paper to the same solid colour the label uses, so the two
+      // match exactly in every browser. (Light mode has no overlay — Paper is
+      // already solid #fff.)
+      ...(mode === 'dark'
+        ? {
+            MuiDialog: {
+              styleOverrides: {
+                paper: { backgroundImage: 'none', backgroundColor: labelPaperBg },
+              },
+            },
+          }
+        : {}),
       // Safari renders the outlined-input notch unreliably: the legend
       // sometimes stays at max-width:0.01px even when the label is
       // shrunk, so the focused border draws straight through the label.
