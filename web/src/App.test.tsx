@@ -28,6 +28,7 @@ const h = vi.hoisted(() => {
       refreshUsers: vi.fn(),
       applyPlanPartUpdate: vi.fn(),
       loadTrip: vi.fn(),
+      listTrips: vi.fn(),
       loadTracker: vi.fn(),
       applyNotificationsUpdate: vi.fn(),
       users: [] as Array<{ id: number; name: string }>,
@@ -113,19 +114,26 @@ describe('App', () => {
     expect(state.refreshUsers).toHaveBeenCalled();
   });
 
-  it('defensive onTrip/onPlan refetch only the open trip (backend does not emit these yet)', () => {
+  it('onTrip/onPlan always re-list trips, refetch the open trip when it matches, and onPlan refreshes the tracker', () => {
     state.auth = 'authenticated';
     state.currentTrip = { id: 5 };
     render(<App />);
     const handlers = connectSSE.mock.calls[0][0];
-    // A matching trip id refetches; a non-matching one is ignored.
+    // Every trip event re-lists trips so a brand-new ingested trip appears
+    // without a manual refresh — even when it's not the open one.
     handlers.onTrip!(5);
+    expect(state.listTrips).toHaveBeenCalled();
     expect(state.loadTrip).toHaveBeenCalledWith(5);
     state.loadTrip.mockClear();
+    state.listTrips.mockClear();
     handlers.onTrip!(99);
-    expect(state.loadTrip).not.toHaveBeenCalled();
-    // onPlan refetches the open trip when it matches, and always the tracker.
+    expect(state.listTrips).toHaveBeenCalled(); // still re-lists
+    expect(state.loadTrip).not.toHaveBeenCalled(); // but doesn't refetch a non-open trip
+    // onPlan re-lists, refetches the open trip when it matches, and always
+    // refreshes the tracker.
+    state.listTrips.mockClear();
     handlers.onPlan!(5);
+    expect(state.listTrips).toHaveBeenCalled();
     expect(state.loadTrip).toHaveBeenCalledWith(5);
     expect(state.loadTracker).toHaveBeenCalled();
   });

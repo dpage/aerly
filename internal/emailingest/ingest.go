@@ -11,8 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/geocode"
+	"github.com/dpage/aerly/internal/notify"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -36,6 +39,14 @@ type Service struct {
 	// + date-proximity trip selection). Its Store/Extractor/Resolver must be
 	// set for ingest to do anything useful.
 	PlanDeps planops.Deps
+	// Geocoder fills missing part coordinates from their addresses (hotels,
+	// transfers, …) so an ingested plan plots on the map, mirroring the HTTP
+	// path. Optional — nil disables geocoding.
+	Geocoder geocode.Geocoder
+	// Hub publishes trip.updated / plan.updated so open clients pick up an
+	// ingested booking live (the trips list + the open trip), without a manual
+	// refresh. Optional — nil disables live updates.
+	Hub *sse.Hub
 }
 
 type outcomeKind int
@@ -57,7 +68,7 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	interval := s.Cfg.PollInterval
 	if interval <= 0 {
-		interval = 30 * time.Second
+		interval = 10 * time.Second
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -318,11 +329,30 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 		// passenger; the user can correct or re-share afterwards in the UI.
 		in := toConfirmInput(p)
 		in.PassengerIDs = []int64{userID}
-		if _, err := planops.Commit(ctx, s.PlanDeps, tripID, userID, []planops.ConfirmPlanInput{in}); err != nil {
+		committed, err := planops.Commit(ctx, s.PlanDeps, tripID, userID, []planops.ConfirmPlanInput{in})
+		if err != nil {
 			slog.Warn("emailingest: planops commit", "err", err, "trip", tripID)
 			failed = append(failed, planReplyFailure(p, err))
 			continue
 		}
+		// Geocode addressed parts (hotels, transfers, …) so they plot on the
+		// map, then publish so open clients pick the booking up live — the same
+		// follow-up the HTTP confirm path does, which the email path previously
+		// skipped (committed plans had no coordinates and never refreshed).
+		for _, pl := range committed {
+			// Best-effort: geocoding runs synchronously here (the ingest loop
+			// is already off the request path) and a failure is non-fatal.
+			if _, gerr := geocode.PlanParts(ctx, s.Store, s.Geocoder, pl.ID); gerr != nil {
+				slog.Warn("emailingest: geocode plan", "err", gerr, "plan", pl.ID)
+			}
+			// plan.updated drives the tracker + open-trip refresh (App.tsx
+			// onPlan); published whether or not geocoding changed anything so a
+			// freshly ingested flight appears in the tracker live.
+			notify.PlanUpdated(ctx, s.Store, s.Hub, tripID, pl.ID)
+		}
+		// trip.updated drives the trips-list refresh (App.tsx onTrip) so a
+		// brand-new auto-created trip appears without a manual reload.
+		notify.TripUpdated(ctx, s.Store, s.Hub, tripID)
 		added = append(added, planReplyItem(p))
 	}
 	return added, failed, nil

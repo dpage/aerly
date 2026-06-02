@@ -13,9 +13,17 @@ import (
 	"github.com/dpage/aerly/internal/emailingest"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 	"github.com/dpage/aerly/internal/testsupport"
 )
+
+// fakeGeocoder resolves every address to a fixed coordinate.
+type fakeGeocoder struct{ lat, lon float64 }
+
+func (f fakeGeocoder) Geocode(context.Context, string) (float64, float64, bool, error) {
+	return f.lat, f.lon, true, nil
+}
 
 // fakeLLM returns a fixed JSON response and records the docs it received.
 type fakeLLM struct {
@@ -449,5 +457,65 @@ func TestIngest_PlanCapture_AttachesToExistingTrip(t *testing.T) {
 	}
 	if hotels != 1 {
 		t.Errorf("expected 1 hotel plan on existing trip, got %d", hotels)
+	}
+}
+
+// TestIngest_GeocodesAndPublishes verifies the ingest path geocodes an addressed
+// booking (so it plots on the map) and publishes trip.updated + plan.updated (so
+// open clients pick it up live) — the two gaps that previously left a forwarded
+// hotel coordinate-less and invisible until a manual refresh.
+func TestIngest_GeocodesAndPublishes(t *testing.T) {
+	llmResp := `{"plans":[{"type":"hotel","title":"Brussels Marriott","confirmation_ref":"H9","parts":[
+		{"type":"hotel","confidence":"high","start_date":"2026-06-12","end_date":"2026-06-15","start_address":"Grand Place 1, Brussels","hotel":{"property_name":"Brussels Marriott","address":"Grand Place 1, Brussels"}}
+	]}]}`
+	h := newHarness(t, llmResp, nil, false)
+	hub := sse.NewHub()
+	h.svc.Hub = hub
+	h.svc.Geocoder = fakeGeocoder{lat: 50.8466, lon: 4.3528}
+
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	events, unsub := hub.Subscribe(sse.Subscription{ViewerID: u.ID})
+	defer unsub()
+
+	writeMessage(t, h.maildir, "50", goodMessage)
+	if state := h.runUntilProcessed(t, "50", 5*time.Second); state != "removed" {
+		t.Fatalf("expected removed, got %s", state)
+	}
+
+	// The committed hotel part now carries coordinates from the geocoder.
+	trips, _ := h.store.ListTrips(ctx, u.ID)
+	if len(trips) != 1 {
+		t.Fatalf("trips = %d, want 1", len(trips))
+	}
+	plans, _ := h.store.PlansByTrip(ctx, trips[0].ID)
+	if len(plans) != 1 {
+		t.Fatalf("plans = %d, want 1", len(plans))
+	}
+	parts, _ := h.store.PartsByPlan(ctx, plans[0].ID)
+	if len(parts) != 1 || parts[0].StartLat == nil || parts[0].StartLon == nil {
+		t.Fatalf("hotel part not geocoded: %+v", parts)
+	}
+	if *parts[0].StartLat != 50.8466 || *parts[0].StartLon != 4.3528 {
+		t.Errorf("coords = (%v, %v), want (50.8466, 4.3528)", *parts[0].StartLat, *parts[0].StartLon)
+	}
+
+	// It published both trip.updated (trips-list refresh) and plan.updated
+	// (open-trip + tracker refresh) so clients pick it up without a reload.
+	got := map[string]bool{}
+	timeout := time.After(2 * time.Second)
+	for len(got) < 2 {
+		select {
+		case ev := <-events:
+			got[ev.Type] = true
+		case <-timeout:
+			t.Fatalf("missing SSE events, got %v", got)
+		}
+	}
+	if !got["trip.updated"] || !got["plan.updated"] {
+		t.Errorf("events = %v, want trip.updated + plan.updated", got)
 	}
 }

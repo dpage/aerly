@@ -166,6 +166,11 @@ func run() error {
 			Store:     s,
 			Extractor: extractor,
 			PlanDeps:  planops.Deps{Store: s, Extractor: extractor, Resolver: resolver},
+			// Geocode addressed parts + publish live updates, mirroring the HTTP
+			// confirm path so emailed hotels/transfers plot on the map and new
+			// trips/plans appear without a manual refresh.
+			Geocoder: api.Geocoder,
+			Hub:      hub,
 		}
 		go func() {
 			if err := svc.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {

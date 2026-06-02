@@ -98,6 +98,108 @@ func TestSelectTrip_PrefersGreatestOverlap(t *testing.T) {
 	}
 }
 
+// TestSelectTrip_SkipsCatchAllTrip: a substantial self-contained booking is NOT
+// absorbed by a dumping-ground trip whose span is far larger (the Vancouver
+// regression — a 6-day booking falling inside a bulk "Imported flights" trip
+// that spans many weeks). The caller then creates a fresh trip.
+func TestSelectTrip_SkipsCatchAllTrip(t *testing.T) {
+	e := newEnv(t)
+	owner := e.mkUser(t)
+
+	// A catch-all trip aggregating unrelated legs across ~6 weeks.
+	catchAll := e.mkTrip(t, owner)
+	e.mkFlightPlan(t, catchAll, owner, "AA1", "PA",
+		time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC))
+
+	// A self-contained 6-day booking inside that span.
+	planStart := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	planEnd := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	id, ok, err := SelectTrip(ctx, Deps{Store: e.s}, owner, planStart, planEnd)
+	if err != nil {
+		t.Fatalf("SelectTrip: %v", err)
+	}
+	if ok {
+		t.Errorf("SelectTrip = (%d, true), want no match (catch-all should be skipped)", id)
+	}
+}
+
+// TestSelectTrip_PointBookingStillAttachesToLongTrip: the catch-all guard must
+// NOT fire for a point booking (e.g. a single dinner) inside a long trip — that
+// dinner belongs to the trip.
+func TestSelectTrip_PointBookingStillAttachesToLongTrip(t *testing.T) {
+	e := newEnv(t)
+	owner := e.mkUser(t)
+
+	trip := e.mkTrip(t, owner)
+	e.mkFlightPlan(t, trip, owner, "AA1", "PA",
+		time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)) // 3-week trip
+
+	// A single dinner mid-trip (zero-span booking).
+	planStart := time.Date(2026, 5, 10, 19, 0, 0, 0, time.UTC)
+	id, ok, err := SelectTrip(ctx, Deps{Store: e.s}, owner, planStart, planStart)
+	if err != nil {
+		t.Fatalf("SelectTrip: %v", err)
+	}
+	if !ok || id != trip {
+		t.Errorf("SelectTrip = (%d, %v), want (%d, true)", id, ok, trip)
+	}
+}
+
+// TestSelectTrip_SkipsTripUserOnlyViews: an ingested booking must NOT attach to
+// a trip the sender only *views* (a friend's shared trip) — committing it there
+// would strand the booking on a trip the sender can't edit (the Devrim
+// regression). The caller then creates a fresh, owned trip.
+func TestSelectTrip_SkipsTripUserOnlyViews(t *testing.T) {
+	e := newEnv(t)
+	owner := e.mkUser(t)
+	viewer := e.mkUser(t)
+
+	trip := e.mkTrip(t, owner)
+	if err := e.s.AddTripMember(ctx, trip, viewer, "viewer"); err != nil {
+		t.Fatalf("AddTripMember: %v", err)
+	}
+	tOut := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	tIn := time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC)
+	e.mkFlightPlan(t, trip, owner, "BA286", "PNR1", tOut, tIn)
+
+	planStart := time.Date(2026, 6, 4, 19, 0, 0, 0, time.UTC)
+	id, ok, err := SelectTrip(ctx, Deps{Store: e.s}, viewer, planStart, planStart)
+	if err != nil {
+		t.Fatalf("SelectTrip: %v", err)
+	}
+	if ok {
+		t.Errorf("SelectTrip = (%d, true), want no match (sender only views the trip)", id)
+	}
+}
+
+// TestSelectTrip_AttachesToEditableSharedTrip: when the sender is an editor (not
+// just a viewer) of an overlapping trip, the booking DOES attach — they can edit
+// it there.
+func TestSelectTrip_AttachesToEditableSharedTrip(t *testing.T) {
+	e := newEnv(t)
+	owner := e.mkUser(t)
+	editor := e.mkUser(t)
+
+	trip := e.mkTrip(t, owner)
+	if err := e.s.AddTripMember(ctx, trip, editor, "editor"); err != nil {
+		t.Fatalf("AddTripMember: %v", err)
+	}
+	tOut := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	tIn := time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC)
+	e.mkFlightPlan(t, trip, owner, "BA286", "PNR1", tOut, tIn)
+
+	planStart := time.Date(2026, 6, 4, 19, 0, 0, 0, time.UTC)
+	id, ok, err := SelectTrip(ctx, Deps{Store: e.s}, editor, planStart, planStart)
+	if err != nil {
+		t.Fatalf("SelectTrip: %v", err)
+	}
+	if !ok || id != trip {
+		t.Errorf("SelectTrip = (%d, %v), want (%d, true)", id, ok, trip)
+	}
+}
+
 // TestSelectTrip_DatelessTripNeverMatches: a trip with no plan_parts and no
 // starts_on/ends_on is not a candidate.
 func TestSelectTrip_DatelessTripNeverMatches(t *testing.T) {

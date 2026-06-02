@@ -12,6 +12,26 @@ import (
 // dinner the evening a trip ends). One day.
 const adjacencyTolerance = 24 * time.Hour
 
+// Catch-all guard: an existing trip whose effective span is disproportionately
+// larger than the booking is treated as a dumping-ground (e.g. a bulk
+// "Imported flights" trip that aggregates unrelated legs across weeks). Attaching
+// a self-contained booking to it would bury the booking instead of giving it its
+// own trip, so such candidates are skipped — the caller then creates a fresh
+// trip. The guard only fires when ALL of:
+//   - the booking itself spans at least catchAllMinBookingSpan (a point booking
+//     like a single dinner always attaches — that's the mid-trip-dinner case);
+//   - the trip's span is at least catchAllMinSpan long; and
+//   - the trip's span is at least catchAllRatio× the booking's span.
+//
+// so a genuine long trip with a short side-booking, or a multi-day booking
+// inside a comparably-sized trip, is unaffected. The result is best-effort and
+// user-correctable in the UI.
+const (
+	catchAllMinBookingSpan = 2 * 24 * time.Hour
+	catchAllMinSpan        = 14 * 24 * time.Hour
+	catchAllRatio          = 3
+)
+
 // dateSpan is a closed [start, end] interval. A zero start means "no dates".
 type dateSpan struct {
 	start time.Time
@@ -71,6 +91,7 @@ func SelectTrip(ctx context.Context, deps Deps, userID int64, planStart, planEnd
 		return 0, false, err
 	}
 	plan := dateSpan{start: planStart, end: planEnd}
+	planSpan := planEnd.Sub(planStart)
 
 	bestID := int64(0)
 	bestOverlap := time.Duration(-1)
@@ -82,6 +103,24 @@ func SelectTrip(ctx context.Context, deps Deps, userID int64, planStart, planEnd
 		}
 		if span.empty() {
 			continue // date-less trips never auto-match
+		}
+		// Only attach to a trip the sender can edit. ListTrips also returns trips
+		// they merely view (a friend's shared trip), and committing their booking
+		// onto someone else's trip leaves it stranded — the sender can't move or
+		// edit it. Such trips form a fresh, owned trip instead.
+		canEdit, err := deps.Store.CanEditTrip(ctx, t.ID, userID)
+		if err != nil {
+			return 0, false, err
+		}
+		if !canEdit {
+			continue
+		}
+		// Skip dumping-ground trips far larger than the booking (see the
+		// catch-all guard consts) so a self-contained booking forms its own trip
+		// rather than being absorbed.
+		if tripDur := span.end.Sub(span.start); planSpan >= catchAllMinBookingSpan &&
+			tripDur >= catchAllMinSpan && tripDur >= catchAllRatio*planSpan {
+			continue
 		}
 		overlap, gap := overlapAndGap(plan, span)
 		// Attach when intervals overlap (overlap>0) or are adjacent (gap small).

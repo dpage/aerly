@@ -30,6 +30,7 @@ export default function App() {
   const refreshUsers = useStore((s) => s.refreshUsers);
   const applyPlanPartUpdate = useStore((s) => s.applyPlanPartUpdate);
   const loadTrip = useStore((s) => s.loadTrip);
+  const listTrips = useStore((s) => s.listTrips);
   const loadTracker = useStore((s) => s.loadTracker);
   const applyNotificationsUpdate = useStore((s) => s.applyNotificationsUpdate);
   const users = useStore((s) => s.users);
@@ -51,14 +52,18 @@ export default function App() {
         // tracker convergence list so the shared timeline updates live.
         onPlanPart: (part) => applyPlanPartUpdate(part),
         // trip.updated / plan.updated / plan.deleted fire after user-driven
-        // trip & plan edits (the backend publishes them, scoped to who can see
-        // the trip/plan). Refetch the open trip + tracker so the shared view
-        // stays live without a manual reload.
+        // trip & plan edits AND after an email-ingested booking commits (the
+        // backend publishes them, scoped to who can see the trip/plan). Refresh
+        // the trips list (so a brand-new auto-created trip appears), the open
+        // trip, and the tracker, so the shared view stays live without a manual
+        // reload.
         onTrip: (id) => {
+          void listTrips();
           const cur = useStore.getState().currentTrip;
           if (cur && cur.id === id) void loadTrip(id);
         },
         onPlan: (tripId) => {
+          void listTrips();
           const cur = useStore.getState().currentTrip;
           if (cur && cur.id === tripId) void loadTrip(tripId);
           void loadTracker();
@@ -81,6 +86,7 @@ export default function App() {
     auth,
     applyPlanPartUpdate,
     loadTrip,
+    listTrips,
     loadTracker,
     applyNotificationsUpdate,
     refreshFriendships,

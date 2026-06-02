@@ -42,6 +42,12 @@ type ProposedPart struct {
 	Ground    *store.GroundDetail
 	Dining    *store.DiningDetail
 	Excursion *store.ExcursionDetail
+
+	// startTimeDefaulted marks a part whose start time-of-day was filled from a
+	// type default rather than stated in the source. The transfer-timing
+	// post-pass (applyTransferTimes) only retimes such parts, never an explicit
+	// time the email gave.
+	startTimeDefaulted bool
 }
 
 // ProposedPlan is a plan the ingest pipeline proposes, awaiting user
@@ -141,6 +147,10 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 		}
 		out = append(out, pp)
 	}
+	// Retime airport↔accommodation transfers whose time was defaulted off the
+	// flanking flight in the same batch (e.g. a holiday confirmation that names
+	// the flight times but not the transfer time — spec §10).
+	applyTransferTimes(out)
 	return out, nil
 }
 
@@ -208,6 +218,7 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 		}
 	case "ground":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 9)
+		out.startTimeDefaulted = part.StartTime == "" && part.StartDate != ""
 		out.Ground = &store.GroundDetail{Provider: part.Provider, Vehicle: part.Vehicle}
 	case "dining":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 19)
