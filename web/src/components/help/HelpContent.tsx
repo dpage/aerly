@@ -7,6 +7,7 @@ import type { SvgIconProps } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import LuggageOutlinedIcon from '@mui/icons-material/LuggageOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
 
 // --- content primitives -----------------------------------------------------
@@ -169,6 +170,52 @@ export const HELP_PAGES: HelpPage[] = [
     ),
   },
   {
+    id: 'tracker',
+    label: 'Map & tracker',
+    Icon: MapOutlinedIcon,
+    body: (
+      <Box>
+        <Body>
+          Aerly plots every plan that has a location on a map, with a
+          time-ordered list beside it. You&apos;ll find it in two places: a
+          trip&apos;s <strong>Map</strong> tab (that trip), and the global{' '}
+          <strong>Tracker</strong> (across all your trips, by date).
+        </Body>
+        <SectionTitle>Reading the map</SectionTitle>
+        <FeatureItem
+          title="Coloured pins"
+          description="Each plan type has its own pin colour. Click a pin for a quick popover with the type, place and local time."
+        />
+        <FeatureItem
+          title="Paths"
+          description="Journeys (flights, trains, taxis) are drawn as a line between their two ends; single venues (hotels, dining) are a single pin."
+        />
+        <SectionTitle>Selecting an item</SectionTitle>
+        <FeatureItem
+          title="List ↔ map, both ways"
+          description="Click a row in the list or an item on the map and it highlights in both. A journey zooms to its whole path; a venue centres on its point. The row expands to its details — the full flight card for flights, the address / operator / reservation for everything else."
+        />
+        <SectionTitle>The global Tracker</SectionTitle>
+        <FeatureItem
+          title="From / To dates"
+          description="The Tracker shows plans whose timing falls in the From–To window. Adjust the date pickers to look further back or ahead."
+        />
+        <FeatureItem
+          title="Tag filter"
+          description="Scope the Tracker to a tag to see just that group of trips (e.g. one conference)."
+        />
+        <FeatureItem
+          title="Live flights"
+          description="When a flight is airborne and tracking data is available, its pin shows the aircraft's current position, and selecting it draws the flown track over the planned route."
+        />
+        <HelpTip>
+          The trip Map tab and the Tracker behave identically — the Tracker just
+          adds the date and tag controls for spanning multiple trips.
+        </HelpTip>
+      </Box>
+    ),
+  },
+  {
     id: 'sharing',
     label: 'Sharing & privacy',
     Icon: PeopleOutlineIcon,
@@ -223,6 +270,9 @@ export function contextToPageId(context: string | null | undefined): string {
     case 'sharing':
     case 'privacy':
       return 'sharing';
+    case 'tracker':
+    case 'map':
+      return 'tracker';
     case 'trips':
       return 'trips';
     default:

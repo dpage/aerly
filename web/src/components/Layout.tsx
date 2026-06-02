@@ -68,12 +68,14 @@ export default function Layout() {
 
   const closeMenu = () => setMenuAnchor(null);
   const onTracker = location.pathname.startsWith('/tracker');
-  // Open help to the topic relevant to the current screen.
-  const helpContext = onTracker
-    ? 'overview'
-    : location.pathname.startsWith('/trips/')
-      ? 'plans'
-      : 'trips';
+  // Open help to the topic relevant to the current screen: the Tracker and a
+  // trip's Map tab → Map & tracker; another trip view → Plans; else → Trips.
+  const helpContext =
+    onTracker || location.pathname.endsWith('/map')
+      ? 'tracker'
+      : location.pathname.startsWith('/trips/')
+        ? 'plans'
+        : 'trips';
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>

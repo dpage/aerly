@@ -122,10 +122,10 @@ describe('Layout', () => {
     expect(h.openHelp).toHaveBeenCalledWith('trips');
   });
 
-  it('opens help to the overview on the tracker screen', async () => {
+  it('opens help to Map & tracker on the tracker screen', async () => {
     renderLayout('/tracker');
     await userEvent.click(screen.getByRole('button', { name: 'Help' }));
-    expect(h.openHelp).toHaveBeenCalledWith('overview');
+    expect(h.openHelp).toHaveBeenCalledWith('tracker');
   });
 
   it('opens help to plans on a trip screen', async () => {

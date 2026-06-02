@@ -4,8 +4,14 @@ import { render, screen } from '@testing-library/react';
 import { HELP_PAGES, contextToPageId } from './HelpContent';
 
 describe('HelpContent', () => {
-  it('exposes the four topics in nav order', () => {
-    expect(HELP_PAGES.map((p) => p.id)).toEqual(['overview', 'trips', 'plans', 'sharing']);
+  it('exposes the topics in nav order', () => {
+    expect(HELP_PAGES.map((p) => p.id)).toEqual([
+      'overview',
+      'trips',
+      'plans',
+      'tracker',
+      'sharing',
+    ]);
     for (const p of HELP_PAGES) {
       expect(p.label).toBeTruthy();
       expect(p.Icon).toBeTruthy();
@@ -36,6 +42,8 @@ describe('HelpContent', () => {
     expect(contextToPageId('privacy')).toBe('sharing');
     expect(contextToPageId('trip')).toBe('plans');
     expect(contextToPageId('plans')).toBe('plans');
+    expect(contextToPageId('tracker')).toBe('tracker');
+    expect(contextToPageId('map')).toBe('tracker');
     expect(contextToPageId('trips')).toBe('trips');
     expect(contextToPageId('overview')).toBe('overview');
     expect(contextToPageId('something-else')).toBe('overview');
