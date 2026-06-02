@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -157,7 +158,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	// are resolver-enriched inside planops.Propose (with the same email-schedule
 	// fallback the legacy flightops path used), so emailed flights land as
 	// flight-typed plan parts the tracker/poller key on, not legacy flight rows.
-	added, failed, flightCount, err := s.capturePlans(ctx, u.ID, body, docs)
+	added, failed, err := s.capturePlans(ctx, u.ID, body, docs)
 	if err != nil {
 		// Treat any extractor/propose failure as transient: drain loop retries.
 		slog.Warn("emailingest: capture plans", "err", err)
@@ -166,8 +167,8 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 
 	status := "accepted"
 	switch {
-	case flightCount == 0:
-		status = "no_flights"
+	case len(added) == 0 && len(failed) == 0:
+		status = "nothing_found"
 	case len(added) == 0:
 		status = "all_failed"
 	case len(failed) > 0:
@@ -215,7 +216,10 @@ func buildPrompt(p *Parsed, max int) (string, []Document) {
 	}
 	if p.HTMLBody != "" {
 		sb.WriteString("--- text/html ---\n")
-		sb.WriteString(p.HTMLBody)
+		// Strip the byte-heavy non-content (CSS, scripts, comments, base64
+		// data: images) so a large marketing-heavy HTML email — common for
+		// hotel confirmations — doesn't bury or truncate the reservation text.
+		sb.WriteString(sanitizeHTML(p.HTMLBody))
 		sb.WriteString("\n")
 	}
 	body := sb.String()
@@ -238,6 +242,27 @@ func buildPrompt(p *Parsed, max int) (string, []Document) {
 	return body, docs
 }
 
+// reStyleScript removes <style>/<script>/<head> blocks (case-insensitive,
+// across newlines); reComment removes HTML comments; reDataURI collapses
+// base64 data: URIs (embedded images) to a short placeholder. Together they
+// strip the bulk of a marketing email's bytes while leaving the textual
+// content + remaining tags the LLM reads.
+var (
+	reStyleScript = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style>|<script\b[^>]*>.*?</script>|<head\b[^>]*>.*?</head>`)
+	reComment     = regexp.MustCompile(`(?s)<!--.*?-->`)
+	reDataURI     = regexp.MustCompile(`(?i)data:[a-z0-9.+/-]+;base64,[A-Za-z0-9+/=\s]+`)
+	reBlankLines  = regexp.MustCompile(`\n[ \t]*\n([ \t]*\n)+`)
+)
+
+// sanitizeHTML trims an HTML email body down to its content for the LLM prompt.
+func sanitizeHTML(html string) string {
+	html = reStyleScript.ReplaceAllString(html, "")
+	html = reComment.ReplaceAllString(html, "")
+	html = reDataURI.ReplaceAllString(html, "data:[stripped]")
+	html = reBlankLines.ReplaceAllString(html, "\n\n")
+	return strings.TrimSpace(html)
+}
+
 // failureReason renders a per-leg ReplyFailure.Reason string, recognising
 // the well-known sentinel errors from the resolver so the user sees a
 // terse, actionable message instead of a stack of wrapped errors.
@@ -258,44 +283,34 @@ func failureReason(err error) string {
 // capturePlans runs the planops capture path for every booking in an email.
 // It proposes plans (tripID 0 → no rebooking match pre-attach), picks a target
 // trip by date proximity (auto-creating one when nothing overlaps), and commits
-// each plan against that trip. Flight proposals additionally yield reply legs so
-// the confirmation email still lists the flights that were added. Returns the
-// added/failed reply legs and the count of flight proposals seen (used to
-// distinguish "no flights in this mail" from "all flights failed").
-func (s *Service) capturePlans(ctx context.Context, userID int64, body string, emDocs []Document) ([]ReplyLeg, []ReplyFailure, int, error) {
+// each plan against that trip. Every committed plan (any type) yields a reply
+// item so the confirmation email lists what was added; commit failures yield a
+// reply failure.
+func (s *Service) capturePlans(ctx context.Context, userID int64, body string, emDocs []Document) ([]ReplyItem, []ReplyFailure, error) {
 	docs := make([]planops.Document, 0, len(emDocs))
 	for _, d := range emDocs {
 		docs = append(docs, planops.Document{Data: d.Data, MediaType: d.MediaType, Filename: d.Filename})
 	}
 	proposals, err := planops.Propose(ctx, s.PlanDeps, userID, 0, body, docs)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("propose: %w", err)
+		return nil, nil, fmt.Errorf("propose: %w", err)
 	}
 
-	added := []ReplyLeg{}
+	added := []ReplyItem{}
 	failed := []ReplyFailure{}
-	flightCount := 0
 	for _, p := range proposals {
-		isFlight := p.Type == "flight"
-		if isFlight {
-			flightCount++
-		}
 		start, end := planops.PlanSpan(p.Parts)
 		tripID, ok, err := planops.SelectTrip(ctx, s.PlanDeps, userID, start, end)
 		if err != nil {
 			slog.Warn("emailingest: planops select trip", "err", err)
-			if isFlight {
-				failed = append(failed, flightFailure(p, err))
-			}
+			failed = append(failed, planReplyFailure(p, err))
 			continue
 		}
 		if !ok {
 			tripID, err = s.createTripForPlan(ctx, userID, p, start, end)
 			if err != nil {
 				slog.Warn("emailingest: create trip for ingested plan", "err", err)
-				if isFlight {
-					failed = append(failed, flightFailure(p, err))
-				}
+				failed = append(failed, planReplyFailure(p, err))
 				continue
 			}
 		}
@@ -305,41 +320,75 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 		in.PassengerIDs = []int64{userID}
 		if _, err := planops.Commit(ctx, s.PlanDeps, tripID, userID, []planops.ConfirmPlanInput{in}); err != nil {
 			slog.Warn("emailingest: planops commit", "err", err, "trip", tripID)
-			if isFlight {
-				failed = append(failed, flightFailure(p, err))
-			}
+			failed = append(failed, planReplyFailure(p, err))
 			continue
 		}
-		if isFlight {
-			added = append(added, flightLeg(p))
+		added = append(added, planReplyItem(p))
+	}
+	return added, failed, nil
+}
+
+// planReplyItem renders a committed proposal of any type as a ReplyItem for the
+// confirmation email. Flights show "IDENT" + date (ManualNote set when the
+// schedule came from the email's own details rather than the resolver —
+// detectable by the absence of a resolved airframe). Every other type shows its
+// title (or the type label) + "<Type> · <date>".
+func planReplyItem(p planops.ProposedPlan) ReplyItem {
+	if p.Type == "flight" && len(p.Parts) > 0 && p.Parts[0].Flight != nil {
+		fd := p.Parts[0].Flight
+		return ReplyItem{
+			Label:      fd.Ident,
+			Detail:     fd.ScheduledOut.Format("2006-01-02"),
+			ManualNote: fd.ICAO24 == nil,
 		}
 	}
-	return added, failed, flightCount, nil
+	return ReplyItem{Label: planLabel(p), Detail: planDetail(p)}
 }
 
-// flightLeg renders a committed flight proposal as a ReplyLeg for the
-// confirmation email. ManualNote is set when the schedule came from the email's
-// own details rather than the resolver — detectable by the absence of a
-// resolved airframe (the resolver always returns one when it had a record).
-func flightLeg(p planops.ProposedPlan) ReplyLeg {
-	leg := ReplyLeg{}
-	if len(p.Parts) > 0 && p.Parts[0].Flight != nil {
+// planReplyFailure renders a proposal that couldn't be committed.
+func planReplyFailure(p planops.ProposedPlan, err error) ReplyFailure {
+	if p.Type == "flight" && len(p.Parts) > 0 && p.Parts[0].Flight != nil {
 		fd := p.Parts[0].Flight
-		leg.Ident = fd.Ident
-		leg.Date = fd.ScheduledOut.Format("2006-01-02")
-		leg.ManualNote = fd.ICAO24 == nil
+		return ReplyFailure{Label: fd.Ident, Detail: fd.ScheduledOut.Format("2006-01-02"), Reason: failureReason(err)}
 	}
-	return leg
+	return ReplyFailure{Label: planLabel(p), Detail: planDetail(p), Reason: failureReason(err)}
 }
 
-// flightFailure renders a flight proposal that couldn't be committed.
-func flightFailure(p planops.ProposedPlan, err error) ReplyFailure {
-	f := ReplyFailure{Reason: failureReason(err)}
-	if len(p.Parts) > 0 && p.Parts[0].Flight != nil {
-		f.Ident = p.Parts[0].Flight.Ident
-		f.Date = p.Parts[0].Flight.ScheduledOut.Format("2006-01-02")
+// planLabel is the headline for a non-flight booking: its title, else the type.
+func planLabel(p planops.ProposedPlan) string {
+	if t := strings.TrimSpace(p.Title); t != "" {
+		return t
 	}
-	return f
+	return planTypeLabel(p.Type)
+}
+
+// planDetail is the secondary line: the type label plus the start date.
+func planDetail(p planops.ProposedPlan) string {
+	d := planTypeLabel(p.Type)
+	if start, _ := planops.PlanSpan(p.Parts); !start.IsZero() {
+		d += " · " + start.Format("2 Jan 2006")
+	}
+	return d
+}
+
+// planTypeLabel is the human label for a plan type.
+func planTypeLabel(t string) string {
+	switch t {
+	case "flight":
+		return "Flight"
+	case "hotel":
+		return "Hotel"
+	case "train":
+		return "Train"
+	case "ground":
+		return "Ground transport"
+	case "dining":
+		return "Dining"
+	case "excursion":
+		return "Excursion"
+	default:
+		return "Booking"
+	}
 }
 
 // createTripForPlan auto-creates a trip named from the plan title / dates when

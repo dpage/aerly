@@ -55,3 +55,29 @@ func TestBuildPrompt_DropsOversizedPDFs(t *testing.T) {
 		t.Errorf("kept the wrong doc: %q", docs[0].Data)
 	}
 }
+
+func TestSanitizeHTML_StripsNoiseKeepsContent(t *testing.T) {
+	in := `<head><style>.x{color:red}</style></head>` +
+		`<body><!-- tracking --><img src="data:image/png;base64,QUJDREVGR0g=">` +
+		`<p>Check-in 12 Jun 2026 — Marriott Tysons</p><script>track()</script></body>`
+	out := sanitizeHTML(in)
+	for _, noise := range []string{"color:red", "track()", "QUJDREVGR0g", "<!--"} {
+		if strings.Contains(out, noise) {
+			t.Errorf("expected %q to be stripped, got: %s", noise, out)
+		}
+	}
+	if !strings.Contains(out, "Check-in 12 Jun 2026 — Marriott Tysons") {
+		t.Errorf("reservation content lost: %s", out)
+	}
+}
+
+func TestBuildPrompt_StyleNoiseDoesntTruncateReservation(t *testing.T) {
+	// A big <style> block before the reservation would push it past a small
+	// cap if not stripped; sanitizing keeps the reservation text in the prompt.
+	big := "<style>" + strings.Repeat("x", 8000) + "</style>"
+	p := &Parsed{HTMLBody: big + "<p>RESERVATION DETAIL HERE</p>"}
+	body, _ := buildPrompt(p, 2000)
+	if !strings.Contains(body, "RESERVATION DETAIL HERE") {
+		t.Errorf("reservation truncated away by style noise: %q", body)
+	}
+}

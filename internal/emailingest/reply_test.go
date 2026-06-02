@@ -12,7 +12,7 @@ func TestBuildReply_AllAdded(t *testing.T) {
 		ToAddr:    "devrim@example.com",
 		InReplyTo: "<msg1@example.com>",
 		Subject:   "Fwd: TK1980 confirmation",
-		Added:     []ReplyLeg{{Ident: "TK1980", Date: "2026-06-12"}},
+		Added:     []ReplyItem{{Label: "TK1980", Detail: "2026-06-12"}},
 		PublicURL: "https://flights.example",
 	}
 	body := BuildReply(in)
@@ -30,7 +30,7 @@ func TestBuildReply_AllAdded(t *testing.T) {
 		"Content-Type: multipart/alternative; boundary=",
 		// plain part
 		"Content-Type: text/plain; charset=utf-8",
-		"TK1980 on 2026-06-12",
+		"TK1980 — 2026-06-12",
 		// html part
 		"Content-Type: text/html; charset=utf-8",
 		"<!doctype html>",
@@ -49,8 +49,8 @@ func TestBuildReply_HTMLEscapesUserContent(t *testing.T) {
 	body := BuildReply(ReplyInput{
 		FromAddr: "x", ToAddr: "y", PublicURL: "https://flights.example",
 		Failed: []ReplyFailure{{
-			Ident:  "AA<script>",
-			Date:   "2026-06-13",
+			Label:  "AA<script>",
+			Detail:   "2026-06-13",
 			Reason: "no schedule <b>oops</b>",
 		}},
 	})
@@ -79,14 +79,14 @@ func TestBuildReply_HTMLEscapesUserContent(t *testing.T) {
 func TestBuildReply_PartialFailure(t *testing.T) {
 	in := ReplyInput{
 		FromAddr: "flights@flights.example", ToAddr: "u@x", PublicURL: "https://flights.example/",
-		Added:  []ReplyLeg{{Ident: "TK1980", Date: "2026-06-12"}},
-		Failed: []ReplyFailure{{Ident: "XX9999", Date: "2026-06-13", Reason: "no schedule"}},
+		Added:  []ReplyItem{{Label: "TK1980", Detail: "2026-06-12"}},
+		Failed: []ReplyFailure{{Label: "XX9999", Detail: "2026-06-13", Reason: "no schedule"}},
 	}
 	body := BuildReply(in)
-	if !strings.Contains(body, "TK1980 on 2026-06-12") {
+	if !strings.Contains(body, "TK1980 — 2026-06-12") {
 		t.Error("missing success line")
 	}
-	if !strings.Contains(body, "XX9999 on 2026-06-13 — no schedule") {
+	if !strings.Contains(body, "XX9999 — 2026-06-13 — no schedule") {
 		t.Error("missing failure line")
 	}
 	// Trailing slash on PublicURL must not be doubled.
@@ -98,10 +98,10 @@ func TestBuildReply_PartialFailure(t *testing.T) {
 func TestBuildReply_AllFailed(t *testing.T) {
 	in := ReplyInput{
 		FromAddr: "x", ToAddr: "y", PublicURL: "https://flights.example",
-		Failed: []ReplyFailure{{Ident: "XX9", Date: "2026-06-13", Reason: "nope"}},
+		Failed: []ReplyFailure{{Label: "XX9", Detail: "2026-06-13", Reason: "nope"}},
 	}
 	body := BuildReply(in)
-	if !strings.Contains(body, "couldn't add any of the flights") {
+	if !strings.Contains(body, "couldn't add any of the bookings") {
 		t.Errorf("missing all-failed lead-in: %s", body)
 	}
 }
@@ -111,7 +111,7 @@ func TestBuildReply_NothingFound(t *testing.T) {
 		FromAddr: "flights@flights.example", ToAddr: "u@x", PublicURL: "https://flights.example",
 	}
 	body := BuildReply(in)
-	if !strings.Contains(body, "couldn't find any flight") {
+	if !strings.Contains(body, "couldn't find any travel") {
 		t.Errorf("missing fallback copy, got: %s", body)
 	}
 }
@@ -130,7 +130,7 @@ func TestBuildReply_SubjectAlreadyHasRe(t *testing.T) {
 func TestBuildReply_EmptySubject(t *testing.T) {
 	in := ReplyInput{FromAddr: "x@y", ToAddr: "u@x"}
 	body := BuildReply(in)
-	if !strings.Contains(body, "Subject: Re: Your forwarded flight email") {
+	if !strings.Contains(body, "Subject: Re: Your forwarded travel email") {
 		t.Errorf("missing fallback subject: %s", body)
 	}
 }
@@ -138,16 +138,16 @@ func TestBuildReply_EmptySubject(t *testing.T) {
 func TestBuildReply_ManualNote(t *testing.T) {
 	in := ReplyInput{
 		FromAddr: "flights@flights.example", ToAddr: "u@x", PublicURL: "https://flights.example",
-		Added: []ReplyLeg{
-			{Ident: "TK1980", Date: "2026-06-12"},
-			{Ident: "TK1981", Date: "2026-06-13", ManualNote: true},
+		Added: []ReplyItem{
+			{Label: "TK1980", Detail: "2026-06-12"},
+			{Label: "TK1981", Detail: "2026-06-13", ManualNote: true},
 		},
 	}
 	body := BuildReply(in)
-	if !strings.Contains(body, "TK1980 on 2026-06-12\r\n") {
+	if !strings.Contains(body, "TK1980 — 2026-06-12\r\n") {
 		t.Errorf("resolver-driven line should NOT have manual suffix: %s", body)
 	}
-	if !strings.Contains(body, "TK1981 on 2026-06-13 (from the email — please verify the times)") {
+	if !strings.Contains(body, "TK1981 — 2026-06-13 (from the email — please verify the times)") {
 		t.Errorf("manual line missing suffix: %s", body)
 	}
 	if !strings.Contains(body, "please check the departure and arrival times") {
@@ -176,17 +176,17 @@ func TestBuildReply_NoLineExceeds998(t *testing.T) {
 		InReplyTo: "<msg@example.com>",
 		Subject:   "Fwd: lots of flights",
 		PublicURL: "https://aerly.me",
-		Added: []ReplyLeg{
-			{Ident: "TK1980", Date: "2026-06-12"},
-			{Ident: "BA286", Date: "2026-06-13"},
-			{Ident: "AF1234", Date: "2026-06-14", ManualNote: true},
-			{Ident: "LH456", Date: "2026-06-15"},
-			{Ident: "UA900", Date: "2026-06-16", ManualNote: true},
-			{Ident: "EK203", Date: "2026-06-17"},
+		Added: []ReplyItem{
+			{Label: "TK1980", Detail: "2026-06-12"},
+			{Label: "BA286", Detail: "2026-06-13"},
+			{Label: "AF1234", Detail: "2026-06-14", ManualNote: true},
+			{Label: "LH456", Detail: "2026-06-15"},
+			{Label: "UA900", Detail: "2026-06-16", ManualNote: true},
+			{Label: "EK203", Detail: "2026-06-17"},
 		},
 		Failed: []ReplyFailure{
-			{Ident: "XX9999", Date: "2026-06-18", Reason: "no schedule found in resolver"},
-			{Ident: "YY1111", Date: "2026-06-19", Reason: "ident not recognised by AeroDataBox"},
+			{Label: "XX9999", Detail: "2026-06-18", Reason: "no schedule found in resolver"},
+			{Label: "YY1111", Detail: "2026-06-19", Reason: "ident not recognised by AeroDataBox"},
 		},
 	}
 	mustHaveShortLines(t, BuildReply(in))
@@ -209,5 +209,26 @@ func mustHaveShortLines(t *testing.T, msg string) {
 			t.Fatalf("line %d is %d bytes (>998), will be rewritten by any RFC-compliant MTA:\n%s",
 				i, len(line), line)
 		}
+	}
+}
+
+func TestBuildReply_NonFlightBookingReported(t *testing.T) {
+	in := ReplyInput{
+		FromAddr: "a@x", ToAddr: "b@y", PublicURL: "https://x",
+		Added: []ReplyItem{{Label: "Marriott Tysons", Detail: "Hotel · 12 Jun 2026"}},
+	}
+	body := strings.ReplaceAll(BuildReply(in), "=\r\n", "")
+	for _, want := range []string{
+		"added the following booking(s)",
+		"Marriott Tysons",
+		"Hotel · 12 Jun 2026",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("reply missing %q\n%s", want, body)
+		}
+	}
+	// A successful hotel ingest must NOT claim it found no flight information.
+	if strings.Contains(body, "flight information") {
+		t.Errorf("reply wrongly mentions flight information:\n%s", body)
 	}
 }

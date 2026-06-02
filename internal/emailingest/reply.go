@@ -8,21 +8,23 @@ import (
 	"github.com/dpage/aerly/internal/mailer"
 )
 
-// ReplyLeg is a flight that was added.
+// ReplyItem is a booking that was added — a flight, hotel, train, taxi, etc.
+// Label is the headline (a flight ident, a hotel name…); Detail is the
+// secondary line (a flight date, or "Hotel · 12 Jun 2026").
 //
-// ManualNote is set when the flight was inserted from the email's own
-// schedule details rather than the airline's provider data — the reply
-// tells the user to double-check the times in that case.
-type ReplyLeg struct {
-	Ident      string
-	Date       string
+// ManualNote is set when a flight was inserted from the email's own schedule
+// details rather than the airline's provider data — the reply tells the user to
+// double-check the times in that case (flights only).
+type ReplyItem struct {
+	Label      string
+	Detail     string
 	ManualNote bool
 }
 
-// ReplyFailure is a flight that the LLM extracted but we couldn't add.
+// ReplyFailure is a booking the LLM extracted but we couldn't add.
 type ReplyFailure struct {
-	Ident  string
-	Date   string
+	Label  string
+	Detail string
 	Reason string
 }
 
@@ -32,7 +34,7 @@ type ReplyInput struct {
 	ToAddr    string
 	InReplyTo string // original Message-ID, including angle brackets
 	Subject   string // original Subject (we'll prefix Re: if missing)
-	Added     []ReplyLeg
+	Added     []ReplyItem
 	Failed    []ReplyFailure
 	PublicURL string // for the "add manually" link
 }
@@ -51,7 +53,7 @@ func BuildReply(in ReplyInput) string {
 
 	subj := strings.TrimSpace(in.Subject)
 	if subj == "" {
-		subj = "Your forwarded flight email"
+		subj = "Your forwarded travel email"
 	}
 	if !strings.HasPrefix(strings.ToLower(subj), "re:") {
 		subj = "Re: " + subj
@@ -70,9 +72,9 @@ func BuildReply(in ReplyInput) string {
 	return sb.String()
 }
 
-// anyManual reports whether any added leg was inserted from email-supplied
+// anyManual reports whether any added item was inserted from email-supplied
 // schedule details (vs the airline's published schedule).
-func anyManual(added []ReplyLeg) bool {
+func anyManual(added []ReplyItem) bool {
 	for _, l := range added {
 		if l.ManualNote {
 			return true
@@ -81,8 +83,21 @@ func anyManual(added []ReplyLeg) bool {
 	return false
 }
 
+// itemLine formats one added/failed item as "Label — Detail", omitting either
+// half when empty.
+func itemLine(label, detail string) string {
+	switch {
+	case label != "" && detail != "":
+		return label + " — " + detail
+	case label != "":
+		return label
+	default:
+		return detail
+	}
+}
+
 func replyPlainBody(in ReplyInput, link string) string {
-	manualSuffix := func(l ReplyLeg) string {
+	manualSuffix := func(l ReplyItem) string {
 		if l.ManualNote {
 			return manualSuffixText
 		}
@@ -96,30 +111,30 @@ func replyPlainBody(in ReplyInput, link string) string {
 	var sb strings.Builder
 	switch {
 	case len(in.Added) > 0 && len(in.Failed) == 0:
-		sb.WriteString("I processed your forwarded email and added the following flight(s):\r\n\r\n")
+		sb.WriteString("I processed your forwarded email and added the following booking(s):\r\n\r\n")
 		for _, l := range in.Added {
-			fmt.Fprintf(&sb, "  + %s on %s%s\r\n", l.Ident, l.Date, manualSuffix(l))
+			fmt.Fprintf(&sb, "  + %s%s\r\n", itemLine(l.Label, l.Detail), manualSuffix(l))
 		}
 		sb.WriteString(manualTrailer)
 	case len(in.Added) > 0 && len(in.Failed) > 0:
-		sb.WriteString("I processed your forwarded email and added the following flight(s):\r\n\r\n")
+		sb.WriteString("I processed your forwarded email and added the following booking(s):\r\n\r\n")
 		for _, l := range in.Added {
-			fmt.Fprintf(&sb, "  + %s on %s%s\r\n", l.Ident, l.Date, manualSuffix(l))
+			fmt.Fprintf(&sb, "  + %s%s\r\n", itemLine(l.Label, l.Detail), manualSuffix(l))
 		}
-		fmt.Fprintf(&sb, "\r\nI couldn't add %d flight(s):\r\n\r\n", len(in.Failed))
+		fmt.Fprintf(&sb, "\r\nI couldn't add %d booking(s):\r\n\r\n", len(in.Failed))
 		for _, l := range in.Failed {
-			fmt.Fprintf(&sb, "  - %s on %s — %s\r\n", l.Ident, l.Date, l.Reason)
+			fmt.Fprintf(&sb, "  - %s — %s\r\n", itemLine(l.Label, l.Detail), l.Reason)
 		}
 		sb.WriteString(manualTrailer)
-		fmt.Fprintf(&sb, "\r\nPlease add the failed flight(s) manually at %s/ .\r\n", link)
+		fmt.Fprintf(&sb, "\r\nPlease add the failed booking(s) manually at %s/ .\r\n", link)
 	case len(in.Failed) > 0:
-		sb.WriteString("I couldn't add any of the flights from this email:\r\n\r\n")
+		sb.WriteString("I couldn't add any of the bookings from this email:\r\n\r\n")
 		for _, l := range in.Failed {
-			fmt.Fprintf(&sb, "  - %s on %s — %s\r\n", l.Ident, l.Date, l.Reason)
+			fmt.Fprintf(&sb, "  - %s — %s\r\n", itemLine(l.Label, l.Detail), l.Reason)
 		}
 		fmt.Fprintf(&sb, "\r\nPlease add them manually at %s/ .\r\n", link)
 	default:
-		fmt.Fprintf(&sb, "I couldn't find any flight information in this email — please add it manually at %s/ .\r\n", link)
+		fmt.Fprintf(&sb, "I couldn't find any travel details in this email — please add it manually at %s/ .\r\n", link)
 	}
 	sb.WriteString("\r\n— Aerly\r\n")
 	return sb.String()
@@ -127,11 +142,11 @@ func replyPlainBody(in ReplyInput, link string) string {
 
 func replyHTMLBody(in ReplyInput, link string) string {
 	addedHTML := legBlockHTML(
-		"I added the following flight(s):",
+		"I added the following booking(s):",
 		"added", "#dcfce7", "#166534",
 		legsFromAdded(in.Added))
 	failedHTML := legBlockHTML(
-		fmt.Sprintf("I couldn't add %d flight(s):", len(in.Failed)),
+		fmt.Sprintf("I couldn't add %d booking(s):", len(in.Failed)),
 		"skipped", "#fef3c7", "#92400e",
 		legsFromFailed(in.Failed))
 
@@ -153,10 +168,10 @@ func replyHTMLBody(in ReplyInput, link string) string {
 	case len(in.Added) > 0 && len(in.Failed) > 0:
 		return addedHTML + failedHTML + manualTrailerHTML + manual
 	case len(in.Failed) > 0:
-		return `<p style="margin:0 0 12px;font-size:15px;">I couldn't add any of the flights from this email:</p>` + failedHTML + manual
+		return `<p style="margin:0 0 12px;font-size:15px;">I couldn't add any of the bookings from this email:</p>` + failedHTML + manual
 	default:
 		return fmt.Sprintf(
-			`<p style="margin:0;font-size:15px;">I couldn't find any flight information in this email — please <a href="%s" style="%s">add it manually</a>.</p>`,
+			`<p style="margin:0;font-size:15px;">I couldn't find any travel details in this email — please <a href="%s" style="%s">add it manually</a>.</p>`,
 			safeLink, brandLinkStyle)
 	}
 }
@@ -164,16 +179,16 @@ func replyHTMLBody(in ReplyInput, link string) string {
 // legRow is the row data passed to legBlockHTML. Note carries either a
 // failure reason (for skipped rows) or a manual-entry hint (for added
 // rows that came from the email's own schedule details).
-type legRow struct{ Ident, Date, Note string }
+type legRow struct{ Label, Detail, Note string }
 
-func legsFromAdded(ls []ReplyLeg) []legRow {
+func legsFromAdded(ls []ReplyItem) []legRow {
 	out := make([]legRow, len(ls))
 	for i, l := range ls {
 		note := ""
 		if l.ManualNote {
 			note = "From the email — please verify the times in the app."
 		}
-		out[i] = legRow{Ident: l.Ident, Date: l.Date, Note: note}
+		out[i] = legRow{Label: l.Label, Detail: l.Detail, Note: note}
 	}
 	return out
 }
@@ -181,7 +196,7 @@ func legsFromAdded(ls []ReplyLeg) []legRow {
 func legsFromFailed(ls []ReplyFailure) []legRow {
 	out := make([]legRow, len(ls))
 	for i, l := range ls {
-		out[i] = legRow{Ident: l.Ident, Date: l.Date, Note: l.Reason}
+		out[i] = legRow{Label: l.Label, Detail: l.Detail, Note: l.Reason}
 	}
 	return out
 }
@@ -202,11 +217,13 @@ func legBlockHTML(intro, chipLabel, chipBG, chipFG string, rows []legRow) string
 			`<span style="display:inline-block;padding:2px 10px;border-radius:12px;background:%s;color:%s;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;">%s</span>`,
 			chipBG, chipFG, htmlEscape(chipLabel))
 		fmt.Fprintf(&sb,
-			`<span style="font-weight:600;margin-left:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">%s</span>`,
-			htmlEscape(r.Ident))
-		fmt.Fprintf(&sb,
-			`<span style="color:#666;margin-left:10px;font-size:14px;">%s</span>`,
-			htmlEscape(r.Date))
+			`<span style="font-weight:600;margin-left:10px;">%s</span>`,
+			htmlEscape(r.Label))
+		if r.Detail != "" {
+			fmt.Fprintf(&sb,
+				`<span style="color:#666;margin-left:10px;font-size:14px;">%s</span>`,
+				htmlEscape(r.Detail))
+		}
 		if r.Note != "" {
 			fmt.Fprintf(&sb,
 				`<div style="margin-top:4px;font-size:13px;color:#666;">%s</div>`,

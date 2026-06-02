@@ -53,24 +53,24 @@ func TestPreviewEmails(t *testing.T) {
 	writePreview(t, "email-reply-added.html", extractHTML(BuildReply(ReplyInput{
 		FromAddr: "flights@example.com", ToAddr: "alice@example.com",
 		PublicURL: "https://flights.example.com",
-		Added: []ReplyLeg{
-			{Ident: "TK1980", Date: "2026-06-12"},
-			{Ident: "BA286", Date: "2026-06-15"},
+		Added: []ReplyItem{
+			{Label: "TK1980", Detail: "2026-06-12"},
+			{Label: "BA286", Detail: "2026-06-15"},
 		},
 	})))
 
 	writePreview(t, "email-reply-mixed.html", extractHTML(BuildReply(ReplyInput{
 		FromAddr: "flights@example.com", ToAddr: "alice@example.com",
 		PublicURL: "https://flights.example.com",
-		Added:    []ReplyLeg{{Ident: "TK1980", Date: "2026-06-12"}},
-		Failed:   []ReplyFailure{{Ident: "XX9999", Date: "2026-06-13", Reason: "no schedule found"}},
+		Added:    []ReplyItem{{Label: "TK1980", Detail: "2026-06-12"}},
+		Failed:   []ReplyFailure{{Label: "XX9999", Detail: "2026-06-13", Reason: "no schedule found"}},
 	})))
 
 	writePreview(t, "email-reply-failed.html", extractHTML(BuildReply(ReplyInput{
 		FromAddr: "flights@example.com", ToAddr: "alice@example.com",
 		PublicURL: "https://flights.example.com",
 		Failed: []ReplyFailure{
-			{Ident: "XX9999", Date: "2026-06-13", Reason: "no schedule found"},
+			{Label: "XX9999", Detail: "2026-06-13", Reason: "no schedule found"},
 		},
 	})))
 

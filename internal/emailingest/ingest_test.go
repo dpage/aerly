@@ -307,7 +307,7 @@ func TestIngest_ResolverUnscheduled_ManualFallback(t *testing.T) {
 	}
 	body, _ := os.ReadFile(h.sendmailOut)
 	bs := string(body)
-	if !strings.Contains(bs, "TK1980 on "+depDate+" (from the email") {
+	if !strings.Contains(bs, "TK1980 — "+depDate+" (from the email") {
 		t.Errorf("expected manual-fallback note in reply, got:\n%s", bs)
 	}
 	if !strings.Contains(bs, "please check the departure and arrival times") {
