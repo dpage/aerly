@@ -43,12 +43,13 @@ func transferPlan(startLabel, endLabel, date string) ProposedPlan {
 }
 
 func TestApplyTransferTimes_AirportToHotel(t *testing.T) {
-	// Inbound short-haul arriving SID 16:20 local (Cape Verde, UTC-1) on 01-15.
+	// Inbound short-haul arriving ALC 16:20 on 01-15 (real airport so the coord
+	// lookup resolves).
 	arr := time.Date(2026, 1, 15, 17, 20, 0, 0, time.UTC) // 16:20 local
 	dep := time.Date(2026, 1, 15, 14, 0, 0, 0, time.UTC)
 	plans := []ProposedPlan{
-		flightPlan("BRS", "SID", dep, arr, "Europe/London", "Atlantic/Cape_Verde"),
-		transferPlan("Sal Airport", "Melia Tortuga Beach Resort", "2026-01-15"),
+		flightPlan("LGW", "ALC", dep, arr, "Europe/London", "Europe/Madrid"),
+		transferPlan("Alicante Airport", "Melia Benidorm", "2026-01-15"),
 	}
 	applyTransferTimes(plans)
 
@@ -57,18 +58,18 @@ func TestApplyTransferTimes_AirportToHotel(t *testing.T) {
 	if !got.StartsAt.Equal(want) {
 		t.Errorf("transfer start = %s, want %s (arrival + buffer)", got.StartsAt, want)
 	}
-	if got.StartTZ != "Atlantic/Cape_Verde" {
+	if got.StartTZ != "Europe/Madrid" {
 		t.Errorf("transfer tz = %q, want the arrival airport's zone", got.StartTZ)
 	}
 }
 
 func TestApplyTransferTimes_HotelToAirport(t *testing.T) {
-	// Outbound short-haul departing SID 17:00 local on 01-25.
+	// Outbound short-haul departing ALC 17:00 on 01-25.
 	dep := time.Date(2026, 1, 25, 18, 0, 0, 0, time.UTC) // 17:00 local
 	arr := time.Date(2026, 1, 25, 23, 0, 0, 0, time.UTC)
 	plans := []ProposedPlan{
-		flightPlan("SID", "BRS", dep, arr, "Atlantic/Cape_Verde", "Europe/London"),
-		transferPlan("Melia Tortuga Beach Resort", "Sal Airport", "2026-01-25"),
+		flightPlan("ALC", "LGW", dep, arr, "Europe/Madrid", "Europe/London"),
+		transferPlan("Melia Benidorm", "Alicante Airport", "2026-01-25"),
 	}
 	applyTransferTimes(plans)
 
@@ -77,7 +78,7 @@ func TestApplyTransferTimes_HotelToAirport(t *testing.T) {
 	if !got.StartsAt.Equal(want) {
 		t.Errorf("transfer start = %s, want %s (departure − lead)", got.StartsAt, want)
 	}
-	if got.StartTZ != "Atlantic/Cape_Verde" {
+	if got.StartTZ != "Europe/Madrid" {
 		t.Errorf("transfer tz = %q, want the departure airport's zone", got.StartTZ)
 	}
 }

@@ -147,7 +147,11 @@ export function buildTimeline(plans: Plan[]): TimelineDay[] {
       if (isHotelBand(part) && part.ends_at) {
         flat.push({
           tp: { part, plan, edge: 'check-in' },
-          instant: parseInstant(part.starts_at) ?? 0,
+          // Sort by the smart check-in (effective_at: after the inbound
+          // flight's arrival) so the stay doesn't jump ahead of the flight
+          // that gets you there — matching the map's ordering. Keep the day
+          // bucket on the booked check-in date (iso = starts_at).
+          instant: instantOf(part),
           iso: part.starts_at,
           tz: part.start_tz,
         });

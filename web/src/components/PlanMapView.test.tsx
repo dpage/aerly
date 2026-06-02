@@ -129,6 +129,27 @@ describe('PlanMapView', () => {
   const pinFor = (partId: number) =>
     FakeMarker.instances.find((m) => m.getElement()?.dataset.partId === String(partId))!;
 
+  it('shows a single pickup (start) pin for ground transport, not the drop-off', () => {
+    const ground: PlanPart = {
+      ...hotel(),
+      id: 3,
+      plan_id: 3,
+      type: 'ground',
+      start_label: 'Alicante Airport',
+      end_label: 'Melia Benidorm',
+      start_lat: 38.28,
+      start_lon: -0.55,
+      end_lat: 38.54,
+      end_lon: -0.1,
+      hotel: undefined,
+    };
+    render(<PlanMapView parts={[ground]} />);
+    const pins = FakeMarker.instances.filter((m) => m.getElement()?.dataset.partId === '3');
+    expect(pins).toHaveLength(1);
+    // It's plotted at the pickup (start) coordinate, not the drop-off.
+    expect(pins[0].lngLat).toEqual([-0.55, 38.28]);
+  });
+
   it('clicking a pin highlights its list row (bidirectional)', async () => {
     render(<PlanMapView parts={[flight(), hotel()]} />);
     pinFor(2).getElement().dispatchEvent(new MouseEvent('click', { bubbles: true }));

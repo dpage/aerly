@@ -71,8 +71,10 @@ func collectFlights(plans []ProposedPlan) []flightInfo {
 	return out
 }
 
-// retimeTransfer adjusts one ground part in place when it's a defaulted-time
-// airport↔accommodation transfer with a matching flanking flight.
+// retimeTransfer times one defaulted-time airport↔accommodation transfer off
+// the matching flanking flight in place: an airport→hotel transfer starts
+// shortly after the inbound flight's arrival; a hotel→airport transfer starts a
+// lead time before the outbound flight's departure.
 func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 	if !part.startTimeDefaulted || part.StartsAt.IsZero() {
 		return

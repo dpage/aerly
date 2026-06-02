@@ -211,6 +211,36 @@ describe('buildTimeline', () => {
     expect(days[1].parts[0].edge).toBe('check-out');
   });
 
+  it("orders a hotel check-in by its smart effective_at, after a same-day flight", () => {
+    // A flight arriving 18:00, and a hotel whose raw check-in is 15:00 but whose
+    // smart effective_at (after arrival) is 19:00. The check-in tile must sort
+    // after the flight, not ahead of it, while still bucketing on the booked day.
+    const plans = [
+      plan([part({ id: 1, starts_at: '2026-10-12T15:30:00Z', effective_at: '2026-10-12T15:30:00Z' })], {
+        id: 1,
+      }),
+      plan(
+        [
+          part({
+            id: 9,
+            type: 'hotel',
+            starts_at: '2026-10-12T15:00:00Z',
+            effective_at: '2026-10-12T19:00:00Z', // smart check-in, after the flight
+            ends_at: '2026-10-14T10:00:00Z',
+            start_label: 'Hotel Lisboa',
+            end_label: '',
+          }),
+        ],
+        { id: 2, type: 'hotel' },
+      ),
+    ];
+    const days = buildTimeline(plans);
+    // Same booked day; the flight (id 1) precedes the hotel check-in (id 9).
+    expect(days[0].dayKey).toBe('2026-10-12');
+    expect(days[0].parts.map((p) => p.part.id)).toEqual([1, 9]);
+    expect(days[0].parts[1].edge).toBe('check-in');
+  });
+
   it('groups a red-eye on its departure day in the start tz', () => {
     // 23:30 local Oct 12 in NY → arrives Oct 13; header is the departure day.
     const plans = [

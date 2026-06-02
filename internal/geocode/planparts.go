@@ -33,17 +33,27 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 		startLat, startLon := p.StartLat, p.StartLon
 		endLat, endLon := p.EndLat, p.EndLon
 
-		// Fill missing coordinates from the addresses.
-		if p.StartAddress != "" && startLat == nil {
-			if lat, lon, ok, gerr := g.Geocode(ctx, p.StartAddress); gerr == nil && ok {
-				payload.StartLat, payload.StartLon = &lat, &lon
-				startLat, startLon = &lat, &lon
+		// Fill missing coordinates from the addresses, falling back to the
+		// place label (e.g. "Alicante Airport", "Melia Benidorm") when no
+		// address was extracted — so a transfer's airport endpoint, which often
+		// arrives as a bare name, still plots rather than collapsing onto the
+		// other end. Flight parts are skipped: their labels are IATA codes and
+		// their coordinates come from the airport table / poller, which we must
+		// not pre-empt with a fuzzy name lookup.
+		if startLat == nil {
+			if q := geocodeQuery(p.Type, p.StartAddress, p.StartLabel); q != "" {
+				if lat, lon, ok, gerr := g.Geocode(ctx, q); gerr == nil && ok {
+					payload.StartLat, payload.StartLon = &lat, &lon
+					startLat, startLon = &lat, &lon
+				}
 			}
 		}
-		if p.EndAddress != "" && endLat == nil {
-			if lat, lon, ok, gerr := g.Geocode(ctx, p.EndAddress); gerr == nil && ok {
-				payload.EndLat, payload.EndLon = &lat, &lon
-				endLat, endLon = &lat, &lon
+		if endLat == nil {
+			if q := geocodeQuery(p.Type, p.EndAddress, p.EndLabel); q != "" {
+				if lat, lon, ok, gerr := g.Geocode(ctx, q); gerr == nil && ok {
+					payload.EndLat, payload.EndLon = &lat, &lon
+					endLat, endLon = &lat, &lon
+				}
 			}
 		}
 
@@ -59,6 +69,20 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 		}
 	}
 	return changed, nil
+}
+
+// geocodeQuery picks the string to geocode an endpoint by: its postal address
+// when present, else the place label as a fallback. Returns "" for flight parts
+// (their labels are IATA codes, located via the airport table / poller) and when
+// neither address nor label is set.
+func geocodeQuery(partType, address, label string) string {
+	if address != "" {
+		return address
+	}
+	if partType == "flight" {
+		return ""
+	}
+	return label
 }
 
 // ResolvePartTZ resolves a still-empty start/end tz from the part's coordinates

@@ -391,28 +391,33 @@ interface Endpoint {
 }
 
 function endpoints(p: PlanPart): Endpoint[] {
-  const out: Endpoint[] = [];
-  if (p.start_lat != null && p.start_lon != null) {
-    out.push({
-      role: 'start',
-      lat: p.start_lat,
-      lon: p.start_lon,
-      label: p.start_label,
-      iso: p.starts_at,
-      tz: p.start_tz,
-    });
-  }
-  if (p.end_lat != null && p.end_lon != null) {
-    out.push({
-      role: 'end',
-      lat: p.end_lat,
-      lon: p.end_lon,
-      label: p.end_label,
-      iso: p.ends_at ?? p.starts_at,
-      tz: p.end_tz || p.start_tz,
-    });
-  }
-  return out;
+  const start: Endpoint | null =
+    p.start_lat != null && p.start_lon != null
+      ? {
+          role: 'start',
+          lat: p.start_lat,
+          lon: p.start_lon,
+          label: p.start_label,
+          iso: p.starts_at,
+          tz: p.start_tz,
+        }
+      : null;
+  const end: Endpoint | null =
+    p.end_lat != null && p.end_lon != null
+      ? {
+          role: 'end',
+          lat: p.end_lat,
+          lon: p.end_lon,
+          label: p.end_label,
+          iso: p.ends_at ?? p.starts_at,
+          tz: p.end_tz || p.start_tz,
+        }
+      : null;
+  // Ground transport shows a single pin at the pickup (start) point — where
+  // you're collected / board — not the drop-off, which just clutters the map.
+  // Fall back to the drop-off only when the pickup isn't located.
+  if (p.type === 'ground') return [start ?? end].filter((e): e is Endpoint => e != null);
+  return [start, end].filter((e): e is Endpoint => e != null);
 }
 
 function legsFC(parts: PlanPart[], selectedId: number | null): GeoJSON.FeatureCollection {
