@@ -516,17 +516,23 @@ func (s *Store) PartsNeedingTZ(ctx context.Context) ([]*PlanPart, error) {
 }
 
 // PlanIDsNeedingGeocode returns the distinct plan ids that have at least one
-// non-dismissed part with a free-text address but no coordinates — i.e. parts
-// that could be plotted on the map once geocoded. Used by the startup backfill
-// to fill plans ingested before address geocoding existed (or while it was
-// unavailable). Idempotent: once a part has coordinates it stops matching.
+// non-dismissed, non-flight part with a free-text address OR a place label but
+// no coordinates — i.e. parts that could be plotted on the map once geocoded.
+// Used by the startup backfill to fill plans ingested before geocoding existed
+// (or while it was unavailable). The label is included because a transfer's
+// airport endpoint often arrives as a bare name ("Alicante Airport") with no
+// address — without it those endpoints would never be backfilled. Flights are
+// excluded: their IATA-code labels are located via the airport table / poller.
+// Idempotent: once a part has coordinates it stops matching.
 func (s *Store) PlanIDsNeedingGeocode(ctx context.Context) ([]int64, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT part.plan_id
 		FROM plan_parts part
+		JOIN plans pl ON pl.id = part.plan_id
 		WHERE part.dismissed_at IS NULL
-		  AND ((part.start_address <> '' AND part.start_lat IS NULL)
-		    OR (part.end_address <> '' AND part.end_lat IS NULL))
+		  AND pl.type <> 'flight'
+		  AND ((part.start_lat IS NULL AND (part.start_address <> '' OR part.start_label <> ''))
+		    OR (part.end_lat IS NULL AND (part.end_address <> '' OR part.end_label <> '')))
 		ORDER BY part.plan_id`)
 	if err != nil {
 		return nil, err
