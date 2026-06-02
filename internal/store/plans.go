@@ -769,11 +769,14 @@ func (s *Store) PlanOwners(ctx context.Context, planIDs []int64) (map[int64]int6
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var planID, ownerID int64
+		var planID int64
+		var ownerID *int64
 		if err := rows.Scan(&planID, &ownerID); err != nil {
 			return nil, err
 		}
-		out[planID] = ownerID
+		if ownerID != nil {
+			out[planID] = *ownerID
+		}
 	}
 	return out, rows.Err()
 }

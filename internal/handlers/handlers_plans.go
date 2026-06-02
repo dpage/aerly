@@ -664,6 +664,35 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 	if pids == nil {
 		pids = []int64{}
 	}
+	// Surface who added the plan + who's on it on each part, so the map view
+	// can show it (parity with the tracker).
+	userIDs := append([]int64{}, pids...)
+	if plan.CreatedBy != nil {
+		userIDs = append(userIDs, *plan.CreatedBy)
+	}
+	people, err := a.Store.UsersByIDs(ctx, userIDs)
+	if err != nil {
+		return api.PlanDTO{}, err
+	}
+	var ownerDTO *api.UserDTO
+	if plan.CreatedBy != nil {
+		if u := people[*plan.CreatedBy]; u != nil {
+			d := api.ToUserDTO(u)
+			ownerDTO = &d
+		}
+	}
+	paxDTOs := make([]api.UserDTO, 0, len(pids))
+	for _, uid := range pids {
+		if u := people[uid]; u != nil {
+			paxDTOs = append(paxDTOs, api.ToUserDTO(u))
+		}
+	}
+	for i := range partDTOs {
+		partDTOs[i].Owner = ownerDTO
+		if len(paxDTOs) > 0 {
+			partDTOs[i].Passengers = paxDTOs
+		}
+	}
 	var optedIn bool
 	if viewerID != 0 {
 		optedIn, err = a.Store.PlanAlertOptedIn(ctx, planID, viewerID)

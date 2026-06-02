@@ -353,8 +353,8 @@ type PlanPartDTO struct {
 	Ground       *GroundDetailDTO    `json:"ground,omitempty"`
 	Dining       *DiningDetailDTO    `json:"dining,omitempty"`
 	Excursion    *ExcursionDetailDTO `json:"excursion,omitempty"`
-	// Who added the plan + who's on it, for the tracker's "who is on which
-	// flight" view. Populated by the tracker assembler; omitted elsewhere.
+	// Who added the plan + who's on it, so the map can show whose plan it is.
+	// Populated for the tracker and trip-detail payloads.
 	Owner      *UserDTO  `json:"owner,omitempty"`
 	Passengers []UserDTO `json:"passengers,omitempty"`
 }

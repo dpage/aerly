@@ -327,8 +327,8 @@ export interface PlanPart {
   ground?: GroundDetail;
   dining?: DiningDetail;
   excursion?: ExcursionDetail;
-  /** Who added the plan + who's on it. Populated by the tracker payload so the
-   * map can show whose flight it is; absent on the trip-detail payload. */
+  /** Who added the plan + who's on it, so the map can show whose plan it is.
+   * Populated on the tracker and trip-detail payloads. */
   owner?: User;
   passengers?: User[];
 }
