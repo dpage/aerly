@@ -164,7 +164,8 @@ export default function App() {
     gated = (
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<TripList />} />
+          <Route index element={<TripList scope="mine" />} />
+          <Route path="friends" element={<TripList scope="friends" />} />
           <Route path="trips/:id" element={<TripDetail />}>
             <Route index element={<TripTimeline />} />
             <Route path="map" element={<TripMap />} />

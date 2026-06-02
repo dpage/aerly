@@ -56,10 +56,10 @@ function user(over: Partial<User> = {}): User {
   };
 }
 
-function renderList() {
+function renderList(scope: 'mine' | 'friends' = 'mine') {
   return render(
     <MemoryRouter>
-      <TripList />
+      <TripList scope={scope} />
     </MemoryRouter>,
   );
 }
@@ -86,6 +86,39 @@ describe('TripList', () => {
   it('shows the empty state when there are no trips', () => {
     renderList();
     expect(screen.getByText(/No trips yet/i)).toBeInTheDocument();
+  });
+
+  it("scope='mine' shows only owned trips with a New trip action", () => {
+    state.trips = [
+      trip({ id: 1, name: 'MineTrip', my_role: 'owner' }),
+      trip({ id: 2, name: 'TheirTrip', my_role: 'viewer' }),
+      trip({ id: 3, name: 'EditTrip', my_role: 'editor' }),
+    ];
+    renderList('mine');
+    expect(screen.getByText('Your trips')).toBeInTheDocument();
+    expect(screen.getByText('MineTrip')).toBeInTheDocument();
+    expect(screen.queryByText('TheirTrip')).not.toBeInTheDocument();
+    expect(screen.queryByText('EditTrip')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new trip/i })).toBeInTheDocument();
+  });
+
+  it("scope='friends' shows only shared trips and has no New trip action", () => {
+    state.trips = [
+      trip({ id: 1, name: 'MineTrip', my_role: 'owner' }),
+      trip({ id: 2, name: 'TheirTrip', my_role: 'viewer' }),
+      trip({ id: 3, name: 'EditTrip', my_role: 'editor' }),
+    ];
+    renderList('friends');
+    expect(screen.getByText("Friends' trips")).toBeInTheDocument();
+    expect(screen.getByText('TheirTrip')).toBeInTheDocument();
+    expect(screen.getByText('EditTrip')).toBeInTheDocument();
+    expect(screen.queryByText('MineTrip')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /new trip/i })).not.toBeInTheDocument();
+  });
+
+  it("scope='friends' shows a tailored empty state", () => {
+    renderList('friends');
+    expect(screen.getByText(/No trips have been shared with you yet/i)).toBeInTheDocument();
   });
 
   it('groups trips into Happening now / Upcoming / Past', () => {
@@ -125,7 +158,7 @@ describe('TripList', () => {
         ],
       }),
     ];
-    renderList();
+    renderList('friends');
     expect(screen.getByText('Lisbon')).toBeInTheDocument();
     // The owner (amy) shows; the viewer (me) and other viewers (carol) don't.
     expect(screen.getByText('A')).toBeInTheDocument();

@@ -77,6 +77,7 @@ function renderLayout(initial = '/') {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<div data-testid="page">trips page</div>} />
+          <Route path="/friends" element={<div data-testid="page">friends page</div>} />
           <Route path="/tracker" element={<div data-testid="page">tracker page</div>} />
           <Route path="/trips/:id" element={<div data-testid="page">trip page</div>} />
         </Route>
@@ -101,7 +102,8 @@ describe('Layout', () => {
     renderLayout();
     expect(screen.getByText('Aerly')).toBeInTheDocument();
     // The nav items are MUI Buttons rendered as router links (anchors).
-    expect(screen.getByRole('link', { name: 'Trips' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'My trips' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: "Friends' trips" })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Tracker' })).toBeInTheDocument();
     expect(screen.getByTestId('page')).toHaveTextContent('trips page');
   });
@@ -228,6 +230,12 @@ describe('Layout', () => {
   it('marks Tracker active on the tracker route', () => {
     renderLayout('/tracker');
     expect(screen.getByTestId('page')).toHaveTextContent('tracker page');
+  });
+
+  it("renders the Friends' trips route", () => {
+    renderLayout('/friends');
+    expect(screen.getByTestId('page')).toHaveTextContent('friends page');
+    expect(screen.getByRole('link', { name: "Friends' trips" })).toBeInTheDocument();
   });
 
   it('renders an avatar with no initial when me is null', () => {

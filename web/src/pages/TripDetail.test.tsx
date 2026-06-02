@@ -23,6 +23,8 @@ vi.mock('../state/store', () => ({
 
 vi.mock('../lib/trip-format', () => ({
   plansOutsideTripDates: (...args: unknown[]) => h.plansOutsideTripDates(...args),
+  fmtTripDates: (t: { starts_on?: string; ends_on?: string }) =>
+    `${t.starts_on ?? ''} – ${t.ends_on ?? ''}`,
 }));
 
 // Stub child dialogs: reflect their open prop so we can assert toggles, and
@@ -119,6 +121,26 @@ describe('TripDetail', () => {
     expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /share/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /subscribe/i })).toBeInTheDocument();
+  });
+
+  it('shows destination and from/to dates beside the trip name', () => {
+    h.state.currentTrip = trip({
+      destination: 'Portugal',
+      starts_on: '2026-10-01',
+      ends_on: '2026-10-05',
+    });
+    renderDetail();
+    expect(screen.getByRole('heading', { name: 'Lisbon' })).toBeInTheDocument();
+    // Destination + date span render as a single secondary line; the "·"
+    // separator only appears when both parts are present.
+    expect(screen.getByText(/Portugal ·/)).toBeInTheDocument();
+  });
+
+  it('shows only the destination beside the name when the trip has no dates', () => {
+    h.state.currentTrip = trip({ destination: 'Portugal' });
+    renderDetail();
+    // No date span → no separator, just the destination.
+    expect(screen.getByText('Portugal')).toBeInTheDocument();
   });
 
   it('hides Edit for viewers', () => {

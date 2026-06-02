@@ -68,6 +68,10 @@ export default function Layout() {
 
   const closeMenu = () => setMenuAnchor(null);
   const onTracker = location.pathname.startsWith('/tracker');
+  const onFriends = location.pathname.startsWith('/friends');
+  // "My trips" owns the home view and the trip-detail pages; "Friends' trips"
+  // and "Tracker" own their own routes.
+  const onMyTrips = !onTracker && !onFriends;
   // Open help to the topic relevant to the current screen: the Tracker and a
   // trip's Map tab → Map & tracker; another trip view → Plans; else → Trips.
   const helpContext =
@@ -94,9 +98,17 @@ export default function Layout() {
             component={RouterLink}
             to="/"
             size="small"
-            color={onTracker ? 'inherit' : 'primary'}
+            color={onMyTrips ? 'primary' : 'inherit'}
           >
-            Trips
+            My trips
+          </Button>
+          <Button
+            component={RouterLink}
+            to="/friends"
+            size="small"
+            color={onFriends ? 'primary' : 'inherit'}
+          >
+            Friends' trips
           </Button>
           <Button
             component={RouterLink}

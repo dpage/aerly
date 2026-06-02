@@ -7,7 +7,7 @@ import EditIcon from '@mui/icons-material/EditOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 
 import { useStore } from '../state/store';
-import { plansOutsideTripDates } from '../lib/trip-format';
+import { fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
 import AddToTripDialog from '../components/AddToTripDialog';
 import TripMembersDialog from '../components/TripMembersDialog';
 import TripEditDialog from '../components/TripEditDialog';
@@ -41,6 +41,14 @@ export default function TripDetail() {
   const tab = onMap ? 'map' : 'timeline';
   const loaded = currentTrip?.id === tripId ? currentTrip : null;
   const title = loaded ? loaded.name : `Trip #${tripId}`;
+  // Secondary header line beside the name: destination and, when the trip has
+  // any dates, its from/to span. Omitted entirely when neither is known.
+  const hasDates =
+    loaded != null &&
+    Boolean(loaded.starts_on || loaded.ends_on || loaded.effective_start || loaded.effective_end);
+  const meta = loaded
+    ? [loaded.destination, hasDates ? fmtTripDates(loaded) : ''].filter(Boolean).join(' · ')
+    : '';
   // Only owners/editors get the tag editor; viewers see nothing to change.
   const canEdit = loaded != null && loaded.my_role !== 'viewer';
   const datesMismatch = loaded != null && plansOutsideTripDates(loaded, loaded.plans);
@@ -51,9 +59,18 @@ export default function TripDetail() {
         <Button size="small" onClick={() => navigate('/')}>
           ← Trips
         </Button>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          {title}
-        </Typography>
+        <Box
+          sx={{ flexGrow: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1.5 }}
+        >
+          <Typography variant="h5" noWrap>
+            {title}
+          </Typography>
+          {meta && (
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {meta}
+            </Typography>
+          )}
+        </Box>
         {loaded && canEdit && (
           <Button
             variant="contained"

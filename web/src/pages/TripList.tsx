@@ -24,10 +24,16 @@ import type { Trip } from '../api/types';
 import { userInitial, userName } from '../lib/format';
 import { classifyTrip, fmtTripDates, tripSpan, type TripBucket } from '../lib/trip-format';
 
+/** Which slice of the viewer's trips a TripList shows:
+ *  - 'mine'    → trips the viewer owns (the home view, with a "New trip" action);
+ *  - 'friends' → trips a friend has shared with the viewer (no create action). */
+export type TripScope = 'mine' | 'friends';
+
 /** Trip list — the redesign's home view (spec §11, PRD §6.1). Loads the
- * viewer's trips and groups them into Upcoming / Happening now / Past by each
- * trip's effective span vs now, with a "New trip" primary action. */
-export default function TripList() {
+ * viewer's trips, filters to the requested `scope`, and groups them into
+ * Upcoming / Happening now / Past by each trip's effective span vs now. The
+ * 'mine' scope offers a "New trip" primary action; 'friends' is read-only. */
+export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   const trips = useStore((s) => s.trips);
   const loading = useStore((s) => s.tripsLoading);
   const listTrips = useStore((s) => s.listTrips);
@@ -36,27 +42,43 @@ export default function TripList() {
     void listTrips();
   }, [listTrips]);
 
-  const groups = useMemo(() => groupTrips(trips), [trips]);
+  // The viewer owns a trip iff their role on it is 'owner'; everything else
+  // (editor / viewer) is a trip a friend shared with them.
+  const scoped = useMemo(
+    () => trips.filter((t) => (scope === 'mine' ? t.my_role === 'owner' : t.my_role !== 'owner')),
+    [trips, scope],
+  );
+  const groups = useMemo(() => groupTrips(scoped), [scoped]);
   const [createOpen, setCreateOpen] = useState(false);
+
+  const mine = scope === 'mine';
 
   return (
     <Box sx={{ p: 3, maxWidth: 760, mx: 'auto' }}>
       <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          Your trips
+          {mine ? 'Your trips' : "Friends' trips"}
         </Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
-          New trip
-        </Button>
+        {mine && (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
+            New trip
+          </Button>
+        )}
       </Stack>
 
-      {loading && trips.length === 0 ? (
+      {loading && scoped.length === 0 ? (
         <Box sx={{ display: 'grid', placeItems: 'center', py: 6 }}>
           <CircularProgress />
         </Box>
-      ) : trips.length === 0 ? (
+      ) : scoped.length === 0 ? (
         <Typography color="text.secondary">
-          No trips yet. Click <strong>New trip</strong> to start planning your first one.
+          {mine ? (
+            <>
+              No trips yet. Click <strong>New trip</strong> to start planning your first one.
+            </>
+          ) : (
+            "No trips have been shared with you yet. When a friend adds you to one of their trips, it'll appear here."
+          )}
         </Typography>
       ) : (
         <Stack spacing={3}>
@@ -68,7 +90,7 @@ export default function TripList() {
         </Stack>
       )}
 
-      <NewTripDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      {mine && <NewTripDialog open={createOpen} onClose={() => setCreateOpen(false)} />}
     </Box>
   );
 }
