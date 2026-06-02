@@ -106,6 +106,7 @@ func run() error {
 	go func() {
 		api.BackfillPartCoordinates(context.Background())
 		api.BackfillPartTimezones(context.Background())
+		api.BackfillTripCountries(context.Background())
 	}()
 
 	// Pick the upstream tracker. OpenSky if credentials are configured (or

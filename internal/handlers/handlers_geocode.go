@@ -33,6 +33,83 @@ func (a *API) geocodePlanAsync(tripID, planID int64) {
 	}()
 }
 
+// tripCountryUnknown is the sentinel stored when a trip's place geocodes but no
+// country comes back — so the lazy/backfill trigger doesn't re-query it forever.
+// The FE treats it (like "") as "no flag".
+const tripCountryUnknown = "zz"
+
+// deriveTripCountryAsync derives a trip's ISO country code from its destination
+// (falling back to its name) and caches it on the trip, in the background and
+// best-effort. A no-op without a geocoder or when the country is already set. On
+// success it republishes the trip so open clients (the trip list) pick up the
+// flag without a manual reload.
+func (a *API) deriveTripCountryAsync(tripID int64) {
+	if a.Geocoder == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		t, err := a.Store.TripByID(ctx, tripID)
+		if err != nil || t.CountryCode != "" {
+			return
+		}
+		query := t.Destination
+		if query == "" {
+			query = t.Name
+		}
+		if query == "" {
+			return
+		}
+		code, ok, gerr := a.Geocoder.GeocodeCountry(ctx, query)
+		if gerr != nil {
+			return
+		}
+		if !ok {
+			code = tripCountryUnknown
+		}
+		if err := a.Store.SetTripCountry(ctx, tripID, code); err != nil {
+			return
+		}
+		a.publishTripUpdated(ctx, tripID)
+	}()
+}
+
+// BackfillTripCountries derives the ISO country code for any trip that doesn't
+// have one yet (e.g. created before the flag feature, or via email ingest).
+// Best-effort, idempotent, paced by the geocoder's rate limit; a no-op without a
+// geocoder. Runs in the background at startup.
+func (a *API) BackfillTripCountries(ctx context.Context) {
+	if a.Geocoder == nil {
+		return
+	}
+	trips, err := a.Store.TripsNeedingCountry(ctx)
+	if err != nil {
+		slog.Warn("country backfill: query failed", "err", err)
+		return
+	}
+	var fixed int
+	for _, t := range trips {
+		query := t.Destination
+		if query == "" {
+			query = t.Name
+		}
+		code, ok, gerr := a.Geocoder.GeocodeCountry(ctx, query)
+		if gerr != nil {
+			continue
+		}
+		if !ok {
+			code = tripCountryUnknown
+		}
+		if err := a.Store.SetTripCountry(ctx, t.ID, code); err == nil {
+			fixed++
+		}
+	}
+	if fixed > 0 {
+		slog.Info("country backfill: derived trip countries", "trips", fixed)
+	}
+}
+
 // BackfillPartCoordinates geocodes any historical plan parts that have a
 // free-text address but no coordinates — plans ingested before address
 // geocoding existed, or while Nominatim was unavailable — so they finally plot

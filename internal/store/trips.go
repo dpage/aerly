@@ -20,6 +20,10 @@ type Trip struct {
 	CreatedBy   *int64
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	// CountryCode is the trip's main country as a lowercase ISO 3166-1 alpha-2
+	// code (derived by geocoding the destination). "" = not yet derived; "zz" =
+	// derived but no country found.
+	CountryCode string
 	// EffectiveStart/EffectiveEnd are the min/max of the trip's (non-dismissed)
 	// part instants — used to show inferred dates when StartsOn/EndsOn aren't
 	// set. Only populated by ListTrips (the detail payload carries parts, so the
@@ -55,12 +59,12 @@ type UpdateTripPayload struct {
 }
 
 // tripColumns is the shared SELECT list for trip rows.
-const tripColumns = `id, name, destination, starts_on, ends_on, created_by, created_at, updated_at`
+const tripColumns = `id, name, destination, starts_on, ends_on, created_by, created_at, updated_at, country_code`
 
 func scanTrip(row pgx.Row) (*Trip, error) {
 	var t Trip
 	err := row.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
-		&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
+		&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -94,7 +98,7 @@ func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) 
 	for rows.Next() {
 		var t Trip
 		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
-			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode,
 			&t.EffectiveStart, &t.EffectiveEnd); err != nil {
 			return nil, err
 		}
@@ -107,6 +111,37 @@ func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) 
 func (s *Store) TripByID(ctx context.Context, id int64) (*Trip, error) {
 	return scanTrip(s.pool.QueryRow(ctx,
 		`SELECT `+tripColumns+` FROM trips WHERE id = $1`, id))
+}
+
+// SetTripCountry sets the derived ISO country code (does not bump updated_at, so
+// a background derivation doesn't reorder the trip list).
+func (s *Store) SetTripCountry(ctx context.Context, tripID int64, code string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE trips SET country_code = $2 WHERE id = $1`, tripID, code)
+	return err
+}
+
+// TripsNeedingCountry returns trips whose country hasn't been derived yet but
+// which have something to geocode (a destination or at least a name). Used by
+// the startup backfill.
+func (s *Store) TripsNeedingCountry(ctx context.Context) ([]*Trip, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+tripColumns+` FROM trips
+		 WHERE country_code = '' AND (destination <> '' OR name <> '')
+		 ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Trip
+	for rows.Next() {
+		var t Trip
+		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode); err != nil {
+			return nil, err
+		}
+		out = append(out, &t)
+	}
+	return out, rows.Err()
 }
 
 // CreateTrip inserts a trip and an owner trip_members row for createdBy, in one

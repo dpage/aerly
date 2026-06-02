@@ -144,9 +144,39 @@ function TripCard({ trip }: { trip: Trip }) {
       ? usersById.get(ownerMember.user_id)
       : undefined;
 
+  const flag = flagUrl(trip.country_code);
+
   return (
-    <Card variant="outlined">
-      <CardActionArea onClick={() => navigate(`/trips/${trip.id}`)} sx={{ p: 2 }}>
+    <Card variant="outlined" sx={{ position: 'relative', overflow: 'hidden' }}>
+      {flag && (
+        <Box
+          component="img"
+          src={flag.src}
+          srcSet={flag.srcSet}
+          alt=""
+          aria-hidden
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+          sx={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            height: '100%',
+            width: '45%',
+            objectFit: 'cover',
+            opacity: 0.5,
+            pointerEvents: 'none',
+            // Fade in from the middle of the card towards the right edge.
+            maskImage: 'linear-gradient(to right, transparent 0%, rgba(0,0,0,1) 75%)',
+            WebkitMaskImage: 'linear-gradient(to right, transparent 0%, rgba(0,0,0,1) 75%)',
+          }}
+        />
+      )}
+      <CardActionArea
+        onClick={() => navigate(`/trips/${trip.id}`)}
+        sx={{ p: 2, position: 'relative' }}
+      >
         <Stack direction="row" alignItems="flex-start" spacing={1}>
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 600 }} noWrap>
@@ -175,6 +205,17 @@ function TripCard({ trip }: { trip: Trip }) {
       </CardActionArea>
     </Card>
   );
+}
+
+/** flagcdn.com image URLs for a trip's country, or null when there's no usable
+ * country code ("" while underived, "zz" = derived-but-unknown). flagcdn keys on
+ * lowercase ISO 3166-1 alpha-2; the h80/h160 heights give a crisp 1x/2x card flag. */
+function flagUrl(code?: string): { src: string; srcSet: string } | null {
+  if (!code || code === 'zz' || !/^[a-z]{2}$/.test(code)) return null;
+  return {
+    src: `https://flagcdn.com/h80/${code}.png`,
+    srcSet: `https://flagcdn.com/h160/${code}.png 2x`,
+  };
 }
 
 function NewTripDialog({ open, onClose }: { open: boolean; onClose: () => void }) {

@@ -63,6 +63,12 @@ func (a *API) listTrips(w http.ResponseWriter, r *http.Request) {
 			handleStoreErr(w, err)
 			return
 		}
+		// Lazily derive the flag country for any trip that hasn't got one yet
+		// (covers both UI- and email-created trips, since both surface here).
+		// Fire-and-forget: it republishes the trip when done so the flag appears.
+		if t.CountryCode == "" {
+			a.deriveTripCountryAsync(t.ID)
+		}
 		out = append(out, dto)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -187,6 +193,11 @@ func (a *API) updateTrip(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		handleStoreErr(w, err)
 		return
+	}
+	// The destination may have changed, so re-derive the flag country: clear it
+	// and kick off a fresh derivation (which republishes when done).
+	if err := a.Store.SetTripCountry(r.Context(), t.ID, ""); err == nil {
+		a.deriveTripCountryAsync(t.ID)
 	}
 	a.publishTripUpdated(r.Context(), t.ID)
 	writeJSON(w, http.StatusOK, dto)

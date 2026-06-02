@@ -160,3 +160,52 @@ func TestTripQueryErrorPaths(t *testing.T) {
 		t.Error("AddTripMember cancelled should error")
 	}
 }
+
+func TestTripCountryCode(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+
+	withDest, err := s.CreateTrip(ctx, CreateTripPayload{Name: "Trip A", Destination: "Lisbon"}, owner)
+	if err != nil {
+		t.Fatalf("CreateTrip: %v", err)
+	}
+	if withDest.CountryCode != "" {
+		t.Errorf("new trip country = %q, want empty", withDest.CountryCode)
+	}
+	noDest, err := s.CreateTrip(ctx, CreateTripPayload{Name: "Trip B"}, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Both are candidates (one via destination, one via name).
+	need, err := s.TripsNeedingCountry(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[int64]bool{}
+	for _, tr := range need {
+		ids[tr.ID] = true
+	}
+	if !ids[withDest.ID] || !ids[noDest.ID] {
+		t.Errorf("TripsNeedingCountry missing one of %d/%d: %v", withDest.ID, noDest.ID, ids)
+	}
+
+	if err := s.SetTripCountry(ctx, withDest.ID, "pt"); err != nil {
+		t.Fatalf("SetTripCountry: %v", err)
+	}
+	got, err := s.TripByID(ctx, withDest.ID)
+	if err != nil || got.CountryCode != "pt" {
+		t.Errorf("country = %q (%v), want pt", got.CountryCode, err)
+	}
+
+	// Once set, it's no longer a candidate.
+	need, _ = s.TripsNeedingCountry(ctx)
+	for _, tr := range need {
+		if tr.ID == withDest.ID {
+			t.Error("trip with a country should not be a backfill candidate")
+		}
+	}
+}

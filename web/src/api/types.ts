@@ -221,6 +221,9 @@ export interface Trip {
   my_role: TripRole;
   members: TripMember[];
   tags: string[];
+  /** Main country as a lowercase ISO 3166-1 alpha-2 code, for the card flag.
+   * Absent while underived; "zz" means derived-but-unknown (no flag shown). */
+  country_code?: string;
   created_at: string;
   updated_at: string;
 }

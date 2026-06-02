@@ -265,8 +265,12 @@ type TripDTO struct {
 	MyRole      string          `json:"my_role"` // owner|editor|viewer
 	Members     []TripMemberDTO `json:"members"`
 	Tags        []string        `json:"tags"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	// CountryCode is the trip's main country (lowercase ISO 3166-1 alpha-2),
+	// derived by geocoding the destination, for the trip-card flag. Omitted
+	// while underived; "zz" means derived-but-unknown (FE shows no flag).
+	CountryCode string    `json:"country_code,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // TripMemberDTO is one membership edge.
@@ -487,6 +491,7 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 		MyRole:      myRole,
 		Members:     members,
 		Tags:        tags,
+		CountryCode: t.CountryCode,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 	}

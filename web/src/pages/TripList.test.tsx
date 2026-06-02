@@ -121,6 +121,32 @@ describe('TripList', () => {
     expect(screen.getByText(/No trips have been shared with you yet/i)).toBeInTheDocument();
   });
 
+  it('renders a flag image for a trip with a country code', () => {
+    state.trips = [trip({ id: 1, name: 'Beach', country_code: 'es' })];
+    renderList();
+    const img = document.querySelector('img[src*="flagcdn.com"]') as HTMLImageElement | null;
+    expect(img).not.toBeNull();
+    expect(img!.src).toContain('/es.png');
+    expect(img!.srcset).toContain('h160/es.png 2x');
+  });
+
+  it('shows no flag when the country is absent or unknown', () => {
+    state.trips = [
+      trip({ id: 1, name: 'NoCountry', country_code: '' }),
+      trip({ id: 2, name: 'Unknown', country_code: 'zz' }),
+    ];
+    renderList();
+    expect(document.querySelector('img[src*="flagcdn.com"]')).toBeNull();
+  });
+
+  it('hides the flag image if it fails to load', () => {
+    state.trips = [trip({ id: 1, name: 'Beach', country_code: 'fr' })];
+    renderList();
+    const img = document.querySelector('img[src*="flagcdn.com"]') as HTMLImageElement;
+    img.dispatchEvent(new Event('error'));
+    expect(img.style.display).toBe('none');
+  });
+
   it('groups trips into Happening now / Upcoming / Past', () => {
     state.trips = [
       trip({ id: 1, name: 'NowTrip', starts_on: dateOnly(-2), ends_on: dateOnly(2) }),
