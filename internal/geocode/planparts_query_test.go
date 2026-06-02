@@ -23,6 +23,7 @@ func TestGeocodeEndpoint(t *testing.T) {
 		"1 Main St":                  {1, 2},
 		"Alicante Airport":           {38, -0.5},
 		"London Heathrow Terminal 5": {51, -0.4},
+		"AB12 3CD, United Kingdom":   {51.6, -1.5},
 	}}
 	ctx := context.Background()
 	cases := []struct {
@@ -37,6 +38,10 @@ func TestGeocodeEndpoint(t *testing.T) {
 		{"flight never uses label", "flight", "", "LHR", false, 0},
 		{"flight still uses a resolving address", "flight", "1 Main St", "LHR", true, 1},
 		{"airport label that doesn't resolve", "ground", "", "Faro Airport", false, 0},
+		// Full address fails but the embedded UK postcode resolves (incl. a
+		// multi-line address, which is normalised first). Fictional data.
+		{"postcode fallback (one line)", "ground", "Honeysuckle Cottage, 1 Example Lane, AB12 3CD, United Kingdom", "Honeysuckle Cottage", true, 51.6},
+		{"postcode fallback (multi-line)", "ground", "Honeysuckle Cottage\n1 Example Lane\nAB12 3CD\nUnited Kingdom", "Honeysuckle Cottage", true, 51.6},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -48,5 +53,22 @@ func TestGeocodeEndpoint(t *testing.T) {
 				t.Errorf("lat = %v, want %v", lat, c.wantLat)
 			}
 		})
+	}
+}
+
+// An IATA code in the label resolves via the airport table (no geocoder call).
+func TestGeocodeEndpoint_IATAFromLabel(t *testing.T) {
+	// Empty stub: if it resolved anything we'd know the table path wasn't taken.
+	g := stubGeo{resolves: map[string][2]float64{}}
+	lat, lon, ok := geocodeEndpoint(context.Background(), g, "ground", "", "LHR T5")
+	if !ok {
+		t.Fatal("expected LHR T5 to resolve via the airport table")
+	}
+	if lat < 51 || lat > 52 || lon > 0 {
+		t.Errorf("coords (%v,%v) don't look like LHR", lat, lon)
+	}
+	// A flight part must NOT use the label path even with an IATA code.
+	if _, _, ok := geocodeEndpoint(context.Background(), g, "flight", "", "LHR T5"); ok {
+		t.Error("flight part should not resolve from an IATA label")
 	}
 }

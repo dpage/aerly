@@ -2,9 +2,11 @@ package geocode
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/geotz"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -68,17 +70,40 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 	return changed, nil
 }
 
-// geocodeEndpoint resolves an endpoint to coordinates: the postal address first,
-// then — only for an airport-like label — the label as a fallback (when there's
-// no address or the address didn't resolve). The label fallback is deliberately
-// limited to airports: a bare place/home name like "Honeysuckle Cottage" is too
-// ambiguous to geocode safely (it resolved to a same-named place on the wrong
-// continent), so those rely on a real address. Flight parts never fall back to
-// the label. Returns ok=false when nothing resolved.
+// ukPostcode matches a UK postcode embedded in a freeform address (e.g.
+// "AB12 3CD"). Rural freeform addresses frequently don't geocode as a whole,
+// but the postcode reliably does.
+var ukPostcode = regexp.MustCompile(`(?i)\b[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}\b`)
+
+// geocodeEndpoint resolves an endpoint to coordinates, trying the most reliable
+// signal first:
+//  1. an IATA airport code in the label (e.g. "LHR T5") via the airport table —
+//     deterministic, no network (non-flight parts only);
+//  2. the postal address (normalised to one line);
+//  3. a UK postcode pulled from the address, when the full address won't resolve;
+//  4. an airport-like label ("… Airport"/"… Terminal") via the geocoder, for
+//     airports not in the table (e.g. "Alicante Airport").
+//
+// It deliberately never geocodes a bare ambiguous place/home name (which can
+// resolve to a same-named place on the wrong continent); those rely on the
+// address / postcode. Flight parts never use the label. ok=false when nothing
+// resolved.
 func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label string) (float64, float64, bool) {
-	if address != "" {
-		if lat, lon, ok, err := g.Geocode(ctx, address); err == nil && ok {
+	if partType != "flight" {
+		if code := iataIn(label); code != "" {
+			if lat, lon, ok := airports.Lookup(code); ok {
+				return lat, lon, true
+			}
+		}
+	}
+	if addr := normalizeAddress(address); addr != "" {
+		if lat, lon, ok, err := g.Geocode(ctx, addr); err == nil && ok {
 			return lat, lon, true
+		}
+		if pc := ukPostcode.FindString(address); pc != "" {
+			if lat, lon, ok, err := g.Geocode(ctx, pc+", United Kingdom"); err == nil && ok {
+				return lat, lon, true
+			}
 		}
 	}
 	if partType != "flight" && isAirportLabel(label) {
@@ -87,6 +112,34 @@ func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label s
 		}
 	}
 	return 0, 0, false
+}
+
+// normalizeAddress collapses a multi-line address into a single comma-separated
+// line (Nominatim handles those far better than embedded newlines).
+func normalizeAddress(s string) string {
+	var parts []string
+	for _, line := range strings.Split(s, "\n") {
+		if l := strings.TrimSpace(line); l != "" {
+			parts = append(parts, l)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// iataIn returns an all-uppercase 3-letter token in the label that's a known
+// IATA airport (e.g. "LHR" in "LHR T5"). Requiring all-caps avoids matching
+// ordinary place-name words that happen to spell a code.
+func iataIn(label string) string {
+	for _, tok := range strings.FieldsFunc(label, func(r rune) bool {
+		return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'))
+	}) {
+		if len(tok) == 3 && tok == strings.ToUpper(tok) {
+			if _, _, ok := airports.Lookup(tok); ok {
+				return tok
+			}
+		}
+	}
+	return ""
 }
 
 // isAirportLabel reports whether a place label clearly denotes an airport (so
