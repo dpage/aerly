@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Avatar,
-  AvatarGroup,
   Box,
   Button,
   Card,
@@ -21,7 +20,7 @@ import AddIcon from '@mui/icons-material/Add';
 import PlaceIcon from '@mui/icons-material/Place';
 
 import { useStore } from '../state/store';
-import type { Trip, User } from '../api/types';
+import type { Trip } from '../api/types';
 import { userInitial, userName } from '../lib/format';
 import { classifyTrip, fmtTripDates, tripSpan, type TripBucket } from '../lib/trip-format';
 
@@ -115,11 +114,13 @@ function TripCard({ trip }: { trip: Trip }) {
   const me = useStore((s) => s.me);
 
   const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
-  // Shared-with members are everyone on the trip other than the viewer.
-  const sharedMembers = trip.members
-    .filter((m) => m.user_id !== me?.id)
-    .map((m) => usersById.get(m.user_id))
-    .filter((u): u is User => u !== undefined);
+  // Show whose trip it is — just the owner — on trips shared with the viewer.
+  // (No avatar on the viewer's own trips; editors/viewers aren't shown here.)
+  const ownerMember = trip.members.find((m) => m.role === 'owner');
+  const owner =
+    ownerMember && ownerMember.user_id !== me?.id
+      ? usersById.get(ownerMember.user_id)
+      : undefined;
 
   return (
     <Card variant="outlined">
@@ -141,17 +142,12 @@ function TripCard({ trip }: { trip: Trip }) {
               {fmtTripDates(trip)}
             </Typography>
           </Box>
-          {sharedMembers.length > 0 && (
-            <AvatarGroup
-              max={5}
-              sx={{ '& .MuiAvatar-root': { width: 26, height: 26, fontSize: 12 } }}
-            >
-              {sharedMembers.map((u) => (
-                <Tooltip key={u.id} title={userName(u)}>
-                  <Avatar src={u.avatar_url}>{userInitial(u)}</Avatar>
-                </Tooltip>
-              ))}
-            </AvatarGroup>
+          {owner && (
+            <Tooltip title={`Owner: ${userName(owner)}`}>
+              <Avatar src={owner.avatar_url} sx={{ width: 26, height: 26, fontSize: 12 }}>
+                {userInitial(owner)}
+              </Avatar>
+            </Tooltip>
           )}
         </Stack>
       </CardActionArea>

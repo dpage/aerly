@@ -105,14 +105,42 @@ describe('TripList', () => {
     expect(screen.getByText('OldTrip')).toBeInTheDocument();
   });
 
-  it('renders destination and shared-member avatars (excluding the viewer)', () => {
+  it('shows only the owner avatar on a trip shared with the viewer', () => {
     state.me = user({ id: 1, username: 'me' });
-    state.users = [user({ id: 1, username: 'me' }), user({ id: 2, username: 'amy' })];
+    state.users = [
+      user({ id: 1, username: 'me' }),
+      user({ id: 2, username: 'amy' }),
+      user({ id: 3, username: 'carol' }),
+    ];
     state.trips = [
       trip({
         id: 5,
         name: 'Shared',
         destination: 'Lisbon',
+        my_role: 'viewer',
+        members: [
+          { user_id: 2, role: 'owner' },
+          { user_id: 1, role: 'viewer' },
+          { user_id: 3, role: 'viewer' },
+        ],
+      }),
+    ];
+    renderList();
+    expect(screen.getByText('Lisbon')).toBeInTheDocument();
+    // The owner (amy) shows; the viewer (me) and other viewers (carol) don't.
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.queryByText('M')).not.toBeInTheDocument();
+    expect(screen.queryByText('C')).not.toBeInTheDocument();
+  });
+
+  it('shows no avatar on the viewer\'s own trip', () => {
+    state.me = user({ id: 1, username: 'me' });
+    state.users = [user({ id: 1, username: 'me' }), user({ id: 2, username: 'amy' })];
+    state.trips = [
+      trip({
+        id: 6,
+        name: 'Solo',
+        my_role: 'owner',
         members: [
           { user_id: 1, role: 'owner' },
           { user_id: 2, role: 'viewer' },
@@ -120,10 +148,9 @@ describe('TripList', () => {
       }),
     ];
     renderList();
-    expect(screen.getByText('Lisbon')).toBeInTheDocument();
-    // amy's avatar fallback initial; the viewer (me) is excluded.
-    expect(screen.getByText('A')).toBeInTheDocument();
+    // Owner is the viewer → no owner avatar; viewers are never shown.
     expect(screen.queryByText('M')).not.toBeInTheDocument();
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
   });
 
   it('navigates to the trip when a card is clicked', async () => {
