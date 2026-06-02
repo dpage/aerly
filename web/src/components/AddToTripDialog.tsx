@@ -36,9 +36,9 @@ import type {
 
 interface AddToTripDialogProps {
   open: boolean;
-  /** The trip to add the plan to; may be null when opened from the trip list
-   * before a trip is chosen, in which case the dialog shows a trip picker. */
-  tripId: number | null;
+  /** The trip the new plan(s) land in — always known, as this is only opened
+   * from the trip page (the "New plan" action). */
+  tripId: number;
   onClose: () => void;
 }
 
@@ -56,9 +56,6 @@ const LOW_CONFIDENCE = 0.6;
  * (low-confidence flags + proposed supersessions) before `confirmIngest`;
  * "From email" surfaces the forwarding address the backend exposes. */
 export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDialogProps) {
-  const trips = useStore((s) => s.trips);
-  const listTrips = useStore((s) => s.listTrips);
-  const currentTrip = useStore((s) => s.currentTrip);
   const capabilities = useStore((s) => s.capabilities);
   const createPlan = useStore((s) => s.createPlan);
   const ingest = useStore((s) => s.ingest);
@@ -69,9 +66,6 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
   const setError = useStore((s) => s.setError);
 
   const [tab, setTab] = useState<CaptureTab>('manual');
-  // The trip the new plan(s) land in. Seeded from the prop / current trip, but
-  // a null prop (the global "Add to trip") lets the user pick.
-  const [selectedTrip, setSelectedTrip] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   // Flips once an ingest call has succeeded, handing the dialog over to the
   // confirm step. Driven separately from `ingestProposals` so an empty result
@@ -82,17 +76,10 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
   useEffect(() => {
     if (!open) return;
     setTab('manual');
-    setSelectedTrip(tripId ?? currentTrip?.id ?? null);
     setBusy(false);
     setSubmitted(false);
     clearIngest();
-    // Populate the trip picker. The list is only fetched on the trip-list page,
-    // so opening this dialog from inside a trip would otherwise show an empty
-    // dropdown (the selected current trip has no matching option to render).
-    void listTrips();
-  }, [open, tripId, currentTrip, clearIngest, listTrips]);
-
-  const effectiveTripId = tripId ?? selectedTrip;
+  }, [open, clearIngest]);
 
   const handleClose = () => {
     clearIngest();
@@ -104,10 +91,9 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
     file?: File;
     source: 'paste' | 'upload';
   }) => {
-    if (effectiveTripId == null) return;
     setBusy(true);
     try {
-      await ingest(effectiveTripId, { text: input.text, file: input.file, source: input.source });
+      await ingest(tripId, { text: input.text, file: input.file, source: input.source });
       // Success: the store now holds the proposals; hand over to the confirm
       // step (which reads them from the store).
       setSubmitted(true);
@@ -120,10 +106,9 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
   };
 
   const handleManualCreate = async (input: CreatePlanInput) => {
-    if (effectiveTripId == null) return;
     setBusy(true);
     try {
-      await createPlan(effectiveTripId, input);
+      await createPlan(tripId, input);
       handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -133,10 +118,9 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
   };
 
   const handleConfirm = async (plans: ConfirmPlanInput[]) => {
-    if (effectiveTripId == null) return;
     setBusy(true);
     try {
-      await confirmIngest(effectiveTripId, plans);
+      await confirmIngest(tripId, plans);
       handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -151,13 +135,9 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
 
   return (
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
-      <DialogTitle>{inConfirm ? 'Confirm extracted plans' : 'Add to trip'}</DialogTitle>
+      <DialogTitle>{inConfirm ? 'Confirm extracted plans' : 'New plan'}</DialogTitle>
       {working && <LinearProgress />}
       <DialogContent dividers>
-        {!inConfirm && tripId == null && (
-          <TripPicker trips={trips} value={selectedTrip} onChange={setSelectedTrip} />
-        )}
-
         {inConfirm ? (
           <ConfirmStep
             proposals={ingestProposals}
@@ -182,27 +162,16 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
               <Tab value="email" label="From email" />
             </Tabs>
 
-            {effectiveTripId == null && tab !== 'email' && (
-              <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
-                Pick a trip above to add this plan to.
-              </Alert>
-            )}
-
-            {tab === 'manual' && (
-              <ManualTab
-                disabled={effectiveTripId == null || working}
-                onCreate={handleManualCreate}
-              />
-            )}
+            {tab === 'manual' && <ManualTab disabled={working} onCreate={handleManualCreate} />}
             {tab === 'paste' && (
               <PasteTab
-                disabled={effectiveTripId == null || working}
+                disabled={working}
                 onIngest={(text) => void handleIngest({ text, source: 'paste' })}
               />
             )}
             {tab === 'upload' && (
               <UploadTab
-                disabled={effectiveTripId == null || working}
+                disabled={working}
                 onIngest={(payload) => void handleIngest({ ...payload, source: 'upload' })}
               />
             )}
@@ -221,32 +190,6 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
         </DialogActions>
       )}
     </Dialog>
-  );
-}
-
-interface TripPickerProps {
-  trips: { id: number; name: string }[];
-  value: number | null;
-  onChange: (id: number | null) => void;
-}
-
-function TripPicker({ trips, value, onChange }: TripPickerProps) {
-  return (
-    <FormControl fullWidth sx={{ mb: 2 }}>
-      <InputLabel id="add-trip-picker-label">Trip</InputLabel>
-      <Select
-        labelId="add-trip-picker-label"
-        label="Trip"
-        value={value == null ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
-      >
-        {trips.map((t) => (
-          <MenuItem key={t.id} value={String(t.id)}>
-            {t.name}
-          </MenuItem>
-        ))}
-      </Select>
-    </FormControl>
   );
 }
 
@@ -423,7 +366,7 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
 
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Button variant="contained" onClick={submit} disabled={!canSubmit}>
-          Add to trip
+          Add plan
         </Button>
       </Box>
     </Stack>
@@ -782,7 +725,7 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
           onClick={confirm}
           disabled={busy || acceptedCount === 0}
         >
-          {acceptedCount > 1 ? `Add ${acceptedCount} plans` : 'Add to trip'}
+          {acceptedCount > 1 ? `Add ${acceptedCount} plans` : 'Add plan'}
         </Button>
       </Box>
     </Stack>

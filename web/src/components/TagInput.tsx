@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Autocomplete, Chip, TextField } from '@mui/material';
 
 import { useStore } from '../state/store';
-import { labelOnDefaultBgSx } from '../theme';
 
 /** Normalise a label the way the backend does: trimmed, lower-cased. Keeps the
  * de-dupe in the combo consistent with what `setTripTags` will store. */
@@ -102,9 +101,6 @@ export default function TagInput({
           label={label}
           placeholder="Add a tag…"
           helperText={helperText ?? 'Type to create or match a shared tag, e.g. pgconf-eu-26.'}
-          // This input sits on background.default, not a Paper surface, so its
-          // shrunk label needs to match that surface — see labelOnDefaultBgSx.
-          slotProps={{ inputLabel: { sx: labelOnDefaultBgSx } }}
         />
       )}
     />

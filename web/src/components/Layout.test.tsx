@@ -105,10 +105,9 @@ describe('Layout', () => {
     expect(screen.getByText('O')).toBeInTheDocument();
   });
 
-  it('opens the Add to trip dialog', async () => {
+  it('no longer shows a global Add to trip action (moved to the trip page)', () => {
     renderLayout();
-    await userEvent.click(screen.getByRole('button', { name: /add to trip/i }));
-    expect(screen.getByTestId('add-dialog')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add to trip/i })).not.toBeInTheDocument();
   });
 
   it('hides the admin button for non-superusers', () => {
@@ -225,11 +224,6 @@ describe('Layout', () => {
     h.state.me = user({ is_superuser: true });
     h.state.capabilities = { email_ingest_enabled: true };
     renderLayout();
-
-    // Add to trip (top-bar action).
-    await userEvent.click(screen.getByRole('button', { name: /add to trip/i }));
-    await userEvent.click(screen.getByRole('button', { name: 'close-add-dialog' }));
-    expect(screen.queryByTestId('add-dialog')).not.toBeInTheDocument();
 
     // Admin (top-bar action, superuser only).
     await userEvent.click(screen.getByRole('button', { name: /manage users/i }));

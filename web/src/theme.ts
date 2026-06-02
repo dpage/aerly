@@ -1,32 +1,29 @@
 import { useEffect, useState } from 'react';
-import { createTheme, type SxProps, type Theme } from '@mui/material';
+import { createTheme, type Theme } from '@mui/material';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ThemeMode = 'light' | 'dark';
 
 export const THEME_STORAGE_KEY = 'aerly:theme';
 
-/** sx for an outlined input/select label that sits on `background.default`
- * rather than a Paper surface. The global MuiInputLabel override paints the
- * shrunk label a solid paper colour to cover the border (the Safari notch
- * workaround below); on a non-paper surface that paper colour shows as a
- * mismatched seam, so repaint the label to match the surface it's actually on.
- * Apply to the InputLabel (directly, or via TextField slotProps.inputLabel). */
-export const labelOnDefaultBgSx: SxProps<Theme> = {
-  '&.MuiInputLabel-shrink.MuiInputLabel-outlined': {
-    backgroundColor: 'background.default',
-  },
-};
-
 export function createAppTheme(mode: ThemeMode): Theme {
+  const bgDefault = mode === 'light' ? '#f5f6fa' : '#0d1117';
+  // The colour the shrunk outlined-input label paints behind itself to cover
+  // the border (Safari notch workaround below). It must match the surface the
+  // input actually sits on. We drive it from a CSS variable: page content
+  // (under #root) is on background.default; dialogs portal to <body> — outside
+  // #root — so they fall through to this paper-coloured default. Dark dialogs
+  // are Paper + an elevation-24 overlay, pre-composed here into one solid value
+  // (a gradient left a thin seam under the label in Safari).
+  const labelPaperBg = mode === 'dark' ? '#3c4146' : '#ffffff';
   return createTheme({
     palette: {
       mode,
       primary: { main: mode === 'dark' ? '#60a5fa' : '#1f5fa8' },
       secondary: { main: '#d97706' },
       ...(mode === 'light'
-        ? { background: { default: '#f5f6fa' } }
-        : { background: { default: '#0d1117', paper: '#161b22' } }),
+        ? { background: { default: bgDefault } }
+        : { background: { default: bgDefault, paper: '#161b22' } }),
     },
     shape: { borderRadius: 8 },
     typography: {
@@ -34,6 +31,15 @@ export function createAppTheme(mode: ThemeMode): Theme {
         'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     },
     components: {
+      // Page content under #root sits on background.default, so its labels
+      // repaint that colour. The variable cascades to descendants; dialogs
+      // portal to <body> (outside #root) and use the paper-coloured fallback
+      // baked into the label override below.
+      MuiCssBaseline: {
+        styleOverrides: {
+          '#root': { '--aerly-label-bg': bgDefault },
+        },
+      },
       // Safari renders the outlined-input notch unreliably: the legend
       // sometimes stays at max-width:0.01px even when the label is
       // shrunk, so the focused border draws straight through the label.
@@ -43,10 +49,10 @@ export function createAppTheme(mode: ThemeMode): Theme {
       //   - Collapse the fieldset's legend to zero width so it never
       //     opens a notch. The border is then continuous along the top.
       //   - Give the shrunk InputLabel a solid background that matches
-      //     the input's container, plus a hair of horizontal padding,
-      //     so the label sits ON TOP of the border and visually covers
-      //     the line behind it. The "notch" effect is now painted, not
-      //     measured.
+      //     the input's container (via --aerly-label-bg), plus a hair of
+      //     horizontal padding, so the label sits ON TOP of the border and
+      //     visually covers the line behind it. The "notch" effect is now
+      //     painted, not measured.
       // This matches the workaround used in the pgEdge AI DBA Workbench
       // codebase, which hit the same Safari behaviour.
       MuiOutlinedInput: {
@@ -62,17 +68,7 @@ export function createAppTheme(mode: ThemeMode): Theme {
         styleOverrides: {
           root: {
             '&.MuiInputLabel-shrink.MuiInputLabel-outlined': {
-              // The surrounding Dialog/Paper in dark mode paints
-              // background.paper plus an elevation-24 white overlay
-              // (alpha 0.165). Match by pre-composing the result into a
-              // single solid colour — using a separate background-image
-              // gradient (the way MUI's Paper does it) was leaving a
-              // thin darker seam under the label in Safari because the
-              // gradient's vertical bounds didn't quite line up with
-              // the bg-color's bounds, exposing the un-overlaid base
-              // colour at the seam.
-              backgroundColor:
-                mode === 'dark' ? '#3c4146' : '#ffffff',
+              backgroundColor: `var(--aerly-label-bg, ${labelPaperBg})`,
               paddingLeft: 4,
               paddingRight: 4,
               marginLeft: -2,

@@ -16,7 +16,6 @@ import { format, parseISO } from 'date-fns';
 import { useStore } from '../state/store';
 import type { TrackerWindow } from '../state/trackerSlice';
 import { tripSpan } from '../lib/trip-format';
-import { labelOnDefaultBgSx } from '../theme';
 import PlanMapView from '../components/PlanMapView';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -102,9 +101,7 @@ export default function Tracker() {
         </Typography>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
           <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel id="tracker-tag-label" sx={labelOnDefaultBgSx}>
-              Tag
-            </InputLabel>
+            <InputLabel id="tracker-tag-label">Tag</InputLabel>
             <Select
               labelId="tracker-tag-label"
               label="Tag"

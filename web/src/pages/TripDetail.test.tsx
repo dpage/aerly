@@ -54,6 +54,7 @@ function stubDialog(testid: string) {
 vi.mock('../components/TripEditDialog', () => ({ default: stubDialog('edit-dialog') }));
 vi.mock('../components/TripMembersDialog', () => ({ default: stubDialog('members-dialog') }));
 vi.mock('../components/CalendarSubscribeDialog', () => ({ default: stubDialog('subscribe-dialog') }));
+vi.mock('../components/AddToTripDialog', () => ({ default: stubDialog('add-plan-dialog') }));
 
 import TripDetail from './TripDetail';
 
@@ -126,6 +127,27 @@ describe('TripDetail', () => {
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
     // Share is still available to everyone with the trip loaded.
     expect(screen.getByRole('button', { name: /share/i })).toBeInTheDocument();
+  });
+
+  it('shows New plan for an owner and opens the add-plan dialog', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /new plan/i }));
+    expect(screen.getByTestId('add-plan-dialog')).toBeInTheDocument();
+  });
+
+  it('hides New plan for viewers', () => {
+    h.state.currentTrip = trip({ my_role: 'viewer' });
+    renderDetail();
+    expect(screen.queryByRole('button', { name: /new plan/i })).not.toBeInTheDocument();
+  });
+
+  it('closes the add-plan dialog via its onClose', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /new plan/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'close-add-plan-dialog' }));
+    expect(screen.queryByTestId('add-plan-dialog')).not.toBeInTheDocument();
   });
 
   it('opens the edit dialog', async () => {

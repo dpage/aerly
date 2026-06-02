@@ -16,7 +16,6 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
@@ -33,7 +32,6 @@ import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import { useStore } from '../state/store';
 import { userInitial, userName } from '../lib/format';
 import { useThemeMode, type ThemePreference } from '../theme';
-import AddToTripDialog from './AddToTripDialog';
 import AdminDialog from './AdminDialog';
 import AlertPrefsDialog from './AlertPrefsDialog';
 import EmailsDialog from './EmailsDialog';
@@ -57,7 +55,6 @@ export default function Layout() {
   const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
   const location = useLocation();
 
-  const [addOpen, setAddOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [emailsOpen, setEmailsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
@@ -101,14 +98,6 @@ export default function Layout() {
             Tracker
           </Button>
           <Box sx={{ flexGrow: 1 }} />
-          <Button
-            startIcon={<AddIcon />}
-            onClick={() => setAddOpen(true)}
-            size="small"
-            sx={{ mr: 1 }}
-          >
-            Add to trip
-          </Button>
           {me?.is_superuser && (
             <Tooltip title="Manage users">
               <IconButton size="small" onClick={() => setAdminOpen(true)} sx={{ mr: 1 }}>
@@ -270,7 +259,6 @@ export default function Layout() {
         <Outlet />
       </Box>
 
-      <AddToTripDialog open={addOpen} tripId={null} onClose={() => setAddOpen(false)} />
       <AdminDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
       <EmailsDialog open={emailsOpen} onClose={() => setEmailsOpen(false)} />
       <FriendsDialog open={friendsOpen} onClose={() => setFriendsOpen(false)} />

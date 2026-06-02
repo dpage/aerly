@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Alert, Box, Button, Tab, Tabs, Typography } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import EditIcon from '@mui/icons-material/EditOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 
 import { useStore } from '../state/store';
 import { plansOutsideTripDates } from '../lib/trip-format';
+import AddToTripDialog from '../components/AddToTripDialog';
 import TripMembersDialog from '../components/TripMembersDialog';
 import TripEditDialog from '../components/TripEditDialog';
 import CalendarSubscribeDialog from '../components/CalendarSubscribeDialog';
@@ -27,6 +29,7 @@ export default function TripDetail() {
   const [shareOpen, setShareOpen] = useState(false);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [newPlanOpen, setNewPlanOpen] = useState(false);
 
   useEffect(() => {
     if (!Number.isFinite(tripId)) return;
@@ -51,6 +54,16 @@ export default function TripDetail() {
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           {title}
         </Typography>
+        {loaded && canEdit && (
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={() => setNewPlanOpen(true)}
+          >
+            New plan
+          </Button>
+        )}
         {loaded && canEdit && (
           <Button size="small" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
             Edit
@@ -92,6 +105,13 @@ export default function TripDetail() {
       <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
         <Outlet />
       </Box>
+      {loaded && canEdit && (
+        <AddToTripDialog
+          open={newPlanOpen}
+          tripId={loaded.id}
+          onClose={() => setNewPlanOpen(false)}
+        />
+      )}
       {loaded && canEdit && (
         <TripEditDialog
           open={editOpen}

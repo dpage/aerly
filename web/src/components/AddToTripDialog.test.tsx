@@ -47,20 +47,6 @@ vi.mock('../state/store', () => ({
 
 import AddToTripDialog from './AddToTripDialog';
 
-function trip(over: Partial<Trip> = {}): Trip {
-  return {
-    id: 1,
-    name: 'Lisbon',
-    destination: 'Lisbon',
-    my_role: 'owner',
-    members: [],
-    tags: [],
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...over,
-  };
-}
-
 function part(over: Partial<PlanPart> = {}): PlanPart {
   return {
     id: 1,
@@ -116,20 +102,11 @@ describe('AddToTripDialog - shell', () => {
     expect(h.state.clearIngest).toHaveBeenCalled();
   });
 
-  it('shows a trip picker and gates capture when no trip is provided', async () => {
-    h.state.trips = [trip({ id: 1, name: 'Lisbon' }), trip({ id: 2, name: 'Tokyo' })];
-    render(<AddToTripDialog open tripId={null} onClose={vi.fn()} />);
-    expect(screen.getByText(/Pick a trip above/i)).toBeInTheDocument();
-    // Submit is blocked until a trip is chosen.
-    expect(screen.getByRole('button', { name: 'Add to trip' })).toBeDisabled();
-  });
-
-  it('seeds the trip from currentTrip when no tripId prop is given', () => {
-    h.state.trips = [trip({ id: 5, name: 'Rome' })];
-    h.state.currentTrip = { ...trip({ id: 5, name: 'Rome' }), plans: [] };
-    render(<AddToTripDialog open tripId={null} onClose={vi.fn()} />);
-    // No "pick a trip" gate because currentTrip seeds the selection.
-    expect(screen.queryByText(/Pick a trip above/i)).not.toBeInTheDocument();
+  it('shows the title "New plan" (always trip-scoped, no picker)', () => {
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'New plan' })).toBeInTheDocument();
+    // No trip picker — the trip is always known from the page it opened from.
+    expect(screen.queryByLabelText('Trip')).not.toBeInTheDocument();
   });
 });
 
@@ -141,7 +118,7 @@ describe('AddToTripDialog - manual tab', () => {
 
     await userEvent.type(screen.getByLabelText(/Title/), 'Flight to Lisbon');
     await userEvent.type(screen.getByLabelText(/Flight number/), 'ba286');
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     expect(h.state.createPlan).toHaveBeenCalledTimes(1);
     const [tripId, input] = h.state.createPlan.mock.calls[0];
@@ -155,16 +132,16 @@ describe('AddToTripDialog - manual tab', () => {
 
   it('disables submit until a title is entered', async () => {
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Add to trip' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add plan' })).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/Title/), 'Dinner');
-    expect(screen.getByRole('button', { name: 'Add to trip' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Add plan' })).toBeEnabled();
   });
 
   it('surfaces createPlan errors via setError', async () => {
     h.state.createPlan.mockRejectedValue(new Error('create failed'));
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
     await userEvent.type(screen.getByLabelText(/Title/), 'X');
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
     expect(h.state.setError).toHaveBeenCalledWith('create failed');
   });
 
@@ -187,7 +164,7 @@ describe('AddToTripDialog - manual tab', () => {
     await userEvent.type(screen.getByLabelText('Property'), 'Lobby');
     await userEvent.type(screen.getByLabelText('Room / details'), 'Suite');
     await userEvent.type(screen.getByLabelText('Property address'), '1 Rua');
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const [, input] = h.state.createPlan.mock.calls[0];
     expect(input.type).toBe('hotel');
@@ -209,7 +186,7 @@ describe('AddToTripDialog - manual tab', () => {
     expect(screen.queryByLabelText('To address')).not.toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText(/^Title/), 'Dinner at Belcanto');
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const [, input] = h.state.createPlan.mock.calls[0];
     expect(input.type).toBe('dining');
@@ -226,7 +203,7 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     await userEvent.type(screen.getByLabelText('To address'), 'Lisbon Airport');
     await userEvent.type(screen.getByLabelText(/Confirmation ref/), 'REF42');
     await userEvent.type(screen.getByLabelText(/Notes/), 'window seat');
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
     const [, input] = h.state.createPlan.mock.calls[0];
     expect(input.confirmation_ref).toBe('REF42');
     expect(input.notes).toBe('window seat');
@@ -258,7 +235,7 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     h.state.createPlan.mockRejectedValue('string fail');
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
     await userEvent.type(screen.getByLabelText(/^Title/), 'X');
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
     expect(h.state.setError).toHaveBeenCalledWith('string fail');
   });
 });
@@ -279,7 +256,7 @@ describe('AddToTripDialog - confirm step field coverage', () => {
     await userEvent.type(conf, 'NEWREF');
     const notes = screen.getByLabelText('Notes');
     await userEvent.type(notes, 'check seats');
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const plans = h.state.confirmIngest.mock.calls[0][1];
     expect(plans[0].confirmation_ref).toBe('NEWREF');
@@ -314,7 +291,7 @@ describe('AddToTripDialog - confirm step field coverage', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Paste text' }));
     await userEvent.type(screen.getByLabelText('Confirmation text'), 'sparse');
     await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
     const plans = h.state.confirmIngest.mock.calls[0][1];
     expect(plans[0].confirmation_ref).toBeUndefined();
   });
@@ -354,25 +331,6 @@ describe('AddToTripDialog - confirm step field coverage', () => {
     await userEvent.type(screen.getByLabelText('Confirmation text'), 'hotel');
     await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
     expect(screen.getByText(/Check in bad-checkin/)).toBeInTheDocument();
-  });
-});
-
-describe('AddToTripDialog - trip picker', () => {
-  it('selecting a trip clears the gate and enables capture', async () => {
-    h.state.trips = [trip({ id: 1, name: 'Lisbon' }), trip({ id: 2, name: 'Tokyo' })];
-    render(<AddToTripDialog open tripId={null} onClose={vi.fn()} />);
-
-    // Initially gated.
-    expect(screen.getByText(/Pick a trip above/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText('Trip'));
-    await userEvent.click(await screen.findByRole('option', { name: 'Tokyo' }));
-
-    // Gate gone; manual create now targets the chosen trip.
-    expect(screen.queryByText(/Pick a trip above/i)).not.toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText(/^Title/), 'Hello');
-    h.state.createPlan.mockResolvedValue(undefined);
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
-    expect(h.state.createPlan.mock.calls[0][0]).toBe(2);
   });
 });
 
@@ -454,7 +412,7 @@ describe('AddToTripDialog - upload tab', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Paste text' }));
     await userEvent.type(screen.getByLabelText('Confirmation text'), 'x');
     await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
     expect(h.state.setError).toHaveBeenCalledWith('confirm boom');
   });
 
@@ -556,7 +514,7 @@ describe('AddToTripDialog - paste/confirm flow', () => {
     const title = screen.getByLabelText('Title');
     await userEvent.clear(title);
     await userEvent.type(title, 'Edited title');
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     expect(h.state.confirmIngest).toHaveBeenCalledTimes(1);
     const [tripId, plans] = h.state.confirmIngest.mock.calls[0];
@@ -579,7 +537,7 @@ describe('AddToTripDialog - paste/confirm flow', () => {
 
     // Default keeps the supersession (replace existing).
     expect(screen.getByText(/replaces an existing plan part|rebooking/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
     const plans = h.state.confirmIngest.mock.calls[0][1];
     expect(plans[0].supersedes_part_id).toBe(42);
   });
@@ -600,7 +558,7 @@ describe('AddToTripDialog - paste/confirm flow', () => {
     // "add as a new part" option.
     await userEvent.click(screen.getByRole('combobox'));
     await userEvent.click(await screen.findByRole('option', { name: /Add as a new part/i }));
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const plans = h.state.confirmIngest.mock.calls[0][1];
     expect(plans[0].supersedes_part_id).toBeUndefined();
@@ -623,7 +581,7 @@ describe('AddToTripDialog - paste/confirm flow', () => {
     // Skip the second proposal.
     const second = screen.getByTestId('proposal-1');
     await userEvent.click(within(second).getByRole('button', { name: 'Skip this one' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Add to trip' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const plans = h.state.confirmIngest.mock.calls[0][1];
     expect(plans).toHaveLength(1);
