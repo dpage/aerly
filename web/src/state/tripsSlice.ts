@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type {
   AddTripMemberInput,
   CreateTripInput,
@@ -58,6 +58,13 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
       const currentTrip = await api.getTrip(id);
       set({ currentTrip });
     } catch (err) {
+      // A 404 means the trip is gone — typically because it was just deleted
+      // and a live event (or this navigation) raced the deletion. Clear it
+      // silently rather than alarming the user with a "not found".
+      if (err instanceof ApiError && err.status === 404) {
+        set((s) => (s.currentTrip?.id === id ? { currentTrip: null } : {}));
+        return;
+      }
       set({ error: errorMessage(err) });
     }
   },

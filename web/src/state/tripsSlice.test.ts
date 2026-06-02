@@ -3,7 +3,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Plan, Trip } from '../api/types';
 
 vi.mock('../api/client', () => ({
-  ApiError: class {},
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
+      super(message);
+    }
+  },
   api: {
     listTrips: vi.fn(),
     getTrip: vi.fn(),
@@ -17,7 +24,7 @@ vi.mock('../api/client', () => ({
   },
 }));
 
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import { useStore } from './store';
 
 const mockApi = api as unknown as Record<string, ReturnType<typeof vi.fn>>;
@@ -83,6 +90,22 @@ describe('loadTrip', () => {
     mockApi.getTrip.mockRejectedValue(new Error('nope'));
     await useStore.getState().loadTrip(5);
     expect(useStore.getState().error).toBe('nope');
+  });
+
+  it('silently clears a current trip that 404s (e.g. just deleted), no error', async () => {
+    useStore.setState({ currentTrip: trip({ id: 5 }), error: null });
+    mockApi.getTrip.mockRejectedValue(new ApiError(404, 'not found'));
+    await useStore.getState().loadTrip(5);
+    expect(useStore.getState().currentTrip).toBeNull();
+    expect(useStore.getState().error).toBeNull();
+  });
+
+  it('leaves a different current trip intact on a 404 and stays quiet', async () => {
+    useStore.setState({ currentTrip: trip({ id: 9 }), error: null });
+    mockApi.getTrip.mockRejectedValue(new ApiError(404, 'not found'));
+    await useStore.getState().loadTrip(5);
+    expect(useStore.getState().currentTrip?.id).toBe(9);
+    expect(useStore.getState().error).toBeNull();
   });
 });
 
