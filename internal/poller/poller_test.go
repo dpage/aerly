@@ -496,6 +496,29 @@ func TestRefreshBackfillNotFoundLeavesFlightAlone(t *testing.T) {
 
 // A flight that already has full metadata AND was resolved recently must
 // NOT trigger another resolver call — last_resolved_at is the throttle.
+// TestMetadataPassThrottlesAfterResolveFailure: a pre-departure flight the
+// resolver can't fix must still get last_polled_at bumped, so the metadata
+// pass's minPollAge throttle applies and it isn't retried every tick.
+func TestMetadataPassThrottlesAfterResolveFailure(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	p.Resolver = &fakeResolver{err: providers.ErrFlightNotFound}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// In the 12h metadata band (departs in 2h), no metadata → resolve attempted.
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "XX9999", ScheduledOut: now.Add(2 * time.Hour), ScheduledIn: now.Add(4 * time.Hour),
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.LastPolledAt == nil {
+		t.Error("metadata pass must bump last_polled_at even on a failed resolve, so the throttle applies")
+	}
+}
+
 func TestRefreshSkipsResolveWhenFresh(t *testing.T) {
 	tr := &mockTracker{}
 	p, s, _ := newPoller(t, tr, time.Minute)

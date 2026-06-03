@@ -140,6 +140,13 @@ func (p *Poller) refreshMetadata(ctx context.Context, f *store.Flight, now time.
 		return
 	}
 	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		// Bump last_polled_at even on a failed resolve, so the metadata-pass
+		// minPollAge throttle applies — otherwise a flight the resolver can't
+		// fix (last_resolved_at stamped, but last_polled_at still nil) is
+		// retried every tick.
+		if statusErr := p.Store.RefreshFlightPartStatus(ctx, f.ID); statusErr != nil {
+			slog.Error("poller: refresh status (metadata pass, resolve error)", "id", f.ID, "err", statusErr)
+		}
 		return // not-found / transport error already stamped last_resolved_at
 	}
 	if err := p.Store.RefreshFlightPartStatus(ctx, f.ID); err != nil {
