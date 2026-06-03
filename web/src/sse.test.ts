@@ -212,4 +212,23 @@ describe('alert.created events', () => {
     expect(onAlert).not.toHaveBeenCalled();
     teardown();
   });
+
+  it('does not throw when an alert arrives but no onAlert handler is set', () => {
+    const teardown = connectSSE({ onPlanPart: () => {}, onNotifications: () => {} });
+    const es = FakeEventSource.instances[0];
+    expect(() =>
+      es.emit('alert.created', { data: JSON.stringify({ alert: { id: 7, message: 'x' } }) }),
+    ).not.toThrow();
+    teardown();
+  });
+
+  it('bad JSON payload on alert.created is caught and logged', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onAlert = vi.fn();
+    const teardown = connectSSE({ ...noopHandlers(), onAlert });
+    FakeEventSource.instances[0].emit('alert.created', { data: '{not json' });
+    expect(onAlert).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalledWith('bad SSE payload', expect.anything());
+    teardown();
+  });
 });
