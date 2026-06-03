@@ -96,6 +96,37 @@ func (s *Store) ActiveFlightParts(ctx context.Context, now time.Time) ([]*Flight
 	return out, rows.Err()
 }
 
+// FlightPartsNeedingMetadata returns non-terminal flight parts in the band
+// between 12h and 30min before departure — i.e. close enough that the airline
+// has likely published gate/airframe (and any real schedule), but not yet
+// inside the ActiveFlightParts position-tracking window. The poller resolves
+// these for metadata only (gate/airframe/schedule), without polling positions,
+// so a gate published hours ahead surfaces promptly instead of waiting until
+// 30 minutes before departure. The 12h bound matches lateRefreshWindow; the
+// 30min bound matches ActiveFlightParts, so the two passes partition cleanly.
+func (s *Store) FlightPartsNeedingMetadata(ctx context.Context, now time.Time) ([]*Flight, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+flightPartColumns+` `+flightPartFrom+`
+		WHERE fd.flight_status NOT IN ('Arrived', 'Cancelled', 'Diverted')
+		  AND part.dismissed_at IS NULL
+		  AND $1 >= fd.scheduled_out - INTERVAL '12 hours'
+		  AND $1 <  fd.scheduled_out - INTERVAL '30 minutes'
+		ORDER BY fd.scheduled_out ASC`, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Flight
+	for rows.Next() {
+		f, err := scanFlightPart(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // FlightPartByID returns the flight carrier for a single plan_part_id, or
 // ErrNotFound if the part has no flight_details (not a flight part) or doesn't
 // exist. Part-keyed counterpart of FlightByID.
@@ -242,6 +273,19 @@ func (s *Store) RefreshFlightPartGate(ctx context.Context, partID int64, originG
 			origin_gate = COALESCE(NULLIF($2, ''), origin_gate),
 			dest_gate   = COALESCE(NULLIF($3, ''), dest_gate)
 		WHERE plan_part_id = $1`, partID, originGate, destGate)
+	return err
+}
+
+// RefreshFlightPartSchedule fills the scheduled departure/arrival from the
+// resolver, but ONLY when the stored schedule is degenerate — arrival not
+// strictly after departure. That happens when a flight is added manually with
+// just a number + date (propose.go defaults scheduled_in to scheduled_out), so
+// the real times were meant to come from the API but never did. A user-entered
+// real schedule (arrival after departure) is left untouched.
+func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out, in time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flight_details SET scheduled_out = $2, scheduled_in = $3
+		WHERE plan_part_id = $1 AND scheduled_in <= scheduled_out`, partID, out, in)
 	return err
 }
 
