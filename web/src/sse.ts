@@ -1,4 +1,4 @@
-import type { Notifications, TrackerPart } from './api/types';
+import type { FlightAlert, Notifications, TrackerPart } from './api/types';
 
 export interface SSEHandlers {
   onNotifications: (n: Notifications) => void;
@@ -14,6 +14,9 @@ export interface SSEHandlers {
    * and `plan.deleted` after plan mutations; both are routed here. Payload
    * carries at least the trip id so the client can refresh the right trip. */
   onPlan?: (tripId: number) => void;
+  /** A flight-change alert arrived for the viewer. The poller publishes
+   * alert.created (user-private) carrying a NotificationsDTO with `alert` set. */
+  onAlert?: (alert: FlightAlert) => void;
 }
 
 export interface SSEOptions {
@@ -68,6 +71,14 @@ export function connectSSE(handlers: SSEHandlers, opts: SSEOptions = {}): () => 
       try {
         const n = JSON.parse((ev as MessageEvent).data) as Notifications;
         handlers.onNotifications(n);
+      } catch (err) {
+        console.error('bad SSE payload', err);
+      }
+    });
+    es.addEventListener('alert.created', (ev) => {
+      try {
+        const { alert } = JSON.parse((ev as MessageEvent).data) as { alert?: FlightAlert };
+        if (alert) handlers.onAlert?.(alert);
       } catch (err) {
         console.error('bad SSE payload', err);
       }

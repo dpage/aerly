@@ -33,6 +33,7 @@ export default function App() {
   const listTrips = useStore((s) => s.listTrips);
   const loadTracker = useStore((s) => s.loadTracker);
   const applyNotificationsUpdate = useStore((s) => s.applyNotificationsUpdate);
+  const applyIncomingAlert = useStore((s) => s.applyIncomingAlert);
   const users = useStore((s) => s.users);
   const showAll = useStore((s) => s.showAll);
   const { mode } = useThemeMode();
@@ -79,6 +80,10 @@ export default function App() {
           void refreshFriendships();
           void refreshUsers();
         },
+        onAlert: (alert) => {
+          applyIncomingAlert(alert);
+          setNotice({ message: alert.message, severity: 'info' });
+        },
       },
       { showAll },
     );
@@ -91,6 +96,8 @@ export default function App() {
     applyNotificationsUpdate,
     refreshFriendships,
     refreshUsers,
+    applyIncomingAlert,
+    setNotice,
     showAll,
   ]);
 

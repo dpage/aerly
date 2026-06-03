@@ -193,3 +193,23 @@ describe('notifications.updated events', () => {
     teardown();
   });
 });
+
+describe('alert.created events', () => {
+  it('routes alert.created to onAlert', () => {
+    const onAlert = vi.fn();
+    const teardown = connectSSE({ ...noopHandlers(), onAlert });
+    const es = FakeEventSource.instances[0];
+    es.emit('alert.created', { data: JSON.stringify({ alert: { id: 7, message: 'BA286 cancelled' } }) });
+    expect(onAlert).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }));
+    teardown();
+  });
+
+  it('does NOT call onAlert when the payload has no alert field', () => {
+    const onAlert = vi.fn();
+    const teardown = connectSSE({ ...noopHandlers(), onAlert });
+    const es = FakeEventSource.instances[0];
+    es.emit('alert.created', { data: JSON.stringify({ friend_requests_pending: 1 }) });
+    expect(onAlert).not.toHaveBeenCalled();
+    teardown();
+  });
+});
