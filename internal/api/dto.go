@@ -224,23 +224,43 @@ func ToFlightDTO(
 // with omitempty, so older clients ignoring them keep working.
 type NotificationsDTO struct {
 	FriendRequestsPending int `json:"friend_requests_pending"`
+	UnreadAlerts          int `json:"unread_alerts"`
 	// Alert is set only on the alert.created SSE event the poller publishes
 	// when a tracked flight changes meaningfully (spec §9). It is omitted on
 	// the GET /api/notifications body and on friend-count updates.
 	Alert *FlightAlertDTO `json:"alert,omitempty"`
 }
 
-// FlightAlertDTO is the in-app flight-change alert payload carried on the
-// alert.created SSE event. Kind is the change class ("delayed", "cancelled",
-// "diverted"); Message is a ready-to-display one-liner.
+// FlightAlertDTO is a persisted in-app flight-change alert. It is both the
+// element type of GET /api/alerts and the payload carried on the alert.created
+// SSE event the poller publishes when a tracked flight changes (spec §9).
 type FlightAlertDTO struct {
-	PlanPartID int64  `json:"plan_part_id"`
-	PlanID     int64  `json:"plan_id"`
-	TripID     int64  `json:"trip_id"`
-	Ident      string `json:"ident"`
-	Kind       string `json:"kind"` // delayed|cancelled|diverted
-	Status     string `json:"status"`
-	Message    string `json:"message"`
+	ID         int64      `json:"id"`
+	PlanPartID int64      `json:"plan_part_id"`
+	PlanID     int64      `json:"plan_id"`
+	TripID     int64      `json:"trip_id"`
+	Ident      string     `json:"ident"`
+	Kind       string     `json:"kind"` // delayed|cancelled|diverted|gate
+	Status     string     `json:"status"`
+	Message    string     `json:"message"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ReadAt     *time.Time `json:"read_at,omitempty"`
+}
+
+// ToFlightAlertDTO projects a stored alert onto the wire shape.
+func ToFlightAlertDTO(a store.FlightAlert) FlightAlertDTO {
+	return FlightAlertDTO{
+		ID:         a.ID,
+		PlanPartID: a.PlanPartID,
+		PlanID:     a.PlanID,
+		TripID:     a.TripID,
+		Ident:      a.Ident,
+		Kind:       a.Kind,
+		Status:     a.Status,
+		Message:    a.Message,
+		CreatedAt:  a.CreatedAt,
+		ReadAt:     a.ReadAt,
+	}
 }
 
 // =====================================================================
