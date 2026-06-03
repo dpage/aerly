@@ -344,6 +344,39 @@ func TestAlert_GateChangeAlwaysAlertsRegardlessOfThreshold(t *testing.T) {
 	}
 }
 
+func TestAlert_GateChangePersistsInboxRow(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	// In-app on; crank the delay threshold so only the gate change can alert.
+	if err := s.SetAlertPrefs(ctx, store.AlertPrefs{UserID: owner, InApp: true, Email: false, MinDelayMin: 600}); err != nil {
+		t.Fatalf("set prefs: %v", err)
+	}
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "BA286", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	prev := f // no gate yet
+	setOriginGate(t, s, f.ID, "B32")
+	p.maybeAlert(ctx, prev, f.ID)
+
+	rows, err := s.ListFlightAlerts(ctx, owner, 50)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("ListFlightAlerts = %d, %v", len(rows), err)
+	}
+	if rows[0].Kind != "gate" || rows[0].PlanPartID != f.ID {
+		t.Errorf("persisted alert wrong: %+v", rows[0])
+	}
+	if !strings.Contains(rows[0].Message, "B32") {
+		t.Errorf("message missing gate: %q", rows[0].Message)
+	}
+}
+
 func TestAlert_SameGateDoesNotReAlert(t *testing.T) {
 	p, s, hub, cap := alertPoller(t)
 	ctx := context.Background()

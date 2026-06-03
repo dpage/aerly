@@ -251,21 +251,28 @@ func (p *Poller) dispatchAlert(
 	}
 }
 
-// publishAlert pushes a single-user, user-private alert.created SSE event. The
-// payload reuses the open-shape NotificationsDTO with the Alert field set, so
-// existing clients that only read friend_requests_pending ignore it safely.
+// publishAlert persists the alert for the recipient, then pushes a single-user,
+// user-private alert.created SSE event carrying the stored row (with id +
+// created_at). The payload reuses the open-shape NotificationsDTO with the Alert
+// field set, so clients reading only friend_requests_pending ignore it safely.
+// Persistence is best-effort: a failed insert is logged and we skip the push for
+// that recipient (no orphan SSE without a backing row).
 func (p *Poller) publishAlert(userID int64, tp *store.TrackerPart, ident, kind, msg string) {
-	dto := api.NotificationsDTO{
-		Alert: &api.FlightAlertDTO{
-			PlanPartID: tp.PlanPartID,
-			PlanID:     tp.PlanID,
-			TripID:     tp.TripID,
-			Ident:      ident,
-			Kind:       kind,
-			Status:     tp.Status,
-			Message:    msg,
-		},
+	stored, err := p.Store.InsertFlightAlert(context.Background(), store.FlightAlert{
+		UserID:     userID,
+		PlanPartID: tp.PlanPartID,
+		PlanID:     tp.PlanID,
+		TripID:     tp.TripID,
+		Ident:      ident,
+		Kind:       kind,
+		Status:     tp.Status,
+		Message:    msg,
+	})
+	if err != nil {
+		slog.Error("alert: persist inbox row", "user", userID, "err", err)
+		return
 	}
+	dto := api.NotificationsDTO{Alert: ptrFlightAlertDTO(api.ToFlightAlertDTO(stored))}
 	payload, err := json.Marshal(dto)
 	if err != nil {
 		slog.Error("alert: marshal", "err", err)
@@ -273,6 +280,8 @@ func (p *Poller) publishAlert(userID int64, tp *store.TrackerPart, ident, kind, 
 	}
 	p.Hub.Publish(sseAlertEvent(userID, payload))
 }
+
+func ptrFlightAlertDTO(d api.FlightAlertDTO) *api.FlightAlertDTO { return &d }
 
 // sendAlertEmail dispatches the templated flight-change email. Best-effort:
 // failures are logged and never block the poll loop. Skipped when no sender or
