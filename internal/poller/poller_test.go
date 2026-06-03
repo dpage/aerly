@@ -391,6 +391,61 @@ func TestRefreshBackfillsMissingMetadata(t *testing.T) {
 	}
 }
 
+// TestTickResolvesGateAheadOfDeparture: a flight hours before departure (inside
+// the 12h metadata band, outside the 30-min tracking window) gets its gate
+// resolved without any position tracking — so a gate published early surfaces
+// promptly instead of waiting until 30 minutes out.
+func TestTickResolvesGateAheadOfDeparture(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "SK161", OriginIATA: "ARN", DestIATA: "GOT", OriginGate: "12",
+	}}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Departs in 6h: outside the 30-min active window, inside the 12h band.
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "SK161", ScheduledOut: now.Add(6 * time.Hour), ScheduledIn: now.Add(7 * time.Hour),
+		OriginIATA: "ARN", DestIATA: "GOT",
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.OriginGate != "12" {
+		t.Errorf("gate not resolved ahead of departure, got %q", got.OriginGate)
+	}
+	if tr.calls != 0 {
+		t.Errorf("metadata pass must not track positions before departure, tracker calls=%d", tr.calls)
+	}
+}
+
+// TestTickBackfillsDegenerateSchedule: a manually-added flight (number + date
+// only → scheduled_in == scheduled_out) gets its real times filled from the
+// resolver during the pre-departure metadata pass.
+func TestTickBackfillsDegenerateSchedule(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	now := time.Now()
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "VL1939", OriginIATA: "BER", DestIATA: "MUC",
+		ScheduledOut: now.Add(5 * time.Hour), ScheduledIn: now.Add(6 * time.Hour),
+	}}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	// Degenerate schedule, 5h out (in the metadata band).
+	degen := now.Add(5 * time.Hour)
+	f, _ := mkPart(ctx, s, partSeed{Ident: "VL1939", ScheduledOut: degen, ScheduledIn: degen}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if !got.ScheduledIn.After(got.ScheduledOut) {
+		t.Errorf("degenerate schedule not filled from API: out=%v in=%v", got.ScheduledOut, got.ScheduledIn)
+	}
+}
+
 // When ErrFlightNotFound comes back, the flight stays as-is and we don't
 // log it noisily (covered indirectly — what matters is the row is unchanged
 // and the tracker still runs).

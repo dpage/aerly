@@ -106,6 +106,40 @@ func (p *Poller) tick(ctx context.Context) {
 		}
 		p.refresh(ctx, f, now)
 	}
+
+	// Second pass: flights 30min–12h before departure. Resolve metadata only
+	// (gate / airframe / schedule) so an early-published gate — or the real
+	// times for a manually-added flight — surface ahead of the tracking window,
+	// without polling positions for a plane that isn't airborne yet.
+	meta, err := p.Store.FlightPartsNeedingMetadata(ctx, now)
+	if err != nil {
+		slog.Error("poller: list flight parts needing metadata", "err", err)
+		return
+	}
+	for _, f := range meta {
+		if ctx.Err() != nil {
+			return
+		}
+		p.refreshMetadata(ctx, f, now)
+	}
+}
+
+// refreshMetadata resolves a pre-departure flight's gate/airframe/schedule
+// (when blank or stale), re-derives its status, and broadcasts the change —
+// without any position tracking. The resolver call is gated by the same
+// needsBackfill / needsLateRefresh triggers and last_resolved_at throttle as
+// the main poll path, so it costs at most one resolve every lateRefreshInterval.
+func (p *Poller) refreshMetadata(ctx context.Context, f *store.Flight, now time.Time) {
+	if p.Resolver == nil || !(needsBackfill(f) || needsLateRefresh(f, now)) {
+		return
+	}
+	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		return // not-found / transport error already stamped last_resolved_at
+	}
+	if err := p.Store.RefreshFlightPartStatus(ctx, f.ID); err != nil {
+		slog.Error("poller: refresh status (metadata pass)", "id", f.ID, "err", err)
+	}
+	p.publishPartChange(ctx, f.ID)
 }
 
 func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
@@ -274,6 +308,16 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	if err := p.Store.RefreshFlightPartGate(ctx, f.ID, rf.OriginGate, rf.DestGate); err != nil {
 		slog.Error("poller: refresh gate failed", "id", f.ID, "err", err)
 		return nil, err
+	}
+	// Fill the schedule from the resolver when the stored one is degenerate (a
+	// manual add with just a number + date leaves scheduled_in == scheduled_out).
+	// The store guards on scheduled_in <= scheduled_out, so a real user-entered
+	// schedule is never overwritten. Best-effort: a failure here doesn't abort
+	// the airframe/gate work already persisted above.
+	if !rf.ScheduledOut.IsZero() && rf.ScheduledIn.After(rf.ScheduledOut) {
+		if err := p.Store.RefreshFlightPartSchedule(ctx, f.ID, rf.ScheduledOut, rf.ScheduledIn); err != nil {
+			slog.Error("poller: refresh schedule failed", "id", f.ID, "err", err)
+		}
 	}
 	slog.Info("poller: resolved",
 		"ident", f.Ident, "id", f.ID,

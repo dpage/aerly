@@ -83,6 +83,72 @@ func TestRefreshStatusUnknownArrival(t *testing.T) {
 	}
 }
 
+// TestFlightPartsNeedingMetadata: only non-terminal parts in the 12h–30min
+// pre-departure band are returned — the window for resolving gate/airframe
+// ahead of the position-tracking window.
+func TestFlightPartsNeedingMetadata(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+
+	// In band: departs in 6h.
+	inBand := mkFlightPartInTrip(t, s, trip, owner, "BAND1",
+		now.Add(6*time.Hour), now.Add(7*time.Hour), "Scheduled", 51.47, -0.46, 40.64, -73.78)
+	// Too soon (10 min out): owned by ActiveFlightParts, excluded here.
+	mkFlightPartInTrip(t, s, trip, owner, "SOON1",
+		now.Add(10*time.Minute), now.Add(2*time.Hour), "Scheduled", 51.47, -0.46, 40.64, -73.78)
+	// Too far (13h out): beyond the 12h window.
+	mkFlightPartInTrip(t, s, trip, owner, "FAR1",
+		now.Add(13*time.Hour), now.Add(14*time.Hour), "Scheduled", 51.47, -0.46, 40.64, -73.78)
+	// Terminal in-band: excluded.
+	mkFlightPartInTrip(t, s, trip, owner, "DONE1",
+		now.Add(6*time.Hour), now.Add(7*time.Hour), "Cancelled", 51.47, -0.46, 40.64, -73.78)
+
+	parts, err := s.FlightPartsNeedingMetadata(ctx, now)
+	if err != nil {
+		t.Fatalf("FlightPartsNeedingMetadata: %v", err)
+	}
+	if len(parts) != 1 || parts[0].ID != inBand {
+		t.Fatalf("expected only the in-band part %d, got %d: %+v", inBand, len(parts), parts)
+	}
+}
+
+// TestRefreshFlightPartSchedule: a degenerate schedule (no real arrival) gets
+// filled from the resolver; a real user-entered schedule is protected.
+func TestRefreshFlightPartSchedule(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now().Truncate(time.Second)
+	owner := mkUser(t, s)
+
+	// Degenerate: scheduled_in == scheduled_out (manual add, number + date only).
+	degen := mkFlightPart(t, s, owner, "VL1939", now.Add(5*time.Hour), now.Add(5*time.Hour))
+	if err := s.RefreshFlightPartSchedule(ctx, degen, now.Add(5*time.Hour), now.Add(6*time.Hour)); err != nil {
+		t.Fatalf("RefreshFlightPartSchedule: %v", err)
+	}
+	df, _ := s.FlightPartByID(ctx, degen)
+	if !df.ScheduledIn.After(df.ScheduledOut) {
+		t.Errorf("degenerate schedule not filled: out=%v in=%v", df.ScheduledOut, df.ScheduledIn)
+	}
+
+	// Real schedule (arrival after departure): must NOT be overwritten.
+	wantIn := now.Add(4 * time.Hour)
+	real := mkFlightPart(t, s, owner, "BA286", now.Add(2*time.Hour), wantIn)
+	if err := s.RefreshFlightPartSchedule(ctx, real, now, now.Add(10*time.Hour)); err != nil {
+		t.Fatalf("RefreshFlightPartSchedule (protected): %v", err)
+	}
+	rf, _ := s.FlightPartByID(ctx, real)
+	if d := rf.ScheduledIn.Sub(wantIn); d > time.Second || d < -time.Second {
+		t.Errorf("user-entered schedule was overwritten: in=%v want≈%v", rf.ScheduledIn, wantIn)
+	}
+}
+
 // TestFlightPartWriteHelpers exercises the part-keyed status / airframe /
 // backfill writers — the mechanical counterparts the poller now calls.
 func TestFlightPartWriteHelpers(t *testing.T) {
