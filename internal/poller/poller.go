@@ -139,6 +139,7 @@ func (p *Poller) refreshMetadata(ctx context.Context, f *store.Flight, now time.
 	if p.Resolver == nil || !(needsBackfill(f) || needsLateRefresh(f, now)) {
 		return
 	}
+	prev := f // pre-resolve, so a newly-published gate is an alertable delta
 	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
 		// Bump last_polled_at even on a failed resolve, so the metadata-pass
 		// minPollAge throttle applies — otherwise a flight the resolver can't
@@ -152,6 +153,9 @@ func (p *Poller) refreshMetadata(ctx context.Context, f *store.Flight, now time.
 	if err := p.Store.RefreshFlightPartStatus(ctx, f.ID); err != nil {
 		slog.Error("poller: refresh status (metadata pass)", "id", f.ID, "err", err)
 	}
+	// A gate/cancellation/delay surfaced ahead of departure is worth an alert
+	// just like one found in the active window.
+	p.maybeAlert(ctx, prev, f.ID)
 	p.publishPartChange(ctx, f.ID)
 }
 
@@ -168,6 +172,11 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 	// last_resolved_at is bumped on every resolve attempt — success,
 	// not-found, or transport error — so a doomed lookup doesn't burn
 	// quota on every tick.
+	//
+	// Snapshot BEFORE resolving: a gate (or airframe/schedule) the resolver
+	// introduces this tick must be a real prev→cur delta for the alert step,
+	// otherwise the change is folded into prev and never alerted.
+	prev := f
 	if p.Resolver != nil && (needsBackfill(f) || needsLateRefresh(f, now)) {
 		if fresh, err := p.resolveAndUpdate(ctx, f, now); err == nil && fresh != nil {
 			f = fresh
@@ -183,10 +192,6 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 			slog.Error("poller: insert position", "id", f.ID, "err", err)
 		}
 	}
-	// Snapshot the pre-refresh state so the alert step can diff against the
-	// post-refresh flight_details (f is the carrier as loaded this tick,
-	// possibly after a resolver backfill above).
-	prev := f
 	// Always refresh the status from the schedule; preserves Cancelled /
 	// Diverted, otherwise derives Scheduled / Enroute / Arrived from times.
 	if err := p.Store.RefreshFlightPartStatus(ctx, f.ID); err != nil {

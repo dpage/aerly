@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -303,6 +304,82 @@ func TestAlert_DedupeSuppressesRepeatOfSameChange(t *testing.T) {
 	}
 	if cap.count() != 1 {
 		t.Fatalf("repeat delay: expected still 1 email, got %d", cap.count())
+	}
+}
+
+// gateAlertHarness sets up a poller whose resolver assigns a departure gate,
+// plus an owner with a verified email and gate alerts enabled. Returns the
+// owner so the caller seeds a flight at whatever pre-departure offset it needs.
+func gateAlertHarness(t *testing.T) (*Poller, *store.Store, *sse.Hub, *captureMailer, int64) {
+	t.Helper()
+	p, s, hub, cap := alertPoller(t)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "BA286", OriginIATA: "LHR", DestIATA: "SFO", OriginGate: "B32",
+	}}
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	if err := s.SetAlertPrefs(ctx, store.AlertPrefs{UserID: owner, InApp: true, Email: true, MinDelayMin: 600}); err != nil {
+		t.Fatalf("set prefs: %v", err)
+	}
+	return p, s, hub, cap, owner
+}
+
+// TestTickAlertsOnGateAssignedInActiveWindow: a flight already inside the 30-min
+// tracking window whose resolver introduces a gate must alert (+ email). Guards
+// the prev-snapshot timing in refresh(): prev must be captured BEFORE the
+// resolve that sets the gate, or there's no delta to alert on.
+func TestTickAlertsOnGateAssignedInActiveWindow(t *testing.T) {
+	p, s, hub, cap, owner := gateAlertHarness(t)
+	ctx := context.Background()
+	now := time.Now()
+	// Departs in 20 min → within the active window; no gate / airframe yet.
+	if _, err := mkPart(ctx, s, partSeed{
+		Ident: "BA286", ScheduledOut: now.Add(20 * time.Minute), ScheduledIn: now.Add(3 * time.Hour),
+	}, owner); err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	p.tick(ctx)
+
+	got := drainAlerts(t, ch)
+	if len(got) != 1 || got[0].Kind != "gate" {
+		t.Fatalf("expected 1 gate alert from the active-window resolve, got %+v", got)
+	}
+	if cap.count() != 1 {
+		t.Fatalf("expected 1 gate-change email, got %d", cap.count())
+	}
+}
+
+// TestTickAlertsOnGateAssignedAheadOfDeparture: a gate the resolver supplies
+// during the pre-departure metadata pass (30min–12h out) must also alert (+
+// email) — refreshMetadata previously set the gate silently, so Magnus's gate
+// landed with no notification.
+func TestTickAlertsOnGateAssignedAheadOfDeparture(t *testing.T) {
+	p, s, hub, cap, owner := gateAlertHarness(t)
+	ctx := context.Background()
+	now := time.Now()
+	// Departs in 2h → outside the active window, inside the 12h metadata band.
+	if _, err := mkPart(ctx, s, partSeed{
+		Ident: "BA286", ScheduledOut: now.Add(2 * time.Hour), ScheduledIn: now.Add(5 * time.Hour),
+	}, owner); err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	p.tick(ctx)
+
+	got := drainAlerts(t, ch)
+	if len(got) != 1 || got[0].Kind != "gate" {
+		t.Fatalf("expected 1 gate alert from the metadata pass, got %+v", got)
+	}
+	if cap.count() != 1 {
+		t.Fatalf("expected 1 gate-change email, got %d", cap.count())
 	}
 }
 
