@@ -11,9 +11,32 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// migrationLockKey is the session-level advisory-lock key held while migrations
+// are applied. The constant ("aerly" in ASCII hex) just has to be stable and
+// distinct from any other advisory lock the app might take.
+const migrationLockKey int64 = 0x6165726c79
+
 // Migrate applies any unapplied *.up.sql files from mfs in version order.
 // Each file is executed inside its own transaction.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, mfs fs.FS) error {
+	// Serialize concurrent startups (e.g. a rolling restart bringing up a second
+	// instance) behind a session-level advisory lock on a dedicated connection,
+	// so two processes can't both decide a migration is unapplied and run it.
+	// The lock is held for the whole apply loop and released on return.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockKey); err != nil {
+		return fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+	defer func() {
+		if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, migrationLockKey); err != nil {
+			slog.Warn("release migration advisory lock", "err", err)
+		}
+	}()
+
 	if _, err := pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,

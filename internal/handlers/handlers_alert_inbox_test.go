@@ -9,11 +9,27 @@ import (
 	"github.com/dpage/aerly/internal/store"
 )
 
-// seedAlert inserts a flight_alert for a user via the store.
+// seedAlert inserts a flight_alert for a user via the store. It first creates a
+// real trip → plan → plan_part chain so the alert's foreign keys (added in
+// migration 0021) resolve.
 func seedAlert(t *testing.T, e *testEnv, userID int64, msg string) {
 	t.Helper()
-	if _, err := e.store.InsertFlightAlert(context.Background(), store.FlightAlert{
-		UserID: userID, PlanPartID: 1, PlanID: 1, TripID: 1,
+	ctx := context.Background()
+	var tripID, planID, partID int64
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO trips (name, created_by) VALUES ('t', $1) RETURNING id`, userID).Scan(&tripID); err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO plans (trip_id, type, created_by) VALUES ($1, 'flight', $2) RETURNING id`, tripID, userID).Scan(&planID); err != nil {
+		t.Fatalf("seed plan: %v", err)
+	}
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO plan_parts (plan_id, starts_at) VALUES ($1, NOW()) RETURNING id`, planID).Scan(&partID); err != nil {
+		t.Fatalf("seed plan_part: %v", err)
+	}
+	if _, err := e.store.InsertFlightAlert(ctx, store.FlightAlert{
+		UserID: userID, PlanPartID: partID, PlanID: planID, TripID: tripID,
 		Ident: "BA286", Kind: "gate", Status: "Scheduled", Message: msg,
 	}); err != nil {
 		t.Fatalf("seed alert: %v", err)
