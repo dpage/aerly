@@ -200,6 +200,48 @@ func TestCanViewPlanOnlyVisibleTo(t *testing.T) {
 	}
 }
 
+// TestCanViewPlanSuperuserShowAll: the showAllForSuperuser bypass is a mere
+// existence check — it sees a plan the viewer otherwise couldn't, but a missing
+// plan still returns false.
+func TestCanViewPlanSuperuserShowAll(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	super := mkUser(t, s) // not a member of the trip
+	trip := mkTrip(t, s, owner)
+	plan := mkPlan(t, s, trip, owner)
+	setVisibility(t, s, plan, "only_visible_to") // names nobody
+
+	// Without the bypass the non-member superuser can't see it.
+	if mustCanView(t, s, plan, super) {
+		t.Error("non-member should not see an only_visible_to plan without the bypass")
+	}
+	// With the bypass they can.
+	ok, err := s.CanViewPlan(ctx, plan, super, true)
+	if err != nil || !ok {
+		t.Errorf("showAll bypass should see any existing plan: ok=%v err=%v", ok, err)
+	}
+	// But a missing plan is still false, even with the bypass.
+	if ok, err := s.CanViewPlan(ctx, 9_999_999, super, true); err != nil || ok {
+		t.Errorf("showAll bypass on a missing plan: ok=%v err=%v, want false/nil", ok, err)
+	}
+}
+
+// TestCanViewPlanMissingPlan: the §4 predicate returns false (no error) for a
+// plan that doesn't exist.
+func TestCanViewPlanMissingPlan(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	viewer := mkUser(t, s)
+	if mustCanView(t, s, 9_999_999, viewer) {
+		t.Error("a non-existent plan must not be viewable")
+	}
+}
+
 // TestListVisiblePlanParts respects the same predicate as CanViewPlan.
 func TestListVisiblePlanParts(t *testing.T) {
 	s := newStore(t)
