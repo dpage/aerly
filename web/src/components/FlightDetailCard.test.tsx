@@ -184,3 +184,21 @@ describe('FlightDetailCard', () => {
     expect(screen.getByText('13s ago')).toBeInTheDocument();
   });
 });
+
+describe('FlightDetailCard gate', () => {
+  it('shows departure gate/terminal and Unknown arrival', () => {
+    const base: FlightDetail = {
+      ident: 'BA286',
+      callsign: '',
+      scheduled_out: '2026-06-01T09:00:00Z',
+      scheduled_in: '2026-06-01T12:00:00Z',
+      origin_iata: 'LHR',
+      dest_iata: 'SFO',
+      flight_status: 'Scheduled',
+    };
+    render(<FlightDetailCard flight={{ ...base, origin_terminal: '5', origin_gate: 'B32' }} />);
+    expect(screen.getByText('Terminal 5 · Gate B32')).toBeInTheDocument();
+    // Arrival gate unknown.
+    expect(screen.getByText('Unknown')).toBeInTheDocument();
+  });
+});

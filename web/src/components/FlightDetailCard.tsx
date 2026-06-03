@@ -3,6 +3,7 @@ import { Chip, Stack, Typography } from '@mui/material';
 
 import type { FlightDetail } from '../api/types';
 import { fmtAgo } from '../lib/format';
+import { fmtGate } from '../lib/gate';
 import { Mono, Row, Section, TimeRow } from './DetailRows';
 
 interface Props {
@@ -40,6 +41,8 @@ export default function FlightDetailCard({ flight, startTz, endTz }: Props) {
       <Section title="Route">
         <Row label="From" value={flight.origin_iata || null} />
         <Row label="To" value={flight.dest_iata || null} />
+        <Row label="Departure" value={fmtGate(flight.origin_terminal, flight.origin_gate)} />
+        <Row label="Arrival" value={fmtGate(flight.dest_terminal, flight.dest_gate)} />
       </Section>
 
       <Section title="Schedule">
