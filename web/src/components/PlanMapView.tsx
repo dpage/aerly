@@ -74,6 +74,9 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
   const readyRef = useRef(false);
   // One teardrop pin per geocoded endpoint, keyed by part + role + coordinate.
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
+  // One plane icon per flight part — at its live position when airborne, else
+  // parked at the origin (not departed) or destination (arrived). Keyed by part id.
+  const planesRef = useRef<Map<number, maplibregl.Marker>>(new Map());
 
   // Mappable parts only (need at least one coordinate), time-ordered.
   const ordered = useMemo(() => {
@@ -145,10 +148,13 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       // Trigger the first data sync now that the sources exist.
       syncRef.current?.();
     });
+    const planes = planesRef.current;
     return () => {
       readyRef.current = false;
       markers.forEach((m) => m.remove());
       markers.clear();
+      planes.forEach((m) => m.remove());
+      planes.clear();
       map.remove();
       mapRef.current = null;
     };
@@ -212,6 +218,41 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       if (!live.has(key)) {
         marker.remove();
         markersRef.current.delete(key);
+      }
+    }
+
+    // Sync plane icons: one per flight part, rotated to its heading and dimmed
+    // when the position is dead-reckoned. Parked at the origin/destination when
+    // the flight hasn't departed / has landed (matches the old pure tracker).
+    const livePlanes = new Set<number>();
+    for (const p of ordered) {
+      const place = planePlacement(p);
+      if (!place) continue;
+      livePlanes.add(p.id);
+      let plane = planesRef.current.get(p.id);
+      if (!plane) {
+        const el = buildPlaneEl();
+        el.dataset.partId = String(p.id);
+        el.dataset.role = 'plane';
+        el.addEventListener('click', () => setSelectedId((cur) => (cur === p.id ? null : p.id)));
+        plane = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+          .setLngLat([place.lon, place.lat])
+          .addTo(map);
+        planesRef.current.set(p.id, plane);
+      } else {
+        plane.setLngLat([place.lon, place.lat]);
+      }
+      plane.setRotation(place.heading);
+      const el = plane.getElement();
+      el.dataset.estimated = place.estimated ? '1' : '0';
+      const base = place.estimated ? 0.6 : 1;
+      el.style.opacity = String(anySel && p.id !== selectedId ? 0.4 : base);
+      el.style.zIndex = p.id === selectedId ? '2' : '1';
+    }
+    for (const [id, plane] of planesRef.current) {
+      if (!livePlanes.has(id)) {
+        plane.remove();
+        planesRef.current.delete(id);
       }
     }
   };
@@ -417,6 +458,51 @@ function endpoints(p: PlanPart): Endpoint[] {
         }
       : null;
   return [start, end].filter((e): e is Endpoint => e != null);
+}
+
+/** Where to draw a flight's plane icon, and how. Live position when we have one
+ * (estimated/dead-reckoned included); else parked at the origin before
+ * departure or the destination once arrived. null for non-flight parts or a
+ * flight with no usable coordinate. */
+interface PlanePlacement {
+  lon: number;
+  lat: number;
+  heading: number;
+  estimated: boolean;
+}
+
+function planePlacement(p: PlanPart): PlanePlacement | null {
+  if (p.type !== 'flight') return null;
+  const hasStart = p.start_lat != null && p.start_lon != null;
+  const hasEnd = p.end_lat != null && p.end_lon != null;
+  // Landed: park at the destination, regardless of the last tracked fix.
+  if (p.flight?.flight_status === 'Arrived' && hasEnd) {
+    return { lon: p.end_lon!, lat: p.end_lat!, heading: 0, estimated: false };
+  }
+  // Airborne (or dead-reckoned through an ADS-B gap): the live position.
+  const pos = p.flight?.latest_position;
+  if (pos) {
+    return { lon: pos.lon, lat: pos.lat, heading: pos.heading_deg ?? 0, estimated: pos.is_estimated };
+  }
+  // Not departed yet: park at the origin.
+  if (hasStart) return { lon: p.start_lon!, lat: p.start_lat!, heading: 0, estimated: false };
+  if (hasEnd) return { lon: p.end_lon!, lat: p.end_lat!, heading: 0, estimated: false };
+  return null;
+}
+
+/** A north-pointing plane glyph in the flight colour; the marker is rotated to
+ * the heading and dimmed by the caller when the position is estimated. */
+function buildPlaneEl(): HTMLElement {
+  const el = document.createElement('div');
+  el.style.cursor = 'pointer';
+  el.style.color = planTypeColor('flight');
+  el.style.lineHeight = '0';
+  el.innerHTML = `
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"
+         style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4))">
+      <path d="M12 2 L13.2 11 L22 15 L22 17 L13.2 14.5 L13 20 L16 22 L16 23 L12 22 L8 23 L8 22 L11 20 L10.8 14.5 L2 17 L2 15 L10.8 11 Z"/>
+    </svg>`;
+  return el;
 }
 
 function legsFC(parts: PlanPart[], selectedId: number | null): GeoJSON.FeatureCollection {
