@@ -85,7 +85,7 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
     try {
       const [me, capabilities] = await Promise.all([api.getMe(), api.getConfig()]);
       set({ me, capabilities, auth: 'authenticated' });
-      await Promise.all([get().refreshAll(), get().refreshNotifications()]);
+      await Promise.all([get().refreshAll(), get().refreshNotifications(), get().loadAlerts()]);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         set({ me: null, auth: 'anonymous' });

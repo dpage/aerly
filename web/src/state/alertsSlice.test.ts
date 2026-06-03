@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import type { AlertPrefs, Plan, Trip } from '../api/types';
+import type { AlertPrefs, FlightAlert, Plan, Trip } from '../api/types';
 
 vi.mock('../api/client', () => ({
   ApiError: class {},
@@ -10,6 +10,8 @@ vi.mock('../api/client', () => ({
     optInPlanAlerts: vi.fn(),
     optOutPlanAlerts: vi.fn(),
     getTrip: vi.fn(),
+    getAlerts: vi.fn(),
+    markAlertsRead: vi.fn(),
   },
 }));
 
@@ -95,5 +97,38 @@ describe('optOutPlanAlerts', () => {
     await useStore.getState().optOutPlanAlerts(3);
     expect(mockApi.optOutPlanAlerts).toHaveBeenCalledWith(3);
     expect(mockApi.getTrip).toHaveBeenCalledWith(7);
+  });
+});
+
+const mk = (id: number, msg: string): FlightAlert => ({
+  id, plan_part_id: 1, plan_id: 1, trip_id: 1, ident: 'BA286',
+  kind: 'gate', status: 'Scheduled', message: msg, created_at: '2026-06-01T00:00:00Z',
+});
+
+describe('alertsSlice inbox', () => {
+  beforeEach(() => {
+    useStore.setState({ alerts: [], unreadAlerts: 0 });
+  });
+
+  it('loadAlerts fills the list and unread count', async () => {
+    mockApi.getAlerts.mockResolvedValue([mk(1, 'a'), mk(2, 'b')]);
+    await useStore.getState().loadAlerts();
+    expect(useStore.getState().alerts).toHaveLength(2);
+    expect(useStore.getState().unreadAlerts).toBe(2);
+  });
+
+  it('applyIncomingAlert prepends and bumps unread', () => {
+    useStore.setState({ alerts: [mk(1, 'a')], unreadAlerts: 1 });
+    useStore.getState().applyIncomingAlert(mk(2, 'b'));
+    expect(useStore.getState().alerts[0].id).toBe(2);
+    expect(useStore.getState().unreadAlerts).toBe(2);
+  });
+
+  it('markAlertsRead clears unread and stamps read_at locally', async () => {
+    mockApi.markAlertsRead.mockResolvedValue(undefined);
+    useStore.setState({ alerts: [mk(1, 'a')], unreadAlerts: 1 });
+    await useStore.getState().markAlertsRead();
+    expect(useStore.getState().unreadAlerts).toBe(0);
+    expect(useStore.getState().alerts[0].read_at).toBeTruthy();
   });
 });

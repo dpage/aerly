@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
-import type { AlertPrefs, UpdateAlertPrefsInput } from '../api/types';
+import type { AlertPrefs, FlightAlert, UpdateAlertPrefsInput } from '../api/types';
 import type { StoreState } from './store';
 
 /** State + actions for per-user alert preferences and per-plan alert opt-in
@@ -11,15 +11,23 @@ import type { StoreState } from './store';
  * per-plan opt-in toggle on top of these. */
 export interface AlertsSlice {
   alertPrefs: AlertPrefs | null;
+  alerts: FlightAlert[];
+  unreadAlerts: number;
 
   loadAlertPrefs: () => Promise<void>;
   updateAlertPrefs: (patch: UpdateAlertPrefsInput) => Promise<void>;
   optInPlanAlerts: (planId: number) => Promise<void>;
   optOutPlanAlerts: (planId: number) => Promise<void>;
+
+  loadAlerts: () => Promise<void>;
+  applyIncomingAlert: (alert: FlightAlert) => void;
+  markAlertsRead: () => Promise<void>;
 }
 
 export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = (set, get) => ({
   alertPrefs: null,
+  alerts: [],
+  unreadAlerts: 0,
 
   async loadAlertPrefs() {
     try {
@@ -43,6 +51,35 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
   async optOutPlanAlerts(planId) {
     await api.optOutPlanAlerts(planId);
     await reloadCurrent(get);
+  },
+
+  async loadAlerts() {
+    try {
+      const alerts = await api.getAlerts();
+      set({ alerts, unreadAlerts: alerts.filter((a) => !a.read_at).length });
+    } catch {
+      // Non-fatal: SSE / next reload recovers the inbox.
+    }
+  },
+
+  applyIncomingAlert(alert) {
+    set((s) => ({
+      alerts: [alert, ...s.alerts].slice(0, 50),
+      unreadAlerts: s.unreadAlerts + 1,
+    }));
+  },
+
+  async markAlertsRead() {
+    const now = new Date().toISOString();
+    set((s) => ({
+      unreadAlerts: 0,
+      alerts: s.alerts.map((a) => (a.read_at ? a : { ...a, read_at: now })),
+    }));
+    try {
+      await api.markAlertsRead();
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
   },
 });
 
