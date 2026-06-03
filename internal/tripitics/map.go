@@ -137,6 +137,8 @@ func isRail(summary string) bool {
 	return false
 }
 
+// mapFlight maps a TripIt flight event into a flight plan. ok is false when the
+// SUMMARY isn't a recognisable "<ident> <ORIG> to <DEST>" flight line.
 func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
 	m := flightRe.FindStringSubmatch(e.Summary)
 	if m == nil {
@@ -199,6 +201,9 @@ func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
 	}, true
 }
 
+// mapTransport maps a TripIt ground/rail event into a ground or train plan,
+// parsing "<provider> - <from> to <to>" from the SUMMARY (Eurotunnel and other
+// rail are lifted to train; everything else is ground).
 func mapTransport(e Event) (planops.ConfirmPlanInput, bool) {
 	planType := "ground"
 	if isRail(e.Summary) {
@@ -357,6 +362,7 @@ func envelopeDates(e Event) (*time.Time, *time.Time) {
 	return start, end
 }
 
+// orDefault returns s, or fallback when s is blank (after trimming).
 func orDefault(s, fallback string) string {
 	if strings.TrimSpace(s) == "" {
 		return fallback

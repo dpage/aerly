@@ -34,8 +34,10 @@ type Mapper interface {
 	MapTrip(cal *Calendar) *MappedTrip
 }
 
+// tripItMapper is the Mapper for TripIt exports.
 type tripItMapper struct{}
 
+// MapTrip implements Mapper, mapping a TripIt calendar (see mapTripIt).
 func (tripItMapper) MapTrip(cal *Calendar) *MappedTrip { return mapTripIt(cal) }
 
 // MapperFor returns the Mapper for a source, or (nil, false) when there is no
