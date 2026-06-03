@@ -74,25 +74,20 @@ func scanTrip(row pgx.Row) (*Trip, error) {
 	return &t, nil
 }
 
-// ListTrips returns the trips the viewer can see (member of, or owner),
-// newest-updated first.
-func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT `+prefixed(tripColumns, "t.")+`,
-			(SELECT min(p.starts_at) FROM plan_parts p
-			   JOIN plans pl ON pl.id = p.plan_id
-			  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL),
-			(SELECT max(COALESCE(p.ends_at, p.starts_at)) FROM plan_parts p
-			   JOIN plans pl ON pl.id = p.plan_id
-			  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL)
-		FROM trips t
-		WHERE t.created_by = $1
-		   OR EXISTS (SELECT 1 FROM trip_members tm
-		              WHERE tm.trip_id = t.id AND tm.user_id = $1)
-		ORDER BY t.updated_at DESC, t.id DESC`, viewerID)
-	if err != nil {
-		return nil, err
-	}
+// listTripsSelect is the shared SELECT for trip-list queries: the trip columns
+// plus the effective start/end inferred from plan parts. Callers append a WHERE
+// clause + ORDER BY.
+var listTripsSelect = `
+	SELECT ` + prefixed(tripColumns, "t.") + `,
+		(SELECT min(p.starts_at) FROM plan_parts p
+		   JOIN plans pl ON pl.id = p.plan_id
+		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL),
+		(SELECT max(COALESCE(p.ends_at, p.starts_at)) FROM plan_parts p
+		   JOIN plans pl ON pl.id = p.plan_id
+		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL)
+	FROM trips t`
+
+func (s *Store) scanTripList(rows pgx.Rows) ([]*Trip, error) {
 	defer rows.Close()
 	var out []*Trip
 	for rows.Next() {
@@ -105,6 +100,48 @@ func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) 
 		out = append(out, &t)
 	}
 	return out, rows.Err()
+}
+
+// ListTrips returns the trips the viewer can see (member of, or owner),
+// newest-updated first.
+func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) {
+	rows, err := s.pool.Query(ctx, listTripsSelect+`
+		WHERE t.created_by = $1
+		   OR EXISTS (SELECT 1 FROM trip_members tm
+		              WHERE tm.trip_id = t.id AND tm.user_id = $1)
+		ORDER BY t.updated_at DESC, t.id DESC`, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	return s.scanTripList(rows)
+}
+
+// ListFriendsTrips returns every trip owned by one of the viewer's accepted
+// friends — including trips not shared with the viewer. Superuser diagnostics
+// only (gated in the handler).
+func (s *Store) ListFriendsTrips(ctx context.Context, viewerID int64) ([]*Trip, error) {
+	rows, err := s.pool.Query(ctx, listTripsSelect+`
+		WHERE t.created_by IN (
+			SELECT CASE WHEN user_low = $1 THEN user_high ELSE user_low END
+			FROM friendships
+			WHERE (user_low = $1 OR user_high = $1) AND status = 'accepted'
+		)
+		ORDER BY t.updated_at DESC, t.id DESC`, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	return s.scanTripList(rows)
+}
+
+// ListAllTrips returns every trip in the system. Superuser diagnostics only
+// (gated in the handler).
+func (s *Store) ListAllTrips(ctx context.Context) ([]*Trip, error) {
+	rows, err := s.pool.Query(ctx, listTripsSelect+`
+		ORDER BY t.updated_at DESC, t.id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	return s.scanTripList(rows)
 }
 
 // TripByID returns a single trip by id.

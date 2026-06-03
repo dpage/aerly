@@ -11,7 +11,10 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  FormGroup,
   Stack,
+  Switch,
   TextField,
   Tooltip,
   Typography,
@@ -20,6 +23,7 @@ import AddIcon from '@mui/icons-material/Add';
 import PlaceIcon from '@mui/icons-material/Place';
 
 import { useStore } from '../state/store';
+import { api } from '../api/client';
 import type { Trip } from '../api/types';
 import { userInitial, userName } from '../lib/format';
 import { classifyTrip, fmtTripDates, tripSpan, type TripBucket } from '../lib/trip-format';
@@ -37,21 +41,59 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   const trips = useStore((s) => s.trips);
   const loading = useStore((s) => s.tripsLoading);
   const listTrips = useStore((s) => s.listTrips);
+  const me = useStore((s) => s.me);
 
   useEffect(() => {
     void listTrips();
   }, [listTrips]);
 
+  const mine = scope === 'mine';
+  const isSuper = !mine && !!me?.is_superuser;
+
+  // Superuser-only diagnostic toggles on the Friends' trips tab. Deliberately
+  // local state (no persistence): each must be re-enabled on every visit.
+  const [showAllFriends, setShowAllFriends] = useState(false);
+  const [showAllTrips, setShowAllTrips] = useState(false);
+  // "All trips" subsumes "all friends' trips".
+  const include: 'friends' | 'all' | undefined = !isSuper
+    ? undefined
+    : showAllTrips
+      ? 'all'
+      : showAllFriends
+        ? 'friends'
+        : undefined;
+
+  // When a diagnostic scope is active, fetch that broader set separately (it
+  // isn't the viewer's own owner/member list, so it doesn't belong in the store).
+  const [diagTrips, setDiagTrips] = useState<Trip[] | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  useEffect(() => {
+    if (!include) {
+      setDiagTrips(null);
+      return;
+    }
+    let cancelled = false;
+    setDiagLoading(true);
+    api
+      .listTrips(include)
+      .then((t) => !cancelled && setDiagTrips(t))
+      .catch(() => !cancelled && setDiagTrips([]))
+      .finally(() => !cancelled && setDiagLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [include]);
+
   // The viewer owns a trip iff their role on it is 'owner'; everything else
-  // (editor / viewer) is a trip a friend shared with them.
-  const scoped = useMemo(
-    () => trips.filter((t) => (scope === 'mine' ? t.my_role === 'owner' : t.my_role !== 'owner')),
-    [trips, scope],
-  );
+  // (editor / viewer) is a trip a friend shared with them. The Friends tab
+  // always excludes the viewer's own trips (those live on "My trips").
+  const scoped = useMemo(() => {
+    const src = include ? (diagTrips ?? []) : trips;
+    return src.filter((t) => (mine ? t.my_role === 'owner' : t.my_role !== 'owner'));
+  }, [include, diagTrips, trips, mine]);
   const groups = useMemo(() => groupTrips(scoped), [scoped]);
   const [createOpen, setCreateOpen] = useState(false);
-
-  const mine = scope === 'mine';
+  const busy = include ? diagLoading : loading;
 
   return (
     <Box sx={{ p: 3, maxWidth: 760, mx: 'auto' }}>
@@ -66,7 +108,33 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
         )}
       </Stack>
 
-      {loading && scoped.length === 0 ? (
+      {isSuper && (
+        <FormGroup row sx={{ mb: 2, gap: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showAllFriends || showAllTrips}
+                disabled={showAllTrips}
+                onChange={(e) => setShowAllFriends(e.target.checked)}
+              />
+            }
+            label="All friends' trips"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showAllTrips}
+                onChange={(e) => setShowAllTrips(e.target.checked)}
+              />
+            }
+            label="All trips (incl. non-friends)"
+          />
+        </FormGroup>
+      )}
+
+      {busy && scoped.length === 0 ? (
         <Box sx={{ display: 'grid', placeItems: 'center', py: 6 }}>
           <CircularProgress />
         </Box>
@@ -76,6 +144,8 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
             <>
               No trips yet. Click <strong>New trip</strong> to start planning your first one.
             </>
+          ) : include ? (
+            'No trips match this view.'
           ) : (
             "No trips have been shared with you yet. When a friend adds you to one of their trips, it'll appear here."
           )}

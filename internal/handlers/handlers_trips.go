@@ -51,7 +51,21 @@ func parseDate(s *string) (*time.Time, error) {
 
 func (a *API) listTrips(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
-	trips, err := a.Store.ListTrips(r.Context(), me.ID)
+	// Superuser-only diagnostic scopes (?include=friends|all): show all of the
+	// viewer's friends' trips (even unshared), or every trip in the system. Any
+	// include value from a non-superuser is ignored (normal owner+member list).
+	var (
+		trips []*store.Trip
+		err   error
+	)
+	switch include := r.URL.Query().Get("include"); {
+	case include == "friends" && me.IsSuperuser:
+		trips, err = a.Store.ListFriendsTrips(r.Context(), me.ID)
+	case include == "all" && me.IsSuperuser:
+		trips, err = a.Store.ListAllTrips(r.Context())
+	default:
+		trips, err = a.Store.ListTrips(r.Context(), me.ID)
+	}
 	if err != nil {
 		handleStoreErr(w, err)
 		return

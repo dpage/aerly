@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
+
+	"github.com/dpage/aerly/internal/store"
 )
 
 func TestTripCRUDEndpoints(t *testing.T) {
@@ -134,5 +137,31 @@ func TestTagEndpoints(t *testing.T) {
 	sug := decodeBody[[]map[string]any](t, w)
 	if len(sug) != 1 || sug[0]["label"] != "Beach" {
 		t.Errorf("suggest = %v, want [Beach]", sug)
+	}
+}
+
+func TestListTripsSuperuserIncludeScopes(t *testing.T) {
+	e := setup(t, nil, nil)
+	admin := e.user(t, "admin", true) // superuser
+	stranger := e.user(t, "stranger2", false)
+	ctx := context.Background()
+
+	if _, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "Admin trip"}, admin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "Stranger trip"}, stranger); err != nil {
+		t.Fatal(err)
+	}
+
+	// Superuser ?include=all sees every trip (both).
+	all := decodeBody[[]map[string]any](t, e.req(t, "GET", "/api/trips?include=all", nil, admin))
+	if len(all) < 2 {
+		t.Errorf("superuser include=all = %d trips, want >= 2", len(all))
+	}
+
+	// Non-superuser passing include=all is ignored — only their own trip.
+	mine := decodeBody[[]map[string]any](t, e.req(t, "GET", "/api/trips?include=all", nil, stranger))
+	if len(mine) != 1 {
+		t.Errorf("non-superuser include=all = %d trips, want 1 (ignored)", len(mine))
 	}
 }

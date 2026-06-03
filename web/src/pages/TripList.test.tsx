@@ -27,7 +27,11 @@ vi.mock('../state/store', () => ({
   useStore: (sel: (s: typeof state) => unknown) => sel(state),
 }));
 
+vi.mock('../api/client', () => ({ api: { listTrips: vi.fn() } }));
+
 import TripList from './TripList';
+import { api } from '../api/client';
+const mockApiListTrips = api.listTrips as unknown as ReturnType<typeof vi.fn>;
 
 function trip(over: Partial<Trip> = {}): Trip {
   return {
@@ -75,6 +79,7 @@ beforeEach(() => {
   state.tripsLoading = false;
   state.users = [];
   state.me = null;
+  mockApiListTrips.mockResolvedValue([]);
 });
 
 describe('TripList', () => {
@@ -119,6 +124,33 @@ describe('TripList', () => {
   it("scope='friends' shows a tailored empty state", () => {
     renderList('friends');
     expect(screen.getByText(/No trips have been shared with you yet/i)).toBeInTheDocument();
+  });
+
+  it('shows the superuser diagnostic switches only on the Friends tab for a superuser', () => {
+    state.me = user({ is_superuser: true });
+    renderList('friends');
+    expect(screen.getByLabelText(/All friends' trips/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/All trips/i)).toBeInTheDocument();
+  });
+
+  it('hides the diagnostic switches for non-superusers and on My trips', () => {
+    state.me = user({ is_superuser: false });
+    renderList('friends');
+    expect(screen.queryByLabelText(/All friends' trips/i)).not.toBeInTheDocument();
+    state.me = user({ is_superuser: true });
+    renderList('mine');
+    expect(screen.queryByLabelText(/All friends' trips/i)).not.toBeInTheDocument();
+  });
+
+  it('fetches all trips via the API when the superuser enables "All trips"', async () => {
+    state.me = user({ id: 1, is_superuser: true });
+    mockApiListTrips.mockResolvedValue([
+      trip({ id: 50, name: 'StrangerTrip', my_role: 'viewer' }),
+    ]);
+    renderList('friends');
+    await userEvent.click(screen.getByLabelText(/All trips/i));
+    await waitFor(() => expect(mockApiListTrips).toHaveBeenCalledWith('all'));
+    expect(await screen.findByText('StrangerTrip')).toBeInTheDocument();
   });
 
   it('renders a flag image for a trip with a country code', () => {

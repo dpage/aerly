@@ -184,7 +184,10 @@ export const api = {
   // -------------------------------------------------------------------------
   // Trips (spec §5.2). The list returns my trips plus those shared with me.
   // -------------------------------------------------------------------------
-  listTrips: () => request<Trip[]>('GET', '/api/trips'),
+  // include (superuser only): 'friends' = all friends' trips even if unshared;
+  // 'all' = every trip in the system. Ignored server-side for non-superusers.
+  listTrips: (include?: 'friends' | 'all') =>
+    request<Trip[]>('GET', '/api/trips' + (include ? `?include=${include}` : '')),
   // The single-trip payload carries the timeline data (plans + parts) so the
   // detail view can render without further fetches.
   getTrip: (id: number) => request<Trip & { plans: Plan[] }>('GET', `/api/trips/${id}`),

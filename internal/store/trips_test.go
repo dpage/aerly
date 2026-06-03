@@ -161,6 +161,54 @@ func TestTripQueryErrorPaths(t *testing.T) {
 	}
 }
 
+func TestListFriendsAndAllTrips(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	me := mkUser(t, s)
+	friend := mkUser(t, s)
+	stranger := mkUser(t, s)
+
+	// Accepted friendship between me and friend.
+	if _, err := s.RequestFriendship(ctx, friend, me, ""); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := s.AcceptFriendship(ctx, me, friend); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
+
+	myTrip, _ := s.CreateTrip(ctx, CreateTripPayload{Name: "Mine"}, me)
+	friendTrip, _ := s.CreateTrip(ctx, CreateTripPayload{Name: "Friend's"}, friend)
+	strangerTrip, _ := s.CreateTrip(ctx, CreateTripPayload{Name: "Stranger's"}, stranger)
+
+	// ListFriendsTrips: only the friend's trip (not mine, not the stranger's).
+	fr, err := s.ListFriendsTrips(ctx, me)
+	if err != nil {
+		t.Fatalf("ListFriendsTrips: %v", err)
+	}
+	frIDs := map[int64]bool{}
+	for _, tr := range fr {
+		frIDs[tr.ID] = true
+	}
+	if !frIDs[friendTrip.ID] || frIDs[myTrip.ID] || frIDs[strangerTrip.ID] {
+		t.Errorf("ListFriendsTrips = %v, want only friend's trip %d", frIDs, friendTrip.ID)
+	}
+
+	// ListAllTrips: every trip in the system.
+	all, err := s.ListAllTrips(ctx)
+	if err != nil {
+		t.Fatalf("ListAllTrips: %v", err)
+	}
+	allIDs := map[int64]bool{}
+	for _, tr := range all {
+		allIDs[tr.ID] = true
+	}
+	if !allIDs[myTrip.ID] || !allIDs[friendTrip.ID] || !allIDs[strangerTrip.ID] {
+		t.Errorf("ListAllTrips missing one of %d/%d/%d: %v", myTrip.ID, friendTrip.ID, strangerTrip.ID, allIDs)
+	}
+}
+
 func TestTripCountryCode(t *testing.T) {
 	s := newStore(t)
 	if s == nil {
