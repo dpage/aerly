@@ -57,7 +57,11 @@ All configuration is via environment variables (see `.env.example`).
 | `DATABASE_URL`             | yes      |                               | Standard libpq URL.                                                                    |
 | `GITHUB_CLIENT_ID`         | yes¹     |                               | From the GitHub OAuth app.                                                             |
 | `GITHUB_CLIENT_SECRET`     | yes¹     |                               | From the GitHub OAuth app.                                                             |
+| `GOOGLE_CLIENT_ID`         | yes¹     |                               | From the Google OAuth app. GitHub and Google are independent providers — configure either or both. |
+| `GOOGLE_CLIENT_SECRET`     | yes¹     |                               | From the Google OAuth app.                                                             |
 | `SESSION_KEY`              | yes      |                               | ≥ 32 random chars. `openssl rand -base64 48`.                                          |
+| `MAIL_FROM_ADDRESS`        |          |                               | Envelope/From for outbound mail (friend invites, account-link notices). When unset, those emails are skipped. |
+| `MAIL_SENDMAIL_PATH`       |          | `/usr/sbin/sendmail`          | Path to a sendmail-compatible binary used to send mail.                                |
 | `POLL_INTERVAL`            |          | `60s`                         | How often the poller refreshes active flights. Non-Enroute flights are throttled to 5×. |
 | `OPENSKY_USERNAME`         |          |                               | OpenSky account for HTTP Basic Auth. Unlocks higher rate limits than anonymous.        |
 | `OPENSKY_PASSWORD`         |          |                               |                                                                                        |
@@ -65,7 +69,7 @@ All configuration is via environment variables (see `.env.example`).
 | `AERODATABOX_RAPIDAPI_KEY` |          |                               | When set, the Add Flight dialog drops to its minimal "ident + date" form.              |
 | `DEV_AUTH_BYPASS`          |          | `0`                           | Local-only: `1` enables `/auth/dev-login?login=…` to skip OAuth. Refuses non-localhost.|
 
-¹ Not required when `DEV_AUTH_BYPASS=1`.
+¹ At least one OAuth provider (GitHub or Google) must be fully configured, unless `DEV_AUTH_BYPASS=1`. Each provider needs both its ID and secret, or neither.
 
 Database migrations are applied automatically on every startup from the embedded `migrations/` directory.
 
@@ -228,13 +232,20 @@ cmd/server/          Entrypoint: config, DB pool, migrations, HTTP server, polle
 internal/
 ├── config/          Env-var parsing and validation.
 ├── db/              pgx pool + embedded-SQL migrator.
-├── store/           Typed pgx queries for users, flights, passengers, positions.
+├── store/           Typed pgx queries for trips, plans, parts, users, positions.
 ├── api/             Shared JSON DTOs (used by both handlers and poller).
-├── auth/            GitHub OAuth flow, HMAC-signed session cookies, middleware.
+├── auth/            GitHub + Google OAuth, HMAC-signed session cookies, middleware.
 ├── airports/        Embedded IATA → (lat, lon) table.
 ├── geo/             Great-circle helpers (slerp, bearing, haversine).
+├── geocode/         Nominatim geocoding + timezone anchoring for plan venues.
+├── geotz/           IANA timezone lookup from coordinates (tzf).
 ├── providers/       External flight-data integrations: Tracker (Stub, OpenSky)
 │                    + Resolver (AeroDataBox) + DeadReckoner wrapper.
+├── tripitics/       TripIt .ics parsing into plans/parts.
+├── emailingest/     Forwarded-email Maildir drain + LLM extraction + auto-reply.
+├── planops/         Plan propose/commit pipeline incl. rebooking supersession.
+├── mailer/          Outbound multipart email assembly (alerts, invites, replies).
+├── notify/          Visibility-scoped trip/plan SSE event publishing.
 ├── poller/          Background goroutine: refresh active flights, persist, broadcast.
 ├── sse/             Server-Sent Events broadcast hub.
 └── handlers/        JSON API endpoints and SPA fallback handler.
@@ -264,7 +275,7 @@ Then drop `deploy/nginx.conf.example` into `/etc/nginx/sites-available/`, adjust
 
 ## Project status
 
-Pre-release. Tracker and resolver paths are working end-to-end with OpenSky and AeroDataBox. Tests are intentionally minimal at v0; the bones are in place to add Vitest and a Go integration test suite next.
+Pre-release. Tracker and resolver paths are working end-to-end with OpenSky and AeroDataBox. The codebase is well covered by tests: a Go suite (`make test-go`, ~75% statement coverage with a Postgres-backed integration layer) and a Vitest suite for the SPA (`make test-web`) gated at 90% per-file coverage (`make cover-web`).
 
 ## Roadmap / follow-up work
 
@@ -279,6 +290,7 @@ Pre-release. Tracker and resolver paths are working end-to-end with OpenSky and 
 - Per-plan alert opt-in exposed as `alert_opted_in` on `PlanDTO`.
 - Per-resource calendar token granularity — each trip/plan feed independently revocable.
 - iCal DST — VTIMEZONE blocks now carry DAYLIGHT/STANDARD `RRULE` transitions.
+- Alerts inbox — `alert.created` SSE events drive an in-app inbox and toast, with a combined alert/friend avatar badge and a live unread count.
 
 ## Licence
 
