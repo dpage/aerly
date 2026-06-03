@@ -693,8 +693,13 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 			paxDTOs = append(paxDTOs, api.ToUserDTO(u))
 		}
 	}
+	tripOwners, err := a.Store.TripOwnersByPlan(ctx, []int64{planID})
+	if err != nil {
+		return api.PlanDTO{}, err
+	}
 	for i := range partDTOs {
 		partDTOs[i].Owner = ownerDTO
+		partDTOs[i].TripOwnerID = tripOwners[planID]
 		if len(paxDTOs) > 0 {
 			partDTOs[i].Passengers = paxDTOs
 		}

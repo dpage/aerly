@@ -242,6 +242,39 @@ func TestCanViewPlanMissingPlan(t *testing.T) {
 	}
 }
 
+// TestTripOwnersByPlan maps each plan id to its containing trip's owner, so the
+// map can colour parts by whose trip they belong to (issue #13).
+func TestTripOwnersByPlan(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	alice := mkUser(t, s)
+	bob := mkUser(t, s)
+	tripA := mkTrip(t, s, alice)
+	tripB := mkTrip(t, s, bob)
+	planA1 := mkPlan(t, s, tripA, alice)
+	planA2 := mkPlan(t, s, tripA, bob) // bob (an editor) added a plan to alice's trip
+	planB := mkPlan(t, s, tripB, bob)
+
+	got, err := s.TripOwnersByPlan(ctx, []int64{planA1, planA2, planB})
+	if err != nil {
+		t.Fatalf("TripOwnersByPlan: %v", err)
+	}
+	// Both of trip A's plans map to alice (the TRIP owner), regardless of who
+	// created each plan; trip B's plan maps to bob.
+	if got[planA1] != alice || got[planA2] != alice {
+		t.Errorf("trip A plans owner = %d/%d, want alice %d", got[planA1], got[planA2], alice)
+	}
+	if got[planB] != bob {
+		t.Errorf("trip B plan owner = %d, want bob %d", got[planB], bob)
+	}
+	// Empty input → empty map, no query.
+	if m, err := s.TripOwnersByPlan(ctx, nil); err != nil || len(m) != 0 {
+		t.Errorf("empty input: m=%v err=%v", m, err)
+	}
+}
+
 // TestListVisiblePlanParts respects the same predicate as CanViewPlan.
 func TestListVisiblePlanParts(t *testing.T) {
 	s := newStore(t)

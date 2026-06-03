@@ -47,20 +47,31 @@ export function planTypeColor(type: PlanType): string {
   return styleFor(type).color;
 }
 
+// The teardrop outline: a circular head (centre ≈ 12,12) tapering to a tip at
+// (12,33). Shared by the pin body and the strokes layered over it.
+const TEARDROP =
+  'M12 0.5 C5.6 0.5 0.5 5.6 0.5 12 C0.5 20.5 12 33.5 12 33.5 C12 33.5 23.5 20.5 23.5 12 C23.5 5.6 18.4 0.5 12 0.5 Z';
+
 /** A coloured teardrop map-pin element carrying the plan type's glyph. The pin
- * tip is at the bottom-centre, so place the marker with `anchor: 'bottom'`. */
-export function buildPinEl(type: PlanType): HTMLElement {
+ * tip is at the bottom-centre, so place the marker with `anchor: 'bottom'`.
+ *
+ * The fill encodes the plan type; `ringColor` (when given) draws a ring around
+ * the pin to encode whose trip it is (issue #13). A white halo underneath keeps
+ * the pin legible against the map whatever the ring hue. With no ring colour
+ * the pin falls back to a plain white outline. */
+export function buildPinEl(type: PlanType, ringColor?: string | null): HTMLElement {
   const s = styleFor(type);
+  const ring = ringColor ?? '#fff';
   const el = document.createElement('div');
   el.style.cursor = 'pointer';
   el.style.lineHeight = '0';
-  // 24×34 teardrop: a circular head (centre ≈ 12,12) tapering to a tip at
-  // (12,33). The glyph is scaled to ~14px and centred in the head.
+  // Three layers: a white halo for map contrast, the type-coloured body with a
+  // person-coloured ring, then the white type glyph centred in the head.
   el.innerHTML = `
     <svg width="26" height="36" viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg"
          style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4))">
-      <path d="M12 0.5 C5.6 0.5 0.5 5.6 0.5 12 C0.5 20.5 12 33.5 12 33.5 C12 33.5 23.5 20.5 23.5 12 C23.5 5.6 18.4 0.5 12 0.5 Z"
-            fill="${s.color}" stroke="#fff" stroke-width="1.5"/>
+      <path d="${TEARDROP}" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
+      <path d="${TEARDROP}" fill="${s.color}" stroke="${ring}" stroke-width="2.5" stroke-linejoin="round"/>
       <g transform="translate(4.8,5) scale(0.6)" fill="#fff">${s.glyph}</g>
     </svg>`;
   return el;
