@@ -107,7 +107,7 @@ func (s *Service) drainNew(ctx context.Context) {
 			continue
 		}
 		path := filepath.Join(newDir, e.Name())
-		out := s.processOne(ctx, path)
+		out := s.processOneSafely(ctx, path)
 		switch out.kind {
 		case outcomeOK:
 			if err := os.Remove(path); err != nil {
@@ -122,6 +122,20 @@ func (s *Service) drainNew(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// processOneSafely wraps processOne with panic recovery so one malformed
+// message (or an unexpected nil/index in the parse/extract path) can't crash
+// the shared server process. A panicking message is treated as poison and
+// moved aside rather than retried forever.
+func (s *Service) processOneSafely(ctx context.Context, path string) (out outcome) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("emailingest: recovered from panic", "path", path, "panic", r)
+			out = outcome{kind: outcomePoison}
+		}
+	}()
+	return s.processOne(ctx, path)
 }
 
 func (s *Service) processOne(ctx context.Context, path string) outcome {

@@ -97,7 +97,9 @@ func (o *OpenSky) Track(ctx context.Context, f *store.Flight, _ time.Time) (*sto
 		return nil, fmt.Errorf("opensky /states/all -> %d: %s", resp.StatusCode, body)
 	}
 	var out openSkyStates
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	// Cap the decoded body so a misbehaving/compromised upstream can't make us
+	// buffer an unbounded response into memory (matches the AeroDataBox cap).
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
 		return nil, err
 	}
 	if len(out.States) == 0 {

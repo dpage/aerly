@@ -104,7 +104,7 @@ func (p *Poller) tick(ctx context.Context) {
 		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f.Status) {
 			continue
 		}
-		p.refresh(ctx, f, now)
+		guard("poller.refresh", f.ID, func() { p.refresh(ctx, f, now) })
 	}
 
 	// Second pass: flights 30min–12h before departure. Resolve metadata only
@@ -126,8 +126,20 @@ func (p *Poller) tick(ctx context.Context) {
 		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f.Status) {
 			continue
 		}
-		p.refreshMetadata(ctx, f, now)
+		guard("poller.refreshMetadata", f.ID, func() { p.refreshMetadata(ctx, f, now) })
 	}
+}
+
+// guard runs fn, recovering from any panic so one poisoned flight row can't
+// crash the shared server process (the poller runs in the same process as the
+// HTTP server). The panic is logged with the offending flight id.
+func guard(where string, id int64, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("poller: recovered from panic", "where", where, "id", id, "panic", r)
+		}
+	}()
+	fn()
 }
 
 // refreshMetadata resolves a pre-departure flight's gate/airframe/schedule

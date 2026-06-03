@@ -5,10 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/pgEdge/pgedge-go-llm-lib/llm"
 	_ "github.com/pgEdge/pgedge-go-llm-lib/llm/all" // register all providers
 )
+
+// llmTimeout bounds a single LLM completion. The ingest pipeline runs on a
+// process-lifetime context, so without a per-call deadline a stalled provider
+// would block the email drain (and the HTTP propose handler) indefinitely.
+const llmTimeout = 120 * time.Second
 
 // RealLLM wraps an llm.Client and satisfies the LLM interface used by Extractor.
 type RealLLM struct {
@@ -37,7 +43,9 @@ func (r *RealLLM) Complete(ctx context.Context, prompt string, docs []Document) 
 	for _, d := range docs {
 		blocks = append(blocks, llm.DocumentBlock(d.Data, d.MediaType, d.Filename))
 	}
-	resp, err := r.Client.Chat(ctx, llm.ChatRequest{
+	callCtx, cancel := context.WithTimeout(ctx, llmTimeout)
+	defer cancel()
+	resp, err := r.Client.Chat(callCtx, llm.ChatRequest{
 		Messages:       []llm.Message{llm.UserBlocks(blocks...)},
 		ResponseFormat: &llm.ResponseFormat{Type: llm.ResponseFormatJSON},
 	})
