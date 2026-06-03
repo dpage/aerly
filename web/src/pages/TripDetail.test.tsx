@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 import type { Trip } from '../api/types';
+import { setMatchMedia } from '../test/setup';
 
 const h = vi.hoisted(() => ({
   loadTrip: vi.fn(),
@@ -278,5 +279,77 @@ describe('TripDetail', () => {
     // currentTrip.id (99) !== route id (7) → placeholder title, no Edit/Share.
     expect(screen.getByText('Trip #7')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /share/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('TripDetail (narrow / mobile)', () => {
+  beforeEach(() => setMatchMedia(true));
+
+  it('keeps the trip name and dates visible (not squeezed out by the actions)', () => {
+    h.state.currentTrip = trip({
+      destination: 'Portugal',
+      starts_on: '2026-10-01',
+      ends_on: '2026-10-05',
+    });
+    renderDetail();
+    expect(screen.getByRole('heading', { name: 'Lisbon' })).toBeInTheDocument();
+    expect(screen.getByText(/Portugal ·/)).toBeInTheDocument();
+  });
+
+  it('keeps New plan as a primary action and folds Edit/Share/Subscribe into a menu', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    // New plan stays a first-class button.
+    expect(screen.getByRole('button', { name: /new plan/i })).toBeInTheDocument();
+    // The secondary actions are not loose buttons any more.
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^share$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^subscribe$/i })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    expect(screen.getByRole('menuitem', { name: /edit/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /share/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /subscribe/i })).toBeInTheDocument();
+  });
+
+  it('opens the edit dialog from the overflow menu', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /edit/i }));
+    expect(screen.getByTestId('edit-dialog')).toBeInTheDocument();
+  });
+
+  it('opens the share dialog from the overflow menu', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /share/i }));
+    expect(screen.getByTestId('members-dialog')).toBeInTheDocument();
+  });
+
+  it('opens the subscribe dialog from the overflow menu', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /subscribe/i }));
+    expect(screen.getByTestId('subscribe-dialog')).toBeInTheDocument();
+  });
+
+  it('omits Edit from the overflow menu for viewers but keeps Share/Subscribe', async () => {
+    h.state.currentTrip = trip({ my_role: 'viewer' });
+    renderDetail();
+    expect(screen.queryByRole('button', { name: /new plan/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    expect(screen.queryByRole('menuitem', { name: /edit/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /share/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /subscribe/i })).toBeInTheDocument();
+  });
+
+  it('navigates back to the trips list via the back button', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /back to trips/i }));
+    expect(screen.getByTestId('trips-list')).toBeInTheDocument();
   });
 });

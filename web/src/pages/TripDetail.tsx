@@ -1,7 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Tab, Tabs, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  IconButton,
+  ListItemIcon,
+  Menu,
+  MenuItem,
+  Tab,
+  Tabs,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import EditIcon from '@mui/icons-material/EditOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
@@ -30,6 +46,12 @@ export default function TripDetail() {
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [newPlanOpen, setNewPlanOpen] = useState(false);
+  // On phones the four toolbar buttons crowd the trip name off-screen, so the
+  // secondary actions collapse into an overflow (⋮) menu; New plan stays primary.
+  const [actionsAnchor, setActionsAnchor] = useState<HTMLElement | null>(null);
+  const theme = useTheme();
+  const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
+  const closeActions = () => setActionsAnchor(null);
 
   useEffect(() => {
     if (!Number.isFinite(tripId)) return;
@@ -55,54 +77,148 @@ export default function TripDetail() {
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ px: 3, pt: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Button size="small" onClick={() => navigate('/')}>
-          ← Trips
-        </Button>
-        <Box
-          sx={{ flexGrow: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1.5 }}
-        >
-          <Typography variant="h5" noWrap>
-            {title}
-          </Typography>
-          {meta && (
-            <Typography variant="body2" color="text.secondary" noWrap>
-              {meta}
-            </Typography>
-          )}
+      {isNarrow ? (
+        <Box sx={{ px: 1.5, pt: 2, display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
+          <Tooltip title="Back to trips">
+            <IconButton
+              size="small"
+              edge="start"
+              aria-label="Back to trips"
+              onClick={() => navigate('/')}
+              sx={{ flexShrink: 0 }}
+            >
+              <ArrowBackIcon />
+            </IconButton>
+          </Tooltip>
+          {/* Content column: title + actions on top, dates on their own
+              full-width line below so they're never squeezed off-screen. */}
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Typography variant="h5" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
+                {title}
+              </Typography>
+              {loaded && canEdit && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => setNewPlanOpen(true)}
+                  sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                >
+                  New plan
+                </Button>
+              )}
+              {loaded && (
+                <>
+                  <Tooltip title="More actions">
+                    <IconButton
+                      size="small"
+                      aria-label="More actions"
+                      onClick={(e) => setActionsAnchor(e.currentTarget)}
+                      sx={{ flexShrink: 0 }}
+                    >
+                      <MoreVertIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Menu
+                    anchorEl={actionsAnchor}
+                    open={actionsAnchor !== null}
+                    onClose={closeActions}
+                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                    transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  >
+                    {canEdit && (
+                      <MenuItem
+                        onClick={() => {
+                          closeActions();
+                          setEditOpen(true);
+                        }}
+                      >
+                        <ListItemIcon>
+                          <EditIcon fontSize="small" />
+                        </ListItemIcon>
+                        Edit
+                      </MenuItem>
+                    )}
+                    <MenuItem
+                      onClick={() => {
+                        closeActions();
+                        setShareOpen(true);
+                      }}
+                    >
+                      <ListItemIcon>
+                        <PeopleIcon fontSize="small" />
+                      </ListItemIcon>
+                      Share
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        closeActions();
+                        setSubscribeOpen(true);
+                      }}
+                    >
+                      <ListItemIcon>
+                        <CalendarMonthIcon fontSize="small" />
+                      </ListItemIcon>
+                      Subscribe
+                    </MenuItem>
+                  </Menu>
+                </>
+              )}
+            </Box>
+            {meta && (
+              <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
+                {meta}
+              </Typography>
+            )}
+          </Box>
         </Box>
-        {loaded && canEdit && (
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AddIcon />}
-            onClick={() => setNewPlanOpen(true)}
+      ) : (
+        <Box sx={{ px: 3, pt: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Button size="small" onClick={() => navigate('/')}>
+            ← Trips
+          </Button>
+          <Box
+            sx={{ flexGrow: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1.5 }}
           >
-            New plan
-          </Button>
-        )}
-        {loaded && canEdit && (
-          <Button size="small" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
-            Edit
-          </Button>
-        )}
-        {loaded && (
+            <Typography variant="h5" noWrap>
+              {title}
+            </Typography>
+            {meta && (
+              <Typography variant="body2" color="text.secondary" noWrap>
+                {meta}
+              </Typography>
+            )}
+          </Box>
+          {loaded && canEdit && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => setNewPlanOpen(true)}
+            >
+              New plan
+            </Button>
+          )}
+          {loaded && canEdit && (
+            <Button size="small" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+          )}
+          {loaded && (
+            <Button size="small" startIcon={<PeopleIcon />} onClick={() => setShareOpen(true)}>
+              Share
+            </Button>
+          )}
           <Button
             size="small"
-            startIcon={<PeopleIcon />}
-            onClick={() => setShareOpen(true)}
+            startIcon={<CalendarMonthIcon />}
+            onClick={() => setSubscribeOpen(true)}
           >
-            Share
+            Subscribe
           </Button>
-        )}
-        <Button
-          size="small"
-          startIcon={<CalendarMonthIcon />}
-          onClick={() => setSubscribeOpen(true)}
-        >
-          Subscribe
-        </Button>
-      </Box>
+        </Box>
+      )}
       {datesMismatch && (
         <Box sx={{ px: 3, pt: 1 }}>
           <Alert severity="warning" sx={{ py: 0 }}>

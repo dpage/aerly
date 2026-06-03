@@ -8,15 +8,24 @@ import {
   Button,
   Chip,
   Divider,
+  Drawer,
   IconButton,
+  List,
+  ListItemButton,
   ListItemIcon,
+  ListItemText,
   Menu,
   MenuItem,
   Toolbar,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import MenuIcon from '@mui/icons-material/Menu';
+import LuggageIcon from '@mui/icons-material/LuggageOutlined';
+import RadarIcon from '@mui/icons-material/Radar';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -56,8 +65,13 @@ export default function Layout() {
   const pendingRequests = useStore((s) => s.notifications.friend_requests_pending);
   const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
   const location = useLocation();
+  const theme = useTheme();
+  // Below `sm` (≈phones, e.g. iPhone SE) the three nav labels won't fit beside
+  // the brand + account icons without wrapping, so they collapse into a drawer.
+  const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [adminOpen, setAdminOpen] = useState(false);
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const [emailsOpen, setEmailsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
@@ -72,6 +86,13 @@ export default function Layout() {
   // "My trips" owns the home view and the trip-detail pages; "Friends' trips"
   // and "Tracker" own their own routes.
   const onMyTrips = !onTracker && !onFriends;
+  // Single source of truth for the primary destinations, shared by the wide
+  // inline buttons and the narrow drawer so they never drift apart.
+  const navItems = [
+    { to: '/', label: 'My trips', active: onMyTrips, Icon: LuggageIcon },
+    { to: '/friends', label: "Friends' trips", active: onFriends, Icon: PeopleIcon },
+    { to: '/tracker', label: 'Tracker', active: onTracker, Icon: RadarIcon },
+  ];
   // Open help to the topic relevant to the current screen: the Tracker and a
   // trip's Map tab → Map & tracker; another trip view → Plans; else → Trips.
   const helpContext =
@@ -85,40 +106,38 @@ export default function Layout() {
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <AppBar position="static" color="default" elevation={1}>
         <Toolbar variant="dense">
+          {isNarrow && (
+            <IconButton
+              size="small"
+              edge="start"
+              aria-label="Open navigation menu"
+              onClick={() => setNavDrawerOpen(true)}
+              sx={{ mr: 0.5 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
           <FlightTakeoffIcon color="primary" sx={{ mr: 1 }} />
           <Typography
             variant="h6"
             component={RouterLink}
             to="/"
-            sx={{ flexGrow: 0, mr: 3, color: 'inherit', textDecoration: 'none' }}
+            sx={{ flexGrow: 0, mr: isNarrow ? 0 : 3, color: 'inherit', textDecoration: 'none' }}
           >
             Aerly
           </Typography>
-          <Button
-            component={RouterLink}
-            to="/"
-            size="small"
-            color={onMyTrips ? 'primary' : 'inherit'}
-          >
-            My trips
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/friends"
-            size="small"
-            color={onFriends ? 'primary' : 'inherit'}
-          >
-            Friends' trips
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/tracker"
-            size="small"
-            color={onTracker ? 'primary' : 'inherit'}
-            sx={{ mr: 1 }}
-          >
-            Tracker
-          </Button>
+          {!isNarrow &&
+            navItems.map((item) => (
+              <Button
+                key={item.to}
+                component={RouterLink}
+                to={item.to}
+                size="small"
+                color={item.active ? 'primary' : 'inherit'}
+              >
+                {item.label}
+              </Button>
+            ))}
           <Box sx={{ flexGrow: 1 }} />
           <Tooltip title="Help">
             <IconButton
@@ -286,6 +305,29 @@ export default function Layout() {
           </Menu>
         </Toolbar>
       </AppBar>
+
+      {isNarrow && (
+        <Drawer anchor="left" open={navDrawerOpen} onClose={() => setNavDrawerOpen(false)}>
+          <Box sx={{ width: 260 }} role="presentation">
+            <List>
+              {navItems.map(({ to, label, active, Icon }) => (
+                <ListItemButton
+                  key={to}
+                  component={RouterLink}
+                  to={to}
+                  selected={active}
+                  onClick={() => setNavDrawerOpen(false)}
+                >
+                  <ListItemIcon>
+                    <Icon color={active ? 'primary' : undefined} />
+                  </ListItemIcon>
+                  <ListItemText primary={label} />
+                </ListItemButton>
+              ))}
+            </List>
+          </Box>
+        </Drawer>
+      )}
 
       <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
         <Outlet />

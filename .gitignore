@@ -26,6 +26,9 @@ web/coverage/
 *.swp
 .DS_Store
 
+# Playwright MCP scratch output (screenshots, console logs)
+.playwright-mcp/
+
 # Claude working files
 .claude/plans/
 .claude/specs/

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 import type { User } from '../api/types';
+import { setMatchMedia } from '../test/setup';
 
 const h = vi.hoisted(() => ({
   logout: vi.fn(),
@@ -285,5 +286,38 @@ describe('Layout', () => {
     await openMenu();
     await userEvent.click(screen.getByText('System'));
     expect(h.setPreference).toHaveBeenCalledWith('system');
+  });
+});
+
+describe('Layout (narrow / mobile)', () => {
+  beforeEach(() => setMatchMedia(true));
+
+  it('collapses the nav links into a drawer behind a menu button', async () => {
+    renderLayout();
+    // The inline nav links are gone; only the hamburger remains.
+    expect(screen.queryByRole('link', { name: 'My trips' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: "Friends' trips" })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Tracker' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+
+    expect(screen.getByRole('link', { name: 'My trips' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: "Friends' trips" })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Tracker' })).toBeInTheDocument();
+  });
+
+  it('navigates and closes the drawer when a destination is chosen', async () => {
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    await userEvent.click(screen.getByRole('link', { name: 'Tracker' }));
+    expect(screen.getByTestId('page')).toHaveTextContent('tracker page');
+    // Drawer dismissed → its links are no longer mounted.
+    expect(screen.queryByRole('link', { name: 'Tracker' })).not.toBeInTheDocument();
+  });
+
+  it('still exposes Help and the account menu as icons', () => {
+    renderLayout();
+    expect(screen.getByRole('button', { name: 'Help' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /account menu/i })).toBeInTheDocument();
   });
 });
