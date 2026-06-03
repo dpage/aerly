@@ -254,7 +254,11 @@ func (s *Store) RefreshFlightPartStatus(ctx context.Context, partID int64) error
 		UPDATE flight_details SET
 			flight_status = CASE
 				WHEN flight_status IN ('Cancelled', 'Diverted') THEN flight_status
-				WHEN NOW() > scheduled_in  THEN 'Arrived'
+				-- Only declare Arrived when a real arrival time exists (strictly
+				-- after departure). A manually-entered flight with no arrival time
+				-- stores scheduled_in == scheduled_out; without this guard it flips
+				-- to Arrived a minute past its scheduled departure, before takeoff.
+				WHEN scheduled_in > scheduled_out AND NOW() > scheduled_in THEN 'Arrived'
 				WHEN NOW() >= scheduled_out THEN 'Enroute'
 				ELSE 'Scheduled'
 			END,

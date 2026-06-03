@@ -44,6 +44,45 @@ func TestActiveFlightParts(t *testing.T) {
 	}
 }
 
+// TestRefreshStatusUnknownArrival guards the "Arrived before takeoff" bug: a
+// manually-entered flight with no arrival time stores scheduled_in ==
+// scheduled_out, so deriving Arrived from "now > scheduled_in" flips it to
+// Arrived a minute after its scheduled departure even though it never landed.
+// Status must only become Arrived when a real arrival time exists
+// (scheduled_in strictly after scheduled_out).
+func TestRefreshStatusUnknownArrival(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// No arrival time → scheduled_in == scheduled_out, half an hour past now.
+	degenerate := mkFlightPart(t, s, owner, "VL1939", now.Add(-30*time.Minute), now.Add(-30*time.Minute))
+	if err := s.RefreshFlightPartStatus(ctx, degenerate); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	df, _ := s.FlightPartByID(ctx, degenerate)
+	if df.Status == "Arrived" {
+		t.Errorf("a flight with no real arrival time must not be Arrived, got %q", df.Status)
+	}
+	if df.Status != "Enroute" {
+		t.Errorf("past-departure flight with unknown arrival should be Enroute, got %q", df.Status)
+	}
+
+	// Control: a genuine flight (arrival strictly after departure, both past)
+	// still derives Arrived.
+	real := mkFlightPart(t, s, owner, "BA286", now.Add(-3*time.Hour), now.Add(-time.Hour))
+	if err := s.RefreshFlightPartStatus(ctx, real); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	rf, _ := s.FlightPartByID(ctx, real)
+	if rf.Status != "Arrived" {
+		t.Errorf("a genuinely-landed flight should still be Arrived, got %q", rf.Status)
+	}
+}
+
 // TestFlightPartWriteHelpers exercises the part-keyed status / airframe /
 // backfill writers — the mechanical counterparts the poller now calls.
 func TestFlightPartWriteHelpers(t *testing.T) {
