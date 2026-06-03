@@ -78,6 +78,10 @@ type FlightDetail struct {
 	FlightStatus   string
 	LastPolledAt   *time.Time
 	LastResolvedAt *time.Time
+	OriginGate     string
+	DestGate       string
+	OriginTerminal string
+	DestTerminal   string
 }
 
 // EffectiveOut / EffectiveIn collapse the three time pairs the way the tracker
@@ -677,11 +681,14 @@ func (s *Store) FlightDetailFor(ctx context.Context, partID int64) (*FlightDetai
 	err := s.pool.QueryRow(ctx, `
 		SELECT plan_part_id, ident, icao24, callsign, scheduled_out, scheduled_in,
 			estimated_out, estimated_in, actual_out, actual_in, origin_iata,
-			dest_iata, flight_status, last_polled_at, last_resolved_at
+			dest_iata, flight_status, last_polled_at, last_resolved_at,
+			COALESCE(origin_gate,''), COALESCE(dest_gate,''),
+			COALESCE(origin_terminal,''), COALESCE(dest_terminal,'')
 		FROM flight_details WHERE plan_part_id = $1`, partID).Scan(
 		&d.PlanPartID, &d.Ident, &d.ICAO24, &d.Callsign, &d.ScheduledOut,
 		&d.ScheduledIn, &d.EstimatedOut, &d.EstimatedIn, &d.ActualOut, &d.ActualIn,
-		&d.OriginIATA, &d.DestIATA, &d.FlightStatus, &d.LastPolledAt, &d.LastResolvedAt)
+		&d.OriginIATA, &d.DestIATA, &d.FlightStatus, &d.LastPolledAt, &d.LastResolvedAt,
+		&d.OriginGate, &d.DestGate, &d.OriginTerminal, &d.DestTerminal)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // genuine "no satellite"
 	}

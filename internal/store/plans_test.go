@@ -57,6 +57,53 @@ func TestCreatePlanWritesSatellite(t *testing.T) {
 	}
 }
 
+func TestFlightDetailForReturnsGateAndTerminal(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
+		TripID: trip, Type: "flight", Title: "BA286",
+		Parts: []CreatePlanPartPayload{{
+			StartsAt: out, EndsAt: &in, StartLabel: "LHR", EndLabel: "SFO",
+			Flight: &FlightDetail{
+				Ident: "BA286", ScheduledOut: out, ScheduledIn: in,
+				OriginIATA: "LHR", DestIATA: "SFO",
+			},
+		}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	parts, err := s.PartsByPlan(ctx, plan.ID)
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("PartsByPlan = %d, %v", len(parts), err)
+	}
+	// The poller fills gate/terminal post-creation; simulate that.
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE flight_details SET origin_gate=$2, dest_gate=$3, origin_terminal=$4, dest_terminal=$5
+		 WHERE plan_part_id=$1`,
+		parts[0].ID, "B32", "", "5", ""); err != nil {
+		t.Fatalf("set gate: %v", err)
+	}
+
+	fd, err := s.FlightDetailFor(ctx, parts[0].ID)
+	if err != nil || fd == nil {
+		t.Fatalf("FlightDetailFor = %v, %v", fd, err)
+	}
+	if fd.OriginGate != "B32" || fd.OriginTerminal != "5" {
+		t.Errorf("origin gate/terminal = %q/%q, want B32/5", fd.OriginGate, fd.OriginTerminal)
+	}
+	if fd.DestGate != "" || fd.DestTerminal != "" {
+		t.Errorf("dest gate/terminal = %q/%q, want empty", fd.DestGate, fd.DestTerminal)
+	}
+}
+
 func TestPlanPartAddressesRoundTrip(t *testing.T) {
 	s := newStore(t)
 	if s == nil {
