@@ -12,7 +12,6 @@ import type { StoreState } from './store';
 export interface AlertsSlice {
   alertPrefs: AlertPrefs | null;
   alerts: FlightAlert[];
-  unreadAlerts: number;
 
   loadAlertPrefs: () => Promise<void>;
   updateAlertPrefs: (patch: UpdateAlertPrefsInput) => Promise<void>;
@@ -27,7 +26,6 @@ export interface AlertsSlice {
 export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = (set, get) => ({
   alertPrefs: null,
   alerts: [],
-  unreadAlerts: 0,
 
   async loadAlertPrefs() {
     try {
@@ -56,7 +54,7 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
   async loadAlerts() {
     try {
       const alerts = await api.getAlerts();
-      set({ alerts, unreadAlerts: alerts.filter((a) => !a.read_at).length });
+      set({ alerts });
     } catch {
       // Non-fatal: SSE / next reload recovers the inbox.
     }
@@ -65,14 +63,14 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
   applyIncomingAlert(alert) {
     set((s) => ({
       alerts: [alert, ...s.alerts].slice(0, 50),
-      unreadAlerts: s.unreadAlerts + 1,
+      notifications: { ...s.notifications, unread_alerts: s.notifications.unread_alerts + 1 },
     }));
   },
 
   async markAlertsRead() {
     const now = new Date().toISOString();
     set((s) => ({
-      unreadAlerts: 0,
+      notifications: { ...s.notifications, unread_alerts: 0 },
       alerts: s.alerts.map((a) => (a.read_at ? a : { ...a, read_at: now })),
     }));
     try {

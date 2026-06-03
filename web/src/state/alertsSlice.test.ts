@@ -107,28 +107,38 @@ const mk = (id: number, msg: string): FlightAlert => ({
 
 describe('alertsSlice inbox', () => {
   beforeEach(() => {
-    useStore.setState({ alerts: [], unreadAlerts: 0 });
+    useStore.setState({
+      alerts: [],
+      notifications: { friend_requests_pending: 0, unread_alerts: 0 },
+    });
   });
 
-  it('loadAlerts fills the list and unread count', async () => {
+  it('loadAlerts fills the list (unread count is owned by notifications, not loadAlerts)', async () => {
     mockApi.getAlerts.mockResolvedValue([mk(1, 'a'), mk(2, 'b')]);
     await useStore.getState().loadAlerts();
     expect(useStore.getState().alerts).toHaveLength(2);
-    expect(useStore.getState().unreadAlerts).toBe(2);
   });
 
-  it('applyIncomingAlert prepends and bumps unread', () => {
-    useStore.setState({ alerts: [mk(1, 'a')], unreadAlerts: 1 });
+  it('applyIncomingAlert prepends and increments notifications.unread_alerts (the badge counter)', () => {
+    useStore.setState({
+      alerts: [mk(1, 'a')],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1 },
+    });
     useStore.getState().applyIncomingAlert(mk(2, 'b'));
     expect(useStore.getState().alerts[0].id).toBe(2);
-    expect(useStore.getState().unreadAlerts).toBe(2);
+    // notifications.unread_alerts is the value the avatar badge reads — it must
+    // increment when a live alert arrives, so the badge updates without a reload.
+    expect(useStore.getState().notifications.unread_alerts).toBe(2);
   });
 
-  it('markAlertsRead clears unread and stamps read_at locally', async () => {
+  it('markAlertsRead zeroes notifications.unread_alerts and stamps read_at locally', async () => {
     mockApi.markAlertsRead.mockResolvedValue(undefined);
-    useStore.setState({ alerts: [mk(1, 'a')], unreadAlerts: 1 });
+    useStore.setState({
+      alerts: [mk(1, 'a')],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1 },
+    });
     await useStore.getState().markAlertsRead();
-    expect(useStore.getState().unreadAlerts).toBe(0);
+    expect(useStore.getState().notifications.unread_alerts).toBe(0);
     expect(useStore.getState().alerts[0].read_at).toBeTruthy();
   });
 });
