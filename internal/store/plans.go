@@ -868,6 +868,37 @@ func (s *Store) PlanOwners(ctx context.Context, planIDs []int64) (map[int64]int6
 	return out, rows.Err()
 }
 
+// TripOwnersByPlan returns the owner (creator) user id of each plan's containing
+// trip, keyed by plan id, in one query. The map hashes it to a per-person
+// colour so each person's trips share a hue (issue #13). Plans whose trip has a
+// NULL created_by are omitted.
+func (s *Store) TripOwnersByPlan(ctx context.Context, planIDs []int64) (map[int64]int64, error) {
+	out := map[int64]int64{}
+	if len(planIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT p.id, t.created_by
+		   FROM plans p
+		   JOIN trips t ON t.id = p.trip_id
+		  WHERE p.id = ANY($1)`, planIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var planID int64
+		var ownerID *int64
+		if err := rows.Scan(&planID, &ownerID); err != nil {
+			return nil, err
+		}
+		if ownerID != nil {
+			out[planID] = *ownerID
+		}
+	}
+	return out, rows.Err()
+}
+
 // ----- Per-plan visibility -----
 
 // PlanVisibility is the per-plan privacy override. A nil result (ErrNotFound)

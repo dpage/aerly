@@ -21,6 +21,7 @@ import type { PlanPart } from '../api/types';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
+import { personColor } from '../lib/person-color';
 import {
   fmtPartPlaces,
   fmtPartTimeRange,
@@ -182,7 +183,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
         live.add(key);
         let marker = markersRef.current.get(key);
         if (!marker) {
-          const el = buildPinEl(p.type);
+          const el = buildPinEl(p.type, personColor(p.trip_owner_id));
           el.dataset.partId = String(p.id);
           el.dataset.role = ep.role;
           el.addEventListener('click', () =>
@@ -231,7 +232,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       livePlanes.add(p.id);
       let plane = planesRef.current.get(p.id);
       if (!plane) {
-        const el = buildPlaneEl();
+        const el = buildPlaneEl(personColor(p.trip_owner_id) ?? planTypeColor('flight'));
         el.dataset.partId = String(p.id);
         el.dataset.role = 'plane';
         el.addEventListener('click', () => setSelectedId((cur) => (cur === p.id ? null : p.id)));
@@ -350,10 +351,16 @@ function PartRow({
         <Box
           component="span"
           sx={{
-            width: 10,
-            height: 10,
+            width: 12,
+            height: 12,
             borderRadius: '50%',
             bgcolor: planTypeColor(part.type),
+            // Type colour fill + a person-coloured ring, mirroring the map pins
+            // (issue #13). No ring when the trip owner is unknown.
+            border: personColor(part.trip_owner_id)
+              ? `2px solid ${personColor(part.trip_owner_id)}`
+              : 'none',
+            boxSizing: 'border-box',
             flex: 'none',
             mr: 1.5,
           }}
@@ -490,12 +497,13 @@ function planePlacement(p: PlanPart): PlanePlacement | null {
   return null;
 }
 
-/** A north-pointing plane glyph in the flight colour; the marker is rotated to
- * the heading and dimmed by the caller when the position is estimated. */
-function buildPlaneEl(): HTMLElement {
+/** A north-pointing plane glyph in `color` (the owner's person colour, else the
+ * flight type colour); the marker is rotated to the heading and dimmed by the
+ * caller when the position is estimated. */
+function buildPlaneEl(color: string): HTMLElement {
   const el = document.createElement('div');
   el.style.cursor = 'pointer';
-  el.style.color = planTypeColor('flight');
+  el.style.color = color;
   el.style.lineHeight = '0';
   el.innerHTML = `
     <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"
@@ -514,11 +522,15 @@ function legsFC(parts: PlanPart[], selectedId: number | null): GeoJSON.FeatureCo
     features.push({
       type: 'Feature',
       // Ground transfers get a neutral grey crow-flight line (it's an
-      // as-the-crow-flies connector, not an actual driven route); flights/trains
-      // keep their type colour.
+      // as-the-crow-flies connector, not an actual driven route). Flights/trains
+      // take the owner's person colour (issue #13), falling back to the type
+      // colour when the trip owner is unknown.
       properties: {
         partId: p.id,
-        color: p.type === 'ground' ? GROUND_LEG_COLOR : planTypeColor(p.type),
+        color:
+          p.type === 'ground'
+            ? GROUND_LEG_COLOR
+            : (personColor(p.trip_owner_id) ?? planTypeColor(p.type)),
         selected: p.id === selectedId,
       },
       geometry:

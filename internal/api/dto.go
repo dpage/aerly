@@ -403,6 +403,10 @@ type PlanPartDTO struct {
 	// Populated for the tracker and trip-detail payloads.
 	Owner      *UserDTO  `json:"owner,omitempty"`
 	Passengers []UserDTO `json:"passengers,omitempty"`
+	// TripOwnerID is the user id of the owner of the containing trip. The map
+	// hashes it to a per-person colour so each person's trips share a hue
+	// (issue #13). 0 when unknown (e.g. ingest preview parts).
+	TripOwnerID int64 `json:"trip_owner_id,omitempty"`
 }
 
 // FlightDetailDTO is the flight-type satellite payload, including tracker

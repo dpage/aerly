@@ -33,6 +33,20 @@ describe('buildPinEl', () => {
     expect(el.querySelector('circle')).not.toBeNull();
     expect(el.outerHTML).toContain('#6b7280');
   });
+
+  it('draws the person ring colour as a stroke when given (issue #13)', () => {
+    const el = buildPinEl('flight', 'hsl(120, 70%, 42%)');
+    // Type colour still fills the body; the person colour rings it.
+    expect(el.outerHTML).toContain(planTypeColor('flight'));
+    expect(el.outerHTML).toContain('stroke="hsl(120, 70%, 42%)"');
+  });
+
+  it('falls back to a white outline when no ring colour is given', () => {
+    const el = buildPinEl('flight', null);
+    // The body stroke is white (no person colour present).
+    expect(el.outerHTML).toContain('stroke="#fff"');
+    expect(el.outerHTML).not.toContain('hsl(');
+  });
 });
 
 describe('buildMarkerPopup', () => {
