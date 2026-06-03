@@ -137,6 +137,28 @@ func deletePart(ctx context.Context, s *store.Store, partID int64) error {
 	return err
 }
 
+// TestNeedsBackfillDegenerateSchedule: a flight whose stored schedule is
+// degenerate (no real arrival — scheduled_in not after scheduled_out, the
+// "manual add, number + date only" case) must be treated as needing a resolver
+// backfill, even when its other metadata is already filled. Otherwise nothing
+// re-triggers a resolve and its times stay stuck at the placeholder.
+func TestNeedsBackfillDegenerateSchedule(t *testing.T) {
+	icao := "3c48f0"
+	out := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	full := &store.Flight{
+		OriginIATA: "BER", DestIATA: "MUC", ICAO24: &icao,
+		ScheduledOut: out, ScheduledIn: out.Add(time.Hour),
+	}
+	if needsBackfill(full) {
+		t.Error("a fully-resolved flight with a real schedule should not need backfill")
+	}
+	degen := *full
+	degen.ScheduledIn = out // arrival == departure: no real arrival time
+	if !needsBackfill(&degen) {
+		t.Error("a flight with no real arrival time should need backfill so it re-resolves")
+	}
+}
+
 func TestNewDefaultsInterval(t *testing.T) {
 	p := New(nil, nil, nil, 0)
 	if p.Interval != 60*time.Second {
@@ -474,6 +496,29 @@ func TestRefreshBackfillNotFoundLeavesFlightAlone(t *testing.T) {
 
 // A flight that already has full metadata AND was resolved recently must
 // NOT trigger another resolver call — last_resolved_at is the throttle.
+// TestMetadataPassThrottlesAfterResolveFailure: a pre-departure flight the
+// resolver can't fix must still get last_polled_at bumped, so the metadata
+// pass's minPollAge throttle applies and it isn't retried every tick.
+func TestMetadataPassThrottlesAfterResolveFailure(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	p.Resolver = &fakeResolver{err: providers.ErrFlightNotFound}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// In the 12h metadata band (departs in 2h), no metadata → resolve attempted.
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "XX9999", ScheduledOut: now.Add(2 * time.Hour), ScheduledIn: now.Add(4 * time.Hour),
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.LastPolledAt == nil {
+		t.Error("metadata pass must bump last_polled_at even on a failed resolve, so the throttle applies")
+	}
+}
+
 func TestRefreshSkipsResolveWhenFresh(t *testing.T) {
 	tr := &mockTracker{}
 	p, s, _ := newPoller(t, tr, time.Minute)
