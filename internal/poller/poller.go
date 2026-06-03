@@ -120,6 +120,12 @@ func (p *Poller) tick(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// Same per-flight cadence as the main loop, so a degenerate flight the
+		// resolver can't fix doesn't re-resolve every tick (it stays "needs
+		// backfill" forever otherwise).
+		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f.Status) {
+			continue
+		}
 		p.refreshMetadata(ctx, f, now)
 	}
 }
@@ -235,10 +241,15 @@ func (p *Poller) publishPartChange(ctx context.Context, partID int64) {
 	p.Hub.Publish(sse.Event{Type: "plan_part.updated", Data: payload, VisibleTo: visible})
 }
 
-// needsBackfill is true when the resolver could meaningfully fill in at
-// least one of the metadata fields that the rest of the system needs.
+// needsBackfill is true when the resolver could meaningfully fill in at least
+// one of the metadata fields the rest of the system needs. A degenerate
+// schedule (arrival not after departure) counts: it means a flight was added
+// with just a number + date and the real times never arrived, so we keep
+// asking the resolver until it supplies them — otherwise a flight that already
+// has its airframe/airports would never re-resolve to fix the times.
 func needsBackfill(f *store.Flight) bool {
-	return f.OriginIATA == "" || f.DestIATA == "" || f.ICAO24 == nil
+	return f.OriginIATA == "" || f.DestIATA == "" || f.ICAO24 == nil ||
+		!f.ScheduledIn.After(f.ScheduledOut)
 }
 
 // lateRefreshWindow is how close to scheduled departure we start re-asking

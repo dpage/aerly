@@ -137,6 +137,28 @@ func deletePart(ctx context.Context, s *store.Store, partID int64) error {
 	return err
 }
 
+// TestNeedsBackfillDegenerateSchedule: a flight whose stored schedule is
+// degenerate (no real arrival — scheduled_in not after scheduled_out, the
+// "manual add, number + date only" case) must be treated as needing a resolver
+// backfill, even when its other metadata is already filled. Otherwise nothing
+// re-triggers a resolve and its times stay stuck at the placeholder.
+func TestNeedsBackfillDegenerateSchedule(t *testing.T) {
+	icao := "3c48f0"
+	out := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	full := &store.Flight{
+		OriginIATA: "BER", DestIATA: "MUC", ICAO24: &icao,
+		ScheduledOut: out, ScheduledIn: out.Add(time.Hour),
+	}
+	if needsBackfill(full) {
+		t.Error("a fully-resolved flight with a real schedule should not need backfill")
+	}
+	degen := *full
+	degen.ScheduledIn = out // arrival == departure: no real arrival time
+	if !needsBackfill(&degen) {
+		t.Error("a flight with no real arrival time should need backfill so it re-resolves")
+	}
+}
+
 func TestNewDefaultsInterval(t *testing.T) {
 	p := New(nil, nil, nil, 0)
 	if p.Interval != 60*time.Second {
