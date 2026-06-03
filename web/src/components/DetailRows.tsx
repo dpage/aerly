@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Children, isValidElement } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
 import { fmtDateTime, fmtUTC } from '../lib/format';
@@ -6,6 +7,25 @@ import { fmtDateTime, fmtUTC } from '../lib/format';
 // Small presentational primitives shared by FlightDetailCard and PartDetailBlock
 // — a labelled section with label/value rows. A Section/Row renders nothing when
 // every value is empty, so a sparse part shows a correspondingly short block.
+
+// rowRendersEmpty mirrors the null conditions inside Row/TimeRow so Section can
+// decide whether it has any visible content. We must inspect props rather than
+// truthiness of the child: a <Row value={null} /> is still a (truthy) element,
+// so checking the element itself would never collapse the heading.
+function rowRendersEmpty(child: ReactNode): boolean {
+  if (child == null || child === false || child === '') return true;
+  if (isValidElement(child)) {
+    if (child.type === Row) {
+      const v = (child.props as { value?: ReactNode }).value;
+      return v == null || v === '' || v === false;
+    }
+    if (child.type === TimeRow) {
+      return !(child.props as { iso?: string }).iso;
+    }
+  }
+  // Unknown child (Mono, nested Section, custom node) — assume it renders.
+  return false;
+}
 
 export function Section({
   title,
@@ -16,9 +36,8 @@ export function Section({
   titleAdornment?: ReactNode;
   children: ReactNode;
 }) {
-  // Hide the whole section when all its Rows collapsed to null.
-  const rows = Array.isArray(children) ? children : [children];
-  if (rows.every((c) => c == null || c === false)) return null;
+  // Hide the whole section when every Row/TimeRow would render null.
+  if (Children.toArray(children).every(rowRendersEmpty)) return null;
   return (
     <Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>

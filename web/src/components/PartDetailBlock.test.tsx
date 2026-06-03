@@ -69,9 +69,9 @@ describe('PartDetailBlock PlaceSection', () => {
     expect(screen.getByText('5 Rua')).toBeInTheDocument();
   });
 
-  it('collapses the Address row when there is no address at all', () => {
+  it('collapses the whole Where section when there is no location at all', () => {
     render(<PartDetailBlock part={part({ type: 'hotel', hotel: undefined })} />);
-    expect(screen.getByText('Where')).toBeInTheDocument();
+    expect(screen.queryByText('Where')).not.toBeInTheDocument();
     expect(screen.queryByText('Address')).not.toBeInTheDocument();
   });
 });
@@ -168,7 +168,7 @@ describe('PartDetailBlock TypeSection', () => {
     expect(screen.getByText('5')).toBeInTheDocument();
   });
 
-  it('collapses individual type detail rows when their fields are empty', () => {
+  it('collapses the whole Dining section when all its fields are empty', () => {
     render(
       <PartDetailBlock
         part={part({
@@ -177,9 +177,9 @@ describe('PartDetailBlock TypeSection', () => {
         })}
       />,
     );
-    // The Dining section header still renders (its children are Row elements),
-    // but every value Row collapses to null.
-    expect(screen.getByText('Dining')).toBeInTheDocument();
+    // Every value Row collapses to null, so the section header collapses too —
+    // an empty heading with nothing under it is never shown.
+    expect(screen.queryByText('Dining')).not.toBeInTheDocument();
     expect(screen.queryByText('Reservation')).not.toBeInTheDocument();
     expect(screen.queryByText('Party size')).not.toBeInTheDocument();
     expect(screen.queryByText('Phone')).not.toBeInTheDocument();
@@ -200,7 +200,7 @@ describe('PartDetailBlock TypeSection', () => {
         })}
       />,
     );
-    expect(screen.getByText('Hotel')).toBeInTheDocument();
+    expect(screen.queryByText('Hotel')).not.toBeInTheDocument();
     expect(screen.queryByText('Property')).not.toBeInTheDocument();
     expect(screen.queryByText('Room')).not.toBeInTheDocument();
     expect(screen.queryByText('Guests')).not.toBeInTheDocument();
@@ -215,7 +215,7 @@ describe('PartDetailBlock TypeSection', () => {
         })}
       />,
     );
-    expect(screen.getByText('Ground transport')).toBeInTheDocument();
+    expect(screen.queryByText('Ground transport')).not.toBeInTheDocument();
     expect(screen.queryByText('Provider')).not.toBeInTheDocument();
     expect(screen.queryByText('Driver')).not.toBeInTheDocument();
     expect(screen.queryByText('Passengers')).not.toBeInTheDocument();
@@ -230,7 +230,7 @@ describe('PartDetailBlock TypeSection', () => {
         })}
       />,
     );
-    expect(screen.getByText('Train')).toBeInTheDocument();
+    expect(screen.queryByText('Train')).not.toBeInTheDocument();
     expect(screen.queryByText('Operator')).not.toBeInTheDocument();
     expect(screen.queryByText('Platform')).not.toBeInTheDocument();
   });
@@ -244,7 +244,7 @@ describe('PartDetailBlock TypeSection', () => {
         })}
       />,
     );
-    expect(screen.getByText('Excursion')).toBeInTheDocument();
+    expect(screen.queryByText('Excursion')).not.toBeInTheDocument();
     expect(screen.queryByText('Provider')).not.toBeInTheDocument();
     expect(screen.queryByText('Tickets')).not.toBeInTheDocument();
   });

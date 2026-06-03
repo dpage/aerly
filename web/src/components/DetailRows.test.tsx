@@ -60,6 +60,40 @@ describe('Section', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('collapses when every Row child would render null (empty values)', () => {
+    // Regression: a <Row value={null} /> is itself a truthy element, so the
+    // section must inspect the row's props, not the child's truthiness, to
+    // decide whether to hide the heading.
+    const { container } = render(
+      <Section title="Aircraft">
+        <Row label="Flight" value={null} />
+        <Row label="Callsign" value="" />
+      </Section>,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('collapses when every TimeRow child has no iso', () => {
+    const { container } = render(
+      <Section title="Schedule">
+        <TimeRow label="Scheduled out" />
+        <TimeRow label="Scheduled in" />
+      </Section>,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders when at least one Row child has a value', () => {
+    render(
+      <Section title="Aircraft">
+        <Row label="Flight" value={null} />
+        <Row label="Callsign" value="BAW217" />
+      </Section>,
+    );
+    expect(screen.getByText('Aircraft')).toBeInTheDocument();
+    expect(screen.getByText('BAW217')).toBeInTheDocument();
+  });
+
   it('renders without an adornment', () => {
     render(
       <Section title="Route">

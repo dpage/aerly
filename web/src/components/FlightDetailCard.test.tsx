@@ -158,14 +158,18 @@ describe('FlightDetailCard', () => {
         })}
       />,
     );
-    // Section headers still render, but every value Row collapses to null.
-    expect(screen.getByText('Aircraft')).toBeInTheDocument();
+    // The Aircraft section's rows (Flight/ICAO24/Callsign) are all empty, so
+    // the whole section — header included — collapses; no empty heading shows.
+    expect(screen.queryByText('Aircraft')).not.toBeInTheDocument();
     expect(screen.queryByText('Flight')).not.toBeInTheDocument();
     expect(screen.queryByText('ICAO24')).not.toBeInTheDocument();
     expect(screen.queryByText('Callsign')).not.toBeInTheDocument();
+    // Route survives: From/To collapse (empty IATA) but Departure/Arrival
+    // always render via fmtGate's "Unknown" fallback.
     expect(screen.getByText('Route')).toBeInTheDocument();
     expect(screen.queryByText('From')).not.toBeInTheDocument();
     expect(screen.queryByText('To')).not.toBeInTheDocument();
+    expect(screen.getByText('Departure')).toBeInTheDocument();
   });
 
   it('ticks the live fix-age on its interval', () => {
