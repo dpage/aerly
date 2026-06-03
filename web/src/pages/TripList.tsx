@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Avatar,
@@ -20,6 +20,7 @@ import {
   Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import FileUploadIcon from '@mui/icons-material/FileUpload';
 import PlaceIcon from '@mui/icons-material/Place';
 
 import { useStore } from '../state/store';
@@ -38,14 +39,36 @@ export type TripScope = 'mine' | 'friends';
  * Upcoming / Happening now / Past by each trip's effective span vs now. The
  * 'mine' scope offers a "New trip" primary action; 'friends' is read-only. */
 export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
+  const navigate = useNavigate();
   const trips = useStore((s) => s.trips);
   const loading = useStore((s) => s.tripsLoading);
   const listTrips = useStore((s) => s.listTrips);
+  const setError = useStore((s) => s.setError);
   const me = useStore((s) => s.me);
 
   useEffect(() => {
     void listTrips();
   }, [listTrips]);
+
+  // Import a TripIt .ics as its own trip: the backend creates (or reuses, on
+  // re-import) the trip from the export and commits its plans, then we refresh
+  // the list and open the trip.
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const onImportFile = async (file?: File) => {
+    if (!file || importing) return;
+    setImporting(true);
+    try {
+      const res = await api.importTrip(file);
+      await listTrips();
+      navigate(`/trips/${res.trip.id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not import that .ics');
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
   const mine = scope === 'mine';
   const isSuper = !mine && !!me?.is_superuser;
@@ -102,9 +125,28 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
           {mine ? 'Your trips' : "Friends' trips"}
         </Typography>
         {mine && (
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
-            New trip
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="Import a trip from a TripIt calendar export (.ics)">
+              <Button
+                variant="outlined"
+                startIcon={<FileUploadIcon />}
+                onClick={() => fileRef.current?.click()}
+                disabled={importing}
+              >
+                Import .ics
+              </Button>
+            </Tooltip>
+            <input
+              ref={fileRef}
+              type="file"
+              hidden
+              accept=".ics,text/calendar"
+              onChange={(e) => void onImportFile(e.target.files?.[0])}
+            />
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
+              New trip
+            </Button>
+          </Stack>
         )}
       </Stack>
 

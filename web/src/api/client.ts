@@ -13,6 +13,7 @@ import type {
   Friendship,
   IngestInput,
   IngestResult,
+  ImportResult,
   InviteFriendInput,
   InviteUserInput,
   MovePlanInput,
@@ -249,6 +250,14 @@ export const api = {
   },
   ingestConfirm: (tripId: number, plans: ConfirmPlanInput[]) =>
     request<Plan[]>('POST', `/api/trips/${tripId}/ingest/confirm`, { plans }),
+
+  // Import a whole TripIt .ics as its own trip (creates/reuses the trip from
+  // the export and commits its plans, deduped — see POST /api/trips/import).
+  importTrip: (file: File) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return requestMultipart<ImportResult>('POST', '/api/trips/import', form);
+  },
 
   // -------------------------------------------------------------------------
   // Calendar tokens (spec §5.2 / §8). The .ics feeds themselves are fetched

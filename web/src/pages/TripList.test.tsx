@@ -13,6 +13,7 @@ vi.mock('react-router-dom', async () => {
 
 const listTrips = vi.fn();
 const createTrip = vi.fn();
+const setError = vi.fn();
 
 const state = {
   trips: [] as Trip[],
@@ -21,17 +22,19 @@ const state = {
   me: null as User | null,
   listTrips,
   createTrip,
+  setError,
 };
 
 vi.mock('../state/store', () => ({
   useStore: (sel: (s: typeof state) => unknown) => sel(state),
 }));
 
-vi.mock('../api/client', () => ({ api: { listTrips: vi.fn() } }));
+vi.mock('../api/client', () => ({ api: { listTrips: vi.fn(), importTrip: vi.fn() } }));
 
 import TripList from './TripList';
 import { api } from '../api/client';
 const mockApiListTrips = api.listTrips as unknown as ReturnType<typeof vi.fn>;
+const mockImportTrip = api.importTrip as unknown as ReturnType<typeof vi.fn>;
 
 function trip(over: Partial<Trip> = {}): Trip {
   return {
@@ -339,5 +342,31 @@ describe('TripList', () => {
     createBtn.click();
     expect(createTrip).toHaveBeenCalledTimes(1);
     resolve(trip({ id: 1, name: 'Once' }));
+  });
+
+  it('imports a .ics: uploads, refreshes the list, and opens the new trip', async () => {
+    mockImportTrip.mockResolvedValue({ trip: trip({ id: 77, name: 'Imported' }), added: 7, skipped: 0 });
+    const { container } = renderList('mine');
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['BEGIN:VCALENDAR\nEND:VCALENDAR'], 'trip.ics', { type: 'text/calendar' });
+    await userEvent.upload(input, file);
+    expect(mockImportTrip).toHaveBeenCalledWith(file);
+    expect(listTrips).toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith('/trips/77');
+  });
+
+  it('surfaces an error when the .ics import fails', async () => {
+    mockImportTrip.mockRejectedValue(new Error('bad ics'));
+    const { container } = renderList('mine');
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, new File(['x'], 'trip.ics', { type: 'text/calendar' }));
+    expect(setError).toHaveBeenCalledWith('bad ics');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('offers no import action on the Friends tab', () => {
+    const { container } = renderList('friends');
+    expect(screen.queryByRole('button', { name: /import \.ics/i })).not.toBeInTheDocument();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 });

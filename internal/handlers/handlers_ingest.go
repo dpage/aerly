@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"io"
 	"mime"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/tripitics"
 )
 
 // maxUploadBytes caps a single ingest document (PDF ticket) to keep multipart
@@ -57,13 +59,24 @@ func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 	if err := a.requireTripEdit(r.Context(), tripID, me, w); err != nil {
 		return
 	}
-	if a.Extractor == nil {
-		writeError(w, http.StatusServiceUnavailable, "ingest is not configured (no LLM provider)")
-		return
-	}
 	text, docs, err := parseIngestBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// An .ics from a recognised source (e.g. a TripIt export) is structured, so
+	// map it deterministically rather than via the LLM — no token cost and, for
+	// TripIt, no ±2-year date guard that would drop historical trips. An
+	// unrecognised calendar falls through to the LLM with its content as text.
+	if data, ok := icalUpload(text, docs); ok {
+		if res, recognised := icalProposals(data); recognised {
+			writeJSON(w, http.StatusOK, res)
+			return
+		}
+		text, docs = string(data), nil
+	}
+	if a.Extractor == nil {
+		writeError(w, http.StatusServiceUnavailable, "ingest is not configured (no LLM provider)")
 		return
 	}
 	deps := planops.Deps{Store: a.Store, Extractor: a.Extractor, Resolver: a.Resolver}
@@ -136,6 +149,88 @@ func documentMediaType(declared, filename string) string {
 		return declared
 	}
 	return "application/octet-stream"
+}
+
+// icalUpload returns the raw iCalendar bytes from an ingest request — whether
+// the .ics arrived as an uploaded file or pasted into the text field — and
+// whether it looked like iCal at all.
+func icalUpload(text string, docs []planops.Document) ([]byte, bool) {
+	for _, d := range docs {
+		if looksICal(d.Data) {
+			return d.Data, true
+		}
+	}
+	if looksICal([]byte(text)) {
+		return []byte(text), true
+	}
+	return nil, false
+}
+
+// looksICal sniffs for the iCalendar BEGIN:VCALENDAR marker near the start of
+// the content (so a stray mention deeper in a pasted email doesn't trigger it).
+func looksICal(b []byte) bool {
+	n := len(b)
+	if n > 512 {
+		n = 512
+	}
+	return bytes.Contains(b[:n], []byte("BEGIN:VCALENDAR"))
+}
+
+// icalProposals parses an .ics and, if it's from a recognised source (e.g.
+// TripIt), maps it deterministically into propose-step proposals. recognised is
+// false for a calendar no source-specific mapper handles, so the caller can
+// fall back to the LLM.
+func icalProposals(data []byte) (out api.IngestResultDTO, recognised bool) {
+	cal, err := tripitics.Parse(bytes.NewReader(data))
+	if err != nil {
+		return api.IngestResultDTO{}, false
+	}
+	mt, _, ok := tripitics.Map(cal)
+	if !ok {
+		return api.IngestResultDTO{}, false
+	}
+	out = api.IngestResultDTO{Proposals: make([]api.ProposedPlanDTO, 0, len(mt.Plans))}
+	for _, p := range mt.Plans {
+		out.Proposals = append(out.Proposals, icalProposalDTO(p))
+	}
+	return out, true
+}
+
+// icalProposalDTO renders a mapped plan as a propose-step DTO. Unlike
+// toProposedPlanDTO (the LLM path, which carries no coordinates), it preserves
+// the start/end coordinates and timezones the mapper resolved, so the
+// great-circle arc and local-time rendering survive the confirm round-trip.
+func icalProposalDTO(in planops.ConfirmPlanInput) api.ProposedPlanDTO {
+	dto := api.ProposedPlanDTO{
+		Type:            in.Type,
+		Title:           in.Title,
+		ConfirmationRef: in.ConfirmationRef,
+		Notes:           in.Notes,
+		Confidence:      1,
+		Parts:           make([]api.PlanPartDTO, 0, len(in.Parts)),
+	}
+	for i, part := range in.Parts {
+		sp := &store.PlanPart{
+			Type:         part.Type,
+			Seq:          i,
+			StartsAt:     part.StartsAt,
+			EndsAt:       part.EndsAt,
+			StartTZ:      part.StartTZ,
+			EndTZ:        part.EndTZ,
+			StartLabel:   part.StartLabel,
+			StartLat:     part.StartLat,
+			StartLon:     part.StartLon,
+			StartAddress: part.StartAddress,
+			EndLabel:     part.EndLabel,
+			EndLat:       part.EndLat,
+			EndLon:       part.EndLon,
+			EndAddress:   part.EndAddress,
+			Status:       part.Status,
+		}
+		dto.Parts = append(dto.Parts, api.ToPlanPartDTO(sp,
+			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, nil))
+	}
+	return dto
 }
 
 // ingestTripConfirm commits the confirmed/edited proposals against the trip,

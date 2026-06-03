@@ -97,6 +97,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	// Trips, members, tags (Wave 1A).
 	mux.Handle("GET /api/trips", req(http.HandlerFunc(a.listTrips)))
 	mux.Handle("POST /api/trips", req(http.HandlerFunc(a.createTrip)))
+	mux.Handle("POST /api/trips/import", req(http.HandlerFunc(a.importTrip)))
 	mux.Handle("GET /api/trips/{id}", req(http.HandlerFunc(a.getTrip)))
 	mux.Handle("PATCH /api/trips/{id}", req(http.HandlerFunc(a.updateTrip)))
 	mux.Handle("DELETE /api/trips/{id}", req(http.HandlerFunc(a.deleteTrip)))
