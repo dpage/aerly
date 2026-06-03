@@ -87,7 +87,6 @@ func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time)
 // transient throttle is hidden from the caller this way.
 func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*ResolvedFlight, error) {
 	const maxAttempts = 2
-	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		rf, status, retryAfter, body, err := a.doOne(ctx, ident, date)
 		if err != nil {
@@ -148,7 +147,10 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 			return nil, fmt.Errorf("aerodatabox %d: %s", status, body)
 		}
 	}
-	return nil, lastErr
+	// Unreachable: every status case above returns, and the only path that
+	// falls through to the next iteration is a 429 retry which returns on the
+	// final attempt. Guard explicitly rather than returning a nil error.
+	return nil, fmt.Errorf("aerodatabox: exhausted %d attempts for %s on %s", maxAttempts, ident, date)
 }
 
 // doOne is the single-request workhorse. It returns the parsed flight (only

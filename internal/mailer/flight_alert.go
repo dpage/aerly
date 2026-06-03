@@ -65,14 +65,16 @@ func BuildFlightAlertEmail(in FlightAlertInput) string {
 			`<p style="margin:0;"><a href="%s/" style="display:inline-block;padding:10px 18px;border-radius:6px;background:%s;color:#ffffff;font-weight:600;text-decoration:none;">Open Aerly</a></p>`,
 		HTMLEscape(lead), HTMLEscape(site), BrandColor)
 
-	return assembleAlertRFC822(in.FromAddr, in.ToAddr, subject,
+	return AssembleRFC822(in.FromAddr, in.ToAddr, subject,
 		plain, HTMLShell(subject, htmlBody, in.PublicURL))
 }
 
-// assembleAlertRFC822 wraps a plain + html pair into a complete RFC822 message
-// with the standard Aerly headers. Mirrors the helper in auth/notify.go; kept
-// here so the poller's alert step depends only on mailer.
-func assembleAlertRFC822(fromAddr, toAddr, subject, plain, htmlBody string) string {
+// AssembleRFC822 wraps a plain + html pair into a complete multipart/alternative
+// RFC822 message with the standard Aerly headers (From/To/Date/Subject). The
+// subject is RFC 2047 Q-encoded so non-ASCII content survives strict MTAs (and
+// any CR/LF is neutralised); pure-ASCII subjects round-trip unchanged. Shared
+// by the poller alert, friend-invite, account-link, and ingest-reply mailers.
+func AssembleRFC822(fromAddr, toAddr, subject, plain, htmlBody string) string {
 	contentType, body := MultipartBody(plain, htmlBody)
 	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
 	var sb strings.Builder

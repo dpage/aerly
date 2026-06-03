@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"fmt"
-	"mime"
 	"strings"
-	"time"
 
 	"github.com/dpage/aerly/internal/mailer"
 )
@@ -67,7 +65,7 @@ func buildFriendInviteEmail(in friendInviteInput) string {
 	}
 
 	subject := inviter + " invited you to Aerly"
-	return assembleRFC822(in.FromAddr, in.ToAddr, subject,
+	return mailer.AssembleRFC822(in.FromAddr, in.ToAddr, subject,
 		plain, mailer.HTMLShell(subject, htmlBody, in.PublicURL))
 }
 
@@ -105,22 +103,7 @@ func buildFriendRequestEmail(in friendRequestInput) string {
 	}
 
 	subject := inviter + " sent you a friend request on Aerly"
-	return assembleRFC822(in.FromAddr, in.ToAddr, subject,
+	return mailer.AssembleRFC822(in.FromAddr, in.ToAddr, subject,
 		plain, mailer.HTMLShell(subject, htmlBody, in.PublicURL))
 }
 
-func assembleRFC822(fromAddr, toAddr, subject, plain, htmlBody string) string {
-	contentType, body := mailer.MultipartBody(plain, htmlBody)
-	// RFC 2047 Q-encode the subject so non-ASCII inviter names survive
-	// strict MTAs; pure-ASCII subjects round-trip unchanged.
-	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", fromAddr)
-	fmt.Fprintf(&sb, "To: %s\r\n", toAddr)
-	fmt.Fprintf(&sb, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
-	fmt.Fprintf(&sb, "Subject: %s\r\n", encodedSubject)
-	sb.WriteString("MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&sb, "Content-Type: %s\r\n\r\n", contentType)
-	sb.WriteString(body)
-	return sb.String()
-}

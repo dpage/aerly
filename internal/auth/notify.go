@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"mime"
 	"net/mail"
 	"strings"
-	"time"
 
 	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/store"
@@ -131,24 +129,7 @@ func buildIdentityLinkedEmail(in identityLinkedInput) string {
 		mailer.BrandColor)
 
 	subject := "A new sign-in method was linked to your Aerly account"
-	return assembleNotificationRFC822(in.FromAddr, in.ToAddr, subject,
+	return mailer.AssembleRFC822(in.FromAddr, in.ToAddr, subject,
 		plain, mailer.HTMLShell(subject, htmlBody, in.PublicURL))
 }
 
-// assembleNotificationRFC822 wraps a plain + html pair into a complete
-// RFC822 message with the standard Aerly headers. Mirrors the helper in
-// internal/handlers/friend_emails.go but lives here so the auth package
-// doesn't depend on handlers.
-func assembleNotificationRFC822(fromAddr, toAddr, subject, plain, htmlBody string) string {
-	contentType, body := mailer.MultipartBody(plain, htmlBody)
-	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", fromAddr)
-	fmt.Fprintf(&sb, "To: %s\r\n", toAddr)
-	fmt.Fprintf(&sb, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
-	fmt.Fprintf(&sb, "Subject: %s\r\n", encodedSubject)
-	sb.WriteString("MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&sb, "Content-Type: %s\r\n\r\n", contentType)
-	sb.WriteString(body)
-	return sb.String()
-}
