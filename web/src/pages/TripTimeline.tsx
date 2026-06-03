@@ -27,6 +27,7 @@ import {
   fmtTimeOfDay,
   planTypeLabel,
 } from '../lib/trip-format';
+import { fmtGate } from '../lib/gate';
 
 // Accent palette used to visually tie a plan's parts together (PRD §6.2). A
 // plan's parts all share the same accent stripe and connector, so a return
@@ -265,6 +266,12 @@ function PartCard({ part, plan, trip, edge, accent, multiPart, expanded, onToggl
           {plan.confirmation_ref && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               Ref: {plan.confirmation_ref}
+            </Typography>
+          )}
+
+          {part.type === 'flight' && part.flight && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {fmtGate(part.flight.origin_terminal, part.flight.origin_gate)}
             </Typography>
           )}
 

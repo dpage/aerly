@@ -510,4 +510,32 @@ describe('TripTimeline', () => {
     await userEvent.click(screen.getByText('Ring on arrival'));
     expect(within(card).getByRole('button', { name: /^Edit$/i })).toBeInTheDocument();
   });
+
+  it('shows the departure gate on a flight tile face', async () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 5,
+            plan_id: 1,
+            type: 'flight',
+            flight: {
+              ident: 'TP456',
+              callsign: '',
+              scheduled_out: '2026-10-12T09:00:00Z',
+              scheduled_in: '2026-10-12T11:00:00Z',
+              origin_iata: 'LHR',
+              dest_iata: 'LIS',
+              flight_status: 'Scheduled',
+              origin_terminal: '5',
+              origin_gate: 'B32',
+            },
+          }),
+        ],
+        { id: 1, type: 'flight', title: 'Flight out' },
+      ),
+    ]);
+    renderTimeline();
+    expect(await screen.findByText('Terminal 5 · Gate B32')).toBeInTheDocument();
+  });
 });
