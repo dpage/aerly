@@ -35,3 +35,39 @@ func TestNotificationsIncludesUnreadAlerts(t *testing.T) {
 		t.Errorf("unread_alerts = %d, want 2", got.UnreadAlerts)
 	}
 }
+
+func TestListAndMarkAlertsRead(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "bob", false)
+	other := e.user(t, "carol", false)
+	seedAlert(t, e, uid, "BA286 now departs gate B32")
+	seedAlert(t, e, other, "not yours")
+
+	// List: only the viewer's alert.
+	w := e.req(t, http.MethodGet, "/api/alerts", nil, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list status = %d", w.Code)
+	}
+	list := decodeBody[[]api.FlightAlertDTO](t, w)
+	if len(list) != 1 || list[0].Message != "BA286 now departs gate B32" {
+		t.Fatalf("list = %+v", list)
+	}
+
+	// Mark read clears the unread count.
+	w = e.req(t, http.MethodPost, "/api/alerts/read", nil, uid)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("mark-read status = %d", w.Code)
+	}
+	w = e.req(t, http.MethodGet, "/api/notifications", nil, uid)
+	if decodeBody[api.NotificationsDTO](t, w).UnreadAlerts != 0 {
+		t.Errorf("unread after mark-read != 0")
+	}
+}
+
+func TestAlertsRequireAuth(t *testing.T) {
+	e := setup(t, nil, nil)
+	w := e.req(t, http.MethodGet, "/api/alerts", nil, 0)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("unauth list status = %d, want 401", w.Code)
+	}
+}
