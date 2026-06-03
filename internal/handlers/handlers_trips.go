@@ -262,6 +262,9 @@ func (a *API) addTripMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "role must be owner, editor, or viewer")
 		return
 	}
+	if err := a.requireFriendTarget(r.Context(), me, in.UserID, w); err != nil {
+		return
+	}
 	if err := a.Store.AddTripMember(r.Context(), id, in.UserID, in.Role); err != nil {
 		handleStoreErr(w, err)
 		return
@@ -431,6 +434,32 @@ func (a *API) requireTripOwner(ctx context.Context, tripID int64, u *store.User,
 	if role != "owner" {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return errors.New("forbidden")
+	}
+	return nil
+}
+
+// requireFriendTarget ensures `target` may be added to a shared resource by
+// `actor`: the target must be the actor themselves or an accepted friend. This
+// mirrors the front end, which only offers accepted friends as passengers/trip
+// members (spec §6.4); enforcing it server-side stops an editor adding (and
+// thereby granting trip visibility to) an arbitrary user id. Superusers bypass.
+// Writes the response and returns a non-nil error when the check fails.
+func (a *API) requireFriendTarget(ctx context.Context, actor *store.User, target int64, w http.ResponseWriter) error {
+	if actor == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return errors.New("unauthorized")
+	}
+	if actor.IsSuperuser || actor.ID == target {
+		return nil
+	}
+	ok, err := a.Store.AreAcceptedFriends(ctx, actor.ID, target)
+	if err != nil {
+		serverError(w, err)
+		return err
+	}
+	if !ok {
+		writeError(w, http.StatusForbidden, "user must be an accepted friend")
+		return errors.New("not an accepted friend")
 	}
 	return nil
 }

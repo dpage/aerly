@@ -80,6 +80,8 @@ func TestTripMemberEndpoints(t *testing.T) {
 	owner := e.user(t, "owner", false)
 	editor := e.user(t, "editor", false)
 	viewer := e.user(t, "viewer", false)
+	e.befriend(t, owner, editor)
+	e.befriend(t, owner, viewer)
 
 	w := e.req(t, "POST", "/api/trips", map[string]any{"name": "T"}, owner)
 	tid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
@@ -109,6 +111,13 @@ func TestTripMemberEndpoints(t *testing.T) {
 	// Owner removes the editor.
 	if w := e.req(t, "DELETE", fmt.Sprintf("/api/trips/%d/members/%d", tid, editor), nil, owner); w.Code != 204 {
 		t.Errorf("remove member = %d, want 204", w.Code)
+	}
+
+	// A non-friend cannot be added (would silently grant them trip access).
+	stranger := e.user(t, "stranger", false)
+	if w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/members", tid),
+		map[string]any{"user_id": stranger, "role": "viewer"}, owner); w.Code != 403 {
+		t.Errorf("add non-friend member = %d, want 403", w.Code)
 	}
 }
 

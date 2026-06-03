@@ -96,6 +96,7 @@ func TestPlanPassengerEndpointMakesViewer(t *testing.T) {
 	e := setup(t, nil, nil)
 	owner := e.user(t, "owner", false)
 	pax := e.user(t, "pax", false)
+	e.befriend(t, owner, pax)
 	tid := newTrip(t, e, owner, "Trip")
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", tid), map[string]any{
 		"type": "dining", "title": "Dinner",
@@ -131,6 +132,8 @@ func TestPlanVisibilityFilteringEndpoint(t *testing.T) {
 	owner := e.user(t, "owner", false)
 	memberA := e.user(t, "memberA", false)
 	memberB := e.user(t, "memberB", false)
+	e.befriend(t, owner, memberA)
+	e.befriend(t, owner, memberB)
 	tid := newTrip(t, e, owner, "Trip")
 
 	// Both members are viewers on the trip.
@@ -219,6 +222,7 @@ func TestMovePlanEndpointRecomputesVisibility(t *testing.T) {
 	e := setup(t, nil, nil)
 	owner := e.user(t, "owner", false)
 	named := e.user(t, "named", false)
+	e.befriend(t, owner, named)
 	src := newTrip(t, e, owner, "Source")
 	dst := newTrip(t, e, owner, "Dest")
 

@@ -281,6 +281,12 @@ func (a *API) addPlanPassenger(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "user_id required")
 		return
 	}
+	// A passenger becomes a trip viewer (via DB trigger), so they must be an
+	// accepted friend of the actor — matching the FE picker (spec §6.4) and
+	// preventing an editor from exposing the trip to an arbitrary user id.
+	if err := a.requireFriendTarget(r.Context(), me, in.UserID, w); err != nil {
+		return
+	}
 	// The DB trigger ensures the passenger becomes a trip viewer.
 	if err := a.Store.AddPlanPassenger(r.Context(), id, in.UserID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

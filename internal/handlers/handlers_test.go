@@ -97,6 +97,19 @@ func (e *testEnv) user(t *testing.T, username string, super bool) int64 {
 	}
 	return u.ID
 }
+// befriend establishes an accepted friendship between a and b, so one may be
+// added as the other's trip member / plan passenger (the handlers enforce this,
+// matching the FE picker).
+func (e *testEnv) befriend(t *testing.T, a, b int64) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := e.store.RequestFriendship(ctx, a, b, ""); err != nil {
+		t.Fatalf("request friendship: %v", err)
+	}
+	if _, err := e.store.AcceptFriendship(ctx, b, a); err != nil {
+		t.Fatalf("accept friendship: %v", err)
+	}
+}
 func decodeBody[T any](t *testing.T, w *httptest.ResponseRecorder) T {
 	t.Helper()
 	var v T
