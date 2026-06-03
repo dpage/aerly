@@ -3,6 +3,7 @@ package emailingest
 import (
 	"context"
 	"fmt"
+	"mime"
 	"strings"
 
 	"github.com/dpage/aerly/internal/mailer"
@@ -58,6 +59,12 @@ func BuildReply(in ReplyInput) string {
 	if !strings.HasPrefix(strings.ToLower(subj), "re:") {
 		subj = "Re: " + subj
 	}
+	// The original Subject is attacker-controlled (it's echoed back from the
+	// forwarded mail, and mime word-decoding can preserve embedded CRLF).
+	// Q-encoding neutralises any CR/LF so it cannot inject extra headers
+	// (Bcc:, etc.) into the outbound reply; plain ASCII subjects pass through
+	// unchanged. This matches mailer.assembleAlertRFC822.
+	encodedSubject := mime.QEncoding.Encode("utf-8", subj)
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "From: %s\r\n", in.FromAddr)
@@ -65,7 +72,7 @@ func BuildReply(in ReplyInput) string {
 	if in.InReplyTo != "" {
 		fmt.Fprintf(&sb, "In-Reply-To: %s\r\nReferences: %s\r\n", in.InReplyTo, in.InReplyTo)
 	}
-	fmt.Fprintf(&sb, "Subject: %s\r\n", subj)
+	fmt.Fprintf(&sb, "Subject: %s\r\n", encodedSubject)
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&sb, "Content-Type: %s\r\n\r\n", contentType)
 	sb.WriteString(body)

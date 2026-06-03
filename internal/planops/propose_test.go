@@ -255,3 +255,76 @@ func TestCommit_SupersessionCancelsOldPart(t *testing.T) {
 		t.Errorf("new part supersedes_id = %v, want %d", newParts[0].SupersedesID, oldPart)
 	}
 }
+
+// TestCommit_SupersedeRejectsForeignPart verifies that a confirm body cannot
+// supersede (and thereby cancel) a part belonging to a different trip. This
+// guards against an editor of trip A cancelling another user's part in trip B
+// by passing its id, since SupersedesPartID is client-controlled.
+func TestCommit_SupersedeRejectsForeignPart(t *testing.T) {
+	e := newEnv(t)
+	s := e.s
+	owner := e.mkUser(t)
+	tripA := e.mkTrip(t, owner)
+	tripB := e.mkTrip(t, owner)
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := time.Date(2026, 6, 1, 17, 0, 0, 0, time.UTC)
+	// A part that lives in trip B.
+	_, foreignPart := e.mkFlightPlan(t, tripB, owner, "BA286", "PNR123", out, in)
+
+	// Try to supersede trip B's part while committing into trip A.
+	plans := []ConfirmPlanInput{{
+		Type: "flight", Title: "BA286 (rebooked)", ConfirmationRef: "PNR123",
+		SupersedesPartID: &foreignPart,
+		Parts: []ConfirmPartInput{{
+			Type: "flight", StartsAt: out.AddDate(0, 0, 1), EndsAt: &in,
+			Flight: &store.FlightDetail{
+				Ident: "BA286", ScheduledOut: out, ScheduledIn: in,
+				OriginIATA: "LHR", DestIATA: "JFK",
+			},
+		}},
+	}}
+	if _, err := Commit(ctx, Deps{Store: s}, tripA, owner, plans); err == nil {
+		t.Fatal("Commit accepted a cross-trip supersession; want rejection")
+	}
+	// The foreign part must be untouched (NOT cancelled).
+	fp, err := s.PlanPartByID(ctx, foreignPart)
+	if err != nil {
+		t.Fatalf("PlanPartByID(foreign): %v", err)
+	}
+	if fp.Status == "cancelled" {
+		t.Errorf("foreign part was cancelled across trips; status = %q", fp.Status)
+	}
+}
+
+// TestCommit_SupersedeRejectsMultiPart verifies a supersession on a multi-part
+// plan is rejected rather than cancelling the old part without a forward link.
+func TestCommit_SupersedeRejectsMultiPart(t *testing.T) {
+	e := newEnv(t)
+	s := e.s
+	owner := e.mkUser(t)
+	trip := e.mkTrip(t, owner)
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := time.Date(2026, 6, 1, 17, 0, 0, 0, time.UTC)
+	_, oldPart := e.mkFlightPlan(t, trip, owner, "BA286", "PNR123", out, in)
+
+	plans := []ConfirmPlanInput{{
+		Type: "flight", Title: "BA286 (rebooked)", ConfirmationRef: "PNR123",
+		SupersedesPartID: &oldPart,
+		Parts: []ConfirmPartInput{
+			{Type: "flight", StartsAt: out.AddDate(0, 0, 1), EndsAt: &in,
+				Flight: &store.FlightDetail{Ident: "BA286", ScheduledOut: out, ScheduledIn: in, OriginIATA: "LHR", DestIATA: "JFK"}},
+			{Type: "flight", StartsAt: out.AddDate(0, 0, 2), EndsAt: &in,
+				Flight: &store.FlightDetail{Ident: "BA287", ScheduledOut: out, ScheduledIn: in, OriginIATA: "JFK", DestIATA: "LHR"}},
+		},
+	}}
+	if _, err := Commit(ctx, Deps{Store: s}, trip, owner, plans); err == nil {
+		t.Fatal("Commit accepted a multi-part supersession; want rejection")
+	}
+	op, err := s.PlanPartByID(ctx, oldPart)
+	if err != nil {
+		t.Fatalf("PlanPartByID(old): %v", err)
+	}
+	if op.Status == "cancelled" {
+		t.Errorf("old part cancelled without a linked replacement; status = %q", op.Status)
+	}
+}

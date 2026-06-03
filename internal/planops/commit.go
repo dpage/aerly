@@ -77,6 +77,25 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 	}
 	out := make([]*store.Plan, 0, len(plans))
 	for _, in := range plans {
+		// Validate any rebooking supersession before writing anything. The
+		// superseded part MUST belong to this trip — otherwise an editor of
+		// trip A could cancel an arbitrary part in another user's trip B
+		// simply by passing its id (the confirm body is client-controlled).
+		// Supersession also only applies to a plan's single (flight) part, per
+		// the contract; reject multi-part plans carrying a supersession rather
+		// than silently cancelling without linking.
+		if in.SupersedesPartID != nil {
+			if len(in.Parts) != 1 {
+				return nil, fmt.Errorf("supersedes is only valid for a single-part plan, got %d parts", len(in.Parts))
+			}
+			_, superTripID, err := deps.Store.PlanIDForPart(ctx, *in.SupersedesPartID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve superseded part %d: %w", *in.SupersedesPartID, err)
+			}
+			if superTripID != tripID {
+				return nil, fmt.Errorf("superseded part %d does not belong to trip %d", *in.SupersedesPartID, tripID)
+			}
+		}
 		source := in.Source
 		if source == "" {
 			source = "paste"

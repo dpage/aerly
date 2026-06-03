@@ -76,6 +76,45 @@ func TestBuildReply_HTMLEscapesUserContent(t *testing.T) {
 	}
 }
 
+// TestBuildReply_SubjectHeaderInjection verifies that a forwarded Subject
+// carrying CRLF (mime word-decoding can preserve it) cannot inject extra
+// headers into the reply — the header block must end at the first blank line
+// and no attacker header (Bcc:) may appear among the real headers.
+func TestBuildReply_SubjectHeaderInjection(t *testing.T) {
+	body := BuildReply(ReplyInput{
+		FromAddr:  "flights@flights.example",
+		ToAddr:    "victim@example.com",
+		Subject:   "hi\r\nBcc: attacker@evil.example",
+		PublicURL: "https://flights.example",
+	})
+	// The header section is everything before the first blank line.
+	headerEnd := strings.Index(body, "\r\n\r\n")
+	if headerEnd < 0 {
+		t.Fatalf("no header/body separator in:\n%s", body)
+	}
+	headers := body[:headerEnd]
+	// No header line may *start* with Bcc: (the injected value is allowed to
+	// survive inside the encoded Subject word, just not as its own header).
+	for _, line := range strings.Split(headers, "\r\n") {
+		if strings.HasPrefix(strings.ToLower(line), "bcc:") {
+			t.Errorf("injected Bcc header survived as its own line:\n%s", headers)
+		}
+	}
+	// The Subject must be a single header line: find it and confirm its value
+	// contains no raw CRLF (it should be Q-encoded into one =?utf-8?...?= word).
+	subjIdx := strings.Index(headers, "Subject:")
+	if subjIdx < 0 {
+		t.Fatalf("no Subject header:\n%s", headers)
+	}
+	subjLine := headers[subjIdx:]
+	if i := strings.Index(subjLine, "\r\n"); i >= 0 {
+		subjLine = subjLine[:i] // first line only
+	}
+	if !strings.Contains(subjLine, "=?") {
+		t.Errorf("Subject with control chars was not encoded: %q", subjLine)
+	}
+}
+
 func TestBuildReply_PartialFailure(t *testing.T) {
 	in := ReplyInput{
 		FromAddr: "flights@flights.example", ToAddr: "u@x", PublicURL: "https://flights.example/",
