@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link as RouterLink, Outlet, useLocation } from 'react-router-dom';
+import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
@@ -63,8 +63,12 @@ export default function Layout() {
   const capabilities = useStore((s) => s.capabilities);
   const openHelp = useStore((s) => s.openHelp);
   const pendingRequests = useStore((s) => s.notifications.friend_requests_pending);
+  const unreadAlerts = useStore((s) => s.notifications.unread_alerts);
+  const alerts = useStore((s) => s.alerts);
+  const markAlertsRead = useStore((s) => s.markAlertsRead);
   const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
   const location = useLocation();
+  const navigate = useNavigate();
   const theme = useTheme();
   // Below `sm` (≈phones, e.g. iPhone SE) the three nav labels won't fit beside
   // the brand + account icons without wrapping, so they collapse into a drawer.
@@ -157,16 +161,19 @@ export default function Layout() {
             </Tooltip>
           )}
           <Badge
-            badgeContent={pendingRequests}
+            badgeContent={pendingRequests + unreadAlerts}
             color="error"
             overlap="circular"
-            invisible={pendingRequests === 0}
+            invisible={pendingRequests + unreadAlerts === 0}
             anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
           >
             <Tooltip title="Account menu">
               <IconButton
                 size="small"
-                onClick={(e) => setMenuAnchor(e.currentTarget)}
+                onClick={(e) => {
+                  setMenuAnchor(e.currentTarget);
+                  if (unreadAlerts > 0) void markAlertsRead();
+                }}
                 aria-label="Account menu"
               >
                 <Avatar src={me?.avatar_url} sx={{ width: 28, height: 28 }}>
@@ -190,6 +197,32 @@ export default function Layout() {
               </MenuItem>
             )}
             <Divider />
+            {alerts.length > 0 && (
+              <Box>
+                <MenuItem disabled sx={{ opacity: '1 !important' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Flight alerts
+                  </Typography>
+                </MenuItem>
+                {alerts.slice(0, 6).map((al) => (
+                  <MenuItem
+                    key={al.id}
+                    onClick={() => {
+                      closeMenu();
+                      navigate(`/tracker?part=${al.plan_part_id}`);
+                    }}
+                  >
+                    <ListItemIcon>
+                      <NotificationsIcon fontSize="small" />
+                    </ListItemIcon>
+                    <Typography variant="body2" noWrap sx={{ maxWidth: 260 }}>
+                      {al.message}
+                    </Typography>
+                  </MenuItem>
+                ))}
+                <Divider />
+              </Box>
+            )}
             <MenuItem
               onClick={() => {
                 closeMenu();

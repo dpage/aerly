@@ -10,10 +10,22 @@ const h = vi.hoisted(() => ({
   logout: vi.fn(),
   setPreference: vi.fn(),
   openHelp: vi.fn(),
+  markAlertsRead: vi.fn().mockResolvedValue(undefined),
   state: {
     me: null as User | null,
     capabilities: { email_ingest_enabled: false } as { email_ingest_enabled: boolean },
-    notifications: { friend_requests_pending: 0 } as { friend_requests_pending: number },
+    notifications: { friend_requests_pending: 0, unread_alerts: 0 } as { friend_requests_pending: number; unread_alerts: number },
+    alerts: [] as Array<{
+      id: number;
+      plan_part_id: number;
+      plan_id: number;
+      trip_id: number;
+      ident: string;
+      kind: string;
+      status: string;
+      message: string;
+      created_at: string;
+    }>,
   },
 }));
 
@@ -24,6 +36,8 @@ vi.mock('../state/store', () => ({
       logout: h.logout,
       capabilities: h.state.capabilities,
       notifications: h.state.notifications,
+      alerts: h.state.alerts,
+      markAlertsRead: h.markAlertsRead,
       openHelp: h.openHelp,
     }),
 }));
@@ -93,9 +107,11 @@ async function openMenu() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.markAlertsRead.mockResolvedValue(undefined);
   h.state.me = user();
   h.state.capabilities = { email_ingest_enabled: false };
-  h.state.notifications = { friend_requests_pending: 0 };
+  h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0 };
+  h.state.alerts = [];
 });
 
 describe('Layout', () => {
@@ -158,7 +174,7 @@ describe('Layout', () => {
   });
 
   it('shows a pending friend-request chip when there are some', async () => {
-    h.state.notifications = { friend_requests_pending: 3 };
+    h.state.notifications = { friend_requests_pending: 3, unread_alerts: 0 };
     renderLayout();
     await openMenu();
     const friends = screen.getByText('Friends…').closest('li')!;
@@ -319,5 +335,35 @@ describe('Layout (narrow / mobile)', () => {
     renderLayout();
     expect(screen.getByRole('button', { name: 'Help' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /account menu/i })).toBeInTheDocument();
+  });
+});
+
+describe('Layout (alerts)', () => {
+  it('shows alerts in the account menu and marks them read on open', async () => {
+    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 1 };
+    h.state.alerts = [
+      {
+        id: 1,
+        plan_part_id: 9,
+        plan_id: 1,
+        trip_id: 1,
+        ident: 'BA286',
+        kind: 'gate',
+        status: 'Scheduled',
+        message: 'BA286 now departs gate B32',
+        created_at: '2026-06-01T00:00:00Z',
+      },
+    ];
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(screen.getByText('BA286 now departs gate B32')).toBeInTheDocument();
+    expect(h.markAlertsRead).toHaveBeenCalled();
+  });
+
+  it('does not mark alerts read on menu open when there are none unread', async () => {
+    // beforeEach already sets unread_alerts: 0 and alerts: []
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(h.markAlertsRead).not.toHaveBeenCalled();
   });
 });
