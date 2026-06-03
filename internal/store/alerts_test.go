@@ -182,3 +182,58 @@ func contains(xs []int64, v int64) bool {
 	}
 	return false
 }
+
+func TestFlightAlertInsertListMarkRead(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
+		TripID: trip, Type: "flight", Title: "BA286",
+		Parts: []CreatePlanPartPayload{{
+			StartsAt:   time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC),
+			StartLabel: "LHR", EndLabel: "SFO",
+			Flight: &FlightDetail{
+				Ident: "BA286", OriginIATA: "LHR", DestIATA: "SFO",
+				ScheduledOut: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC),
+				ScheduledIn:  time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+			},
+		}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	parts, _ := s.PartsByPlan(ctx, plan.ID)
+	partID := parts[0].ID
+
+	a := FlightAlert{
+		UserID: owner, PlanPartID: partID, PlanID: plan.ID, TripID: trip,
+		Ident: "BA286", Kind: "gate", Status: "Scheduled", Message: "BA286 now departs gate B32",
+	}
+	if _, err := s.InsertFlightAlert(ctx, a); err != nil {
+		t.Fatalf("InsertFlightAlert: %v", err)
+	}
+
+	got, err := s.ListFlightAlerts(ctx, owner, 50)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("ListFlightAlerts = %d, %v", len(got), err)
+	}
+	if got[0].ID == 0 || got[0].Message != a.Message || got[0].ReadAt != nil {
+		t.Errorf("listed alert wrong: %+v", got[0])
+	}
+
+	n, err := s.CountUnreadFlightAlerts(ctx, owner)
+	if err != nil || n != 1 {
+		t.Fatalf("CountUnreadFlightAlerts = %d, %v", n, err)
+	}
+
+	if err := s.MarkFlightAlertsRead(ctx, owner); err != nil {
+		t.Fatalf("MarkFlightAlertsRead: %v", err)
+	}
+	n, _ = s.CountUnreadFlightAlerts(ctx, owner)
+	if n != 0 {
+		t.Errorf("unread after mark-read = %d, want 0", n)
+	}
+}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -190,4 +191,75 @@ func (s *Store) SetFlightPartAlertSig(ctx context.Context, partID int64, sig str
 		`UPDATE flight_details SET last_alert_sig = $2 WHERE plan_part_id = $1`,
 		partID, sig)
 	return err
+}
+
+// FlightAlert is one persisted in-app flight-change alert for a single user.
+// ReadAt is nil while unread. ID/CreatedAt are set by the DB on insert.
+type FlightAlert struct {
+	ID         int64
+	UserID     int64
+	PlanPartID int64
+	PlanID     int64
+	TripID     int64
+	Ident      string
+	Kind       string // delayed|cancelled|diverted|gate
+	Status     string
+	Message    string
+	CreatedAt  time.Time
+	ReadAt     *time.Time
+}
+
+// InsertFlightAlert persists one alert row and returns it with ID/CreatedAt
+// populated, so the caller can publish the persisted shape over SSE.
+func (s *Store) InsertFlightAlert(ctx context.Context, a FlightAlert) (FlightAlert, error) {
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO flight_alerts
+			(user_id, plan_part_id, plan_id, trip_id, ident, kind, status, message)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		RETURNING id, created_at`,
+		a.UserID, a.PlanPartID, a.PlanID, a.TripID, a.Ident, a.Kind, a.Status, a.Message,
+	).Scan(&a.ID, &a.CreatedAt)
+	return a, err
+}
+
+// ListFlightAlerts returns a user's most recent alerts, newest first, capped at
+// limit.
+func (s *Store) ListFlightAlerts(ctx context.Context, userID int64, limit int) ([]FlightAlert, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, plan_part_id, plan_id, trip_id, ident, kind, status,
+			message, created_at, read_at
+		FROM flight_alerts WHERE user_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FlightAlert
+	for rows.Next() {
+		var a FlightAlert
+		if err := rows.Scan(&a.ID, &a.UserID, &a.PlanPartID, &a.PlanID, &a.TripID,
+			&a.Ident, &a.Kind, &a.Status, &a.Message, &a.CreatedAt, &a.ReadAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// MarkFlightAlertsRead stamps read_at on all of the user's unread alerts.
+func (s *Store) MarkFlightAlertsRead(ctx context.Context, userID int64) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE flight_alerts SET read_at = now() WHERE user_id = $1 AND read_at IS NULL`,
+		userID)
+	return err
+}
+
+// CountUnreadFlightAlerts counts a user's unread alerts (for the badge).
+func (s *Store) CountUnreadFlightAlerts(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM flight_alerts WHERE user_id = $1 AND read_at IS NULL`,
+		userID).Scan(&n)
+	return n, err
 }
