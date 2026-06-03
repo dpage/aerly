@@ -9,6 +9,7 @@ import type {
   Trip,
   UpdateTripInput,
 } from '../api/types';
+import { errorMessage } from './helpers';
 import type { StoreState } from './store';
 
 /** State + actions owning the trip list and the currently-open trip.
@@ -127,7 +128,3 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
   },
 });
 
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}

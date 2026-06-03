@@ -7,6 +7,7 @@ import type {
   UpdatePlanInput,
   UpdatePlanPartInput,
 } from '../api/types';
+import { reloadCurrent } from './helpers';
 import type { StoreState } from './store';
 
 /** State + actions for creating and editing plans and their parts.
@@ -27,12 +28,6 @@ export interface PlansSlice {
   dismissPlanPart: (partId: number) => Promise<void>;
 }
 
-/** Reload whichever trip is currently open so plan/part mutations are
- * reflected. No-op when no trip is open. */
-async function reloadCurrent(get: () => StoreState): Promise<void> {
-  const id = get().currentTrip?.id;
-  if (id != null) await get().loadTrip(id);
-}
 
 export const createPlansSlice: StateCreator<StoreState, [], [], PlansSlice> = (_set, get) => ({
   async createPlan(tripId, input) {

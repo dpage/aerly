@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
 import type { AlertPrefs, FlightAlert, UpdateAlertPrefsInput } from '../api/types';
+import { errorMessage, reloadCurrent } from './helpers';
 import type { StoreState } from './store';
 
 /** State + actions for per-user alert preferences and per-plan alert opt-in
@@ -81,15 +82,3 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
   },
 });
 
-/** Reload whichever trip is currently open so a plan's per-viewer
- * `alert_opted_in` projection reflects the opt-in change on reopen. No-op when
- * no trip is open. */
-async function reloadCurrent(get: () => StoreState): Promise<void> {
-  const id = get().currentTrip?.id;
-  if (id != null) await get().loadTrip(id);
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}

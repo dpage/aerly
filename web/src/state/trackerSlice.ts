@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
 import type { Plan, PlanPart, TrackerPart } from '../api/types';
+import { errorMessage } from './helpers';
 import type { StoreState } from './store';
 
 /** localStorage key for the tracker window, keyed per-tag (spec §7). The empty
@@ -136,7 +137,3 @@ function foldUpdate(pp: PlanPart, u: TrackerPart): PlanPart {
   };
 }
 
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}

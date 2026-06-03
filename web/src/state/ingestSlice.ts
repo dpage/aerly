@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
 import type { ConfirmPlanInput, IngestInput, ProposedPlan } from '../api/types';
+import { errorMessage } from './helpers';
 import type { StoreState } from './store';
 
 /** State + actions for the paste/upload/email ingest flow (spec §6).
@@ -57,7 +58,3 @@ export const createIngestSlice: StateCreator<StoreState, [], [], IngestSlice> = 
   },
 });
 
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}

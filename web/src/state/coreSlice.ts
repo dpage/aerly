@@ -9,6 +9,7 @@ import type {
   UpdateUserInput,
   User,
 } from '../api/types';
+import { errorMessage } from './helpers';
 import type { StoreState } from './store';
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
@@ -191,7 +192,3 @@ function byLogin(a: User, b: User) {
   return a.username.toLowerCase().localeCompare(b.username.toLowerCase());
 }
 
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
