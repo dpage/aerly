@@ -246,6 +246,10 @@ export interface FlightDetail {
   origin_iata: string;
   dest_iata: string;
   flight_status: string;
+  origin_gate?: string;
+  dest_gate?: string;
+  origin_terminal?: string;
+  dest_terminal?: string;
   last_polled_at?: string;
   latest_position?: Position;
   /** Recent positions in order (oldest → newest), for the flown-track line. */
