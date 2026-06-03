@@ -32,7 +32,7 @@ func (a *API) calendarMe(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := a.Store.CalendarEventsForUser(r.Context(), info.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		serverError(w, err)
 		return
 	}
 	writeICS(w, "Aerly", events)
@@ -50,7 +50,7 @@ func (a *API) calendarTrip(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := a.Store.CalendarEventsForTrip(r.Context(), info.UserID, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		serverError(w, err)
 		return
 	}
 	writeICS(w, "Aerly Trip", events)
@@ -68,7 +68,7 @@ func (a *API) calendarPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := a.Store.CalendarEventsForPlan(r.Context(), info.UserID, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		serverError(w, err)
 		return
 	}
 	writeICS(w, "Aerly Plan", events)
@@ -92,7 +92,7 @@ func (a *API) calendarTokenInfo(w http.ResponseWriter, r *http.Request, wantScop
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return nil, false
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		serverError(w, err)
 		return nil, false
 	}
 	if info.Scope != wantScope || info.ResourceID != wantResource {
@@ -150,7 +150,7 @@ func (a *API) listCalendarTokens(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	toks, err := a.Store.ListCalendarTokens(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		serverError(w, err)
 		return
 	}
 	out := make([]api.CalendarTokenDTO, 0, len(toks))
@@ -181,7 +181,7 @@ func (a *API) issueCalendarToken(w http.ResponseWriter, r *http.Request) {
 	// Issue (regenerate), revoking any prior token for this exact resource only.
 	tok, err := a.Store.RegenerateCalendarToken(r.Context(), u.ID, scope, in.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		serverError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, a.calendarTokenDTO(tok))
@@ -199,7 +199,7 @@ func (a *API) revokeCalendarToken(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		serverError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

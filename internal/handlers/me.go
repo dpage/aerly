@@ -10,7 +10,7 @@ import (
 
 func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	writeJSON(w, http.StatusOK, api.ToUserDTO(u))
+	writeJSON(w, http.StatusOK, api.ToSelfUserDTO(u))
 }
 
 type updateMeReq struct {
@@ -31,5 +31,5 @@ func (a *API) updateMe(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, api.ToUserDTO(u))
+	writeJSON(w, http.StatusOK, api.ToSelfUserDTO(u))
 }

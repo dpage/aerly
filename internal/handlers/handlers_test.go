@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -305,8 +306,11 @@ func TestWriteHelpers(t *testing.T) {
 		t.Errorf("ErrNotFound → %d, want 404", w.Code)
 	}
 	w = httptest.NewRecorder()
-	handleStoreErr(w, errors.New("boom"))
+	handleStoreErr(w, errors.New("boom: relation \"users\" column \"secret\""))
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("generic err → %d, want 500", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "boom") || strings.Contains(w.Body.String(), "users") {
+		t.Errorf("500 body leaked the raw store error: %s", w.Body.String())
 	}
 }

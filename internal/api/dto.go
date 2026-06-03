@@ -22,6 +22,11 @@ type UserDTO struct {
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 }
 
+// ToUserDTO projects a user for the shared directory: the listing at
+// GET /api/users and the owner/passenger blocks embedded in trip, plan and
+// tracker responses. It deliberately OMITS home_address — that is private PII
+// only the user themselves (and never other viewers) should receive; use
+// ToSelfUserDTO for the /api/me endpoints that return it to the account owner.
 func ToUserDTO(u *store.User) UserDTO {
 	return UserDTO{
 		ID:          u.ID,
@@ -33,9 +38,17 @@ func ToUserDTO(u *store.User) UserDTO {
 		// A user has "logged in" once any provider has linked an identity
 		// to them, which last_login_at tracks.
 		HasLoggedIn: u.LastLoginAt != nil,
-		HomeAddress: u.HomeAddress,
 		LastLoginAt: u.LastLoginAt,
 	}
+}
+
+// ToSelfUserDTO is ToUserDTO plus the caller's own home_address. Only ever
+// used for the authenticated user's own record (GET/PATCH /api/me) so the
+// home address is never leaked to other viewers.
+func ToSelfUserDTO(u *store.User) UserDTO {
+	dto := ToUserDTO(u)
+	dto.HomeAddress = u.HomeAddress
+	return dto
 }
 
 // FriendshipDTO describes one row in /api/friends, oriented from the

@@ -22,6 +22,18 @@ func TestToUserDTO(t *testing.T) {
 	}
 }
 
+func TestToUserDTOOmitsHomeAddress(t *testing.T) {
+	u := &store.User{ID: 1, Username: "octocat", HomeAddress: "1 Secret St"}
+	// The directory/embedded projection must not leak home address to other
+	// viewers; only ToSelfUserDTO (the /api/me path) carries it.
+	if d := ToUserDTO(u); d.HomeAddress != "" {
+		t.Errorf("ToUserDTO leaked home_address = %q, want empty", d.HomeAddress)
+	}
+	if d := ToSelfUserDTO(u); d.HomeAddress != "1 Secret St" {
+		t.Errorf("ToSelfUserDTO home_address = %q, want %q", d.HomeAddress, "1 Secret St")
+	}
+}
+
 func TestToUserDTONeverLoggedIn(t *testing.T) {
 	u := &store.User{ID: 2, Username: "invitee"} // LastLoginAt nil
 	d := ToUserDTO(u)

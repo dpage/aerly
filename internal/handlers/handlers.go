@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -183,12 +184,24 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// serverError logs the underlying error and returns a generic 500 body. Use
+// it instead of writeError(w, 500, err.Error()) so raw store/SQL errors (which
+// can expose schema details) never reach the client.
+func serverError(w http.ResponseWriter, err error) {
+	slog.Error("request failed", "err", err)
+	writeError(w, http.StatusInternalServerError, "internal error")
+}
+
 func handleStoreErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
 	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
+		// Never echo the raw store/SQL error to the client — it can expose
+		// schema, column and constraint names. Log it server-side and return
+		// a generic message.
+		slog.Error("store error", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
 	}
 }
 
