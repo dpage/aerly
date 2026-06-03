@@ -10,6 +10,7 @@ import type {
   CreatePlanInput,
   CreateTripInput,
   Flight,
+  FlightAlert,
   Friendship,
   IngestInput,
   IngestResult,
@@ -173,6 +174,8 @@ export const api = {
     request<AcceptFriendTokenResult>('POST', '/api/friends/accept-token', { token }),
 
   getNotifications: () => request<Notifications>('GET', '/api/notifications'),
+  getAlerts: () => request<FlightAlert[]>('GET', '/api/alerts'),
+  markAlertsRead: () => request<void>('POST', '/api/alerts/read'),
 
   listMyEmails: () => request<UserEmail[]>('GET', '/api/me/emails'),
   addMyEmail: (address: string) => request<UserEmail>('POST', '/api/me/emails', { address }),

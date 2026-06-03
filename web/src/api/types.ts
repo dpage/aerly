@@ -163,6 +163,8 @@ export interface Notifications {
   /** Count of friendship rows where the viewer is the recipient and
    *  status is still 'pending'. */
   friend_requests_pending: number;
+  /** Count of the viewer's unread flight alerts (in-app inbox). */
+  unread_alerts: number;
 }
 
 export interface AcceptFriendTokenResult {
@@ -541,6 +543,20 @@ export interface CalendarToken {
   /** Ready-to-use feed URL. */
   url: string;
   created_at: string;
+}
+
+/** A persisted in-app flight-change alert (inbox item / alert.created payload). */
+export interface FlightAlert {
+  id: number;
+  plan_part_id: number;
+  plan_id: number;
+  trip_id: number;
+  ident: string;
+  kind: string; // delayed|cancelled|diverted|gate
+  status: string;
+  message: string;
+  created_at: string;
+  read_at?: string;
 }
 
 export interface AlertPrefs {
