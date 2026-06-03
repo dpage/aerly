@@ -138,3 +138,17 @@ func TestPendingInviteToFriendshipDTO(t *testing.T) {
 		t.Errorf("unexpected DTO: %+v", dto)
 	}
 }
+
+func TestToFlightDetailDTOMapsGateAndTerminal(t *testing.T) {
+	d := &store.FlightDetail{
+		Ident: "BA286", OriginIATA: "LHR", DestIATA: "SFO",
+		OriginGate: "B32", OriginTerminal: "5", DestGate: "", DestTerminal: "",
+	}
+	out := ToFlightDetailDTO(d, nil, nil)
+	if out.OriginGate != "B32" || out.OriginTerminal != "5" {
+		t.Errorf("origin gate/terminal = %q/%q, want B32/5", out.OriginGate, out.OriginTerminal)
+	}
+	if out.DestGate != "" || out.DestTerminal != "" {
+		t.Errorf("dest gate/terminal = %q/%q, want empty", out.DestGate, out.DestTerminal)
+	}
+}

@@ -253,18 +253,18 @@ type FlightAlertDTO struct {
 // "YYYY-MM-DD" strings (nullable); the effective span is derived client-side
 // from the plans' parts when these are null.
 type TripDTO struct {
-	ID          int64           `json:"id"`
-	Name        string          `json:"name"`
-	Destination string          `json:"destination"`
-	StartsOn    *string         `json:"starts_on,omitempty"` // YYYY-MM-DD
-	EndsOn      *string         `json:"ends_on,omitempty"`
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	Destination string  `json:"destination"`
+	StartsOn    *string `json:"starts_on,omitempty"` // YYYY-MM-DD
+	EndsOn      *string `json:"ends_on,omitempty"`
 	// Inferred from the trip's parts when StartsOn/EndsOn aren't set (list only).
-	EffectiveStart *string      `json:"effective_start,omitempty"` // YYYY-MM-DD
-	EffectiveEnd   *string      `json:"effective_end,omitempty"`
-	CreatedBy   *int64          `json:"created_by,omitempty"`
-	MyRole      string          `json:"my_role"` // owner|editor|viewer
-	Members     []TripMemberDTO `json:"members"`
-	Tags        []string        `json:"tags"`
+	EffectiveStart *string         `json:"effective_start,omitempty"` // YYYY-MM-DD
+	EffectiveEnd   *string         `json:"effective_end,omitempty"`
+	CreatedBy      *int64          `json:"created_by,omitempty"`
+	MyRole         string          `json:"my_role"` // owner|editor|viewer
+	Members        []TripMemberDTO `json:"members"`
+	Tags           []string        `json:"tags"`
 	// CountryCode is the trip's main country (lowercase ISO 3166-1 alpha-2),
 	// derived by geocoding the destination, for the trip-card flag. Omitted
 	// while underived; "zz" means derived-but-unknown (FE shows no flag).
@@ -387,6 +387,10 @@ type FlightDetailDTO struct {
 	OriginIATA     string        `json:"origin_iata"`
 	DestIATA       string        `json:"dest_iata"`
 	FlightStatus   string        `json:"flight_status"`
+	OriginGate     string        `json:"origin_gate"`
+	DestGate       string        `json:"dest_gate"`
+	OriginTerminal string        `json:"origin_terminal"`
+	DestTerminal   string        `json:"dest_terminal"`
 	LastPolledAt   *time.Time    `json:"last_polled_at,omitempty"`
 	LatestPosition *PositionDTO  `json:"latest_position,omitempty"`
 	Track          []PositionDTO `json:"track,omitempty"`
@@ -605,19 +609,23 @@ func ToFlightDetailDTO(d *store.FlightDetail, latest *store.Position, track []*s
 		callsign = *d.Callsign
 	}
 	out := &FlightDetailDTO{
-		Ident:        d.Ident,
-		ICAO24:       d.ICAO24,
-		Callsign:     callsign,
-		ScheduledOut: d.ScheduledOut,
-		ScheduledIn:  d.ScheduledIn,
-		EstimatedOut: d.EstimatedOut,
-		EstimatedIn:  d.EstimatedIn,
-		ActualOut:    d.ActualOut,
-		ActualIn:     d.ActualIn,
-		OriginIATA:   d.OriginIATA,
-		DestIATA:     d.DestIATA,
-		FlightStatus: d.FlightStatus,
-		LastPolledAt: d.LastPolledAt,
+		Ident:          d.Ident,
+		ICAO24:         d.ICAO24,
+		Callsign:       callsign,
+		ScheduledOut:   d.ScheduledOut,
+		ScheduledIn:    d.ScheduledIn,
+		EstimatedOut:   d.EstimatedOut,
+		EstimatedIn:    d.EstimatedIn,
+		ActualOut:      d.ActualOut,
+		ActualIn:       d.ActualIn,
+		OriginIATA:     d.OriginIATA,
+		DestIATA:       d.DestIATA,
+		FlightStatus:   d.FlightStatus,
+		OriginGate:     d.OriginGate,
+		DestGate:       d.DestGate,
+		OriginTerminal: d.OriginTerminal,
+		DestTerminal:   d.DestTerminal,
+		LastPolledAt:   d.LastPolledAt,
 	}
 	if latest != nil {
 		pp := ToPositionDTO(latest)
