@@ -40,6 +40,22 @@ func TestSuggestHotelTimesLateArrivalPushesCheckin(t *testing.T) {
 	}
 }
 
+func TestSuggestHotelTimesStandardUsesPropertyTimezone(t *testing.T) {
+	// The property is in Tokyo (+09:00, no DST). An early arrival means the
+	// standard 15:00 check-in wins — and it must be 15:00 *Tokyo* time
+	// (06:00 UTC), not 15:00 UTC, even though the stored instant is UTC.
+	stayStart := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	stay := &store.PlanPart{StartsAt: stayStart, StartTZ: "Asia/Tokyo"}
+	arrival := time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC) // arrival+1h = 03:00Z < 06:00Z standard
+	inbound := &store.PlanPart{StartsAt: arrival.Add(-time.Hour), EndsAt: tp(arrival)}
+
+	res := SuggestHotelTimes(stay, &store.HotelDetail{}, HotelTimeFlights{Inbound: inbound})
+	want := time.Date(2026, 6, 1, 6, 0, 0, 0, time.UTC) // 15:00 JST
+	if res.Checkin == nil || !res.Checkin.Equal(want) {
+		t.Errorf("checkin = %v, want 15:00 Tokyo (%v)", res.Checkin, want)
+	}
+}
+
 func TestSuggestHotelTimesEarlyArrivalKeepsStandard(t *testing.T) {
 	// Inbound arrives 09:00; arrival+1h = 10:00 is before standard 15:00, so
 	// the suggested check-in stays at 15:00.

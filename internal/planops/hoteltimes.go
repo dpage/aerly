@@ -69,7 +69,7 @@ func SuggestHotelTimes(stay *store.PlanPart, detail *store.HotelDetail, flanking
 	if flanking.Inbound != nil {
 		arrival := partEffectiveEnd(flanking.Inbound)
 		earliest := arrival.Add(1 * time.Hour).Add(airportTravel(flanking.Inbound, stay, true))
-		standard := standardTimeOnDate(stay.StartsAt, defaultCheckinHour, detailCheckin(detail))
+		standard := standardTimeOnDate(stay.StartsAt, stay.StartTZ, defaultCheckinHour, detailCheckin(detail))
 		ci := laterOf(standard, earliest)
 		out.Checkin = &ci
 	}
@@ -87,7 +87,13 @@ func SuggestHotelTimes(stay *store.PlanPart, detail *store.HotelDetail, flanking
 		if stay.EndsAt != nil {
 			checkoutDate = *stay.EndsAt
 		}
-		standard := standardTimeOnDate(checkoutDate, defaultCheckoutHour, detailCheckout(detail))
+		// A hotel's check-out is at the same property as check-in, so EndTZ is
+		// usually empty — fall back to StartTZ.
+		checkoutTZ := stay.EndTZ
+		if checkoutTZ == "" {
+			checkoutTZ = stay.StartTZ
+		}
+		standard := standardTimeOnDate(checkoutDate, checkoutTZ, defaultCheckoutHour, detailCheckout(detail))
 		co := earlierOf(standard, latest)
 		out.Checkout = &co
 	}
@@ -139,12 +145,22 @@ func airportTravel(flight, hotel *store.PlanPart, toHotel bool) time.Duration {
 	return time.Duration(hours * float64(time.Hour))
 }
 
-// standardTimeOnDate returns the instant on `date`'s local calendar day at the
-// given hour, or — when the property published a standard "HH:MM" — that. The
-// instant is anchored to `date`'s location so it lands on the right day.
-func standardTimeOnDate(date time.Time, defaultHour int, hhmm *string) time.Time {
+// standardTimeOnDate returns the standard check-in/out instant: the property's
+// published "HH:MM" (or the default hour) on `date`'s calendar day, in the
+// property's timezone `tz`. Plan-part instants are stored/loaded as UTC, so
+// without `tz` the standard time would land at e.g. 15:00 UTC rather than 15:00
+// local — wrong by the property's offset. When `tz` is empty or unloadable we
+// fall back to the instant's own location (UTC), preserving prior behaviour.
+// The calendar day is taken in `tz` too, so a stay near local midnight anchors
+// to the intended local date.
+func standardTimeOnDate(date time.Time, tz string, defaultHour int, hhmm *string) time.Time {
 	loc := date.Location()
-	y, m, d := date.Date()
+	if tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			loc = l
+		}
+	}
+	y, m, d := date.In(loc).Date()
 	hour, min := defaultHour, 0
 	if hhmm != nil {
 		if h, mi, ok := parseHHMM(*hhmm); ok {
