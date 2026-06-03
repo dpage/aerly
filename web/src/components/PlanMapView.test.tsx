@@ -160,6 +160,54 @@ describe('PlanMapView', () => {
     expect(leg?.properties?.color).toBe('#9e9e9e');
   });
 
+  // Find the plane-icon marker for a given flight part.
+  const planeFor = (partId: number) =>
+    FakeMarker.instances.find(
+      (m) => m.getElement()?.dataset.role === 'plane' && m.getElement()?.dataset.partId === String(partId),
+    );
+
+  it('parks the plane icon at the origin for a flight that has not departed', () => {
+    render(<PlanMapView parts={[flight()]} />); // default status Scheduled, no live position
+    const plane = planeFor(1);
+    expect(plane).toBeDefined();
+    expect(plane!.lngLat).toEqual([-0.45, 51.47]); // origin (LHR)
+    expect(plane!.getElement().dataset.estimated).toBe('0');
+  });
+
+  it('draws the plane at the live position, rotated and dimmed when dead-reckoned', () => {
+    render(
+      <PlanMapView
+        parts={[
+          flight({
+            flight: {
+              ...flight().flight!,
+              flight_status: 'Enroute',
+              latest_position: { ts: '2026-10-12T11:30:00Z', lat: 48, lon: -30, heading_deg: 270, is_estimated: true },
+            },
+          }),
+        ]}
+      />,
+    );
+    const plane = planeFor(1)!;
+    expect(plane.lngLat).toEqual([-30, 48]);
+    expect(plane.rotation).toBe(270);
+    expect(plane.getElement().dataset.estimated).toBe('1'); // dead-reckoned → dimmed
+  });
+
+  it('parks the plane at the destination once the flight has arrived', () => {
+    render(
+      <PlanMapView
+        parts={[flight({ flight: { ...flight().flight!, flight_status: 'Arrived' } })]}
+      />,
+    );
+    expect(planeFor(1)!.lngLat).toEqual([-77.46, 38.95]); // destination (IAD)
+  });
+
+  it('draws no plane icon for a non-flight part', () => {
+    render(<PlanMapView parts={[hotel()]} />);
+    expect(planeFor(2)).toBeUndefined();
+  });
+
   it('clicking a pin highlights its list row (bidirectional)', async () => {
     render(<PlanMapView parts={[flight(), hotel()]} />);
     pinFor(2).getElement().dispatchEvent(new MouseEvent('click', { bubbles: true }));
