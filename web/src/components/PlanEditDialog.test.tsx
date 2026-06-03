@@ -234,6 +234,32 @@ describe('PlanEditDialog', () => {
     expect(screen.getByText('Until')).toBeInTheDocument();
   });
 
+  it('gives a hotel a single place/address — check-out is the same location, time only', () => {
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [part({ type: 'hotel', start_label: 'Hotel', end_label: '' })],
+      }),
+    );
+    // The "Until" (check-out) block carries date/time only, not a second
+    // Place/Address — a hotel is one location.
+    expect(screen.getAllByLabelText(/^place$/i)).toHaveLength(1);
+    expect(screen.getAllByLabelText(/^address$/i)).toHaveLength(1);
+  });
+
+  it('gives a transfer two independent endpoints, each with its own address', () => {
+    render_(
+      plan({
+        type: 'train',
+        parts: [part({ type: 'train', start_label: 'Folkestone', end_label: 'Calais' })],
+      }),
+    );
+    expect(screen.getByText('From')).toBeInTheDocument();
+    expect(screen.getByText('To')).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/^place$/i)).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^address$/i)).toHaveLength(2);
+  });
+
   it('numbers multiple parts and skips dismissed ones', () => {
     render_(
       plan({

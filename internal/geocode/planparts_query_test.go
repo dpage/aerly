@@ -18,6 +18,10 @@ func (s stubGeo) GeocodeCountry(context.Context, string) (string, bool, error) {
 	return "", false, nil
 }
 
+func (s stubGeo) ReverseCountry(context.Context, float64, float64) (string, bool, error) {
+	return "", false, nil
+}
+
 func TestGeocodeEndpoint(t *testing.T) {
 	g := stubGeo{resolves: map[string][2]float64{
 		"1 Main St":                  {1, 2},

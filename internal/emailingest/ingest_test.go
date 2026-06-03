@@ -29,6 +29,10 @@ func (f fakeGeocoder) GeocodeCountry(context.Context, string) (string, bool, err
 	return "", false, nil
 }
 
+func (f fakeGeocoder) ReverseCountry(context.Context, float64, float64) (string, bool, error) {
+	return "", false, nil
+}
+
 // fakeLLM returns a fixed JSON response and records the docs it received.
 type fakeLLM struct {
 	resp    string

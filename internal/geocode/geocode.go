@@ -22,6 +22,11 @@ type Geocoder interface {
 	// GeocodeCountry resolves a place to its lowercase ISO 3166-1 alpha-2
 	// country code (e.g. "es"). ok is false when no country was found.
 	GeocodeCountry(ctx context.Context, query string) (iso2 string, ok bool, err error)
+	// ReverseCountry resolves a coordinate to its lowercase ISO 3166-1 alpha-2
+	// country code. ok is false when the point isn't in any country (e.g. open
+	// ocean). More reliable than GeocodeCountry for plan endpoints, whose
+	// coordinates are already known but whose labels can be ambiguous.
+	ReverseCountry(ctx context.Context, lat, lon float64) (iso2 string, ok bool, err error)
 }
 
 // Nominatim geocodes via an OpenStreetMap Nominatim server. It honours the
@@ -151,6 +156,56 @@ func (n *Nominatim) GeocodeCountry(ctx context.Context, query string) (string, b
 	}
 	n.countryMu.Lock()
 	n.countryCache[query] = code
+	n.countryMu.Unlock()
+	return code, code != "", nil
+}
+
+// ReverseCountry resolves a coordinate to its lowercase ISO country code via
+// Nominatim's /reverse endpoint. Cached (alongside the forward country cache,
+// keyed by the coordinate) and rate-limited like the other lookups.
+func (n *Nominatim) ReverseCountry(ctx context.Context, lat, lon float64) (string, bool, error) {
+	key := fmt.Sprintf("rev:%.5f,%.5f", lat, lon)
+	n.countryMu.RLock()
+	c, hit := n.countryCache[key]
+	n.countryMu.RUnlock()
+	if hit {
+		return c, c != "", nil
+	}
+
+	n.throttle()
+
+	endpoint := n.BaseURL + "/reverse?" + url.Values{
+		"lat":            {strconv.FormatFloat(lat, 'f', -1, 64)},
+		"lon":            {strconv.FormatFloat(lon, 'f', -1, 64)},
+		"format":         {"json"},
+		"zoom":           {"3"}, // country level — we only want the country.
+		"addressdetails": {"1"},
+	}.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("User-Agent", n.UserAgent)
+	resp, err := n.HTTP.Do(req)
+	if err != nil {
+		return "", false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", false, fmt.Errorf("nominatim: status %d", resp.StatusCode)
+	}
+	// /reverse returns a single object (not an array like /search).
+	var result struct {
+		Address struct {
+			CountryCode string `json:"country_code"`
+		} `json:"address"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", false, err
+	}
+	code := strings.ToLower(strings.TrimSpace(result.Address.CountryCode))
+	n.countryMu.Lock()
+	n.countryCache[key] = code
 	n.countryMu.Unlock()
 	return code, code != "", nil
 }

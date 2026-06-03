@@ -201,8 +201,8 @@ type UpdatePlanPayload struct {
 // UpdatePlanPartPayload carries the optionally-set fields of a part edit
 // (time/place/status).
 type UpdatePlanPartPayload struct {
-	StartsAt   *time.Time
-	EndsAt     *time.Time
+	StartsAt     *time.Time
+	EndsAt       *time.Time
 	StartTZ      *string
 	EndTZ        *string
 	StartLabel   *string
@@ -404,6 +404,38 @@ func (s *Store) PlansByTrip(ctx context.Context, tripID int64) ([]*Plan, error) 
 			return nil, err
 		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// TripPartEndpoints returns every geocoded endpoint coordinate of a trip's
+// live (non-dismissed) plan parts — both start and end where present — as
+// [lat, lon] pairs. Used to derive the trip's country from where its plans
+// actually are, rather than from a freeform name. Order is by part then
+// start-before-end so the derivation's tie-breaking is deterministic.
+func (s *Store) TripPartEndpoints(ctx context.Context, tripID int64) ([][2]float64, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT part.start_lat, part.start_lon, part.end_lat, part.end_lon
+		   FROM plan_parts part
+		   JOIN plans pl ON pl.id = part.plan_id
+		  WHERE pl.trip_id = $1 AND part.dismissed_at IS NULL
+		  ORDER BY part.id`, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][2]float64
+	for rows.Next() {
+		var sLat, sLon, eLat, eLon *float64
+		if err := rows.Scan(&sLat, &sLon, &eLat, &eLon); err != nil {
+			return nil, err
+		}
+		if sLat != nil && sLon != nil {
+			out = append(out, [2]float64{*sLat, *sLon})
+		}
+		if eLat != nil && eLon != nil {
+			out = append(out, [2]float64{*eLat, *eLon})
+		}
 	}
 	return out, rows.Err()
 }

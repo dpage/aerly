@@ -133,6 +133,53 @@ func TestMapCalaisEurotunnelAsTrain(t *testing.T) {
 	}
 }
 
+// TestMapTransferEndpointsAreDistinct guards the crow-flight bug: TripIt puts a
+// single GEO (the *arrival* point) on each transport event, so a naive importer
+// collapses both endpoints onto it (start == end) and the map can't draw a leg.
+// The importer must instead set the end from the event's own GEO and recover the
+// start from a calendar-wide label→GEO index — in a round trip each leg's start
+// is the other leg's arrival. Folkestone ≈ (51.08169, 1.16734), Calais ≈
+// (50.95194, 1.85635).
+func TestMapTransferEndpointsAreDistinct(t *testing.T) {
+	mt := mustMapTripIt(t, parseFixture(t, "calais_2025.ics"))
+
+	const folkLat, folkLon = 51.08169, 1.16734
+	const calaisLat, calaisLon = 50.95194, 1.85635
+
+	byStart := map[string]planops.ConfirmPartInput{}
+	for _, p := range plansByType(mt)["train"] {
+		part := p.Parts[0]
+		byStart[part.StartLabel] = part
+	}
+
+	check := func(startLabel string, wantSLat, wantSLon, wantELat, wantELon float64) {
+		t.Helper()
+		part, ok := byStart[startLabel]
+		if !ok {
+			t.Fatalf("no train leg starting at %q", startLabel)
+		}
+		if part.StartLat == nil || part.StartLon == nil || part.EndLat == nil || part.EndLon == nil {
+			t.Fatalf("leg from %q missing an endpoint coordinate: %+v", startLabel, part)
+		}
+		if *part.StartLat == *part.EndLat && *part.StartLon == *part.EndLon {
+			t.Fatalf("leg from %q collapsed start onto end (%v,%v) — no crow-flight line",
+				startLabel, *part.StartLat, *part.StartLon)
+		}
+		if *part.StartLat != wantSLat || *part.StartLon != wantSLon {
+			t.Errorf("leg from %q start = (%v,%v), want (%v,%v)",
+				startLabel, *part.StartLat, *part.StartLon, wantSLat, wantSLon)
+		}
+		if *part.EndLat != wantELat || *part.EndLon != wantELon {
+			t.Errorf("leg from %q end = (%v,%v), want (%v,%v)",
+				startLabel, *part.EndLat, *part.EndLon, wantELat, wantELon)
+		}
+	}
+
+	// Outbound departs Folkestone, arrives Calais; return is the mirror.
+	check("Folkestone", folkLat, folkLon, calaisLat, calaisLon)
+	check("Calais", calaisLat, calaisLon, folkLat, folkLon)
+}
+
 func TestMapAlphanumericAirlineCode(t *testing.T) {
 	// IATA airline designators can carry a digit in either position — easyJet
 	// "U2" (position 2), Sichuan "3U" (position 1). The pinned fixtures are all

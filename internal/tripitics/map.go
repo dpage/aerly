@@ -66,6 +66,12 @@ func tripItID(desc string) string {
 func mapTripIt(cal *Calendar) *MappedTrip {
 	mt := &MappedTrip{Name: tripName(cal)}
 
+	// TripIt stamps each transport event with a single GEO = its *arrival*
+	// point, so a transfer's two ends can't both come from its own event. This
+	// index maps each place to the coordinate TripIt recorded for it, letting a
+	// leg recover its *origin* from the opposite leg that arrived there.
+	placeGeo := transferPlaceIndex(cal)
+
 	// First pass: split the envelope (whole-trip date span) from the bookings,
 	// and collect hotel events for pairing.
 	var hotelEvents []Event
@@ -82,7 +88,7 @@ func mapTripIt(cal *Calendar) *MappedTrip {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "ground", "train":
-			if p, ok := mapTransport(e); ok {
+			if p, ok := mapTransport(e, placeGeo); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "hotel":
@@ -203,8 +209,9 @@ func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
 
 // mapTransport maps a TripIt ground/rail event into a ground or train plan,
 // parsing "<provider> - <from> to <to>" from the SUMMARY (Eurotunnel and other
-// rail are lifted to train; everything else is ground).
-func mapTransport(e Event) (planops.ConfirmPlanInput, bool) {
+// rail are lifted to train; everything else is ground). placeGeo (built by
+// transferPlaceIndex) supplies the origin coordinate TripIt omits.
+func mapTransport(e Event, placeGeo map[string]LatLon) (planops.ConfirmPlanInput, bool) {
 	planType := "ground"
 	if isRail(e.Summary) {
 		planType = "train"
@@ -230,7 +237,16 @@ func mapTransport(e Event) (planops.ConfirmPlanInput, bool) {
 	} else {
 		part.Ground = &store.GroundDetail{Provider: provider}
 	}
-	applyGeoTZ(&part, e.Geo)
+
+	if to == "" {
+		// SUMMARY didn't parse as A→B: treat it as a single point, as before.
+		applyGeoTZ(&part, e.Geo)
+	} else {
+		// A genuine transfer: TripIt's GEO is the arrival → the end. Recover the
+		// start from the place index (the opposite leg arrived there). Distinct
+		// endpoints are what let the map draw the crow-flight leg.
+		applyTransferGeo(&part, lookupPlace(placeGeo, from), e.Geo)
+	}
 
 	return planops.ConfirmPlanInput{
 		Type:      planType,
@@ -239,6 +255,57 @@ func mapTransport(e Event) (planops.ConfirmPlanInput, bool) {
 		TripItUID: e.UID,
 		Parts:     []planops.ConfirmPartInput{part},
 	}, true
+}
+
+// transferPlaceIndex maps a normalised place name to the coordinate TripIt
+// recorded for it. TripIt stamps each transport event with a single GEO = the
+// *arrival* point, so the event's parsed destination is the key. In a round
+// trip this lets a later leg recover its origin from the earlier leg that
+// arrived there (and vice versa).
+func transferPlaceIndex(cal *Calendar) map[string]LatLon {
+	idx := map[string]LatLon{}
+	for _, e := range cal.Events {
+		if e.Geo == nil {
+			continue
+		}
+		switch classify(e) {
+		case "ground", "train":
+			if m := transportRe.FindStringSubmatch(e.Summary); m != nil {
+				if to := strings.ToLower(strings.TrimSpace(m[3])); to != "" {
+					idx[to] = *e.Geo
+				}
+			}
+		}
+	}
+	return idx
+}
+
+// lookupPlace returns a copy of the indexed coordinate for a place label, or nil
+// when the label isn't known (e.g. a one-way transfer whose origin never appears
+// as another leg's destination — the start is then left for later geocoding).
+func lookupPlace(idx map[string]LatLon, label string) *LatLon {
+	if g, ok := idx[strings.ToLower(strings.TrimSpace(label))]; ok {
+		return &g
+	}
+	return nil
+}
+
+// applyTransferGeo fills a transfer part's start/end coordinates and timezones
+// from two distinct points, each via geotz for its own zone. Either may be nil
+// (an end always known from the event's GEO; a start only when the index has it).
+func applyTransferGeo(part *planops.ConfirmPartInput, startGeo, endGeo *LatLon) {
+	if startGeo != nil {
+		part.StartLat, part.StartLon = &startGeo.Lat, &startGeo.Lon
+		if tz, ok := geotz.Lookup(startGeo.Lat, startGeo.Lon); ok {
+			part.StartTZ = tz
+		}
+	}
+	if endGeo != nil {
+		part.EndLat, part.EndLon = &endGeo.Lat, &endGeo.Lon
+		if tz, ok := geotz.Lookup(endGeo.Lat, endGeo.Lon); ok {
+			part.EndTZ = tz
+		}
+	}
 }
 
 // mapHotels pairs check-in and check-out events that share a property name into

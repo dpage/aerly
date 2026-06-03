@@ -233,6 +233,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                       heading={isTransferType(part.type) ? 'To' : 'Until'}
                       form={form.end}
                       onChange={(f, v) => patchEnd(part.id, 'end', f, v)}
+                      // A non-transfer's "end" is the same place (a hotel's
+                      // check-out), so only its time is editable — no second
+                      // Place/Address.
+                      timeOnly={!isTransferType(part.type)}
                     />
                   </Box>
                 )}
@@ -295,36 +299,45 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   );
 }
 
-/** The label / address / date / time / timezone inputs for one endpoint. */
+/** The label / address / date / time / timezone inputs for one endpoint. When
+ * timeOnly is set the Place/Address inputs are hidden — used for the "Until"
+ * edge of a single-location part (a hotel's check-out shares the check-in
+ * place), leaving only its date/time/timezone editable. */
 function EndFields({
   heading,
   form,
   onChange,
+  timeOnly = false,
 }: {
   heading: string;
   form: EndForm;
   onChange: (field: keyof EndForm, value: string) => void;
+  timeOnly?: boolean;
 }) {
   return (
     <Stack spacing={1.5}>
       <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
         {heading}
       </Typography>
-      <TextField
-        label="Place"
-        size="small"
-        value={form.label}
-        onChange={(e) => onChange('label', e.target.value)}
-        fullWidth
-      />
-      <TextField
-        label="Address"
-        size="small"
-        value={form.address}
-        onChange={(e) => onChange('address', e.target.value)}
-        helperText="Editing the address re-locates it on the map."
-        fullWidth
-      />
+      {!timeOnly && (
+        <TextField
+          label="Place"
+          size="small"
+          value={form.label}
+          onChange={(e) => onChange('label', e.target.value)}
+          fullWidth
+        />
+      )}
+      {!timeOnly && (
+        <TextField
+          label="Address"
+          size="small"
+          value={form.address}
+          onChange={(e) => onChange('address', e.target.value)}
+          helperText="Editing the address re-locates it on the map."
+          fullWidth
+        />
+      )}
       <Stack direction="row" spacing={1}>
         <TextField
           label="Date"
