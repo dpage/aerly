@@ -62,13 +62,26 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
   },
 
   applyIncomingAlert(alert) {
-    set((s) => ({
-      alerts: [alert, ...s.alerts].slice(0, 50),
-      notifications: { ...s.notifications, unread_alerts: s.notifications.unread_alerts + 1 },
-    }));
+    set((s) => {
+      // SSE can redeliver on reconnect — dedupe by id so the inbox and the
+      // unread badge don't double-count the same alert.
+      if (s.alerts.some((a) => a.id === alert.id)) return {};
+      return {
+        alerts: [alert, ...s.alerts].slice(0, 50),
+        // Only bump the unread badge for an actually-unread alert.
+        notifications: alert.read_at
+          ? s.notifications
+          : { ...s.notifications, unread_alerts: s.notifications.unread_alerts + 1 },
+      };
+    });
   },
 
   async markAlertsRead() {
+    // Snapshot so we can roll the optimistic update back if the server call
+    // fails — otherwise the badge reads "all read" while the server still has
+    // them unread, and they'd only reconcile on the next reload.
+    const prevAlerts = get().alerts;
+    const prevUnread = get().notifications.unread_alerts;
     const now = new Date().toISOString();
     set((s) => ({
       notifications: { ...s.notifications, unread_alerts: 0 },
@@ -77,7 +90,11 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
     try {
       await api.markAlertsRead();
     } catch (err) {
-      set({ error: errorMessage(err) });
+      set((s) => ({
+        alerts: prevAlerts,
+        notifications: { ...s.notifications, unread_alerts: prevUnread },
+        error: errorMessage(err),
+      }));
     }
   },
 });

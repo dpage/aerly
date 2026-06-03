@@ -131,6 +131,26 @@ describe('alertsSlice inbox', () => {
     expect(useStore.getState().notifications.unread_alerts).toBe(2);
   });
 
+  it('applyIncomingAlert dedupes a redelivered alert by id (no double-count)', () => {
+    useStore.setState({
+      alerts: [mk(1, 'a')],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1 },
+    });
+    useStore.getState().applyIncomingAlert(mk(1, 'a')); // same id redelivered
+    expect(useStore.getState().alerts).toHaveLength(1);
+    expect(useStore.getState().notifications.unread_alerts).toBe(1);
+  });
+
+  it('applyIncomingAlert does not bump the badge for an already-read alert', () => {
+    useStore.setState({
+      alerts: [],
+      notifications: { friend_requests_pending: 0, unread_alerts: 0 },
+    });
+    useStore.getState().applyIncomingAlert({ ...mk(5, 'seen'), read_at: '2026-06-01T01:00:00Z' });
+    expect(useStore.getState().alerts).toHaveLength(1);
+    expect(useStore.getState().notifications.unread_alerts).toBe(0);
+  });
+
   it('markAlertsRead zeroes notifications.unread_alerts and stamps read_at locally', async () => {
     mockApi.markAlertsRead.mockResolvedValue(undefined);
     useStore.setState({
@@ -140,5 +160,18 @@ describe('alertsSlice inbox', () => {
     await useStore.getState().markAlertsRead();
     expect(useStore.getState().notifications.unread_alerts).toBe(0);
     expect(useStore.getState().alerts[0].read_at).toBeTruthy();
+  });
+
+  it('markAlertsRead rolls back the optimistic update when the server call fails', async () => {
+    mockApi.markAlertsRead.mockRejectedValue(new Error('boom'));
+    useStore.setState({
+      alerts: [mk(1, 'a')],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1 },
+    });
+    await useStore.getState().markAlertsRead();
+    // State restored to pre-call values so the badge stays in sync with the server.
+    expect(useStore.getState().notifications.unread_alerts).toBe(1);
+    expect(useStore.getState().alerts[0].read_at).toBeUndefined();
+    expect(useStore.getState().error).toBe('boom');
   });
 });
