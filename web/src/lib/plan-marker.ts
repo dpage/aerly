@@ -69,6 +69,7 @@ export function buildPinEl(type: PlanType, ringColor?: string | null): HTMLEleme
   // person-coloured ring, then the white type glyph centred in the head.
   el.innerHTML = `
     <svg width="26" height="36" viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg"
+         overflow="visible"
          style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4))">
       <path d="${TEARDROP}" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
       <path d="${TEARDROP}" fill="${s.color}" stroke="${ring}" stroke-width="2.5" stroke-linejoin="round"/>
