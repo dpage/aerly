@@ -48,6 +48,10 @@ type ConfirmPlanInput struct {
 	PassengerIDs    []int64
 	Visibility      *ConfirmVisibility
 
+	// TripItUID is the source TripIt event UID for .ics imports; persisted on
+	// the plan for re-import dedupe. Empty for the LLM/manual paths.
+	TripItUID string
+
 	Parts []ConfirmPartInput
 
 	// SupersedesPartID, when set, is the existing part this plan's (single,
@@ -120,6 +124,7 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 			ConfirmationRef: in.ConfirmationRef,
 			Notes:           in.Notes,
 			Source:          source,
+			TripItUID:       in.TripItUID,
 			Parts:           parts,
 		}, createdBy)
 		if err != nil {

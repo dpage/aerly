@@ -499,6 +499,15 @@ export interface IngestResult {
   proposals: ProposedPlan[];
 }
 
+/** Result of importing a whole TripIt .ics (POST /api/trips/import): the trip
+ * the plans landed in (created or reused) and how many were added vs skipped
+ * as already-imported. */
+export interface ImportResult {
+  trip: Trip;
+  added: number;
+  skipped: number;
+}
+
 /** A confirmed/edited proposal sent back to /ingest/confirm. */
 export interface ConfirmPlanInput {
   type: PlanType;

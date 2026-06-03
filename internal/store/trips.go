@@ -47,6 +47,10 @@ type CreateTripPayload struct {
 	Destination string
 	StartsOn    *time.Time
 	EndsOn      *time.Time
+	// TripItID is the source TripIt trip id when this trip comes from an .ics
+	// import; empty otherwise. It makes re-import idempotent (see
+	// TripByTripItID).
+	TripItID string
 }
 
 // UpdateTripPayload carries the optionally-set fields of a trip edit. A nil
@@ -150,6 +154,15 @@ func (s *Store) TripByID(ctx context.Context, id int64) (*Trip, error) {
 		`SELECT `+tripColumns+` FROM trips WHERE id = $1`, id))
 }
 
+// TripByTripItID returns the caller's trip imported from the given TripIt trip
+// id, or ErrNotFound. Used to reuse a trip on re-import instead of duplicating
+// it. tripitID must be non-empty.
+func (s *Store) TripByTripItID(ctx context.Context, createdBy int64, tripitID string) (*Trip, error) {
+	return scanTrip(s.pool.QueryRow(ctx,
+		`SELECT `+tripColumns+` FROM trips WHERE created_by = $1 AND tripit_id = $2`,
+		createdBy, tripitID))
+}
+
 // SetTripCountry sets the derived ISO country code (does not bump updated_at, so
 // a background derivation doesn't reorder the trip list).
 func (s *Store) SetTripCountry(ctx context.Context, tripID int64, code string) error {
@@ -191,10 +204,10 @@ func (s *Store) CreateTrip(ctx context.Context, in CreateTripPayload, createdBy 
 	defer tx.Rollback(ctx)
 
 	t, err := scanTrip(tx.QueryRow(ctx, `
-		INSERT INTO trips (name, destination, starts_on, ends_on, created_by)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO trips (name, destination, starts_on, ends_on, created_by, tripit_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING `+tripColumns,
-		in.Name, in.Destination, in.StartsOn, in.EndsOn, createdBy))
+		in.Name, in.Destination, in.StartsOn, in.EndsOn, createdBy, in.TripItID))
 	if err != nil {
 		return nil, err
 	}

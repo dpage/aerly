@@ -320,6 +320,15 @@ type IngestResultDTO struct {
 	Proposals []ProposedPlanDTO `json:"proposals"`
 }
 
+// ImportResultDTO is the response from importing a whole TripIt .ics: the trip
+// the plans landed in (created or reused), and how many plans were added vs
+// skipped as already-imported.
+type ImportResultDTO struct {
+	Trip    TripDTO `json:"trip"`
+	Added   int     `json:"added"`
+	Skipped int     `json:"skipped"`
+}
+
 // PlanVisibilityDTO carries the per-plan privacy mode and named users.
 // mode is "everyone" when no override row exists; user_ids is always non-nil.
 type PlanVisibilityDTO struct {

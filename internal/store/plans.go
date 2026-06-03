@@ -160,6 +160,7 @@ type CreatePlanPayload struct {
 	ConfirmationRef string
 	Notes           string
 	Source          string
+	TripItUID       string // TripIt event UID for .ics imports (else ""); skips re-imported plans
 	Parts           []CreatePlanPartPayload
 }
 
@@ -257,10 +258,10 @@ func (s *Store) CreatePlan(ctx context.Context, in CreatePlanPayload, createdBy 
 	defer tx.Rollback(ctx)
 
 	p, err := scanPlan(tx.QueryRow(ctx, `
-		INSERT INTO plans (trip_id, type, title, confirmation_ref, notes, source, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO plans (trip_id, type, title, confirmation_ref, notes, source, created_by, tripit_uid)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING `+planColumns,
-		in.TripID, in.Type, in.Title, in.ConfirmationRef, in.Notes, source, createdBy))
+		in.TripID, in.Type, in.Title, in.ConfirmationRef, in.Notes, source, createdBy, in.TripItUID))
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +274,17 @@ func (s *Store) CreatePlan(ctx context.Context, in CreatePlanPayload, createdBy 
 		return nil, err
 	}
 	return p, nil
+}
+
+// PlanExistsByTripItUID reports whether the trip already has a plan imported
+// from the given TripIt event UID — the dedupe check the .ics importer runs
+// before committing each plan. uid must be non-empty.
+func (s *Store) PlanExistsByTripItUID(ctx context.Context, tripID int64, uid string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM plans WHERE trip_id = $1 AND tripit_uid = $2)`,
+		tripID, uid).Scan(&exists)
+	return exists, err
 }
 
 // insertPartTx writes one plan_parts row and the single satellite row dictated
