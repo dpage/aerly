@@ -28,6 +28,7 @@ import AddToTripDialog from '../components/AddToTripDialog';
 import TripMembersDialog from '../components/TripMembersDialog';
 import TripEditDialog from '../components/TripEditDialog';
 import CalendarSubscribeDialog from '../components/CalendarSubscribeDialog';
+import TripReminderToggle from '../components/TripReminderToggle';
 
 /** Trip detail layout (spec §11). Holds the Timeline / Map sub-tabs and loads
  * the trip into the store on mount; the active tab renders via the nested
@@ -225,6 +226,11 @@ export default function TripDetail() {
             Some plans fall outside this trip&apos;s dates
             {canEdit ? ' — check the dates with Edit.' : '.'}
           </Alert>
+        </Box>
+      )}
+      {loaded && (
+        <Box sx={{ px: 3, pt: 1 }}>
+          <TripReminderToggle trip={loaded} />
         </Box>
       )}
       <Tabs
