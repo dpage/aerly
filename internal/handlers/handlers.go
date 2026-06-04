@@ -119,7 +119,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/plans/{id}/passengers/{userId}", req(http.HandlerFunc(a.removePlanPassenger)))
 	mux.Handle("PUT /api/plans/{id}/visibility", req(http.HandlerFunc(a.setPlanVisibility)))
 	mux.Handle("POST /api/plans/{id}/move", req(http.HandlerFunc(a.movePlan)))
+	mux.Handle("POST /api/plans/{id}/link", req(http.HandlerFunc(a.linkPlans)))
 	mux.Handle("PATCH /api/plan-parts/{id}", req(http.HandlerFunc(a.updatePlanPart)))
+	mux.Handle("POST /api/plan-parts/{id}/split", req(http.HandlerFunc(a.splitPlanPart)))
 	mux.Handle("POST /api/plan-parts/{id}/dismiss", req(http.HandlerFunc(a.dismissPlanPart)))
 
 	// Ingest (Wave 2A).

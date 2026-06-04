@@ -15,12 +15,12 @@ import (
 // Wave 1B: plans, parts, passengers, visibility, and move.
 
 type planPartReq struct {
-	Type       string     `json:"type"`
-	Seq        int        `json:"seq"`
-	StartsAt   time.Time  `json:"starts_at"`
-	EndsAt     *time.Time `json:"ends_at"`
-	StartTZ    string     `json:"start_tz"`
-	EndTZ      string     `json:"end_tz"`
+	Type         string     `json:"type"`
+	Seq          int        `json:"seq"`
+	StartsAt     time.Time  `json:"starts_at"`
+	EndsAt       *time.Time `json:"ends_at"`
+	StartTZ      string     `json:"start_tz"`
+	EndTZ        string     `json:"end_tz"`
 	StartLabel   string     `json:"start_label"`
 	StartLat     *float64   `json:"start_lat"`
 	StartLon     *float64   `json:"start_lon"`
@@ -115,10 +115,10 @@ type planVisibilityReq struct {
 }
 
 type updatePlanPartReq struct {
-	StartsAt   *time.Time `json:"starts_at,omitempty"`
-	EndsAt     *time.Time `json:"ends_at,omitempty"`
-	StartTZ    *string    `json:"start_tz,omitempty"`
-	EndTZ      *string    `json:"end_tz,omitempty"`
+	StartsAt     *time.Time `json:"starts_at,omitempty"`
+	EndsAt       *time.Time `json:"ends_at,omitempty"`
+	StartTZ      *string    `json:"start_tz,omitempty"`
+	EndTZ        *string    `json:"end_tz,omitempty"`
 	StartLabel   *string    `json:"start_label,omitempty"`
 	StartLat     *float64   `json:"start_lat,omitempty"`
 	StartLon     *float64   `json:"start_lon,omitempty"`
@@ -132,6 +132,10 @@ type updatePlanPartReq struct {
 
 type moveReq struct {
 	TripID int64 `json:"trip_id"`
+}
+
+type linkReq struct {
+	PlanIDs []int64 `json:"plan_ids"`
 }
 
 type planUserIDReq struct {
@@ -412,6 +416,90 @@ func (a *API) movePlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto)
 }
 
+// linkPlans folds the plans named in the body into the path plan (the primary),
+// making one multi-part booking (issue #12). The actor must be an editor of the
+// primary's trip and of every absorbed plan; the store re-validates that all
+// plans share the trip and a link-eligible type.
+func (a *API) linkPlans(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	var in linkReq
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(in.PlanIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "plan_ids required")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requirePlanEdit(r.Context(), id, me, w); err != nil {
+		return
+	}
+	for _, pid := range in.PlanIDs {
+		if err := a.requirePlanEdit(r.Context(), pid, me, w); err != nil {
+			return
+		}
+	}
+	// Capture the absorbed plans' trips before they vanish so their members can
+	// be told the timeline lost a plan.
+	absorbed := make(map[int64]int64, len(in.PlanIDs)) // planID -> tripID
+	for _, pid := range in.PlanIDs {
+		if p, err := a.Store.PlanByID(r.Context(), pid); err == nil {
+			absorbed[pid] = p.TripID
+		}
+	}
+	if err := a.Store.LinkPlans(r.Context(), id, in.PlanIDs); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	dto, err := a.planDTO(r.Context(), id, me.ID)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	for pid, tripID := range absorbed {
+		a.publishPlanDeleted(r.Context(), tripID, pid)
+	}
+	a.publishPlanUpdated(r.Context(), dto.TripID, id)
+	writeJSON(w, http.StatusOK, dto)
+}
+
+// splitPlanPart separates one leg of a multi-part booking into its own plan
+// (issue #12), returning the new plan. The new plan copies the parent's audience
+// (passengers + visibility) so privacy is never widened.
+func (a *API) splitPlanPart(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requirePartEdit(r.Context(), id, me, w); err != nil {
+		return
+	}
+	newID, parentID, err := a.Store.SplitPlanPart(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotSplittable) {
+			writeError(w, http.StatusBadRequest, "plan has only one part to split")
+			return
+		}
+		handleStoreErr(w, err)
+		return
+	}
+	dto, err := a.planDTO(r.Context(), newID, me.ID)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	a.publishPlanUpdated(r.Context(), dto.TripID, parentID)
+	a.publishPlanUpdated(r.Context(), dto.TripID, newID)
+	writeJSON(w, http.StatusCreated, dto)
+}
+
 func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -445,8 +533,8 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	part, err := a.Store.UpdatePlanPart(r.Context(), id, store.UpdatePlanPartPayload{
-		StartsAt:   in.StartsAt,
-		EndsAt:     in.EndsAt,
+		StartsAt:     in.StartsAt,
+		EndsAt:       in.EndsAt,
 		StartTZ:      in.StartTZ,
 		EndTZ:        in.EndTZ,
 		StartLabel:   in.StartLabel,
