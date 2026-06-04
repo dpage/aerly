@@ -292,17 +292,20 @@ type TripDTO struct {
 	StartsOn    *string `json:"starts_on,omitempty"` // YYYY-MM-DD
 	EndsOn      *string `json:"ends_on,omitempty"`
 	// Inferred from the trip's parts when StartsOn/EndsOn aren't set (list only).
-	EffectiveStart *string         `json:"effective_start,omitempty"` // YYYY-MM-DD
-	EffectiveEnd   *string         `json:"effective_end,omitempty"`
-	CreatedBy      *int64          `json:"created_by,omitempty"`
-	MyRole         string          `json:"my_role"` // owner|editor|viewer
+	EffectiveStart *string `json:"effective_start,omitempty"` // YYYY-MM-DD
+	EffectiveEnd   *string `json:"effective_end,omitempty"`
+	CreatedBy      *int64  `json:"created_by,omitempty"`
+	MyRole         string  `json:"my_role"` // owner|editor|viewer
 	// ViewerIsPassenger is true when the viewer is a passenger on at least one
 	// plan in the trip (i.e. they're travelling on it), as opposed to merely
 	// having the trip shared with them. The trip list uses it to file
 	// passenger trips under "My trips" and badge them (issue #19).
 	ViewerIsPassenger bool            `json:"viewer_is_passenger"`
 	Members           []TripMemberDTO `json:"members"`
-	Tags              []string        `json:"tags"`
+	// PassengerIDs are the user ids added as trip-level passengers — travellers
+	// on the whole trip, distinct from members merely shared the trip (#20).
+	PassengerIDs []int64  `json:"passenger_ids"`
+	Tags         []string `json:"tags"`
 	// CountryCode is the trip's main country (lowercase ISO 3166-1 alpha-2),
 	// derived by geocoding the destination, for the trip-card flag. Omitted
 	// while underived; "zz" means derived-but-unknown (FE shows no flag).

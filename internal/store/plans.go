@@ -274,6 +274,15 @@ func (s *Store) CreatePlan(ctx context.Context, in CreatePlanPayload, createdBy 
 			return nil, err
 		}
 	}
+	// A trip's trip-level passengers (issue #20) travel on every plan, so a new
+	// plan inherits them as plan passengers (the trigger keeps their trip
+	// membership). ON CONFLICT guards against a passenger added both ways.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO plan_passengers (plan_id, user_id)
+		 SELECT $1, user_id FROM trip_passengers WHERE trip_id = $2
+		 ON CONFLICT DO NOTHING`, p.ID, in.TripID); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

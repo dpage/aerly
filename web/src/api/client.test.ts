@@ -310,6 +310,18 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     await api.removeTripMember(8, 2);
   });
 
+  it('addTripPassenger', async () => {
+    await api.addTripPassenger(8, 2);
+    expect(last()[0]).toBe('/api/trips/8/passengers');
+    expect(last()[1]?.method).toBe('POST');
+    expect(last()[1]?.body).toBe(JSON.stringify({ user_id: 2 }));
+  });
+
+  it('removeTripPassenger', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.removeTripPassenger(8, 2);
+  });
+
   it('setTripTags', async () => {
     await api.setTripTags(8, ['pgconf', 'work']);
     expect(last()[0]).toBe('/api/trips/8/tags');

@@ -302,6 +302,92 @@ func (s *Store) RemoveTripMember(ctx context.Context, tripID, userID int64) erro
 	return nil
 }
 
+// AddTripPassenger records userID as a trip-level passenger and materialises
+// that into plan_passengers for every plan in the trip, so they're a passenger
+// on all of them (issue #20). The plan_passengers insert fires the
+// passenger⇒member trigger, so they also become a trip viewer and the trip
+// surfaces under their "My trips" (issue #19). Idempotent.
+func (s *Store) AddTripPassenger(ctx context.Context, tripID, userID int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO trip_passengers (trip_id, user_id) VALUES ($1, $2)
+		 ON CONFLICT DO NOTHING`, tripID, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO plan_passengers (plan_id, user_id)
+		 SELECT id, $2 FROM plans WHERE trip_id = $1
+		 ON CONFLICT DO NOTHING`, tripID, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RemoveTripPassenger removes a trip-level passenger: it drops the
+// trip_passengers row, the plan_passengers rows it materialised across the
+// trip's plans, and — once nothing else ties the user to the trip — their
+// auto-created viewer membership. Owners/editors keep their membership.
+// Returns ErrNotFound when the user wasn't a trip passenger.
+func (s *Store) RemoveTripPassenger(ctx context.Context, tripID, userID int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
+		`DELETE FROM trip_passengers WHERE trip_id = $1 AND user_id = $2`, tripID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM plan_passengers
+		  WHERE user_id = $2
+		    AND plan_id IN (SELECT id FROM plans WHERE trip_id = $1)`, tripID, userID); err != nil {
+		return err
+	}
+	// Drop the membership the passenger trigger created, but only when the user
+	// is just a viewer with nothing else keeping them on the trip (no remaining
+	// plan_passengers). Owners/editors are untouched.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM trip_members
+		  WHERE trip_id = $1 AND user_id = $2 AND role = 'viewer'
+		    AND NOT EXISTS (
+		      SELECT 1 FROM plan_passengers pp
+		      JOIN plans pl ON pl.id = pp.plan_id
+		      WHERE pl.trip_id = $1 AND pp.user_id = $2)`, tripID, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// TripPassengers returns the user ids of the trip's trip-level passengers.
+func (s *Store) TripPassengers(ctx context.Context, tripID int64) ([]int64, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT user_id FROM trip_passengers WHERE trip_id = $1 ORDER BY user_id`, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []int64{}
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		out = append(out, uid)
+	}
+	return out, rows.Err()
+}
+
 // TripRole returns the viewer's role on the trip ("owner"|"editor"|"viewer"),
 // or ErrNotFound if they are not a member.
 func (s *Store) TripRole(ctx context.Context, tripID, viewerID int64) (string, error) {

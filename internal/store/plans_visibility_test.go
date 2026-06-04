@@ -1,9 +1,19 @@
 package store
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
+
+func containsID(ids []int64, want int64) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
 
 // mkTrip inserts a trip owned by ownerID (with the owner trip_members row) and
 // returns its id. The plan/trip CRUD is stubbed in Wave 0a, so the visibility
@@ -288,7 +298,7 @@ func TestIsTripPassenger(t *testing.T) {
 	stranger := mkUser(t, s)
 	trip := mkTrip(t, s, owner)
 	plan := mkPlan(t, s, trip, owner)
-	addPlanPassenger(t, s, plan, pax) // pax travels on the trip
+	addPlanPassenger(t, s, plan, pax)             // pax travels on the trip
 	addMember(t, s, trip, sharedViewer, "viewer") // shared, but not a passenger
 
 	check := func(uid int64, want bool) {
@@ -305,6 +315,75 @@ func TestIsTripPassenger(t *testing.T) {
 	check(sharedViewer, false)
 	check(owner, false) // owning a trip isn't being a passenger on it
 	check(stranger, false)
+}
+
+// TestTripPassengerLifecycle covers adding a trip-level passenger (materialised
+// onto existing plans + auto-membership), back-filling a newly created plan,
+// and removing them (cleaning plan_passengers and the auto viewer row) — #20.
+func TestTripPassengerLifecycle(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	partner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	plan1 := mkPlan(t, s, trip, owner)
+
+	if err := s.AddTripPassenger(ctx, trip, partner); err != nil {
+		t.Fatalf("AddTripPassenger: %v", err)
+	}
+	// Materialised onto the existing plan.
+	pax, err := s.PassengersByPlan(ctx, []int64{plan1})
+	if err != nil {
+		t.Fatalf("PassengersByPlan: %v", err)
+	}
+	if !containsID(pax[plan1], partner) {
+		t.Error("trip passenger not materialised onto the existing plan")
+	}
+	// Became a trip viewer (the passenger⇒member trigger) and is listed.
+	if role, err := s.TripRole(ctx, trip, partner); err != nil || role != "viewer" {
+		t.Errorf("trip role = %q, err=%v, want viewer", role, err)
+	}
+	if tp, _ := s.TripPassengers(ctx, trip); !containsID(tp, partner) {
+		t.Error("partner not listed by TripPassengers")
+	}
+	if ok, _ := s.IsTripPassenger(ctx, trip, partner); !ok {
+		t.Error("IsTripPassenger should be true after add")
+	}
+
+	// A newly created plan inherits the trip passenger.
+	plan2, err := s.CreatePlan(ctx, CreatePlanPayload{TripID: trip, Type: "flight", Title: "BA1"}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	pax2, _ := s.PassengersByPlan(ctx, []int64{plan2.ID})
+	if !containsID(pax2[plan2.ID], partner) {
+		t.Error("new plan did not inherit the trip passenger")
+	}
+
+	// Remove: clears trip_passengers, plan_passengers across the trip, and the
+	// auto viewer membership.
+	if err := s.RemoveTripPassenger(ctx, trip, partner); err != nil {
+		t.Fatalf("RemoveTripPassenger: %v", err)
+	}
+	if ok, _ := s.IsTripPassenger(ctx, trip, partner); ok {
+		t.Error("IsTripPassenger should be false after remove")
+	}
+	if tp, _ := s.TripPassengers(ctx, trip); containsID(tp, partner) {
+		t.Error("partner still listed after remove")
+	}
+	pax3, _ := s.PassengersByPlan(ctx, []int64{plan1, plan2.ID})
+	if containsID(pax3[plan1], partner) || containsID(pax3[plan2.ID], partner) {
+		t.Error("plan_passengers not cleaned up on remove")
+	}
+	if _, err := s.TripRole(ctx, trip, partner); !errors.Is(err, ErrNotFound) {
+		t.Errorf("auto viewer membership not removed: err=%v", err)
+	}
+	// Removing again is ErrNotFound.
+	if err := s.RemoveTripPassenger(ctx, trip, partner); !errors.Is(err, ErrNotFound) {
+		t.Errorf("re-remove err = %v, want ErrNotFound", err)
+	}
 }
 
 // TestListVisiblePlanParts respects the same predicate as CanViewPlan.

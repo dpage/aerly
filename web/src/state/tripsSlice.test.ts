@@ -19,6 +19,8 @@ vi.mock('../api/client', () => ({
     deleteTrip: vi.fn(),
     addTripMember: vi.fn(),
     removeTripMember: vi.fn(),
+    addTripPassenger: vi.fn(),
+    removeTripPassenger: vi.fn(),
     setTripTags: vi.fn(),
     suggestTags: vi.fn(),
   },
@@ -206,6 +208,26 @@ describe('removeTripMember', () => {
     mockApi.getTrip.mockResolvedValue(tripWithPlans({ id: 3, name: 'reloaded' }));
     await useStore.getState().removeTripMember(3, 7);
     expect(mockApi.removeTripMember).toHaveBeenCalledWith(3, 7);
+    expect(useStore.getState().currentTrip?.name).toBe('reloaded');
+  });
+});
+
+describe('addTripPassenger', () => {
+  it('adds the passenger then refetches the trip via loadTrip', async () => {
+    mockApi.addTripPassenger.mockResolvedValue(trip({ id: 4 }));
+    mockApi.getTrip.mockResolvedValue(tripWithPlans({ id: 4, name: 'reloaded' }));
+    await useStore.getState().addTripPassenger(4, 7);
+    expect(mockApi.addTripPassenger).toHaveBeenCalledWith(4, 7);
+    expect(useStore.getState().currentTrip?.name).toBe('reloaded');
+  });
+});
+
+describe('removeTripPassenger', () => {
+  it('removes the passenger then refetches the trip via loadTrip', async () => {
+    mockApi.removeTripPassenger.mockResolvedValue(undefined);
+    mockApi.getTrip.mockResolvedValue(tripWithPlans({ id: 4, name: 'reloaded' }));
+    await useStore.getState().removeTripPassenger(4, 7);
+    expect(mockApi.removeTripPassenger).toHaveBeenCalledWith(4, 7);
     expect(useStore.getState().currentTrip?.name).toBe('reloaded');
   });
 });

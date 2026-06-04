@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/dpage/aerly/internal/store"
@@ -229,5 +230,96 @@ func TestListTripsSuperuserIncludeScopes(t *testing.T) {
 	mine := decodeBody[[]map[string]any](t, e.req(t, "GET", "/api/trips?include=all", nil, stranger))
 	if len(mine) != 1 {
 		t.Errorf("non-superuser include=all = %d trips, want 1 (ignored)", len(mine))
+	}
+}
+
+// TestTripPassengerEndpoints covers adding/removing a trip-level passenger via
+// the API: any trip member may add an accepted friend (a non-owner can bring
+// their partner), the passenger then sees the trip flagged, non-friends and
+// non-members are refused, and removal un-shares them (#20).
+func TestTripPassengerEndpoints(t *testing.T) {
+	e := setup(t, nil, nil)
+	ctx := context.Background()
+	owner := e.user(t, "owner", false)
+	partner := e.user(t, "partner", false)
+	stranger := e.user(t, "stranger", false)
+	outsider := e.user(t, "outsider", false)
+	e.befriend(t, owner, partner)
+
+	var tid, pid int64
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO trips (name, created_by) VALUES ('Holiday', $1) RETURNING id`, owner).Scan(&tid); err != nil {
+		t.Fatalf("trip: %v", err)
+	}
+	if _, err := e.pool.Exec(ctx,
+		`INSERT INTO trip_members (trip_id, user_id, role) VALUES ($1, $2, 'owner')`, tid, owner); err != nil {
+		t.Fatalf("owner member: %v", err)
+	}
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO plans (trip_id, type, created_by) VALUES ($1, 'flight', $2) RETURNING id`, tid, owner).Scan(&pid); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	add := func(actor, target int64) *httptest.ResponseRecorder {
+		return e.req(t, "POST", fmt.Sprintf("/api/trips/%d/passengers", tid),
+			map[string]any{"user_id": target}, actor)
+	}
+
+	// A non-member can't add passengers.
+	if w := add(outsider, partner); w.Code != http.StatusForbidden {
+		t.Errorf("non-member add = %d, want 403", w.Code)
+	}
+	// A non-friend target is refused.
+	if w := add(owner, stranger); w.Code != http.StatusForbidden {
+		t.Errorf("non-friend target = %d, want 403", w.Code)
+	}
+	// Owner adds their friend as a trip passenger.
+	w := add(owner, partner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("add passenger = %d %s", w.Code, w.Body.String())
+	}
+	dto := decodeBody[map[string]any](t, w)
+	if ids, _ := dto["passenger_ids"].([]any); len(ids) != 1 || int64(ids[0].(float64)) != partner {
+		t.Errorf("passenger_ids = %v, want [%d]", dto["passenger_ids"], partner)
+	}
+
+	// The partner now sees the trip, flagged as a passenger, and is a passenger
+	// on the existing plan.
+	trips := decodeBody[[]map[string]any](t, e.req(t, "GET", "/api/trips", nil, partner))
+	if len(trips) != 1 || trips[0]["viewer_is_passenger"] != true {
+		t.Fatalf("partner trips = %v", trips)
+	}
+	var onPlan bool
+	if err := e.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM plan_passengers WHERE plan_id=$1 AND user_id=$2)`, pid, partner).Scan(&onPlan); err != nil {
+		t.Fatalf("check plan passenger: %v", err)
+	}
+	if !onPlan {
+		t.Error("trip passenger was not materialised onto the existing plan")
+	}
+
+	// A non-owner member may add their own friend (the couple scenario): make
+	// the partner befriend a third user and add them.
+	third := e.user(t, "third", false)
+	e.befriend(t, partner, third)
+	if w := add(partner, third); w.Code != http.StatusOK {
+		t.Errorf("member (non-owner) add = %d %s, want 200", w.Code, w.Body.String())
+	}
+
+	// Removal: a passenger may remove themselves; afterwards they no longer see
+	// the trip.
+	if w := e.req(t, "DELETE", fmt.Sprintf("/api/trips/%d/passengers/%d", tid, third), nil, third); w.Code != http.StatusNoContent {
+		t.Errorf("self-remove = %d, want 204", w.Code)
+	}
+	// Owner removes the partner.
+	if w := e.req(t, "DELETE", fmt.Sprintf("/api/trips/%d/passengers/%d", tid, partner), nil, owner); w.Code != http.StatusNoContent {
+		t.Errorf("owner remove = %d, want 204", w.Code)
+	}
+	if seen := decodeBody[[]map[string]any](t, e.req(t, "GET", "/api/trips", nil, partner)); len(seen) != 0 {
+		t.Errorf("partner still sees %d trips after removal, want 0", len(seen))
+	}
+	// Removing a non-passenger is 404.
+	if w := e.req(t, "DELETE", fmt.Sprintf("/api/trips/%d/passengers/%d", tid, stranger), nil, owner); w.Code != http.StatusNotFound {
+		t.Errorf("remove non-passenger = %d, want 404", w.Code)
 	}
 }

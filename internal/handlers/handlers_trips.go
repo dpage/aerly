@@ -306,6 +306,91 @@ func (a *API) removeTripMember(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type tripPassengerReq struct {
+	UserID int64 `json:"user_id"`
+}
+
+// addTripPassenger adds a trip-level passenger: a traveller on the whole trip,
+// a passenger on every plan in it (#20). Any trip member may add one of their
+// accepted friends (so e.g. a passenger can bring their partner), matching the
+// per-plan passenger gate.
+func (a *API) addTripPassenger(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	// The actor must be on the trip (a member) — but need not be the owner, so a
+	// passenger can add their partner.
+	if ok, err := a.canViewTrip(r.Context(), id, me); err != nil {
+		handleStoreErr(w, err)
+		return
+	} else if !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	var in tripPassengerReq
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if in.UserID == 0 {
+		writeError(w, http.StatusBadRequest, "user_id required")
+		return
+	}
+	if err := a.requireFriendTarget(r.Context(), me, in.UserID, w); err != nil {
+		return
+	}
+	if err := a.Store.AddTripPassenger(r.Context(), id, in.UserID); err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	t, err := a.Store.TripByID(r.Context(), id)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	dto, err := a.tripDTO(r, t, me.ID)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	a.publishTripUpdated(r.Context(), id)
+	writeJSON(w, http.StatusOK, dto)
+}
+
+// removeTripPassenger removes a trip-level passenger. Trip editors/owners may
+// remove anyone; a user may always remove themselves.
+func (a *API) removeTripPassenger(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	uid, err := pathID(r, "userId")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad userId")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if me == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if me.ID != uid {
+		if err := a.requireTripEdit(r.Context(), id, me, w); err != nil {
+			return
+		}
+	}
+	if err := a.Store.RemoveTripPassenger(r.Context(), id, uid); err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	a.publishTripUpdated(r.Context(), id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *API) setTripTags(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -383,8 +468,13 @@ func (a *API) tripDTO(r *http.Request, t *store.Trip, viewerID int64) (api.TripD
 	if err != nil {
 		return api.TripDTO{}, err
 	}
+	passengers, err := a.Store.TripPassengers(r.Context(), t.ID)
+	if err != nil {
+		return api.TripDTO{}, err
+	}
 	dto := api.ToTripDTO(t, role, memberDTOs, tags)
 	dto.ViewerIsPassenger = isPassenger
+	dto.PassengerIDs = passengers
 	return dto, nil
 }
 

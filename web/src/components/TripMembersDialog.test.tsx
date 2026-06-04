@@ -7,6 +7,8 @@ import type { Friendship, TripMember, User } from '../api/types';
 const h = vi.hoisted(() => ({
   addTripMember: vi.fn(),
   removeTripMember: vi.fn(),
+  addTripPassenger: vi.fn(),
+  removeTripPassenger: vi.fn(),
   setError: vi.fn(),
   openHelp: vi.fn(),
   state: {
@@ -24,6 +26,8 @@ vi.mock('../state/store', () => ({
       me: h.state.me,
       addTripMember: h.addTripMember,
       removeTripMember: h.removeTripMember,
+      addTripPassenger: h.addTripPassenger,
+      removeTripPassenger: h.removeTripPassenger,
       setError: h.setError,
       openHelp: h.openHelp,
     }),
@@ -59,13 +63,18 @@ beforeEach(() => {
   h.state.friendships = [accepted(2), accepted(3)];
 });
 
-function render_(members: TripMember[], role: 'owner' | 'editor' | 'viewer' = 'owner') {
+function render_(
+  members: TripMember[],
+  role: 'owner' | 'editor' | 'viewer' = 'owner',
+  passengerIds: number[] = [],
+) {
   return render(
     <TripMembersDialog
       open
       tripId={7}
       myRole={role}
       members={members}
+      passengerIds={passengerIds}
       onClose={() => {}}
     />,
   );
@@ -115,6 +124,37 @@ describe('TripMembersDialog', () => {
     await waitFor(() =>
       expect(h.addTripMember).toHaveBeenCalledWith(7, { user_id: 2, role: 'editor' }),
     );
+  });
+
+  it('adds a friend as a trip passenger when the Passenger role is chosen (#20)', async () => {
+    h.addTripPassenger.mockResolvedValue(undefined);
+    render_([{ user_id: 100, role: 'owner' }]);
+
+    await userEvent.click(screen.getByLabelText('Friend'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Carol' }));
+    await userEvent.click(screen.getByLabelText('Role'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Passenger' }));
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    await waitFor(() => expect(h.addTripPassenger).toHaveBeenCalledWith(7, 3));
+    expect(h.addTripMember).not.toHaveBeenCalled();
+  });
+
+  it("shows a trip passenger as 'passenger' and removes via the passenger endpoint (#20)", async () => {
+    h.removeTripPassenger.mockResolvedValue(undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // Bob is a viewer member who is also a trip passenger.
+    render_([
+      { user_id: 100, role: 'owner' },
+      { user_id: 2, role: 'viewer' },
+    ], 'owner', [2]);
+
+    // Displayed as a passenger, not a plain viewer.
+    expect(screen.getByText('passenger')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /remove bob/i }));
+    await waitFor(() => expect(h.removeTripPassenger).toHaveBeenCalledWith(7, 2));
+    expect(h.removeTripMember).not.toHaveBeenCalled();
   });
 
   it('excludes existing members from the friend picker', async () => {

@@ -33,22 +33,40 @@ interface Props {
   /** The viewer's role on this trip; only owners/editors may manage members. */
   myRole: TripRole;
   members: TripMember[];
+  /** User ids who are trip-level passengers (travellers on the whole trip). */
+  passengerIds: number[];
   onClose: () => void;
 }
 
-/** Trip sharing panel (spec §6.4): add accepted friends as editor or viewer,
- * change a member's role, or remove them. The owner role is conferred at trip
- * creation and can't be assigned or revoked here. */
-export default function TripMembersDialog({ open, tripId, myRole, members, onClose }: Props) {
+/** A role pickable when sharing. 'passenger' isn't a trip_members role — it adds
+ * a trip-level passenger (a traveller on every plan, issue #20) — but it sits in
+ * the same picker as the editor/viewer member roles. */
+type AddRole = 'editor' | 'viewer' | 'passenger';
+
+/** Trip sharing panel (spec §6.4): add accepted friends as editor, viewer, or
+ * passenger, change a member's role, or remove them. The owner role is conferred
+ * at trip creation and can't be assigned or revoked here. */
+export default function TripMembersDialog({
+  open,
+  tripId,
+  myRole,
+  members,
+  passengerIds,
+  onClose,
+}: Props) {
   const users = useStore((s) => s.users);
   const addTripMember = useStore((s) => s.addTripMember);
   const removeTripMember = useStore((s) => s.removeTripMember);
+  const addTripPassenger = useStore((s) => s.addTripPassenger);
+  const removeTripPassenger = useStore((s) => s.removeTripPassenger);
   const setError = useStore((s) => s.setError);
   const openHelp = useStore((s) => s.openHelp);
   const friends = useFriendUsers();
 
+  const passengerSet = useMemo(() => new Set(passengerIds), [passengerIds]);
+
   const [pick, setPick] = useState<number | ''>('');
-  const [role, setRole] = useState<Exclude<TripRole, 'owner'>>('viewer');
+  const [role, setRole] = useState<AddRole>('viewer');
   const [busy, setBusy] = useState(false);
 
   const canManage = myRole === 'owner' || myRole === 'editor';
@@ -78,7 +96,11 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
     if (pick === '') return;
     setBusy(true);
     try {
-      await addTripMember(tripId, { user_id: pick, role });
+      if (role === 'passenger') {
+        await addTripPassenger(tripId, pick);
+      } else {
+        await addTripMember(tripId, { user_id: pick, role });
+      }
       setPick('');
       setRole('viewer');
     } catch (err) {
@@ -101,7 +123,13 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
     const label = memberLabel(userId);
     if (!window.confirm(`Remove ${label} from this trip?`)) return;
     try {
-      await removeTripMember(tripId, userId);
+      // Trip passengers are removed via the passenger endpoint (which also
+      // takes them off every plan); plain members via the member endpoint.
+      if (passengerSet.has(userId)) {
+        await removeTripPassenger(tripId, userId);
+      } else {
+        await removeTripMember(tripId, userId);
+      }
     } catch (err) {
       reportError(err);
     }
@@ -146,11 +174,12 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
                   size="small"
                   label="Role"
                   value={role}
-                  onChange={(e) => setRole(e.target.value as Exclude<TripRole, 'owner'>)}
+                  onChange={(e) => setRole(e.target.value as AddRole)}
                   sx={{ minWidth: 120 }}
                 >
                   <MenuItem value="editor">Editor</MenuItem>
                   <MenuItem value="viewer">Viewer</MenuItem>
+                  <MenuItem value="passenger">Passenger</MenuItem>
                 </TextField>
                 <Button
                   variant="contained"
@@ -180,6 +209,10 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
                   const label = memberLabel(m.user_id);
                   const u = userIndex.get(m.user_id);
                   const isOwner = m.role === 'owner';
+                  // A trip passenger travels on every plan; show that rather than
+                  // their underlying 'viewer' membership, and don't offer the
+                  // editor/viewer role select for them (remove + re-add to change).
+                  const isPassenger = passengerSet.has(m.user_id);
                   return (
                     <TableRow key={m.user_id} hover>
                       <TableCell>
@@ -191,8 +224,12 @@ export default function TripMembersDialog({ open, tripId, myRole, members, onClo
                         </Box>
                       </TableCell>
                       <TableCell>
-                        {isOwner || !canManage ? (
-                          <Chip label={m.role} size="small" variant="outlined" />
+                        {isOwner || isPassenger || !canManage ? (
+                          <Chip
+                            label={isPassenger ? 'passenger' : m.role}
+                            size="small"
+                            variant="outlined"
+                          />
                         ) : (
                           <TextField
                             select

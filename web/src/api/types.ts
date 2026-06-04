@@ -226,6 +226,10 @@ export interface Trip {
    * and badges it (issue #19). */
   viewer_is_passenger: boolean;
   members: TripMember[];
+  /** User ids added as trip-level passengers: travellers on the whole trip
+   * (a passenger on every plan), distinct from members merely shared the
+   * trip (issue #20). */
+  passenger_ids: number[];
   tags: string[];
   /** Main country as a lowercase ISO 3166-1 alpha-2 code, for the card flag.
    * Absent while underived; "zz" means derived-but-unknown (no flag shown). */

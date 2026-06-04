@@ -238,6 +238,10 @@ export const HELP_PAGES: HelpPage[] = [
           title="Viewer"
           description="Can see the trip and its plans, but can't change anything."
         />
+        <FeatureItem
+          title="Passenger"
+          description="Someone travelling on the whole trip (e.g. your partner). They become a passenger on every plan — existing and future — so they see all of it (except plans hidden from them), and it shows up under their own My trips."
+        />
         <Body>You can only add people who are already your friends.</Body>
         <SectionTitle>Per-plan privacy</SectionTitle>
         <FeatureItem
