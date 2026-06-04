@@ -435,6 +435,37 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
     await api.optOutPlanAlerts(3);
   });
+
+  it('setTripReminder PUTs the lead hours', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.setTripReminder(7, 12);
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/7/reminder');
+    expect(spy.mock.calls[0][1]).toMatchObject({ method: 'PUT', body: JSON.stringify({ lead_hours: 12 }) });
+  });
+
+  it('clearTripReminder DELETEs the trip reminder', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.clearTripReminder(7);
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/7/reminder');
+    expect(spy.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
+  });
+
+  it('setPlanReminder PUTs enabled + lead hours', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.setPlanReminder(3, true, 6);
+    expect(spy.mock.calls[0][0]).toBe('/api/plans/3/reminder');
+    expect(spy.mock.calls[0][1]).toMatchObject({
+      method: 'PUT',
+      body: JSON.stringify({ enabled: true, lead_hours: 6 }),
+    });
+  });
+
+  it('clearPlanReminder DELETEs the plan reminder', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.clearPlanReminder(3);
+    expect(spy.mock.calls[0][0]).toBe('/api/plans/3/reminder');
+    expect(spy.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
+  });
 });
 
 describe('revokeCalendarToken / issueCalendarToken paths', () => {

@@ -89,10 +89,26 @@ describe('PlanReminderOverride', () => {
     await waitFor(() => expect(h.setPlanReminder).toHaveBeenCalledWith(5, true, 3));
   });
 
-  it('reports an error when the override call fails', async () => {
+  it('stringifies a non-Error rejection', async () => {
     h.setPlanReminder.mockRejectedValue('nope');
     render(<PlanReminderOverride plan={plan()} />);
     await chooseMode('Remind me');
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('nope'));
+  });
+
+  it('reports an Error rejection message', async () => {
+    h.clearPlanReminder.mockRejectedValue(new Error('boom'));
+    render(<PlanReminderOverride plan={plan({ reminder_override: 'off' })} />);
+    await chooseMode('Use trip setting');
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('boom'));
+  });
+
+  it('falls back to a 24h lead when the field is non-positive', async () => {
+    render(<PlanReminderOverride plan={plan({ reminder_override: 'on', reminder_lead_hours: 24 })} />);
+    const field = screen.getByLabelText(/reminder lead time in hours/i);
+    await userEvent.clear(field);
+    await userEvent.type(field, '0');
+    await userEvent.tab();
+    await waitFor(() => expect(h.setPlanReminder).toHaveBeenCalledWith(5, true, 24));
   });
 });
