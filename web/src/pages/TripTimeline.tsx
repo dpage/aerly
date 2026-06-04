@@ -20,6 +20,7 @@ import PlanTypeIcon from '../components/PlanTypeIcon';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
 import PlanAlertToggle from '../components/PlanAlertToggle';
+import PlanReminderOverride from '../components/PlanReminderOverride';
 import AddToTripDialog from '../components/AddToTripDialog';
 import {
   buildTimeline,
@@ -464,6 +465,9 @@ function PartCard({
               <PlanAlertToggle plan={plan} />
             </Box>
           )}
+          <Box sx={{ mt: 0.5 }}>
+            <PlanReminderOverride plan={plan} />
+          </Box>
           {canEdit && (
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
               <Button size="small" onClick={() => setEditOpen(true)}>

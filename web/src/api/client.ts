@@ -307,6 +307,13 @@ export const api = {
   optInPlanAlerts: (planId: number) => request<void>('POST', `/api/plans/${planId}/alerts/optin`),
   optOutPlanAlerts: (planId: number) =>
     request<void>('DELETE', `/api/plans/${planId}/alerts/optin`),
+  // Upcoming-plan reminders (#11): trip-level opt-in + per-plan override.
+  setTripReminder: (tripId: number, leadHours: number) =>
+    request<void>('PUT', `/api/trips/${tripId}/reminder`, { lead_hours: leadHours }),
+  clearTripReminder: (tripId: number) => request<void>('DELETE', `/api/trips/${tripId}/reminder`),
+  setPlanReminder: (planId: number, enabled: boolean, leadHours: number) =>
+    request<void>('PUT', `/api/plans/${planId}/reminder`, { enabled, lead_hours: leadHours }),
+  clearPlanReminder: (planId: number) => request<void>('DELETE', `/api/plans/${planId}/reminder`),
 };
 
 export { ApiError };

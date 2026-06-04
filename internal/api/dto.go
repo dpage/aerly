@@ -312,6 +312,10 @@ type TripDTO struct {
 	CountryCode string    `json:"country_code,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// ReminderOptedIn / ReminderLeadHours are the requesting viewer's trip-level
+	// upcoming-plan reminder opt-in (issue #11), projected per-viewer.
+	ReminderOptedIn   bool `json:"reminder_opted_in"`
+	ReminderLeadHours int  `json:"reminder_lead_hours"`
 }
 
 // TripMemberDTO is one membership edge.
@@ -338,10 +342,15 @@ type PlanDTO struct {
 	Visibility      PlanVisibilityDTO `json:"visibility"`
 	// AlertOptedIn is whether the requesting viewer has opted in to this plan's
 	// change alerts (a plan_alert_optin row). Computed per-viewer at assembly.
-	AlertOptedIn bool          `json:"alert_opted_in"`
-	Parts        []PlanPartDTO `json:"parts"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	AlertOptedIn bool `json:"alert_opted_in"`
+	// ReminderOverride is the viewer's per-plan reminder override (issue #11):
+	// "inherit" (use the trip setting), "on", or "off". ReminderLeadHours is the
+	// override's lead in hours when "on" (else the default 24).
+	ReminderOverride  string        `json:"reminder_override"`
+	ReminderLeadHours int           `json:"reminder_lead_hours"`
+	Parts             []PlanPartDTO `json:"parts"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
 }
 
 // ProposedPlanDTO is a plan the ingest pipeline proposes, awaiting

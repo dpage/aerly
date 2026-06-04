@@ -812,30 +812,37 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 		}
 	}
 	var optedIn bool
+	reminder := store.PlanReminder{Override: "inherit", LeadHours: 24}
 	if viewerID != 0 {
 		optedIn, err = a.Store.PlanAlertOptedIn(ctx, planID, viewerID)
 		if err != nil {
 			return api.PlanDTO{}, err
 		}
+		reminder, err = a.Store.PlanReminderFor(ctx, planID, viewerID)
+		if err != nil {
+			return api.PlanDTO{}, err
+		}
 	}
 	return api.PlanDTO{
-		ID:              plan.ID,
-		TripID:          plan.TripID,
-		Type:            plan.Type,
-		Title:           plan.Title,
-		ConfirmationRef: plan.ConfirmationRef,
-		TicketNumber:    plan.TicketNumber,
-		Notes:           plan.Notes,
-		Source:          plan.Source,
-		CostAmount:      plan.CostAmount,
-		CostCurrency:    plan.CostCurrency,
-		CreatedBy:       plan.CreatedBy,
-		PassengerIDs:    pids,
-		Visibility:      visDTO,
-		AlertOptedIn:    optedIn,
-		Parts:           partDTOs,
-		CreatedAt:       plan.CreatedAt,
-		UpdatedAt:       plan.UpdatedAt,
+		ID:                plan.ID,
+		TripID:            plan.TripID,
+		Type:              plan.Type,
+		Title:             plan.Title,
+		ConfirmationRef:   plan.ConfirmationRef,
+		TicketNumber:      plan.TicketNumber,
+		Notes:             plan.Notes,
+		Source:            plan.Source,
+		CostAmount:        plan.CostAmount,
+		CostCurrency:      plan.CostCurrency,
+		CreatedBy:         plan.CreatedBy,
+		PassengerIDs:      pids,
+		Visibility:        visDTO,
+		AlertOptedIn:      optedIn,
+		ReminderOverride:  reminder.Override,
+		ReminderLeadHours: reminder.LeadHours,
+		Parts:             partDTOs,
+		CreatedAt:         plan.CreatedAt,
+		UpdatedAt:         plan.UpdatedAt,
 	}, nil
 }
 

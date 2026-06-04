@@ -234,6 +234,10 @@ export interface Trip {
   /** Main country as a lowercase ISO 3166-1 alpha-2 code, for the card flag.
    * Absent while underived; "zz" means derived-but-unknown (no flag shown). */
   country_code?: string;
+  /** Viewer's trip-level upcoming-plan reminder opt-in (#11): true when a row
+   * exists; reminder_lead_hours is the lead time (default 24). */
+  reminder_opted_in: boolean;
+  reminder_lead_hours: number;
   created_at: string;
   updated_at: string;
 }
@@ -374,6 +378,10 @@ export interface Plan {
   /** Whether the requesting viewer has opted in to this plan's change alerts
    * (a per-viewer projection of plan_alert_optin). Drives PlanAlertToggle. */
   alert_opted_in: boolean;
+  /** Viewer's per-plan reminder override (#11): "inherit" uses the trip
+   * setting, "on"/"off" force it. reminder_lead_hours is the override's lead. */
+  reminder_override: 'inherit' | 'on' | 'off';
+  reminder_lead_hours: number;
   parts: PlanPart[];
   created_at: string;
   updated_at: string;

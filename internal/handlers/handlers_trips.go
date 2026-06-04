@@ -472,9 +472,15 @@ func (a *API) tripDTO(r *http.Request, t *store.Trip, viewerID int64) (api.TripD
 	if err != nil {
 		return api.TripDTO{}, err
 	}
+	tr, err := a.Store.TripReminderFor(r.Context(), t.ID, viewerID)
+	if err != nil {
+		return api.TripDTO{}, err
+	}
 	dto := api.ToTripDTO(t, role, memberDTOs, tags)
 	dto.ViewerIsPassenger = isPassenger
 	dto.PassengerIDs = passengers
+	dto.ReminderOptedIn = tr.OptedIn
+	dto.ReminderLeadHours = tr.LeadHours
 	return dto, nil
 }
 

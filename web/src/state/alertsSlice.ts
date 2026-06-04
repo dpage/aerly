@@ -19,6 +19,12 @@ export interface AlertsSlice {
   optInPlanAlerts: (planId: number) => Promise<void>;
   optOutPlanAlerts: (planId: number) => Promise<void>;
 
+  // Upcoming-plan reminders (#11).
+  setTripReminder: (tripId: number, leadHours: number) => Promise<void>;
+  clearTripReminder: (tripId: number) => Promise<void>;
+  setPlanReminder: (planId: number, enabled: boolean, leadHours: number) => Promise<void>;
+  clearPlanReminder: (planId: number) => Promise<void>;
+
   loadAlerts: () => Promise<void>;
   applyIncomingAlert: (alert: FlightAlert) => void;
   markAlertsRead: () => Promise<void>;
@@ -49,6 +55,26 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
 
   async optOutPlanAlerts(planId) {
     await api.optOutPlanAlerts(planId);
+    await reloadCurrent(get);
+  },
+
+  async setTripReminder(tripId, leadHours) {
+    await api.setTripReminder(tripId, leadHours);
+    await reloadCurrent(get);
+  },
+
+  async clearTripReminder(tripId) {
+    await api.clearTripReminder(tripId);
+    await reloadCurrent(get);
+  },
+
+  async setPlanReminder(planId, enabled, leadHours) {
+    await api.setPlanReminder(planId, enabled, leadHours);
+    await reloadCurrent(get);
+  },
+
+  async clearPlanReminder(planId) {
+    await api.clearPlanReminder(planId);
     await reloadCurrent(get);
   },
 

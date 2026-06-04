@@ -9,6 +9,10 @@ vi.mock('../api/client', () => ({
     updateAlertPrefs: vi.fn(),
     optInPlanAlerts: vi.fn(),
     optOutPlanAlerts: vi.fn(),
+    setTripReminder: vi.fn(),
+    clearTripReminder: vi.fn(),
+    setPlanReminder: vi.fn(),
+    clearPlanReminder: vi.fn(),
     getTrip: vi.fn(),
     getAlerts: vi.fn(),
     markAlertsRead: vi.fn(),
@@ -96,6 +100,41 @@ describe('optOutPlanAlerts', () => {
     mockApi.getTrip.mockResolvedValue(tripWithPlans(7));
     await useStore.getState().optOutPlanAlerts(3);
     expect(mockApi.optOutPlanAlerts).toHaveBeenCalledWith(3);
+    expect(mockApi.getTrip).toHaveBeenCalledWith(7);
+  });
+});
+
+describe('reminder opt-in actions', () => {
+  beforeEach(() => {
+    useStore.setState({ currentTrip: tripWithPlans(7) });
+    mockApi.getTrip.mockResolvedValue(tripWithPlans(7));
+  });
+
+  it('setTripReminder calls the api and reloads the trip', async () => {
+    mockApi.setTripReminder.mockResolvedValue(undefined);
+    await useStore.getState().setTripReminder(7, 12);
+    expect(mockApi.setTripReminder).toHaveBeenCalledWith(7, 12);
+    expect(mockApi.getTrip).toHaveBeenCalledWith(7);
+  });
+
+  it('clearTripReminder calls the api and reloads the trip', async () => {
+    mockApi.clearTripReminder.mockResolvedValue(undefined);
+    await useStore.getState().clearTripReminder(7);
+    expect(mockApi.clearTripReminder).toHaveBeenCalledWith(7);
+    expect(mockApi.getTrip).toHaveBeenCalledWith(7);
+  });
+
+  it('setPlanReminder forwards enabled + lead and reloads', async () => {
+    mockApi.setPlanReminder.mockResolvedValue(undefined);
+    await useStore.getState().setPlanReminder(3, false, 6);
+    expect(mockApi.setPlanReminder).toHaveBeenCalledWith(3, false, 6);
+    expect(mockApi.getTrip).toHaveBeenCalledWith(7);
+  });
+
+  it('clearPlanReminder calls the api and reloads', async () => {
+    mockApi.clearPlanReminder.mockResolvedValue(undefined);
+    await useStore.getState().clearPlanReminder(3);
+    expect(mockApi.clearPlanReminder).toHaveBeenCalledWith(3);
     expect(mockApi.getTrip).toHaveBeenCalledWith(7);
   });
 });
