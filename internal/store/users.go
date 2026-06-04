@@ -11,7 +11,11 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("not found")
+	ErrNotFound = errors.New("not found")
+	// ErrNotSplittable is returned when a split is asked of a plan that has only
+	// one live part (nothing to separate) or whose type isn't
+	// link/split-eligible (only flights and trains hold multi-leg bookings).
+	ErrNotSplittable   = errors.New("plan is not splittable")
 	ErrAddressTaken    = errors.New("address already registered")
 	ErrAlreadyVerified = errors.New("address already verified")
 	ErrUsernameTaken   = errors.New("username already registered")
