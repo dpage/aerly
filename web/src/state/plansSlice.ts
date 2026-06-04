@@ -24,6 +24,8 @@ export interface PlansSlice {
   removePlanPassenger: (planId: number, userId: number) => Promise<void>;
   setPlanVisibility: (planId: number, visibility: PlanVisibility) => Promise<void>;
   movePlan: (planId: number, toTripId: number) => Promise<void>;
+  linkPlans: (primaryId: number, planIds: number[]) => Promise<void>;
+  splitPlanPart: (partId: number) => Promise<void>;
   updatePlanPart: (partId: number, patch: UpdatePlanPartInput) => Promise<void>;
   dismissPlanPart: (partId: number) => Promise<void>;
 }
@@ -62,6 +64,16 @@ export const createPlansSlice: StateCreator<StoreState, [], [], PlansSlice> = (_
 
   async movePlan(planId, toTripId) {
     await api.movePlan(planId, { trip_id: toTripId });
+    await reloadCurrent(get);
+  },
+
+  async linkPlans(primaryId, planIds) {
+    await api.linkPlans(primaryId, { plan_ids: planIds });
+    await reloadCurrent(get);
+  },
+
+  async splitPlanPart(partId) {
+    await api.splitPlanPart(partId);
     await reloadCurrent(get);
   },
 

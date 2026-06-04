@@ -487,6 +487,11 @@ export interface MovePlanInput {
   trip_id: number;
 }
 
+/** Fold the given plans into a primary plan as one multi-part booking (#12). */
+export interface LinkPlansInput {
+  plan_ids: number[];
+}
+
 /** Source channel for an ingest request. */
 export type IngestSource = 'paste' | 'upload' | 'email';
 
