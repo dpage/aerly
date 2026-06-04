@@ -13,7 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 
-import type { Plan, PlanPart, UpdatePlanPartInput } from '../api/types';
+import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import { useStore } from '../state/store';
 import { isTransferType, planTypeLabel, splitLocal, zonedTimeToUtc } from '../lib/trip-format';
 
@@ -104,7 +104,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
 
   const [title, setTitle] = useState(plan.title);
   const [confRef, setConfRef] = useState(plan.confirmation_ref);
+  const [ticketNumber, setTicketNumber] = useState(plan.ticket_number ?? '');
   const [notes, setNotes] = useState(plan.notes);
+  const [cost, setCost] = useState(plan.cost_amount != null ? String(plan.cost_amount) : '');
+  const [currency, setCurrency] = useState(plan.cost_currency ?? '');
   const [moveTarget, setMoveTarget] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
 
@@ -123,7 +126,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     if (!open) return;
     setTitle(plan.title);
     setConfRef(plan.confirmation_ref);
+    setTicketNumber(plan.ticket_number ?? '');
     setNotes(plan.notes);
+    setCost(plan.cost_amount != null ? String(plan.cost_amount) : '');
+    setCurrency(plan.cost_currency ?? '');
     setMoveTarget('');
     const snap: Record<number, PartForm> = {};
     for (const p of editableParts) snap[p.id] = partForm(p);
@@ -155,12 +161,31 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const handleSave = async () => {
     setBusy(true);
     try {
-      if (title.trim() !== plan.title || confRef.trim() !== plan.confirmation_ref || notes !== plan.notes) {
-        await updatePlan(plan.id, {
+      // The plan-level metadata is sent as one snapshot when any of it changed;
+      // the backend COALESCEs each field, so re-sending unchanged values is a
+      // no-op. A blank cost parses to undefined and is omitted, which the
+      // backend leaves unchanged (cost can be set or corrected but not cleared
+      // back to "unknown", mirroring how the part editor treats times).
+      const costNum = cost.trim() === '' ? undefined : Number(cost);
+      const curr = currency.trim().toUpperCase();
+      const costChanged = costNum != null && !Number.isNaN(costNum) && costNum !== plan.cost_amount;
+      const metaChanged =
+        title.trim() !== plan.title ||
+        confRef.trim() !== plan.confirmation_ref ||
+        ticketNumber.trim() !== (plan.ticket_number ?? '') ||
+        notes !== plan.notes ||
+        curr !== (plan.cost_currency ?? '') ||
+        costChanged;
+      if (metaChanged) {
+        const payload: UpdatePlanInput = {
           title: title.trim(),
           confirmation_ref: confRef.trim(),
+          ticket_number: ticketNumber.trim(),
           notes,
-        });
+          cost_currency: curr,
+        };
+        if (costChanged) payload.cost_amount = costNum;
+        await updatePlan(plan.id, payload);
       }
       for (const part of editableParts) {
         const patch = buildPatch(part, forms[part.id], initial[part.id]);
@@ -218,6 +243,30 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
             onChange={(e) => setConfRef(e.target.value)}
             fullWidth
           />
+          <TextField
+            label="Ticket number"
+            value={ticketNumber}
+            onChange={(e) => setTicketNumber(e.target.value)}
+            fullWidth
+          />
+          <Stack direction="row" spacing={1}>
+            <TextField
+              label="Cost"
+              type="number"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+              sx={{ flex: 2 }}
+            />
+            <TextField
+              label="Currency"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              placeholder="GBP"
+              slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+              sx={{ flex: 1 }}
+            />
+          </Stack>
           <TextField
             label="Notes"
             value={notes}

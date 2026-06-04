@@ -40,6 +40,25 @@ export function fmtUTC(iso: string): string {
   return fmtDateTime(iso, undefined);
 }
 
+// formatCost renders a booking total (issue #22). With a valid ISO 4217 code
+// it uses the locale's currency formatting (e.g. "£250.00"); with a missing or
+// unrecognised code it falls back to the bare amount plus whatever code we have
+// ("250.00 XYZ"), so a stray currency string can never throw. Returns null when
+// there's no amount to show.
+export function formatCost(amount?: number | null, currency?: string): string | null {
+  if (amount == null) return null;
+  const code = (currency ?? '').trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(code)) {
+    try {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(amount);
+    } catch {
+      // Well-formed but not a currency Intl knows — fall through to the plain form.
+    }
+  }
+  const n = amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return code ? `${n} ${code}` : n;
+}
+
 // fmtRelative turns "seconds since X" into a compact human label, e.g.
 // "42s", "3m", "1h 12m". Negative inputs are clamped to 0.
 export function fmtRelative(sec: number): string {

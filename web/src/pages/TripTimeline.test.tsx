@@ -472,6 +472,22 @@ describe('TripTimeline', () => {
     expect(card).toHaveTextContent('Ref: XIIVFQ');
   });
 
+  it('shows the ticket number and formatted cost', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], {
+        id: 1,
+        title: 'Flight out',
+        ticket_number: '1252300000001',
+        cost_amount: 523.4,
+        cost_currency: 'GBP',
+      }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    expect(card).toHaveTextContent('Ticket: 1252300000001');
+    expect(card).toHaveTextContent('Cost: £523.40');
+  });
+
   it('closes the edit dialog via its onClose callback', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),

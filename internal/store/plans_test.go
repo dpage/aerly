@@ -57,6 +57,82 @@ func TestCreatePlanWritesSatellite(t *testing.T) {
 	}
 }
 
+func TestCreatePlanPersistsTicketAndCost(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	cost := 250.50
+
+	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
+		TripID: trip, Type: "flight", Title: "BA286",
+		ConfirmationRef: "ABC123",
+		TicketNumber:    "1252300000001",
+		CostAmount:      &cost,
+		CostCurrency:    "GBP",
+		Parts: []CreatePlanPartPayload{{
+			StartsAt: out, EndsAt: &in, StartLabel: "LHR", EndLabel: "SFO",
+			Flight: &FlightDetail{
+				Ident: "BA286", ScheduledOut: out, ScheduledIn: in,
+				OriginIATA: "LHR", DestIATA: "SFO",
+			},
+		}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	reread, err := s.PlanByID(ctx, plan.ID)
+	if err != nil {
+		t.Fatalf("PlanByID: %v", err)
+	}
+	// Round-trips through both the RETURNING scan and a fresh read (this also
+	// exercises pgx scanning a NUMERIC column into *float64).
+	for _, p := range []*Plan{plan, reread} {
+		if p.TicketNumber != "1252300000001" {
+			t.Errorf("ticket_number = %q, want 1252300000001", p.TicketNumber)
+		}
+		if p.CostAmount == nil || *p.CostAmount != cost {
+			t.Errorf("cost_amount = %v, want %v", p.CostAmount, cost)
+		}
+		if p.CostCurrency != "GBP" {
+			t.Errorf("cost_currency = %q, want GBP", p.CostCurrency)
+		}
+	}
+
+	// A plan with no cost reads back as nil (unknown), not zero.
+	bare, err := s.CreatePlan(ctx, CreatePlanPayload{
+		TripID: trip, Type: "hotel", Title: "Hotel",
+		Parts: []CreatePlanPartPayload{{StartsAt: out, Hotel: &HotelDetail{PropertyName: "Plaza"}}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan (bare): %v", err)
+	}
+	if bare.CostAmount != nil {
+		t.Errorf("bare cost_amount = %v, want nil", bare.CostAmount)
+	}
+
+	// UpdatePlan sets the ticket + cost; a nil pointer leaves a field unchanged.
+	newCost := 999.99
+	tn, cur := "9990000000001", "USD"
+	updated, err := s.UpdatePlan(ctx, bare.ID, UpdatePlanPayload{
+		TicketNumber: &tn, CostAmount: &newCost, CostCurrency: &cur,
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlan: %v", err)
+	}
+	if updated.TicketNumber != tn || updated.CostCurrency != cur ||
+		updated.CostAmount == nil || *updated.CostAmount != newCost {
+		t.Errorf("after update: ticket=%q cost=%v cur=%q", updated.TicketNumber, updated.CostAmount, updated.CostCurrency)
+	}
+	if updated.Title != "Hotel" {
+		t.Errorf("UpdatePlan with nil Title clobbered it: %q", updated.Title)
+	}
+}
+
 func TestFlightDetailForReturnsGateAndTerminal(t *testing.T) {
 	s := newStore(t)
 	if s == nil {

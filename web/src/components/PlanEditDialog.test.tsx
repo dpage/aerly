@@ -69,8 +69,10 @@ function plan(over: Partial<Plan> = {}): Plan {
     type: 'flight',
     title: 'BA123',
     confirmation_ref: 'XYZ',
+    ticket_number: '',
     notes: 'window seat',
     source: '',
+    cost_currency: '',
     passenger_ids: [],
     visibility: { mode: 'everyone', user_ids: [] },
     alert_opted_in: false,
@@ -102,6 +104,21 @@ describe('PlanEditDialog', () => {
     expect(screen.getByRole('textbox', { name: /notes/i })).toHaveValue('window seat');
   });
 
+  it('prefills ticket number and an existing cost/currency', () => {
+    render_(plan({ ticket_number: 'E9', cost_amount: 100, cost_currency: 'EUR' }));
+    expect(screen.getByRole('textbox', { name: /ticket number/i })).toHaveValue('E9');
+    expect(screen.getByRole('spinbutton', { name: /cost/i })).toHaveValue(100);
+    expect(screen.getByRole('textbox', { name: /currency/i })).toHaveValue('EUR');
+  });
+
+  it('does not call updatePlan when nothing changed', async () => {
+    const onClose = vi.fn();
+    render(<PlanEditDialog open plan={plan({ ticket_number: 'E9', cost_amount: 100, cost_currency: 'EUR' })} onClose={onClose} />);
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(h.updatePlan).not.toHaveBeenCalled();
+  });
+
   it('refreshes the trip list on open (for move targets)', () => {
     render_();
     expect(h.listTrips).toHaveBeenCalled();
@@ -118,7 +135,9 @@ describe('PlanEditDialog', () => {
       expect(h.updatePlan).toHaveBeenCalledWith(42, {
         title: 'BA999',
         confirmation_ref: 'XYZ',
+        ticket_number: '',
         notes: 'window seat',
+        cost_currency: '',
       }),
     );
   });
@@ -345,7 +364,27 @@ describe('PlanEditDialog', () => {
       expect(h.updatePlan).toHaveBeenCalledWith(42, {
         title: 'BA123',
         confirmation_ref: 'ABC',
+        ticket_number: '',
         notes: 'aisle seat',
+        cost_currency: '',
+      }),
+    );
+  });
+
+  it('saves an edited ticket number and cost with currency', async () => {
+    h.updatePlan.mockResolvedValue(undefined);
+    render_(plan({ cost_currency: 'GBP' }));
+    await userEvent.type(screen.getByRole('textbox', { name: /ticket number/i }), 'E1234567890');
+    await userEvent.type(screen.getByRole('spinbutton', { name: /cost/i }), '250.5');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(h.updatePlan).toHaveBeenCalledWith(42, {
+        title: 'BA123',
+        confirmation_ref: 'XYZ',
+        ticket_number: 'E1234567890',
+        notes: 'window seat',
+        cost_currency: 'GBP',
+        cost_amount: 250.5,
       }),
     );
   });

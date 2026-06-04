@@ -81,7 +81,13 @@ type ExtractedPlan struct {
 	Type            string
 	Title           string
 	ConfirmationRef string
-	Parts           []ExtractedPart
+	// TicketNumber is the e-ticket / ticket number when the source states one
+	// (issue #22); CostAmount + CostCurrency are the booking total and its ISO
+	// 4217 currency. All empty/nil when the source doesn't say.
+	TicketNumber string
+	CostAmount   *float64
+	CostCurrency string
+	Parts        []ExtractedPart
 }
 
 // Extractor is the LLM seam Propose calls — implemented by

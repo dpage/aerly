@@ -360,8 +360,14 @@ export interface Plan {
   type: PlanType;
   title: string;
   confirmation_ref: string;
+  /** e-ticket / ticket number for the booking, '' when unknown (issue #22). */
+  ticket_number: string;
   notes: string;
   source: string;
+  /** Booking total; absent when unknown. Pair with cost_currency (issue #22). */
+  cost_amount?: number;
+  /** ISO 4217 currency code for cost_amount, '' when unknown. */
+  cost_currency: string;
   created_by?: number;
   passenger_ids: number[];
   visibility: PlanVisibility;
@@ -424,7 +430,10 @@ export interface CreatePlanInput {
   type: PlanType;
   title: string;
   confirmation_ref?: string;
+  ticket_number?: string;
   notes?: string;
+  cost_amount?: number;
+  cost_currency?: string;
   passenger_ids?: number[];
   visibility?: PlanVisibility;
   parts: PlanPartInput[];
@@ -433,7 +442,10 @@ export interface CreatePlanInput {
 export interface UpdatePlanInput {
   title?: string;
   confirmation_ref?: string;
+  ticket_number?: string;
   notes?: string;
+  cost_amount?: number;
+  cost_currency?: string;
 }
 
 /** A part as supplied when creating/editing a plan. */
@@ -510,7 +522,10 @@ export interface ProposedPlan {
   type: PlanType;
   title: string;
   confirmation_ref: string;
+  ticket_number: string;
   notes: string;
+  cost_amount?: number;
+  cost_currency: string;
   /** 0..1 extraction confidence; low values are flagged in the confirm step. */
   confidence: number;
   parts: PlanPart[];
@@ -536,7 +551,10 @@ export interface ConfirmPlanInput {
   type: PlanType;
   title: string;
   confirmation_ref?: string;
+  ticket_number?: string;
   notes?: string;
+  cost_amount?: number;
+  cost_currency?: string;
   passenger_ids?: number[];
   visibility?: PlanVisibility;
   parts: PlanPartInput[];

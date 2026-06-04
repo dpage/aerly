@@ -29,6 +29,7 @@ import {
   planTypeLabel,
 } from '../lib/trip-format';
 import { fmtGate } from '../lib/gate';
+import { formatCost } from '../lib/format';
 
 // Accent palette used to visually tie a plan's parts together (PRD §6.2). A
 // plan's parts all share the same accent stripe and connector, so a return
@@ -405,6 +406,18 @@ function PartCard({
           {plan.confirmation_ref && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               Ref: {plan.confirmation_ref}
+            </Typography>
+          )}
+
+          {plan.ticket_number && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Ticket: {plan.ticket_number}
+            </Typography>
+          )}
+
+          {formatCost(plan.cost_amount, plan.cost_currency) && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Cost: {formatCost(plan.cost_amount, plan.cost_currency)}
             </Typography>
           )}
 

@@ -12,10 +12,10 @@ import (
 // ConfirmPartInput is one part of a confirmed/edited proposal sent back to
 // commit. It mirrors the FE PlanPartInput shape.
 type ConfirmPartInput struct {
-	Type       string
-	Seq        int
-	StartsAt   time.Time
-	EndsAt     *time.Time
+	Type         string
+	Seq          int
+	StartsAt     time.Time
+	EndsAt       *time.Time
 	StartTZ      string
 	EndTZ        string
 	StartLabel   string
@@ -43,8 +43,11 @@ type ConfirmPlanInput struct {
 	Type            string
 	Title           string
 	ConfirmationRef string
+	TicketNumber    string
 	Notes           string
 	Source          string
+	CostAmount      *float64
+	CostCurrency    string
 	PassengerIDs    []int64
 	Visibility      *ConfirmVisibility
 
@@ -107,11 +110,11 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 				seq = i
 			}
 			cp := store.CreatePlanPartPayload{
-				Seq:        seq,
-				StartsAt:   p.StartsAt,
-				EndsAt:     p.EndsAt,
-				StartTZ:    p.StartTZ,
-				EndTZ:      p.EndTZ,
+				Seq:          seq,
+				StartsAt:     p.StartsAt,
+				EndsAt:       p.EndsAt,
+				StartTZ:      p.StartTZ,
+				EndTZ:        p.EndTZ,
 				StartLabel:   p.StartLabel,
 				StartLat:     p.StartLat,
 				StartLon:     p.StartLon,
@@ -121,12 +124,12 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 				EndLon:       p.EndLon,
 				EndAddress:   p.EndAddress,
 				Status:       p.Status,
-				Flight:     p.Flight,
-				Hotel:      p.Hotel,
-				Train:      p.Train,
-				Ground:     p.Ground,
-				Dining:     p.Dining,
-				Excursion:  p.Excursion,
+				Flight:       p.Flight,
+				Hotel:        p.Hotel,
+				Train:        p.Train,
+				Ground:       p.Ground,
+				Dining:       p.Dining,
+				Excursion:    p.Excursion,
 			}
 			// Link the new part to the part it supersedes (rebooking). The
 			// supersession is a plan-level field in the contract; it applies to
@@ -141,8 +144,11 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 			Type:            in.Type,
 			Title:           in.Title,
 			ConfirmationRef: in.ConfirmationRef,
+			TicketNumber:    in.TicketNumber,
 			Notes:           in.Notes,
 			Source:          source,
+			CostAmount:      in.CostAmount,
+			CostCurrency:    in.CostCurrency,
 			TripItUID:       in.TripItUID,
 			Parts:           parts,
 		}, createdBy)

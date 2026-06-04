@@ -59,7 +59,10 @@ type ProposedPlan struct {
 	Type             string
 	Title            string
 	ConfirmationRef  string
+	TicketNumber     string
 	Notes            string
+	CostAmount       *float64
+	CostCurrency     string
 	Confidence       float64
 	Parts            []ProposedPart
 	SupersedesPartID *int64
@@ -121,6 +124,9 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 			Type:            ep.Type,
 			Title:           ep.Title,
 			ConfirmationRef: ep.ConfirmationRef,
+			TicketNumber:    ep.TicketNumber,
+			CostAmount:      ep.CostAmount,
+			CostCurrency:    ep.CostCurrency,
 		}
 		minConf := 1.0
 		for _, part := range ep.Parts {

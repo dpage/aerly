@@ -304,6 +304,45 @@ func TestExtractPlans_MultiType(t *testing.T) {
 	}
 }
 
+func TestExtractPlans_ParsesTicketAndCost(t *testing.T) {
+	resp := `{"plans":[
+	  {"type":"flight","title":"BA to JFK","confirmation_ref":"PNR9","ticket_number":"1252300000001","cost":{"amount":523.40,"currency":"gbp"},"parts":[
+	     {"type":"flight","confidence":"high","flight":{"ident":"BA286","date":"2026-06-12","origin_iata":"LHR","dest_iata":"JFK","depart_time":"09:00","arrive_date":"2026-06-12","arrive_time":"12:00"}}
+	  ]},
+	  {"type":"hotel","title":"Plaza","confirmation_ref":"H1","cost":{"amount":0,"currency":"USD"},"parts":[
+	     {"type":"hotel","confidence":"high","start_date":"2026-06-12","hotel":{"property_name":"Plaza"}}
+	  ]},
+	  {"type":"dining","title":"Dinner","cost":{"amount":80,"currency":"pounds"},"parts":[
+	     {"type":"dining","confidence":"high","start_date":"2026-06-12","dining":{"reservation_name":"x"}}
+	  ]}
+	]}`
+	x, _ := newExtractor(resp)
+	plans, err := x.ExtractPlans(context.Background(), "body", nil)
+	if err != nil {
+		t.Fatalf("ExtractPlans: %v", err)
+	}
+	byType := map[string]planops.ExtractedPlan{}
+	for _, p := range plans {
+		byType[p.Type] = p
+	}
+	fl := byType["flight"]
+	if fl.TicketNumber != "1252300000001" {
+		t.Errorf("ticket_number = %q, want 1252300000001", fl.TicketNumber)
+	}
+	if fl.CostAmount == nil || *fl.CostAmount != 523.40 || fl.CostCurrency != "GBP" {
+		t.Errorf("flight cost = %v %q, want 523.4 GBP", fl.CostAmount, fl.CostCurrency)
+	}
+	// A zero/absent amount carries no cost, even with a currency present.
+	if ho := byType["hotel"]; ho.CostAmount != nil {
+		t.Errorf("hotel cost_amount = %v, want nil (zero amount)", ho.CostAmount)
+	}
+	// A non-ISO currency ("pounds") is dropped but the amount is still kept.
+	di := byType["dining"]
+	if di.CostAmount == nil || *di.CostAmount != 80 || di.CostCurrency != "" {
+		t.Errorf("dining cost = %v %q, want 80 and empty currency", di.CostAmount, di.CostCurrency)
+	}
+}
+
 func TestExtractPlans_DropsLowConfidenceAndDatelessNonFlight(t *testing.T) {
 	resp := `{"plans":[
 	  {"type":"hotel","title":"A","parts":[{"type":"hotel","confidence":"low","start_date":"2026-06-12"}]},
