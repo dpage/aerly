@@ -296,8 +296,13 @@ type TripDTO struct {
 	EffectiveEnd   *string         `json:"effective_end,omitempty"`
 	CreatedBy      *int64          `json:"created_by,omitempty"`
 	MyRole         string          `json:"my_role"` // owner|editor|viewer
-	Members        []TripMemberDTO `json:"members"`
-	Tags           []string        `json:"tags"`
+	// ViewerIsPassenger is true when the viewer is a passenger on at least one
+	// plan in the trip (i.e. they're travelling on it), as opposed to merely
+	// having the trip shared with them. The trip list uses it to file
+	// passenger trips under "My trips" and badge them (issue #19).
+	ViewerIsPassenger bool            `json:"viewer_is_passenger"`
+	Members           []TripMemberDTO `json:"members"`
+	Tags              []string        `json:"tags"`
 	// CountryCode is the trip's main country (lowercase ISO 3166-1 alpha-2),
 	// derived by geocoding the destination, for the trip-card flag. Omitted
 	// while underived; "zz" means derived-but-unknown (FE shows no flag).

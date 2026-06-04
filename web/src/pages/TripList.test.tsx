@@ -42,6 +42,7 @@ function trip(over: Partial<Trip> = {}): Trip {
     name: 'Trip',
     destination: '',
     my_role: 'owner',
+    viewer_is_passenger: false,
     members: [],
     tags: [],
     created_at: '2026-01-01T00:00:00Z',
@@ -122,6 +123,33 @@ describe('TripList', () => {
     expect(screen.getByText('EditTrip')).toBeInTheDocument();
     expect(screen.queryByText('MineTrip')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /new trip/i })).not.toBeInTheDocument();
+  });
+
+  it("scope='mine' includes trips the viewer is a passenger on, badged 'Passenger' (#19)", () => {
+    state.trips = [
+      trip({ id: 1, name: 'MineTrip', my_role: 'owner' }),
+      trip({ id: 2, name: 'FlyingTrip', my_role: 'viewer', viewer_is_passenger: true }),
+      trip({ id: 3, name: 'SharedTrip', my_role: 'viewer', viewer_is_passenger: false }),
+    ];
+    renderList('mine');
+    // Owned + passenger trips both appear under My trips; a plain shared trip does not.
+    expect(screen.getByText('MineTrip')).toBeInTheDocument();
+    expect(screen.getByText('FlyingTrip')).toBeInTheDocument();
+    expect(screen.queryByText('SharedTrip')).not.toBeInTheDocument();
+    // Exactly the passenger trip carries the badge (the owned one does not).
+    expect(screen.getAllByText('Passenger')).toHaveLength(1);
+  });
+
+  it("scope='friends' excludes trips the viewer is travelling on (#19)", () => {
+    state.trips = [
+      trip({ id: 2, name: 'FlyingTrip', my_role: 'viewer', viewer_is_passenger: true }),
+      trip({ id: 3, name: 'SharedTrip', my_role: 'viewer', viewer_is_passenger: false }),
+    ];
+    renderList('friends');
+    // Passenger trips moved to My trips; only the plain shared trip remains here.
+    expect(screen.getByText('SharedTrip')).toBeInTheDocument();
+    expect(screen.queryByText('FlyingTrip')).not.toBeInTheDocument();
+    expect(screen.queryByText('Passenger')).not.toBeInTheDocument();
   });
 
   it("scope='friends' shows a tailored empty state", () => {
