@@ -96,6 +96,14 @@ func mapTripIt(cal *Calendar) *MappedTrip {
 		}
 	}
 	mt.Plans = append(mt.Plans, mapHotels(hotelEvents)...)
+	// Name the trip for where it goes when the calendar carried no name of its
+	// own, so a nameless import isn't a generic "Imported trip" (#21).
+	if mt.Name == "" {
+		mt.Name = planops.TripNameForConfirmPlans(mt.Plans)
+	}
+	if mt.Name == "" {
+		mt.Name = "Imported trip"
+	}
 	return mt
 }
 
@@ -397,20 +405,18 @@ func hotelNameEdge(summary string) (name, edge string) {
 	}
 }
 
-// tripName derives the Aerly trip name. TripIt's X-WR-CALDESC reads
-// "<name> (Trip Shared by <user>)"; strip that suffix. Falls back to the
-// calendar name or a generic label.
+// tripName derives the Aerly trip name from the calendar's own name. TripIt's
+// X-WR-CALDESC reads "<name> (Trip Shared by <user>)"; strip that suffix.
+// Returns "" when the calendar carries no name of its own, leaving the caller
+// to fall back to a destination-based name (see mapTripIt).
 func tripName(cal *Calendar) string {
-	if cal.Desc != "" {
-		if i := strings.Index(cal.Desc, " (Trip Shared by"); i > 0 {
-			return cal.Desc[:i]
+	if d := strings.TrimSpace(cal.Desc); d != "" {
+		if i := strings.Index(d, " (Trip Shared by"); i > 0 {
+			return strings.TrimSpace(d[:i])
 		}
-		return cal.Desc
+		return d
 	}
-	if cal.Name != "" {
-		return cal.Name
-	}
-	return "Imported trip"
+	return strings.TrimSpace(cal.Name)
 }
 
 // envelopeDates returns the trip's inclusive start and end dates from the

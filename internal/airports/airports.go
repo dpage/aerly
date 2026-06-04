@@ -14,6 +14,10 @@ type Entry struct {
 	// "America/New_York"). Used to render scheduled times in the airport's
 	// local time on the client.
 	TZ string
+	// City is the city the airport serves (e.g. "London", "New York"). Used to
+	// give imported trips a place-based name instead of the first flight's
+	// ident. Several airports serving the same city share a City value.
+	City string
 }
 
 // Lookup returns lat/lon for a 3-letter IATA code, or zeros + false.
@@ -34,4 +38,14 @@ func LookupTZ(code string) (string, bool) {
 		return "", false
 	}
 	return a.TZ, true
+}
+
+// LookupCity returns the city served by a 3-letter IATA code, or "" + false.
+// Case-insensitive.
+func LookupCity(code string) (string, bool) {
+	a, ok := table[strings.ToUpper(strings.TrimSpace(code))]
+	if !ok || a.City == "" {
+		return "", false
+	}
+	return a.City, true
 }
