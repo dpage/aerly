@@ -442,7 +442,7 @@ func planTypeLabel(t string) string {
 func (s *Service) createTripForPlan(ctx context.Context, userID int64, p planops.ProposedPlan, start, end time.Time) (int64, error) {
 	name := planops.TripNameForProposedPlan(p)
 	if name == "" {
-		name = p.Title
+		name = strings.TrimSpace(p.Title)
 	}
 	if name == "" {
 		name = "Trip from email"

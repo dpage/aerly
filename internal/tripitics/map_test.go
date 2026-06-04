@@ -264,6 +264,10 @@ func TestTripNameEmptyWhenNoCalendarName(t *testing.T) {
 	if got := tripName(&Calendar{}); got != "" {
 		t.Errorf("tripName(nameless) = %q, want empty", got)
 	}
+	// A whitespace-only name is treated as no name, so the caller falls back.
+	if got := tripName(&Calendar{Desc: "   ", Name: "\t"}); got != "" {
+		t.Errorf("tripName(whitespace) = %q, want empty", got)
+	}
 }
 
 func TestMapTripProvenance(t *testing.T) {

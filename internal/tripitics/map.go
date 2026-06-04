@@ -410,13 +410,13 @@ func hotelNameEdge(summary string) (name, edge string) {
 // Returns "" when the calendar carries no name of its own, leaving the caller
 // to fall back to a destination-based name (see mapTripIt).
 func tripName(cal *Calendar) string {
-	if cal.Desc != "" {
-		if i := strings.Index(cal.Desc, " (Trip Shared by"); i > 0 {
-			return cal.Desc[:i]
+	if d := strings.TrimSpace(cal.Desc); d != "" {
+		if i := strings.Index(d, " (Trip Shared by"); i > 0 {
+			return strings.TrimSpace(d[:i])
 		}
-		return cal.Desc
+		return d
 	}
-	return cal.Name
+	return strings.TrimSpace(cal.Name)
 }
 
 // envelopeDates returns the trip's inclusive start and end dates from the
