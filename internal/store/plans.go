@@ -826,18 +826,51 @@ func (s *Store) AddPlanPassenger(ctx context.Context, planID, userID int64) erro
 	return err
 }
 
-// RemovePlanPassenger drops a plan passenger (the trip membership is left
-// intact — once on the trip, they stay a viewer).
+// RemovePlanPassenger drops an explicit per-plan passenger assignment. If the
+// user is still a trip-level passenger (#20) and the plan is visible to them,
+// the row is kept and re-derived as trip-level (via_trip = true) rather than
+// deleted — you can't evict a trip passenger from a non-hidden plan one plan at
+// a time; remove the trip passenger (or hide the plan) for that. Otherwise the
+// row is deleted. The trip membership is left intact either way (once on the
+// trip, they stay a viewer). Returns ErrNotFound when no passenger row exists.
 func (s *Store) RemovePlanPassenger(ctx context.Context, planID, userID int64) error {
-	tag, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx,
+		`SELECT 1 FROM trips t JOIN plans p ON p.trip_id = t.id WHERE p.id = $1 FOR UPDATE OF t`,
+		planID); err != nil {
+		return err
+	}
+	// Still a trip passenger on a plan they may see → keep the row as
+	// trip-derived (drops only the manual override).
+	tag, err := tx.Exec(ctx, `
+		UPDATE plan_passengers SET via_trip = true
+		 WHERE plan_id = $1 AND user_id = $2
+		   AND plan_visible_to_member($1, $2)
+		   AND EXISTS (
+		     SELECT 1 FROM trip_passengers tp
+		     JOIN plans pl ON pl.id = $1
+		     WHERE tp.trip_id = pl.trip_id AND tp.user_id = $2)`, planID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		return tx.Commit(ctx)
+	}
+	// Otherwise drop the assignment outright.
+	del, err := tx.Exec(ctx,
 		`DELETE FROM plan_passengers WHERE plan_id = $1 AND user_id = $2`, planID, userID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if del.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // PassengersByPlan returns a plan_id → []user_id map for the given plans. Plans

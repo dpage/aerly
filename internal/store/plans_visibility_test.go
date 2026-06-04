@@ -492,6 +492,49 @@ func TestRemoveTripPassengerPreservesManual(t *testing.T) {
 	}
 }
 
+// TestRemovePlanPassengerKeepsTripPassenger: per-plan removal can't evict a
+// trip-level passenger from a visible plan — the row is re-derived as
+// trip-level rather than deleted (#20, CodeRabbit follow-up).
+func TestRemovePlanPassengerKeepsTripPassenger(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	partner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	plan := mkPlan(t, s, trip, owner)
+
+	if err := s.AddTripPassenger(ctx, trip, partner); err != nil {
+		t.Fatalf("AddTripPassenger: %v", err)
+	}
+	// Also add them manually (manual override on top of the trip-level one).
+	if err := s.AddPlanPassenger(ctx, plan, partner); err != nil {
+		t.Fatalf("AddPlanPassenger: %v", err)
+	}
+	// Per-plan removal drops the manual override but keeps them on (trip-level).
+	if err := s.RemovePlanPassenger(ctx, plan, partner); err != nil {
+		t.Fatalf("RemovePlanPassenger: %v", err)
+	}
+	if pax, _ := s.PassengersByPlan(ctx, []int64{plan}); !containsID(pax[plan], partner) {
+		t.Error("trip passenger was evicted from a visible plan by a per-plan removal")
+	}
+	// A second removal still keeps them (idempotent — they're a trip passenger).
+	if err := s.RemovePlanPassenger(ctx, plan, partner); err != nil {
+		t.Fatalf("RemovePlanPassenger (2nd): %v", err)
+	}
+	if pax, _ := s.PassengersByPlan(ctx, []int64{plan}); !containsID(pax[plan], partner) {
+		t.Error("trip passenger gone after a second per-plan removal")
+	}
+	// Once they're no longer a trip passenger, per-plan removal deletes the row.
+	if err := s.RemoveTripPassenger(ctx, trip, partner); err != nil {
+		t.Fatalf("RemoveTripPassenger: %v", err)
+	}
+	if pax, _ := s.PassengersByPlan(ctx, []int64{plan}); containsID(pax[plan], partner) {
+		t.Error("passenger still on the plan after trip-passenger removal")
+	}
+}
+
 // TestListVisiblePlanParts respects the same predicate as CanViewPlan.
 func TestListVisiblePlanParts(t *testing.T) {
 	s := newStore(t)
