@@ -302,11 +302,21 @@ func (s *Store) RemoveTripMember(ctx context.Context, tripID, userID int64) erro
 	return nil
 }
 
-// AddTripPassenger records userID as a trip-level passenger and materialises
-// that into plan_passengers for every plan in the trip, so they're a passenger
-// on all of them (issue #20). The plan_passengers insert fires the
-// passenger⇒member trigger, so they also become a trip viewer and the trip
-// surfaces under their "My trips" (issue #19). Idempotent.
+// lockTripTx serializes trip-passenger materialisation against concurrent plan
+// creation / visibility changes for the same trip (so a new plan and a new
+// passenger can't cross and miss each other). All paths that reconcile a trip's
+// via_trip plan_passengers take this row lock first.
+func lockTripTx(ctx context.Context, tx pgx.Tx, tripID int64) error {
+	_, err := tx.Exec(ctx, `SELECT 1 FROM trips WHERE id = $1 FOR UPDATE`, tripID)
+	return err
+}
+
+// AddTripPassenger records userID as a trip-level passenger (issue #20): a
+// traveller on the whole trip. They become a trip viewer (so an empty trip is
+// still visible to them and it surfaces under their "My trips", issue #19) and
+// are materialised as a passenger on every plan they're allowed to see — plans
+// hidden from them (plan_visibility) are skipped, so hiding still works. Manual
+// per-plan passenger rows are left untouched. Idempotent.
 func (s *Store) AddTripPassenger(ctx context.Context, tripID, userID int64) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -314,25 +324,39 @@ func (s *Store) AddTripPassenger(ctx context.Context, tripID, userID int64) erro
 	}
 	defer tx.Rollback(ctx)
 
+	if err := lockTripTx(ctx, tx, tripID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO trip_passengers (trip_id, user_id) VALUES ($1, $2)
 		 ON CONFLICT DO NOTHING`, tripID, userID); err != nil {
 		return err
 	}
+	// Become a trip viewer directly (don't rely on the plan_passengers trigger,
+	// which wouldn't fire for a trip with no plans).
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO plan_passengers (plan_id, user_id)
-		 SELECT id, $2 FROM plans WHERE trip_id = $1
+		`INSERT INTO trip_members (trip_id, user_id, role) VALUES ($1, $2, 'viewer')
 		 ON CONFLICT DO NOTHING`, tripID, userID); err != nil {
+		return err
+	}
+	// Materialise onto the plans they may see; ON CONFLICT keeps a pre-existing
+	// (possibly manual) row as-is.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO plan_passengers (plan_id, user_id, via_trip)
+		 SELECT id, $2, true FROM plans
+		  WHERE trip_id = $1 AND plan_visible_to_member(id, $2)
+		 ON CONFLICT (plan_id, user_id) DO NOTHING`, tripID, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
 // RemoveTripPassenger removes a trip-level passenger: it drops the
-// trip_passengers row, the plan_passengers rows it materialised across the
-// trip's plans, and — once nothing else ties the user to the trip — their
-// auto-created viewer membership. Owners/editors keep their membership.
-// Returns ErrNotFound when the user wasn't a trip passenger.
+// trip_passengers row, only the plan_passengers rows it materialised
+// (via_trip = true — manual per-plan assignments are preserved), and — once
+// nothing else ties the user to the trip — their auto-created viewer
+// membership. Owners/editors keep their membership. Returns ErrNotFound when
+// the user wasn't a trip passenger.
 func (s *Store) RemoveTripPassenger(ctx context.Context, tripID, userID int64) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -340,6 +364,9 @@ func (s *Store) RemoveTripPassenger(ctx context.Context, tripID, userID int64) e
 	}
 	defer tx.Rollback(ctx)
 
+	if err := lockTripTx(ctx, tx, tripID); err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx,
 		`DELETE FROM trip_passengers WHERE trip_id = $1 AND user_id = $2`, tripID, userID)
 	if err != nil {
@@ -350,13 +377,14 @@ func (s *Store) RemoveTripPassenger(ctx context.Context, tripID, userID int64) e
 	}
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM plan_passengers
-		  WHERE user_id = $2
+		  WHERE user_id = $2 AND via_trip = true
 		    AND plan_id IN (SELECT id FROM plans WHERE trip_id = $1)`, tripID, userID); err != nil {
 		return err
 	}
-	// Drop the membership the passenger trigger created, but only when the user
-	// is just a viewer with nothing else keeping them on the trip (no remaining
-	// plan_passengers). Owners/editors are untouched.
+	// Drop the membership the passenger add created, but only when the user is
+	// just a viewer with nothing else keeping them on the trip (no remaining
+	// plan_passengers — e.g. a manual per-plan assignment). Owners/editors are
+	// untouched.
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM trip_members
 		  WHERE trip_id = $1 AND user_id = $2 AND role = 'viewer'

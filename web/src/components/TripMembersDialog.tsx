@@ -55,6 +55,7 @@ export default function TripMembersDialog({
   onClose,
 }: Props) {
   const users = useStore((s) => s.users);
+  const me = useStore((s) => s.me);
   const addTripMember = useStore((s) => s.addTripMember);
   const removeTripMember = useStore((s) => s.removeTripMember);
   const addTripPassenger = useStore((s) => s.addTripPassenger);
@@ -245,7 +246,9 @@ export default function TripMembersDialog({
                         )}
                       </TableCell>
                       <TableCell align="right">
-                        {!isOwner && canManage && (
+                        {/* Managers can remove anyone; a passenger may always
+                            remove themselves (matches the API permission). */}
+                        {!isOwner && (canManage || (isPassenger && me?.id === m.user_id)) && (
                           <Tooltip title="Remove">
                             <IconButton
                               size="small"

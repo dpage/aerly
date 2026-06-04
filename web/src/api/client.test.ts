@@ -318,8 +318,10 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
   });
 
   it('removeTripPassenger', async () => {
-    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    const s = mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
     await api.removeTripPassenger(8, 2);
+    expect(s.mock.calls[0][0]).toBe('/api/trips/8/passengers/2');
+    expect(s.mock.calls[0][1]?.method).toBe('DELETE');
   });
 
   it('setTripTags', async () => {

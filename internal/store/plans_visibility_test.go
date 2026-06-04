@@ -386,6 +386,112 @@ func TestTripPassengerLifecycle(t *testing.T) {
 	}
 }
 
+// TestTripPassengerRespectsHiddenPlans: a trip passenger is materialised only
+// onto plans they may see; hidden plans stay hidden (visibility AND passenger
+// list), and changing a plan's visibility reconciles their materialisation (#20).
+func TestTripPassengerRespectsHiddenPlans(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	partner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	visible := mkPlan(t, s, trip, owner)
+	hidden := mkPlan(t, s, trip, owner)
+	setVisibility(t, s, hidden, "hidden_from", partner) // hidden from the partner
+
+	if err := s.AddTripPassenger(ctx, trip, partner); err != nil {
+		t.Fatalf("AddTripPassenger: %v", err)
+	}
+	pax, _ := s.PassengersByPlan(ctx, []int64{visible, hidden})
+	if !containsID(pax[visible], partner) {
+		t.Error("passenger not materialised onto the visible plan")
+	}
+	if containsID(pax[hidden], partner) {
+		t.Error("passenger materialised onto a plan hidden from them")
+	}
+	if !mustCanView(t, s, visible, partner) {
+		t.Error("passenger should see the visible plan")
+	}
+	if mustCanView(t, s, hidden, partner) {
+		t.Error("passenger must not see a plan hidden from them")
+	}
+
+	// Un-hiding the hidden plan reconciles: they're materialised and can see it.
+	if err := s.SetPlanVisibility(ctx, hidden, "", nil); err != nil {
+		t.Fatalf("SetPlanVisibility(clear): %v", err)
+	}
+	pax, _ = s.PassengersByPlan(ctx, []int64{hidden})
+	if !containsID(pax[hidden], partner) || !mustCanView(t, s, hidden, partner) {
+		t.Error("un-hiding a plan did not re-materialise / reveal it to the passenger")
+	}
+
+	// Hiding the previously-visible plan reconciles the other way: their via_trip
+	// row is removed and they can no longer see it.
+	if err := s.SetPlanVisibility(ctx, visible, "hidden_from", []int64{partner}); err != nil {
+		t.Fatalf("SetPlanVisibility(hide): %v", err)
+	}
+	pax, _ = s.PassengersByPlan(ctx, []int64{visible})
+	if containsID(pax[visible], partner) || mustCanView(t, s, visible, partner) {
+		t.Error("hiding a plan did not de-materialise / hide it from the passenger")
+	}
+}
+
+// TestTripPassengerEmptyTrip: adding a passenger to a trip with no plans still
+// makes them a member and files it under their My trips (#20, fixes empty trip).
+func TestTripPassengerEmptyTrip(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	partner := mkUser(t, s)
+	trip := mkTrip(t, s, owner) // no plans
+
+	if err := s.AddTripPassenger(ctx, trip, partner); err != nil {
+		t.Fatalf("AddTripPassenger: %v", err)
+	}
+	if role, err := s.TripRole(ctx, trip, partner); err != nil || role != "viewer" {
+		t.Errorf("empty-trip passenger role = %q err=%v, want viewer", role, err)
+	}
+	if ok, _ := s.IsTripPassenger(ctx, trip, partner); !ok {
+		t.Error("empty-trip passenger should still count for My trips")
+	}
+}
+
+// TestRemoveTripPassengerPreservesManual: removing a trip passenger keeps an
+// explicit per-plan passenger assignment for the same user (#20, finding [3]).
+func TestRemoveTripPassengerPreservesManual(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	partner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	plan := mkPlan(t, s, trip, owner)
+
+	// Partner is a manual passenger on the plan, AND a trip-level passenger.
+	if err := s.AddPlanPassenger(ctx, plan, partner); err != nil {
+		t.Fatalf("AddPlanPassenger: %v", err)
+	}
+	if err := s.AddTripPassenger(ctx, trip, partner); err != nil {
+		t.Fatalf("AddTripPassenger: %v", err)
+	}
+	// Removing the trip passenger must leave the manual per-plan row + membership.
+	if err := s.RemoveTripPassenger(ctx, trip, partner); err != nil {
+		t.Fatalf("RemoveTripPassenger: %v", err)
+	}
+	pax, _ := s.PassengersByPlan(ctx, []int64{plan})
+	if !containsID(pax[plan], partner) {
+		t.Error("manual per-plan passenger was stripped by trip-passenger removal")
+	}
+	if _, err := s.TripRole(ctx, trip, partner); err != nil {
+		t.Errorf("membership removed despite a remaining manual passenger row: %v", err)
+	}
+}
+
 // TestListVisiblePlanParts respects the same predicate as CanViewPlan.
 func TestListVisiblePlanParts(t *testing.T) {
 	s := newStore(t)

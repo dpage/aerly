@@ -142,7 +142,7 @@ describe('TripMembersDialog', () => {
 
   it("shows a trip passenger as 'passenger' and removes via the passenger endpoint (#20)", async () => {
     h.removeTripPassenger.mockResolvedValue(undefined);
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     // Bob is a viewer member who is also a trip passenger.
     render_([
       { user_id: 100, role: 'owner' },
@@ -155,6 +155,7 @@ describe('TripMembersDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: /remove bob/i }));
     await waitFor(() => expect(h.removeTripPassenger).toHaveBeenCalledWith(7, 2));
     expect(h.removeTripMember).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 
   it('excludes existing members from the friend picker', async () => {
