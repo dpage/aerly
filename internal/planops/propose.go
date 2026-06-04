@@ -187,6 +187,16 @@ func groupByConfirmationRef(plans []ProposedPlan) []ProposedPlan {
 			if p.Confidence < out[i].Confidence {
 				out[i].Confidence = p.Confidence
 			}
+			// Fill ticket/cost from a later fragment when the primary lacked them,
+			// so a booking split across plans doesn't lose the metadata it carried.
+			if out[i].TicketNumber == "" {
+				out[i].TicketNumber = p.TicketNumber
+			}
+			if out[i].CostAmount == nil && p.CostAmount != nil {
+				v := *p.CostAmount
+				out[i].CostAmount = &v
+				out[i].CostCurrency = p.CostCurrency
+			}
 			out[i].SupersedesPartID = nil
 			continue
 		}

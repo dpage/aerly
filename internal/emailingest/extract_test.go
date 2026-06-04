@@ -314,6 +314,9 @@ func TestExtractPlans_ParsesTicketAndCost(t *testing.T) {
 	  ]},
 	  {"type":"dining","title":"Dinner","cost":{"amount":80,"currency":"pounds"},"parts":[
 	     {"type":"dining","confidence":"high","start_date":"2026-06-12","dining":{"reservation_name":"x"}}
+	  ]},
+	  {"type":"excursion","title":"Tour","cost":{"amount":-5,"currency":"USD"},"parts":[
+	     {"type":"excursion","confidence":"high","start_date":"2026-06-12","excursion":{"title":"Tour"}}
 	  ]}
 	]}`
 	x, _ := newExtractor(resp)
@@ -332,14 +335,18 @@ func TestExtractPlans_ParsesTicketAndCost(t *testing.T) {
 	if fl.CostAmount == nil || *fl.CostAmount != 523.40 || fl.CostCurrency != "GBP" {
 		t.Errorf("flight cost = %v %q, want 523.4 GBP", fl.CostAmount, fl.CostCurrency)
 	}
-	// A zero/absent amount carries no cost, even with a currency present.
-	if ho := byType["hotel"]; ho.CostAmount != nil {
-		t.Errorf("hotel cost_amount = %v, want nil (zero amount)", ho.CostAmount)
+	// A zero amount is a valid "free" total and is kept.
+	if ho := byType["hotel"]; ho.CostAmount == nil || *ho.CostAmount != 0 || ho.CostCurrency != "USD" {
+		t.Errorf("hotel cost = %v %q, want 0 USD", ho.CostAmount, ho.CostCurrency)
 	}
 	// A non-ISO currency ("pounds") is dropped but the amount is still kept.
 	di := byType["dining"]
 	if di.CostAmount == nil || *di.CostAmount != 80 || di.CostCurrency != "" {
 		t.Errorf("dining cost = %v %q, want 80 and empty currency", di.CostAmount, di.CostCurrency)
+	}
+	// A negative amount is rejected entirely.
+	if ex := byType["excursion"]; ex.CostAmount != nil {
+		t.Errorf("excursion cost_amount = %v, want nil (negative)", ex.CostAmount)
 	}
 }
 

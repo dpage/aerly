@@ -375,6 +375,27 @@ func TestPropose_GroupsByConfirmationRef(t *testing.T) {
 	}
 }
 
+func TestGroupByConfirmationRef_PreservesTicketAndCostFromLaterFragment(t *testing.T) {
+	cost := 480.0
+	in := []ProposedPlan{
+		// Primary fragment carries no ticket/cost...
+		{Type: "flight", ConfirmationRef: "PNR1", Parts: []ProposedPart{{}}},
+		// ...the later same-PNR fragment does — it must survive the fold.
+		{Type: "flight", ConfirmationRef: "PNR1", TicketNumber: "T9", CostAmount: &cost, CostCurrency: "GBP", Parts: []ProposedPart{{}}},
+	}
+	out := groupByConfirmationRef(in)
+	if len(out) != 1 {
+		t.Fatalf("same-PNR flights should merge, got %d plans", len(out))
+	}
+	got := out[0]
+	if got.TicketNumber != "T9" {
+		t.Errorf("ticket number lost in fold: %q", got.TicketNumber)
+	}
+	if got.CostAmount == nil || *got.CostAmount != cost || got.CostCurrency != "GBP" {
+		t.Errorf("cost lost in fold: %v %q", got.CostAmount, got.CostCurrency)
+	}
+}
+
 func TestGroupByConfirmationRef_LeavesDistinctRefsAndTypes(t *testing.T) {
 	in := []ProposedPlan{
 		{Type: "flight", ConfirmationRef: "A", Parts: []ProposedPart{{}}},

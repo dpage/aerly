@@ -144,6 +144,7 @@ var identRe = regexp.MustCompile(`^[A-Z0-9]{2,3}[0-9]{1,4}[A-Z]?$`)
 var dateRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 var iataRe = regexp.MustCompile(`^[A-Z]{3}$`)
 var timeRe = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+var isoCurrencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
 
 // Extract calls the LLM with the body and any document attachments,
 // parses the JSON response, drops any leg that's low-confidence or fails
@@ -299,12 +300,13 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 			ConfirmationRef: pl.ConfirmationRef,
 			TicketNumber:    strings.TrimSpace(pl.TicketNumber),
 		}
-		// Only carry a cost when the model gave a sane, positive amount; an ISO
-		// 4217 code is three letters, so normalise and drop anything else.
-		if pl.Cost.Amount != nil && *pl.Cost.Amount > 0 {
+		// Carry a cost whenever the model gave a non-negative amount (0 is a
+		// valid "free" total); an ISO 4217 code is exactly three letters, so
+		// normalise and drop anything that isn't.
+		if pl.Cost.Amount != nil && *pl.Cost.Amount >= 0 {
 			amt := *pl.Cost.Amount
 			ep.CostAmount = &amt
-			if cur := strings.ToUpper(strings.TrimSpace(pl.Cost.Currency)); len(cur) == 3 {
+			if cur := strings.ToUpper(strings.TrimSpace(pl.Cost.Currency)); isoCurrencyRe.MatchString(cur) {
 				ep.CostCurrency = cur
 			}
 		}
