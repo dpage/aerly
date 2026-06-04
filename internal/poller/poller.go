@@ -128,6 +128,10 @@ func (p *Poller) tick(ctx context.Context) {
 		}
 		guard("poller.refreshMetadata", f.ID, func() { p.refreshMetadata(ctx, f, now) })
 	}
+
+	// Upcoming-plan reminders (issue #11) — independent of the status-change
+	// alert path above.
+	p.remindUpcoming(ctx, now)
 }
 
 // guard runs fn, recovering from any panic so one poisoned flight row can't
