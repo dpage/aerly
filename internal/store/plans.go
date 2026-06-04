@@ -842,6 +842,20 @@ func (s *Store) PassengersByPlan(ctx context.Context, planIDs []int64) (map[int6
 	return out, rows.Err()
 }
 
+// IsTripPassenger reports whether userID is a passenger on any plan in tripID
+// (i.e. they're travelling on the trip, not merely a shared viewer). The trip
+// list uses it to file passenger trips under "My trips" and badge them
+// (issue #19).
+func (s *Store) IsTripPassenger(ctx context.Context, tripID, userID int64) (bool, error) {
+	var ok bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM plan_passengers pp
+			JOIN plans pl ON pl.id = pp.plan_id
+			WHERE pl.trip_id = $1 AND pp.user_id = $2)`, tripID, userID).Scan(&ok)
+	return ok, err
+}
+
 // PlanOwners returns the creator (owner) user id for each plan id, in one
 // query. Used to label tracker parts with who added them.
 func (s *Store) PlanOwners(ctx context.Context, planIDs []int64) (map[int64]int64, error) {

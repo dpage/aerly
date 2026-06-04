@@ -75,6 +75,63 @@ func TestTripCRUDEndpoints(t *testing.T) {
 	}
 }
 
+// TestListTripsViewerIsPassenger: a passenger on a plan sees the trip in their
+// list flagged viewer_is_passenger (so the FE files it under "My trips" and
+// badges it), while a shared-only viewer and the owner are not flagged (#19).
+func TestListTripsViewerIsPassenger(t *testing.T) {
+	e := setup(t, nil, nil)
+	ctx := context.Background()
+	owner := e.user(t, "owner", false)
+	pax := e.user(t, "pax", false)
+	shared := e.user(t, "shared", false)
+
+	var tid, pid int64
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO trips (name, created_by) VALUES ('T', $1) RETURNING id`, owner).Scan(&tid); err != nil {
+		t.Fatalf("trip: %v", err)
+	}
+	if _, err := e.pool.Exec(ctx,
+		`INSERT INTO trip_members (trip_id, user_id, role) VALUES ($1, $2, 'owner')`, tid, owner); err != nil {
+		t.Fatalf("owner member: %v", err)
+	}
+	if err := e.pool.QueryRow(ctx,
+		`INSERT INTO plans (trip_id, type, created_by) VALUES ($1, 'flight', $2) RETURNING id`, tid, owner).Scan(&pid); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	// Passenger on a plan (the trigger also makes them a trip viewer).
+	if _, err := e.pool.Exec(ctx,
+		`INSERT INTO plan_passengers (plan_id, user_id) VALUES ($1, $2)`, pid, pax); err != nil {
+		t.Fatalf("passenger: %v", err)
+	}
+	// A plain shared viewer (not a passenger).
+	if _, err := e.pool.Exec(ctx,
+		`INSERT INTO trip_members (trip_id, user_id, role) VALUES ($1, $2, 'viewer')`, tid, shared); err != nil {
+		t.Fatalf("shared member: %v", err)
+	}
+
+	flagFor := func(uid int64) (string, bool) {
+		t.Helper()
+		w := e.req(t, "GET", "/api/trips", nil, uid)
+		trips := decodeBody[[]map[string]any](t, w)
+		if len(trips) != 1 {
+			t.Fatalf("user %d sees %d trips, want 1", uid, len(trips))
+		}
+		role, _ := trips[0]["my_role"].(string)
+		pass, _ := trips[0]["viewer_is_passenger"].(bool)
+		return role, pass
+	}
+
+	if role, pass := flagFor(pax); !pass || role != "viewer" {
+		t.Errorf("passenger: role=%q viewer_is_passenger=%v, want viewer/true", role, pass)
+	}
+	if _, pass := flagFor(shared); pass {
+		t.Error("shared-only viewer should not be flagged as a passenger")
+	}
+	if role, pass := flagFor(owner); pass || role != "owner" {
+		t.Errorf("owner: role=%q viewer_is_passenger=%v, want owner/false", role, pass)
+	}
+}
+
 func TestTripMemberEndpoints(t *testing.T) {
 	e := setup(t, nil, nil)
 	owner := e.user(t, "owner", false)

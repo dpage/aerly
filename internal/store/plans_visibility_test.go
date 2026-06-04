@@ -275,6 +275,38 @@ func TestTripOwnersByPlan(t *testing.T) {
 	}
 }
 
+// TestIsTripPassenger reports whether the viewer travels on the trip (a
+// passenger on some plan), distinct from merely being a shared member (#19).
+func TestIsTripPassenger(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	pax := mkUser(t, s)
+	sharedViewer := mkUser(t, s)
+	stranger := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	plan := mkPlan(t, s, trip, owner)
+	addPlanPassenger(t, s, plan, pax) // pax travels on the trip
+	addMember(t, s, trip, sharedViewer, "viewer") // shared, but not a passenger
+
+	check := func(uid int64, want bool) {
+		t.Helper()
+		got, err := s.IsTripPassenger(ctx, trip, uid)
+		if err != nil {
+			t.Fatalf("IsTripPassenger(%d): %v", uid, err)
+		}
+		if got != want {
+			t.Errorf("IsTripPassenger(%d) = %v, want %v", uid, got, want)
+		}
+	}
+	check(pax, true)
+	check(sharedViewer, false)
+	check(owner, false) // owning a trip isn't being a passenger on it
+	check(stranger, false)
+}
+
 // TestListVisiblePlanParts respects the same predicate as CanViewPlan.
 func TestListVisiblePlanParts(t *testing.T) {
 	s := newStore(t)

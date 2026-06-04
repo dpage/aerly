@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   CardActionArea,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -107,12 +108,18 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
     };
   }, [include]);
 
-  // The viewer owns a trip iff their role on it is 'owner'; everything else
-  // (editor / viewer) is a trip a friend shared with them. The Friends tab
-  // always excludes the viewer's own trips (those live on "My trips").
+  // "My trips" holds the trips the viewer is part of: ones they own AND ones
+  // they're a passenger on (travelling on a friend's trip — issue #19). The
+  // Friends tab holds the rest that's shared with them: trips shared as a
+  // viewer/editor where they aren't travelling. Diagnostic scopes (superuser,
+  // Friends tab only) keep their prior non-owned filter unchanged.
   const scoped = useMemo(() => {
-    const src = include ? (diagTrips ?? []) : trips;
-    return src.filter((t) => (mine ? t.my_role === 'owner' : t.my_role !== 'owner'));
+    if (include) return (diagTrips ?? []).filter((t) => t.my_role !== 'owner');
+    return trips.filter((t) =>
+      mine
+        ? t.my_role === 'owner' || t.viewer_is_passenger
+        : t.my_role !== 'owner' && !t.viewer_is_passenger,
+    );
   }, [include, diagTrips, trips, mine]);
   const groups = useMemo(() => groupTrips(scoped), [scoped]);
   const [createOpen, setCreateOpen] = useState(false);
@@ -256,6 +263,10 @@ function TripCard({ trip }: { trip: Trip }) {
       ? usersById.get(ownerMember.user_id)
       : undefined;
 
+  // Badge trips the viewer is travelling on but doesn't own, so owned and
+  // passenger trips are distinguishable at a glance under "My trips" (#19).
+  const showPassengerChip = trip.viewer_is_passenger && trip.my_role !== 'owner';
+
   const flag = flagUrl(trip.country_code);
 
   return (
@@ -306,12 +317,25 @@ function TripCard({ trip }: { trip: Trip }) {
               {fmtTripDates(trip)}
             </Typography>
           </Box>
-          {owner && (
-            <Tooltip title={`Owner: ${userName(owner)}`}>
-              <Avatar src={owner.avatar_url} sx={{ width: 26, height: 26, fontSize: 12 }}>
-                {userInitial(owner)}
-              </Avatar>
-            </Tooltip>
+          {(showPassengerChip || owner) && (
+            <Stack alignItems="flex-end" spacing={0.5} sx={{ flex: 'none' }}>
+              {showPassengerChip && (
+                <Chip
+                  label="Passenger"
+                  size="small"
+                  color="info"
+                  variant="outlined"
+                  sx={{ height: 20, '& .MuiChip-label': { px: 1, fontSize: 11 } }}
+                />
+              )}
+              {owner && (
+                <Tooltip title={`Owner: ${userName(owner)}`}>
+                  <Avatar src={owner.avatar_url} sx={{ width: 26, height: 26, fontSize: 12 }}>
+                    {userInitial(owner)}
+                  </Avatar>
+                </Tooltip>
+              )}
+            </Stack>
           )}
         </Stack>
       </CardActionArea>

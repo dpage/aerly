@@ -379,7 +379,13 @@ func (a *API) tripDTO(r *http.Request, t *store.Trip, viewerID int64) (api.TripD
 	if err != nil {
 		return api.TripDTO{}, err
 	}
-	return api.ToTripDTO(t, role, memberDTOs, tags), nil
+	isPassenger, err := a.Store.IsTripPassenger(r.Context(), t.ID, viewerID)
+	if err != nil {
+		return api.TripDTO{}, err
+	}
+	dto := api.ToTripDTO(t, role, memberDTOs, tags)
+	dto.ViewerIsPassenger = isPassenger
+	return dto, nil
 }
 
 // canViewTrip reports whether u may see the trip: trip membership/ownership, or

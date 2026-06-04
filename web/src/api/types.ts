@@ -221,6 +221,10 @@ export interface Trip {
   created_by?: number;
   /** The viewer's role on this trip. */
   my_role: TripRole;
+  /** True when the viewer is a passenger on a plan in this trip (travelling on
+   * it), as opposed to merely a shared viewer. Files the trip under "My trips"
+   * and badges it (issue #19). */
+  viewer_is_passenger: boolean;
   members: TripMember[];
   tags: string[];
   /** Main country as a lowercase ISO 3166-1 alpha-2 code, for the card flag.
