@@ -366,4 +366,44 @@ describe('Layout (alerts)', () => {
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
     expect(h.markAlertsRead).not.toHaveBeenCalled();
   });
+
+  it('opens the flight tracker for a flight-change alert', async () => {
+    h.state.alerts = [
+      {
+        id: 1,
+        plan_part_id: 9,
+        plan_id: 1,
+        trip_id: 4,
+        ident: 'BA286',
+        kind: 'gate',
+        status: 'Scheduled',
+        message: 'BA286 now departs gate B32',
+        created_at: '2026-06-01T00:00:00Z',
+      },
+    ];
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(screen.getByText('BA286 now departs gate B32'));
+    expect(screen.getByTestId('page')).toHaveTextContent('tracker page');
+  });
+
+  it('opens the trip timeline for a reminder alert', async () => {
+    h.state.alerts = [
+      {
+        id: 2,
+        plan_part_id: 9,
+        plan_id: 1,
+        trip_id: 4,
+        ident: 'Hilton Vienna',
+        kind: 'reminder',
+        status: 'hotel',
+        message: 'Upcoming: Hilton Vienna',
+        created_at: '2026-06-01T00:00:00Z',
+      },
+    ];
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(screen.getByText('Upcoming: Hilton Vienna'));
+    expect(screen.getByTestId('page')).toHaveTextContent('trip page');
+  });
 });

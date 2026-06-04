@@ -201,7 +201,7 @@ export default function Layout() {
               <Box>
                 <MenuItem disabled sx={{ opacity: '1 !important' }}>
                   <Typography variant="caption" color="text.secondary">
-                    Flight alerts
+                    Alerts
                   </Typography>
                 </MenuItem>
                 {alerts.slice(0, 6).map((al) => (
@@ -209,7 +209,10 @@ export default function Layout() {
                     key={al.id}
                     onClick={() => {
                       closeMenu();
-                      navigate(`/tracker?part=${al.plan_part_id}`);
+                      // Reminders span all plan types, so they open the trip
+                      // timeline; flight-change alerts open the flight tracker.
+                      if (al.kind === 'reminder') navigate(`/trips/${al.trip_id}`);
+                      else navigate(`/tracker?part=${al.plan_part_id}`);
                     }}
                   >
                     <ListItemIcon>
