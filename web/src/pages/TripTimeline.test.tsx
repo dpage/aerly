@@ -17,6 +17,8 @@ const state = {
   updatePlan: vi.fn(async () => {}),
   updatePlanPart: vi.fn(async () => {}),
   movePlan: vi.fn(async () => {}),
+  linkPlans: vi.fn(async () => {}),
+  splitPlanPart: vi.fn(async () => {}),
   setPlanVisibility: vi.fn(async () => {}),
   addPlanPassenger: vi.fn(async () => {}),
   removePlanPassenger: vi.fn(async () => {}),
@@ -537,5 +539,151 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     expect(await screen.findByText('Terminal 5 · Gate B32')).toBeInTheDocument();
+  });
+
+  describe('link bookings mode', () => {
+    function twoFlights() {
+      return tripWith([
+        plan([part({ id: 1, plan_id: 1, starts_at: '2026-10-12T09:00:00Z' })], {
+          id: 1,
+          title: 'Outbound',
+        }),
+        plan([part({ id: 2, plan_id: 2, starts_at: '2026-10-20T09:00:00Z' })], {
+          id: 2,
+          title: 'Return',
+        }),
+      ]);
+    }
+
+    it('hides the "Link bookings" control for viewers', () => {
+      const trip = twoFlights();
+      trip.my_role = 'viewer';
+      state.currentTrip = trip;
+      renderTimeline();
+      expect(screen.queryByRole('button', { name: /link bookings/i })).not.toBeInTheDocument();
+    });
+
+    it('links two selected same-type plans, earliest as primary', async () => {
+      state.currentTrip = twoFlights();
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+
+      await userEvent.click(screen.getByRole('checkbox', { name: /select outbound/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select return/i }));
+
+      const linkBtn = screen.getByRole('button', { name: /^link 2$/i });
+      expect(linkBtn).toBeEnabled();
+      await userEvent.click(linkBtn);
+      // Primary is the earliest-starting plan (id 1); the later one folds in.
+      expect(state.linkPlans).toHaveBeenCalledWith(1, [2]);
+    });
+
+    it('cancels link mode back to the "Link bookings" control', async () => {
+      state.currentTrip = twoFlights();
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+      expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+      expect(screen.getByRole('button', { name: /link bookings/i })).toBeInTheDocument();
+    });
+
+    it('surfaces link errors via setError', async () => {
+      state.linkPlans.mockRejectedValueOnce(new Error('link boom'));
+      state.currentTrip = twoFlights();
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select outbound/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select return/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^link 2$/i }));
+      expect(state.setError).toHaveBeenCalledWith('link boom');
+    });
+
+    it('stringifies a non-Error link rejection', async () => {
+      state.linkPlans.mockRejectedValueOnce('plain boom');
+      state.currentTrip = twoFlights();
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select outbound/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select return/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^link 2$/i }));
+      expect(state.setError).toHaveBeenCalledWith('plain boom');
+    });
+
+    it('toggles a selection off when its checkbox is clicked again', async () => {
+      state.currentTrip = twoFlights();
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+      const cb = screen.getByRole('checkbox', { name: /select outbound/i });
+      await userEvent.click(cb); // select
+      expect(screen.getByRole('button', { name: /^link 1$/i })).toBeInTheDocument();
+      await userEvent.click(cb); // deselect
+      expect(screen.getByRole('button', { name: /^link$/i })).toBeInTheDocument();
+    });
+
+    it('labels the checkbox by type when a plan has no title', async () => {
+      state.currentTrip = tripWith([
+        plan([part({ id: 1, plan_id: 1, type: 'flight', starts_at: '2026-10-12T09:00:00Z' })], {
+          id: 1,
+          type: 'flight',
+          title: '',
+        }),
+        plan([part({ id: 2, plan_id: 2, type: 'flight', starts_at: '2026-10-20T09:00:00Z' })], {
+          id: 2,
+          type: 'flight',
+          title: '',
+        }),
+      ]);
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+      // Empty title → the accessible name falls back to the type label "Flight".
+      expect(screen.getAllByRole('checkbox', { name: /select flight/i })).toHaveLength(2);
+    });
+
+    it('does not offer a checkbox for an ineligible (hotel) plan in link mode', async () => {
+      state.currentTrip = tripWith([
+        plan([part({ id: 1, plan_id: 1, type: 'flight', starts_at: '2026-10-12T09:00:00Z' })], {
+          id: 1,
+          type: 'flight',
+          title: 'A flight',
+        }),
+        plan([part({ id: 2, plan_id: 2, type: 'flight', starts_at: '2026-10-20T09:00:00Z' })], {
+          id: 2,
+          type: 'flight',
+          title: 'Another flight',
+        }),
+        plan(
+          [part({ id: 3, plan_id: 3, type: 'hotel', end_label: '', starts_at: '2026-10-13T15:00:00Z' })],
+          { id: 3, type: 'hotel', title: 'A hotel' },
+        ),
+      ]);
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+      // The two flights are selectable; the hotel is not.
+      expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+      expect(screen.queryByRole('checkbox', { name: /select a hotel/i })).not.toBeInTheDocument();
+      // Clicking the inert hotel card neither selects nor throws.
+      await userEvent.click(screen.getByTestId('part-card-3'));
+      expect(screen.getByRole('button', { name: /^link$/i })).toBeDisabled();
+    });
+
+    it('keeps Link disabled when the selection mixes types', async () => {
+      state.currentTrip = tripWith([
+        plan([part({ id: 1, plan_id: 1, type: 'flight', starts_at: '2026-10-12T09:00:00Z' })], {
+          id: 1,
+          type: 'flight',
+          title: 'A flight',
+        }),
+        plan(
+          [part({ id: 2, plan_id: 2, type: 'train', end_label: 'PAR', starts_at: '2026-10-13T09:00:00Z' })],
+          { id: 2, type: 'train', title: 'A train' },
+        ),
+      ]);
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select a flight/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select a train/i }));
+      expect(screen.getByRole('button', { name: /^link 2$/i })).toBeDisabled();
+      expect(state.linkPlans).not.toHaveBeenCalled();
+    });
   });
 });

@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   updatePlan: vi.fn(),
   updatePlanPart: vi.fn(),
   movePlan: vi.fn(),
+  splitPlanPart: vi.fn(),
   listTrips: vi.fn(),
   setError: vi.fn(),
   state: { trips: [] as Trip[] },
@@ -20,6 +21,7 @@ vi.mock('../state/store', () => ({
       updatePlan: h.updatePlan,
       updatePlanPart: h.updatePlanPart,
       movePlan: h.movePlan,
+      splitPlanPart: h.splitPlanPart,
       listTrips: h.listTrips,
       setError: h.setError,
     }),
@@ -274,6 +276,41 @@ describe('PlanEditDialog', () => {
     expect(screen.getByText(/Flight 1/)).toBeInTheDocument();
     expect(screen.getByText(/Flight 2/)).toBeInTheDocument();
     expect(screen.queryByText(/Flight 3/)).not.toBeInTheDocument();
+  });
+
+  it('offers "Split out" on each leg of a multi-part flight and splits it', async () => {
+    h.splitPlanPart.mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    render(
+      <PlanEditDialog
+        open
+        plan={plan({ parts: [part({ id: 100 }), part({ id: 101 })] })}
+        onClose={onClose}
+      />,
+    );
+    const buttons = screen.getAllByRole('button', { name: /split out/i });
+    expect(buttons).toHaveLength(2);
+    await userEvent.click(buttons[1]);
+    await waitFor(() => expect(h.splitPlanPart).toHaveBeenCalledWith(101));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('does not offer "Split out" on a single-part plan', () => {
+    render_(plan({ parts: [part({ id: 100 })] }));
+    expect(screen.queryByRole('button', { name: /split out/i })).not.toBeInTheDocument();
+  });
+
+  it('does not offer "Split out" on a multi-part non-linkable plan (hotel)', () => {
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({ id: 100, type: 'hotel', end_label: '' }),
+          part({ id: 101, type: 'hotel', end_label: '' }),
+        ],
+      }),
+    );
+    expect(screen.queryByRole('button', { name: /split out/i })).not.toBeInTheDocument();
   });
 
   it('resets the move target to empty when cleared', async () => {

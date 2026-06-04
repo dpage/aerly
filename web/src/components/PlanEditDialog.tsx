@@ -99,6 +99,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const updatePlan = useStore((s) => s.updatePlan);
   const updatePlanPart = useStore((s) => s.updatePlanPart);
   const movePlan = useStore((s) => s.movePlan);
+  const splitPlanPart = useStore((s) => s.splitPlanPart);
   const setError = useStore((s) => s.setError);
 
   const [title, setTitle] = useState(plan.title);
@@ -109,6 +110,9 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
 
   // The editable parts (dismissed ones are hidden) and their initial snapshot.
   const editableParts = useMemo(() => plan.parts.filter((p) => !p.dismissed_at), [plan.parts]);
+  // A multi-leg flight/train booking can have a leg split out into its own plan
+  // when it wasn't really part of the same booking (#12).
+  const canSplit = editableParts.length > 1 && (plan.type === 'flight' || plan.type === 'train');
   const [forms, setForms] = useState<Record<number, PartForm>>({});
   const [initial, setInitial] = useState<Record<number, PartForm>>({});
 
@@ -170,6 +174,19 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     }
   };
 
+  const handleSplit = async (partId: number) => {
+    setBusy(true);
+    try {
+      // The leg moves to a new plan; close so the refreshed timeline shows it.
+      await splitPlanPart(partId);
+      onClose();
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleMove = async () => {
     if (moveTarget === '') return;
     setBusy(true);
@@ -222,6 +239,18 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                     {editableParts.length > 1 ? ` ${i + 1}` : ''}
                   </Typography>
                 </Divider>
+                {canSplit && (
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                    <Button
+                      size="small"
+                      color="inherit"
+                      onClick={() => void handleSplit(part.id)}
+                      disabled={busy}
+                    >
+                      Split out
+                    </Button>
+                  </Box>
+                )}
                 <EndFields
                   heading={withEnd && isTransferType(part.type) ? 'From' : 'Where'}
                   form={form.start}

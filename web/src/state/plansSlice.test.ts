@@ -12,6 +12,8 @@ vi.mock('../api/client', () => ({
     removePlanPassenger: vi.fn(),
     setPlanVisibility: vi.fn(),
     movePlan: vi.fn(),
+    linkPlans: vi.fn(),
+    splitPlanPart: vi.fn(),
     updatePlanPart: vi.fn(),
     dismissPlanPart: vi.fn(),
     getTrip: vi.fn(),
@@ -111,6 +113,20 @@ describe('mutations that reload the current trip', () => {
     mockApi.movePlan.mockResolvedValue(undefined);
     await useStore.getState().movePlan(1, 42);
     expect(mockApi.movePlan).toHaveBeenCalledWith(1, { trip_id: 42 });
+    expect(mockApi.getTrip).toHaveBeenCalled();
+  });
+
+  it('linkPlans calls the client with the plan_ids wrapper and reloads', async () => {
+    mockApi.linkPlans.mockResolvedValue(undefined);
+    await useStore.getState().linkPlans(1, [2, 3]);
+    expect(mockApi.linkPlans).toHaveBeenCalledWith(1, { plan_ids: [2, 3] });
+    expect(mockApi.getTrip).toHaveBeenCalled();
+  });
+
+  it('splitPlanPart calls the client and reloads', async () => {
+    mockApi.splitPlanPart.mockResolvedValue(undefined);
+    await useStore.getState().splitPlanPart(5);
+    expect(mockApi.splitPlanPart).toHaveBeenCalledWith(5);
     expect(mockApi.getTrip).toHaveBeenCalled();
   });
 

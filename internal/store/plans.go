@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -505,6 +506,205 @@ func (s *Store) MovePlan(ctx context.Context, planID, destTripID int64) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// linkableType reports whether a plan type may hold a multi-leg booking that can
+// be linked or split (flights and trains have outbound/return/connection legs).
+// Other types are single-venue and are excluded from link/split.
+func linkableType(t string) bool { return t == "flight" || t == "train" }
+
+// LinkPlans folds the absorbed plans' parts into the primary plan, making one
+// multi-part booking (issue #12). All plans must be in the same trip and share
+// one link/split-eligible type (flight|train). The primary's title,
+// confirmation_ref, notes, passengers and visibility win — the absorbed plans
+// are deleted. Per-type details and live tracking (positions) travel with each
+// part automatically (they key on plan_part_id); flight_alerts.plan_id is
+// repointed first so deleting the absorbed plans leaves no dangling reference.
+func (s *Store) LinkPlans(ctx context.Context, primaryID int64, absorbIDs []int64) error {
+	if len(absorbIDs) == 0 {
+		return errors.New("no plans to link")
+	}
+	for _, id := range absorbIDs {
+		if id == primaryID {
+			return errors.New("cannot link a plan to itself")
+		}
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Lock every involved plan row in one id-ordered query, so two concurrent
+	// inverse link requests (A absorbs B vs B absorbs A) can't deadlock by taking
+	// the row locks in opposite order.
+	type planRow struct {
+		tripID int64
+		typ    string
+	}
+	ids := append([]int64{primaryID}, absorbIDs...)
+	rows, err := tx.Query(ctx,
+		`SELECT id, trip_id, type FROM plans WHERE id = ANY($1) ORDER BY id FOR UPDATE`, ids)
+	if err != nil {
+		return err
+	}
+	byID := map[int64]planRow{}
+	for rows.Next() {
+		var id, tripID int64
+		var typ string
+		if err := rows.Scan(&id, &tripID, &typ); err != nil {
+			rows.Close()
+			return err
+		}
+		byID[id] = planRow{tripID: tripID, typ: typ}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	primary, ok := byID[primaryID]
+	if !ok {
+		return ErrNotFound
+	}
+	if !linkableType(primary.typ) {
+		return fmt.Errorf("plan type %q cannot be linked", primary.typ)
+	}
+	// Validate every absorbed plan: it exists, is in the same trip, same type.
+	for _, id := range absorbIDs {
+		a, ok := byID[id]
+		if !ok {
+			return ErrNotFound
+		}
+		if a.tripID != primary.tripID {
+			return fmt.Errorf("plan %d is not in the same trip", id)
+		}
+		if a.typ != primary.typ {
+			return fmt.Errorf("plan %d has type %q, not %q", id, a.typ, primary.typ)
+		}
+	}
+	// Repoint alerts (they carry plan_id with no FK) before re-parenting parts
+	// and deleting the now-empty absorbed plans.
+	if _, err := tx.Exec(ctx,
+		`UPDATE flight_alerts SET plan_id = $1 WHERE plan_id = ANY($2)`, primaryID, absorbIDs); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE plan_parts SET plan_id = $1, updated_at = NOW() WHERE plan_id = ANY($2)`, primaryID, absorbIDs); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM plans WHERE id = ANY($1)`, absorbIDs); err != nil {
+		return err
+	}
+	if err := resequencePartsTx(ctx, tx, primaryID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE plans SET updated_at = NOW() WHERE id = $1`, primaryID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// SplitPlanPart moves one part out of its plan into a brand-new plan in the same
+// trip, so a mis-grouped booking can be separated (issue #12). The new plan
+// copies the parent's type, source, title, confirmation_ref and notes, and —
+// crucially — its passengers and visibility, so the split-out leg keeps the exact
+// same audience (a split must never widen privacy). Returns the new and parent
+// plan ids. Returns ErrNotSplittable when the plan has one or zero live parts
+// (nothing to split) or its type is not link/split-eligible.
+func (s *Store) SplitPlanPart(ctx context.Context, partID int64) (newPlanID, parentPlanID int64, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	var parent Plan
+	err = tx.QueryRow(ctx, `
+		SELECT pl.id, pl.trip_id, pl.type, pl.title, pl.confirmation_ref,
+		       pl.notes, pl.source, pl.created_by, pl.created_at, pl.updated_at
+		FROM plan_parts part
+		JOIN plans pl ON pl.id = part.plan_id
+		WHERE part.id = $1
+		FOR UPDATE OF pl`, partID).Scan(
+		&parent.ID, &parent.TripID, &parent.Type, &parent.Title, &parent.ConfirmationRef,
+		&parent.Notes, &parent.Source, &parent.CreatedBy, &parent.CreatedAt, &parent.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if !linkableType(parent.Type) {
+		return 0, 0, ErrNotSplittable
+	}
+	var liveCount int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM plan_parts WHERE plan_id = $1 AND dismissed_at IS NULL`,
+		parent.ID).Scan(&liveCount); err != nil {
+		return 0, 0, err
+	}
+	if liveCount <= 1 {
+		return 0, 0, ErrNotSplittable
+	}
+	// New plan inherits the parent's identity fields (a copy — the user edits the
+	// split-out booking afterward).
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO plans (trip_id, type, title, confirmation_ref, notes, source, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		parent.TripID, parent.Type, parent.Title, parent.ConfirmationRef, parent.Notes,
+		parent.Source, parent.CreatedBy).Scan(&newPlanID); err != nil {
+		return 0, 0, err
+	}
+	// Copy visibility (mode + members) BEFORE passengers so the new plan's
+	// audience exactly matches the parent's — never widening it.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO plan_visibility (plan_id, mode)
+		 SELECT $1, mode FROM plan_visibility WHERE plan_id = $2`, newPlanID, parent.ID); err != nil {
+		return 0, 0, err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO plan_visibility_members (plan_id, user_id)
+		 SELECT $1, user_id FROM plan_visibility_members WHERE plan_id = $2`, newPlanID, parent.ID); err != nil {
+		return 0, 0, err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO plan_passengers (plan_id, user_id, via_trip, added_at)
+		 SELECT $1, user_id, via_trip, added_at FROM plan_passengers WHERE plan_id = $2`, newPlanID, parent.ID); err != nil {
+		return 0, 0, err
+	}
+	// Move the part and its alerts onto the new plan.
+	if _, err := tx.Exec(ctx,
+		`UPDATE flight_alerts SET plan_id = $1 WHERE plan_part_id = $2`, newPlanID, partID); err != nil {
+		return 0, 0, err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE plan_parts SET plan_id = $1, updated_at = NOW() WHERE id = $2`, newPlanID, partID); err != nil {
+		return 0, 0, err
+	}
+	if err := resequencePartsTx(ctx, tx, parent.ID); err != nil {
+		return 0, 0, err
+	}
+	if err := resequencePartsTx(ctx, tx, newPlanID); err != nil {
+		return 0, 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, 0, err
+	}
+	return newPlanID, parent.ID, nil
+}
+
+// resequencePartsTx renumbers a plan's parts seq=0..n by start time so a freshly
+// merged or split plan reads in chronological order. Dismissed parts keep their
+// rows but sort after the live ones.
+func resequencePartsTx(ctx context.Context, tx pgx.Tx, planID int64) error {
+	_, err := tx.Exec(ctx, `
+		WITH ordered AS (
+			SELECT id, ROW_NUMBER() OVER (
+				ORDER BY (dismissed_at IS NOT NULL), starts_at, id) - 1 AS rn
+			FROM plan_parts WHERE plan_id = $1)
+		UPDATE plan_parts p SET seq = o.rn
+		FROM ordered o WHERE p.id = o.id AND p.seq <> o.rn`, planID)
+	return err
 }
 
 // ----- Plan parts -----

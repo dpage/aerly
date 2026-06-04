@@ -294,3 +294,127 @@ func TestMovePlanRequiresEditorOnDestination(t *testing.T) {
 		t.Errorf("move to a trip owner can't edit = %d, want 403", w.Code)
 	}
 }
+
+// newFlightPlan creates a single-leg flight plan in tid and returns its id.
+func newFlightPlan(t *testing.T, e *testEnv, tid, uid int64, ident string, out time.Time) int64 {
+	t.Helper()
+	in := out.Add(2 * time.Hour)
+	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", tid), map[string]any{
+		"type": "flight", "title": ident, "confirmation_ref": "PNR",
+		"parts": []map[string]any{{
+			"type": "flight", "starts_at": out, "ends_at": in,
+			"start_label": "LHR", "end_label": "HEL",
+			"flight": map[string]any{
+				"ident": ident, "scheduled_out": out, "scheduled_in": in,
+				"origin_iata": "LHR", "dest_iata": "HEL",
+			},
+		}},
+	}, uid)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create flight plan %s: %d %s", ident, w.Code, w.Body.String())
+	}
+	return int64(decodeBody[map[string]any](t, w)["id"].(float64))
+}
+
+func TestLinkPlansEndpoint(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "owner", false)
+	stranger := e.user(t, "stranger", false)
+	tid := newTrip(t, e, owner, "Trip")
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+
+	primary := newFlightPlan(t, e, tid, owner, "AY1", out)
+	absorbed := newFlightPlan(t, e, tid, owner, "AY2", out.Add(3*time.Hour))
+
+	// A non-editor can't link.
+	if w := e.req(t, "POST", fmt.Sprintf("/api/plans/%d/link", primary),
+		map[string]any{"plan_ids": []int64{absorbed}}, stranger); w.Code != 403 {
+		t.Fatalf("stranger link = %d, want 403", w.Code)
+	}
+
+	w := e.req(t, "POST", fmt.Sprintf("/api/plans/%d/link", primary),
+		map[string]any{"plan_ids": []int64{absorbed}}, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("link = %d %s", w.Code, w.Body.String())
+	}
+	dto := decodeBody[map[string]any](t, w)
+	if parts := dto["parts"].([]any); len(parts) != 2 {
+		t.Fatalf("primary should have 2 parts after link, got %d", len(parts))
+	}
+	// The absorbed plan is gone.
+	gw := e.req(t, "GET", fmt.Sprintf("/api/trips/%d", tid), nil, owner)
+	if gw.Code != http.StatusOK {
+		t.Fatalf("get trip after link = %d %s", gw.Code, gw.Body.String())
+	}
+	for _, p := range decodeBody[map[string]any](t, gw)["plans"].([]any) {
+		if int64(p.(map[string]any)["id"].(float64)) == absorbed {
+			t.Fatal("absorbed plan should no longer exist")
+		}
+	}
+
+	// Empty plan_ids is a 400.
+	if w := e.req(t, "POST", fmt.Sprintf("/api/plans/%d/link", primary),
+		map[string]any{"plan_ids": []int64{}}, owner); w.Code != 400 {
+		t.Errorf("empty link = %d, want 400", w.Code)
+	}
+}
+
+func TestSplitPlanPartEndpoint(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "owner", false)
+	tid := newTrip(t, e, owner, "Trip")
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+
+	// Build a 2-leg booking by linking two flights.
+	primary := newFlightPlan(t, e, tid, owner, "AY1", out)
+	absorbed := newFlightPlan(t, e, tid, owner, "AY2", out.Add(3*time.Hour))
+	if w := e.req(t, "POST", fmt.Sprintf("/api/plans/%d/link", primary),
+		map[string]any{"plan_ids": []int64{absorbed}}, owner); w.Code != 200 {
+		t.Fatalf("link setup = %d %s", w.Code, w.Body.String())
+	}
+	parts := planParts(t, e, owner, tid, primary)
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts before split, got %d", len(parts))
+	}
+	leg2 := int64(parts[1]["id"].(float64))
+
+	sw := e.req(t, "POST", fmt.Sprintf("/api/plan-parts/%d/split", leg2), nil, owner)
+	if sw.Code != http.StatusCreated {
+		t.Fatalf("split = %d %s", sw.Code, sw.Body.String())
+	}
+	newPlan := decodeBody[map[string]any](t, sw)
+	if np := newPlan["parts"].([]any); len(np) != 1 {
+		t.Fatalf("split plan should have 1 part, got %d", len(np))
+	}
+	// The primary is back to a single leg.
+	if got := planParts(t, e, owner, tid, primary); len(got) != 1 {
+		t.Fatalf("primary should have 1 part after split, got %d", len(got))
+	}
+
+	// Splitting the now-single-part primary leg is a 400.
+	rem := planParts(t, e, owner, tid, primary)
+	if w := e.req(t, "POST", fmt.Sprintf("/api/plan-parts/%d/split", int64(rem[0]["id"].(float64))), nil, owner); w.Code != 400 {
+		t.Errorf("split single-part = %d, want 400", w.Code)
+	}
+}
+
+// planParts reads a plan's parts via the trip detail endpoint.
+func planParts(t *testing.T, e *testEnv, uid, tid, planID int64) []map[string]any {
+	t.Helper()
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d", tid), nil, uid)
+	if w.Code != 200 {
+		t.Fatalf("get trip = %d", w.Code)
+	}
+	for _, p := range decodeBody[map[string]any](t, w)["plans"].([]any) {
+		pm := p.(map[string]any)
+		if int64(pm["id"].(float64)) == planID {
+			out := []map[string]any{}
+			for _, pt := range pm["parts"].([]any) {
+				out = append(out, pt.(map[string]any))
+			}
+			return out
+		}
+	}
+	t.Fatalf("plan %d not found in trip %d", planID, tid)
+	return nil
+}
