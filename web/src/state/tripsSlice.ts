@@ -34,6 +34,8 @@ export interface TripsSlice {
   deleteTrip: (id: number) => Promise<void>;
   addTripMember: (tripId: number, input: AddTripMemberInput) => Promise<void>;
   removeTripMember: (tripId: number, userId: number) => Promise<void>;
+  addTripPassenger: (tripId: number, userId: number) => Promise<void>;
+  removeTripPassenger: (tripId: number, userId: number) => Promise<void>;
   setTripTags: (tripId: number, labels: string[]) => Promise<void>;
   suggestTags: (q: string) => Promise<void>;
 }
@@ -110,6 +112,18 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
   async removeTripMember(tripId, userId) {
     await api.removeTripMember(tripId, userId);
     // TODO(1F): reconcile membership in-place; for now refetch the trip.
+    await get().loadTrip(tripId);
+  },
+
+  async addTripPassenger(tripId, userId) {
+    await api.addTripPassenger(tripId, userId);
+    // The passenger joins every plan + the membership; refetch so the open
+    // trip's members, passenger list, and per-plan passengers all reflect it.
+    await get().loadTrip(tripId);
+  },
+
+  async removeTripPassenger(tripId, userId) {
+    await api.removeTripPassenger(tripId, userId);
     await get().loadTrip(tripId);
   },
 

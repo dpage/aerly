@@ -291,6 +291,8 @@ Pre-release. Tracker and resolver paths are working end-to-end with OpenSky and 
 - Per-resource calendar token granularity — each trip/plan feed independently revocable.
 - iCal DST — VTIMEZONE blocks now carry DAYLIGHT/STANDARD `RRULE` transitions.
 - Alerts inbox — `alert.created` SSE events drive an in-app inbox and toast, with a combined alert/friend avatar badge and a live unread count.
+- Passenger trips — trips you're a passenger on (not just own) appear under **My trips**, badged to tell them apart from trips you own.
+- Trip-level passengers — add a friend as a **Passenger** in the Share-trip dialog and they become a passenger on every plan (existing and future): they see all non-hidden plans, appear in each plan's passenger list and alerts, and the trip lands under their My trips.
 
 ## Licence
 

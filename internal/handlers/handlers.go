@@ -106,6 +106,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/trips/{id}", req(http.HandlerFunc(a.deleteTrip)))
 	mux.Handle("POST /api/trips/{id}/members", req(http.HandlerFunc(a.addTripMember)))
 	mux.Handle("DELETE /api/trips/{id}/members/{userId}", req(http.HandlerFunc(a.removeTripMember)))
+	mux.Handle("POST /api/trips/{id}/passengers", req(http.HandlerFunc(a.addTripPassenger)))
+	mux.Handle("DELETE /api/trips/{id}/passengers/{userId}", req(http.HandlerFunc(a.removeTripPassenger)))
 	mux.Handle("PUT /api/trips/{id}/tags", req(http.HandlerFunc(a.setTripTags)))
 	mux.Handle("GET /api/tags/suggest", req(http.HandlerFunc(a.suggestTags)))
 

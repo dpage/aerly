@@ -261,6 +261,13 @@ func (s *Store) CreatePlan(ctx context.Context, in CreatePlanPayload, createdBy 
 	}
 	defer tx.Rollback(ctx)
 
+	// Serialize with trip-passenger materialisation (AddTripPassenger): take the
+	// trip row lock before inserting so a new plan and a new trip passenger
+	// can't cross and miss each other (issue #20).
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM trips WHERE id = $1 FOR UPDATE`, in.TripID); err != nil {
+		return nil, err
+	}
+
 	p, err := scanPlan(tx.QueryRow(ctx, `
 		INSERT INTO plans (trip_id, type, title, confirmation_ref, notes, source, created_by, tripit_uid)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -273,6 +280,18 @@ func (s *Store) CreatePlan(ctx context.Context, in CreatePlanPayload, createdBy 
 		if err := insertPartTx(ctx, tx, p.ID, in.Type, part); err != nil {
 			return nil, err
 		}
+	}
+	// A trip's trip-level passengers (issue #20) travel on every plan they may
+	// see, so a new plan inherits them as (via_trip) passengers — skipping any
+	// passenger the plan is already hidden from. A brand-new plan has no
+	// visibility row, so all trip passengers qualify; SetPlanVisibility later
+	// reconciles if the creator restricts it.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO plan_passengers (plan_id, user_id, via_trip)
+		 SELECT $1, tp.user_id, true FROM trip_passengers tp
+		  WHERE tp.trip_id = $2 AND plan_visible_to_member($1, tp.user_id)
+		 ON CONFLICT (plan_id, user_id) DO NOTHING`, p.ID, in.TripID); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -798,24 +817,60 @@ func (s *Store) ExcursionDetailFor(ctx context.Context, partID int64) (*Excursio
 // AddPlanPassenger adds a passenger to a plan. The DB trigger ensures the
 // matching trip_members viewer row.
 func (s *Store) AddPlanPassenger(ctx context.Context, planID, userID int64) error {
+	// An explicit per-plan add is "manual" (via_trip = false): it always sees
+	// the plan and is never auto-removed when the plan is hidden, even if the
+	// row was originally materialised from a trip-level passenger (#20).
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO plan_passengers (plan_id, user_id) VALUES ($1, $2)
-		 ON CONFLICT DO NOTHING`, planID, userID)
+		`INSERT INTO plan_passengers (plan_id, user_id, via_trip) VALUES ($1, $2, false)
+		 ON CONFLICT (plan_id, user_id) DO UPDATE SET via_trip = false`, planID, userID)
 	return err
 }
 
-// RemovePlanPassenger drops a plan passenger (the trip membership is left
-// intact — once on the trip, they stay a viewer).
+// RemovePlanPassenger drops an explicit per-plan passenger assignment. If the
+// user is still a trip-level passenger (#20) and the plan is visible to them,
+// the row is kept and re-derived as trip-level (via_trip = true) rather than
+// deleted — you can't evict a trip passenger from a non-hidden plan one plan at
+// a time; remove the trip passenger (or hide the plan) for that. Otherwise the
+// row is deleted. The trip membership is left intact either way (once on the
+// trip, they stay a viewer). Returns ErrNotFound when no passenger row exists.
 func (s *Store) RemovePlanPassenger(ctx context.Context, planID, userID int64) error {
-	tag, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx,
+		`SELECT 1 FROM trips t JOIN plans p ON p.trip_id = t.id WHERE p.id = $1 FOR UPDATE OF t`,
+		planID); err != nil {
+		return err
+	}
+	// Still a trip passenger on a plan they may see → keep the row as
+	// trip-derived (drops only the manual override).
+	tag, err := tx.Exec(ctx, `
+		UPDATE plan_passengers SET via_trip = true
+		 WHERE plan_id = $1 AND user_id = $2
+		   AND plan_visible_to_member($1, $2)
+		   AND EXISTS (
+		     SELECT 1 FROM trip_passengers tp
+		     JOIN plans pl ON pl.id = $1
+		     WHERE tp.trip_id = pl.trip_id AND tp.user_id = $2)`, planID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		return tx.Commit(ctx)
+	}
+	// Otherwise drop the assignment outright.
+	del, err := tx.Exec(ctx,
 		`DELETE FROM plan_passengers WHERE plan_id = $1 AND user_id = $2`, planID, userID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if del.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // PassengersByPlan returns a plan_id → []user_id map for the given plans. Plans
@@ -848,11 +903,17 @@ func (s *Store) PassengersByPlan(ctx context.Context, planIDs []int64) (map[int6
 // (issue #19).
 func (s *Store) IsTripPassenger(ctx context.Context, tripID, userID int64) (bool, error) {
 	var ok bool
+	// A passenger on any of the trip's plans, OR a trip-level passenger (#20).
+	// The latter covers a passenger on a trip whose plans are all hidden from
+	// them, or an empty trip, so it still files under their "My trips".
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM plan_passengers pp
 			JOIN plans pl ON pl.id = pp.plan_id
-			WHERE pl.trip_id = $1 AND pp.user_id = $2)`, tripID, userID).Scan(&ok)
+			WHERE pl.trip_id = $1 AND pp.user_id = $2)
+		    OR EXISTS (
+			SELECT 1 FROM trip_passengers tp
+			WHERE tp.trip_id = $1 AND tp.user_id = $2)`, tripID, userID).Scan(&ok)
 	return ok, err
 }
 
@@ -966,6 +1027,14 @@ func (s *Store) SetPlanVisibility(ctx context.Context, planID int64, mode string
 	}
 	defer tx.Rollback(ctx)
 
+	// Lock the trip so the visibility change + trip-passenger reconcile below is
+	// serialized against concurrent plan creation / passenger adds (issue #20).
+	if _, err := tx.Exec(ctx,
+		`SELECT 1 FROM trips t JOIN plans p ON p.trip_id = t.id WHERE p.id = $1 FOR UPDATE OF t`,
+		planID); err != nil {
+		return err
+	}
+
 	// Clearing or replacing always starts by dropping the existing parent row
 	// (members cascade), so the write is idempotent and never leaves a stale
 	// mode or member.
@@ -984,6 +1053,26 @@ func (s *Store) SetPlanVisibility(ctx context.Context, planID int64, mode string
 				return err
 			}
 		}
+	}
+
+	// Reconcile trip-level passengers (issue #20) against the new visibility:
+	// materialise the trip's passengers onto this plan if they may now see it,
+	// and drop the via_trip rows of any passenger it's now hidden from. Manual
+	// (via_trip = false) rows are never touched.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO plan_passengers (plan_id, user_id, via_trip)
+		 SELECT $1, tp.user_id, true
+		   FROM trip_passengers tp
+		   JOIN plans p ON p.id = $1 AND p.trip_id = tp.trip_id
+		  WHERE plan_visible_to_member($1, tp.user_id)
+		 ON CONFLICT (plan_id, user_id) DO NOTHING`, planID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM plan_passengers
+		  WHERE plan_id = $1 AND via_trip = true
+		    AND NOT plan_visible_to_member($1, user_id)`, planID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

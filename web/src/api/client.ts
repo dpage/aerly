@@ -203,6 +203,11 @@ export const api = {
     request<Trip>('POST', `/api/trips/${tripId}/members`, input),
   removeTripMember: (tripId: number, userId: number) =>
     request<void>('DELETE', `/api/trips/${tripId}/members/${userId}`),
+  // Trip-level passengers (issue #20): travellers on the whole trip.
+  addTripPassenger: (tripId: number, userId: number) =>
+    request<Trip>('POST', `/api/trips/${tripId}/passengers`, { user_id: userId }),
+  removeTripPassenger: (tripId: number, userId: number) =>
+    request<void>('DELETE', `/api/trips/${tripId}/passengers/${userId}`),
 
   // Tags: set the full label list on a trip; suggest autocompletes over the
   // tags the viewer can see.
