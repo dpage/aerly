@@ -12,17 +12,17 @@ Spec: `docs/superpowers/specs/2026-06-04-plan-reminders-design.md`.
 
 ---
 
-### Task 1: Migration 0023 — reminder tables
+### Task 1: Migration 0024 — reminder tables
 
 **Files:**
-- Create: `migrations/0023_plan_reminders.up.sql`
-- Create: `migrations/0023_plan_reminders.down.sql`
+- Create: `migrations/0024_plan_reminders.up.sql`
+- Create: `migrations/0024_plan_reminders.down.sql`
 - Test: `migrations/migrations_test.go` (existing table-count style test; add an assertion)
 
 - [ ] **Step 1: Write the up migration**
 
 ```sql
--- migrations/0023_plan_reminders.up.sql
+-- migrations/0024_plan_reminders.up.sql
 -- Upcoming-plan reminders (issue #11). Separate from the flight-status-change
 -- alert tables (alert_prefs / plan_alert_optin): these drive scheduled "your
 -- plan starts soon" emails + in-app notices, fired per plan_part by the poller.
@@ -57,7 +57,7 @@ CREATE TABLE plan_reminder_sent (
 - [ ] **Step 2: Write the down migration**
 
 ```sql
--- migrations/0023_plan_reminders.down.sql
+-- migrations/0024_plan_reminders.down.sql
 DROP TABLE IF EXISTS plan_reminder_sent;
 DROP TABLE IF EXISTS plan_reminder_optin;
 DROP TABLE IF EXISTS trip_reminder_optin;
@@ -66,12 +66,12 @@ DROP TABLE IF EXISTS trip_reminder_optin;
 - [ ] **Step 3: Run the migration test to verify up/down apply cleanly**
 
 Run: `go test ./migrations/ -run TestMigrations -v`
-Expected: PASS (the generic apply-all-up-then-down test exercises 0023).
+Expected: PASS (the generic apply-all-up-then-down test exercises 0024).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add migrations/0023_plan_reminders.up.sql migrations/0023_plan_reminders.down.sql
+git add migrations/0024_plan_reminders.up.sql migrations/0024_plan_reminders.down.sql
 git commit -m "feat(db): reminder opt-in + sent tables (#11)"
 ```
 

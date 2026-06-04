@@ -27,7 +27,7 @@ info, regardless of reminder opt-ins.
 - **Plan types:** all (`flight`, `train`, `hotel`, `ground`, `dining`,
   `excursion`) — anything with an upcoming `plan_parts.starts_at`.
 
-## Data model — migration `0023_plan_reminders`
+## Data model — migration `0024_plan_reminders`
 
 ```sql
 -- Trip-level reminder opt-in: presence of a row = opted in for the whole trip.
@@ -57,7 +57,7 @@ CREATE TABLE plan_reminder_sent (
 );
 ```
 
-A matching `0023_plan_reminders.down.sql` drops the three tables.
+A matching `0024_plan_reminders.down.sql` drops the three tables.
 
 ### Effective opt-in for `(user, plan)`
 
