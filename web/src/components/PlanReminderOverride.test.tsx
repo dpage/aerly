@@ -96,11 +96,13 @@ describe('PlanReminderOverride', () => {
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('nope'));
   });
 
-  it('reports an Error rejection message', async () => {
+  it('reports an Error rejection message and reverts the mode', async () => {
     h.clearPlanReminder.mockRejectedValue(new Error('boom'));
     render(<PlanReminderOverride plan={plan({ reminder_override: 'off' })} />);
     await chooseMode('Use trip setting');
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('boom'));
+    // The optimistic switch to "inherit" failed — revert to the prior "off".
+    expect(screen.getByRole('combobox', { name: /reminder/i })).toHaveTextContent(/don't remind me/i);
   });
 
   it('falls back to a 24h lead when the field is non-positive', async () => {

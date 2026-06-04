@@ -55,8 +55,13 @@ func (p *Poller) remindUpcoming(ctx context.Context, now time.Time) {
 func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 	label := mailer.PlanReminderLabel(d.PlanType, d.PlanTitle, d.Ident)
 
-	// In-app: always (reuses the flight_alerts inbox with kind="reminder").
-	p.publishReminder(d, label)
+	// In-app: always (reuses the flight_alerts inbox with kind="reminder"). On a
+	// failed insert (or a cancelled tick) bail before marking sent, so the
+	// reminder is retried next tick rather than silently dropped.
+	if err := p.publishReminder(ctx, d, label); err != nil {
+		slog.Error("reminder: persist inbox row", "user", d.UserID, "part", d.PlanPartID, "err", err)
+		return
+	}
 
 	// Email: only when mail is configured and the user has a verified address.
 	if p.MailFromAddress != "" && d.Email != "" {
@@ -86,9 +91,13 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 // publishReminder persists an in-app alert row (kind="reminder") and pushes the
 // user-private alert.created SSE event, reusing the same shape as a flight
 // alert so the inbox renders it with no client change beyond nav branching.
-func (p *Poller) publishReminder(d store.DueReminder, label string) {
+// publishReminder persists the in-app alert row and pushes the SSE event,
+// returning any insert error so the caller can skip marking the reminder sent
+// (preserving dedupe/retry). A marshal/publish hiccup after a successful insert
+// is logged but not returned — the row is already durable.
+func (p *Poller) publishReminder(ctx context.Context, d store.DueReminder, label string) error {
 	msg := mailer.PlanReminderSubject(label)
-	stored, err := p.Store.InsertFlightAlert(context.Background(), store.FlightAlert{
+	stored, err := p.Store.InsertFlightAlert(ctx, store.FlightAlert{
 		UserID:     d.UserID,
 		PlanPartID: d.PlanPartID,
 		PlanID:     d.PlanID,
@@ -99,14 +108,14 @@ func (p *Poller) publishReminder(d store.DueReminder, label string) {
 		Message:    msg,
 	})
 	if err != nil {
-		slog.Error("reminder: persist inbox row", "user", d.UserID, "err", err)
-		return
+		return err
 	}
 	dto := api.NotificationsDTO{Alert: ptrFlightAlertDTO(api.ToFlightAlertDTO(stored))}
 	payload, err := json.Marshal(dto)
 	if err != nil {
 		slog.Error("reminder: marshal", "err", err)
-		return
+		return nil
 	}
 	p.Hub.Publish(sseAlertEvent(d.UserID, payload))
+	return nil
 }

@@ -36,7 +36,9 @@ func (a *API) setTripReminder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid trip id")
 		return
 	}
-	ok, err := a.Store.CanViewTrip(r.Context(), tripID, me.ID)
+	// Use the superuser-aware visibility helper (mirrors getTrip) so a superuser
+	// isn't blocked on a trip they can otherwise view.
+	ok, err := a.canViewTrip(r.Context(), tripID, me)
 	if err != nil {
 		handleStoreErr(w, err)
 		return

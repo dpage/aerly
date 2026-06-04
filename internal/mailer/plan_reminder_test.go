@@ -44,6 +44,23 @@ func TestBuildPlanReminderEmail(t *testing.T) {
 	}
 }
 
+func TestBuildPlanReminderEmail_NonASCIITitle(t *testing.T) {
+	// A user-entered title with a multi-byte leading rune must not be corrupted
+	// by the lead-line capitalisation.
+	msg := BuildPlanReminderEmail(PlanReminderInput{
+		FromAddr:  "aerly@example.com",
+		ToAddr:    "alice@example.com",
+		PublicURL: "https://aerly.test",
+		TripID:    1,
+		Label:     "école dinner",
+		StartsAt:  time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC),
+		StartTZ:   "UTC",
+	})
+	if !strings.Contains(msg, "École dinner starts") {
+		t.Errorf("expected rune-safe capitalisation 'École dinner', got:\n%s", msg)
+	}
+}
+
 func TestBuildPlanReminderEmail_NonUTCZone(t *testing.T) {
 	msg := BuildPlanReminderEmail(PlanReminderInput{
 		FromAddr:  "aerly@example.com",

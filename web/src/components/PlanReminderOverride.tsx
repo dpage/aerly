@@ -33,12 +33,14 @@ export default function PlanReminderOverride({ plan }: Props) {
   };
 
   const apply = async (next: Mode, leadHours: number) => {
+    const prevMode = mode;
     setBusy(true);
     setMode(next);
     try {
       if (next === 'inherit') await clearPlanReminder(plan.id);
       else await setPlanReminder(plan.id, next === 'on', leadHours);
     } catch (err) {
+      setMode(prevMode);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);

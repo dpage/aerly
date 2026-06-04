@@ -82,6 +82,19 @@ describe('TripReminderToggle', () => {
     expect(toggle).not.toBeChecked();
   });
 
+  it('keeps the switch on when a lead-time save fails from the blur path', async () => {
+    h.setTripReminder.mockRejectedValue(new Error('save boom'));
+    render(<TripReminderToggle trip={trip({ reminder_opted_in: true, reminder_lead_hours: 24 })} />);
+    const toggle = screen.getByRole('checkbox', { name: /email me reminders/i });
+    const field = screen.getByLabelText(/reminder lead time in hours/i);
+    await userEvent.clear(field);
+    await userEvent.type(field, '6');
+    await userEvent.tab();
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('save boom'));
+    // The failed save was not a disable — the switch must stay on, not flip off.
+    expect(toggle).toBeChecked();
+  });
+
   it('falls back to a 24h lead when the field is non-positive', async () => {
     render(<TripReminderToggle trip={trip({ reminder_opted_in: true, reminder_lead_hours: 24 })} />);
     const field = screen.getByLabelText(/reminder lead time in hours/i);

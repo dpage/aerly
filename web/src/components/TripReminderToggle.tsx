@@ -33,13 +33,14 @@ export default function TripReminderToggle({ trip }: Props) {
   };
 
   const apply = async (next: boolean, leadHours: number) => {
+    const prevOn = on;
     setBusy(true);
     setOn(next); // optimistic; revert on failure
     try {
       if (next) await setTripReminder(trip.id, leadHours);
       else await clearTripReminder(trip.id);
     } catch (err) {
-      setOn(!next);
+      setOn(prevOn);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // PlanReminderInput is the data needed to render an upcoming-plan reminder
@@ -87,10 +88,12 @@ func BuildPlanReminderEmail(in PlanReminderInput) string {
 		plain, HTMLShell(subject, htmlBody, in.PublicURL))
 }
 
-// capitalise upper-cases the first byte of s (ASCII labels only).
+// capitalise upper-cases the first rune of s. Rune-aware so a user-entered
+// plan title with a multi-byte leading character (e.g. "école") isn't corrupted.
 func capitalise(s string) string {
 	if s == "" {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	r := []rune(s)
+	return string(unicode.ToUpper(r[0])) + string(r[1:])
 }
