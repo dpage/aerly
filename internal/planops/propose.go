@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,9 +26,9 @@ type Deps struct {
 // the shape a store.CreatePlanPartPayload will take on commit, plus the place
 // labels and a resolved/typed satellite detail when one was enriched.
 type ProposedPart struct {
-	Type       string
-	StartsAt   time.Time
-	EndsAt     *time.Time
+	Type         string
+	StartsAt     time.Time
+	EndsAt       *time.Time
 	StartTZ      string
 	EndTZ        string
 	StartLabel   string
@@ -147,11 +148,54 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 		}
 		out = append(out, pp)
 	}
+	// Fold flight/train proposals that share a confirmation reference into one
+	// multi-part booking — the LLM (and the .ics importer) sometimes split a
+	// single PNR across several plans (issue #12).
+	out = groupByConfirmationRef(out)
 	// Retime airport↔accommodation transfers whose time was defaulted off the
 	// flanking flight in the same batch (e.g. a holiday confirmation that names
 	// the flight times but not the transfer time — spec §10).
 	applyTransferTimes(out)
 	return out, nil
+}
+
+// groupByConfirmationRef folds flight/train proposals that share a non-empty,
+// case-insensitive confirmation_ref into a single multi-part proposal, parts
+// ordered by start. The LLM and importers sometimes split one booking (PNR)
+// across several plans; this re-groups them so the user confirms one booking.
+// Proposals with an empty ref, or of a non-linkable type, pass through untouched
+// and keep their original relative order. A merged plan is no longer a
+// single-flight rebooking candidate, so its SupersedesPartID is cleared.
+func groupByConfirmationRef(plans []ProposedPlan) []ProposedPlan {
+	out := make([]ProposedPlan, 0, len(plans))
+	byKey := map[string]int{} // group key -> index into out
+	for _, p := range plans {
+		ref := strings.ToUpper(strings.TrimSpace(p.ConfirmationRef))
+		if ref == "" || (p.Type != "flight" && p.Type != "train") {
+			out = append(out, p)
+			continue
+		}
+		key := p.Type + "\x00" + ref
+		if i, ok := byKey[key]; ok {
+			out[i].Parts = append(out[i].Parts, p.Parts...)
+			if p.Confidence < out[i].Confidence {
+				out[i].Confidence = p.Confidence
+			}
+			out[i].SupersedesPartID = nil
+			continue
+		}
+		byKey[key] = len(out)
+		out = append(out, p)
+	}
+	for i := range out {
+		if len(out[i].Parts) > 1 {
+			parts := out[i].Parts
+			sort.SliceStable(parts, func(a, b int) bool {
+				return parts[a].StartsAt.Before(parts[b].StartsAt)
+			})
+		}
+	}
+	return out
 }
 
 // proposePart converts one ExtractedPart into a ProposedPart, enriching flight

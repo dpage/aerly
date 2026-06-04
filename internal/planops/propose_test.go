@@ -328,3 +328,62 @@ func TestCommit_SupersedeRejectsMultiPart(t *testing.T) {
 		t.Errorf("old part cancelled without a linked replacement; status = %q", op.Status)
 	}
 }
+
+// TestPropose_GroupsByConfirmationRef checks that flight proposals sharing a
+// confirmation reference are folded into one multi-part booking, ordered by
+// start, while empty-ref proposals stay separate (issue #12).
+func TestPropose_GroupsByConfirmationRef(t *testing.T) {
+	e := newEnv(t)
+	owner := e.mkUser(t)
+	trip := e.mkTrip(t, owner)
+
+	leg := func(ident, ref, date, dep, arr string) ExtractedPlan {
+		return ExtractedPlan{
+			Type: "flight", Title: ident, ConfirmationRef: ref,
+			Parts: []ExtractedPart{{
+				Type: "flight", Confidence: "high",
+				Flight: FlightFields{
+					Ident: ident, Date: date, OriginIATA: "LHR", DestIATA: "HEL",
+					DepartTimeLocal: dep, ArriveDate: date, ArriveTimeLocal: arr,
+				},
+			}},
+		}
+	}
+	// Return leg listed first to prove start-time ordering is applied.
+	fx := &fakeExtractor{plans: []ExtractedPlan{
+		leg("AY1334", "ABC123", "2026-06-10", "18:00", "20:00"), // return
+		leg("AY1333", "abc123", "2026-06-01", "09:00", "11:00"), // outbound (lowercase ref)
+		leg("BA999", "", "2026-06-01", "12:00", "14:00"),        // no ref → separate
+	}}
+	props, err := Propose(ctx, Deps{Store: e.s, Extractor: fx}, owner, trip, "body", nil)
+	if err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	if len(props) != 2 {
+		t.Fatalf("want 2 proposals (one merged + one lone), got %d", len(props))
+	}
+	merged := props[0]
+	if len(merged.Parts) != 2 {
+		t.Fatalf("merged plan should have 2 parts, got %d", len(merged.Parts))
+	}
+	if !merged.Parts[0].StartsAt.Before(merged.Parts[1].StartsAt) {
+		t.Errorf("merged parts not ordered by start: %v then %v",
+			merged.Parts[0].StartsAt, merged.Parts[1].StartsAt)
+	}
+	if len(props[1].Parts) != 1 {
+		t.Errorf("the ref-less flight should stay its own plan, got %d parts", len(props[1].Parts))
+	}
+}
+
+func TestGroupByConfirmationRef_LeavesDistinctRefsAndTypes(t *testing.T) {
+	in := []ProposedPlan{
+		{Type: "flight", ConfirmationRef: "A", Parts: []ProposedPart{{}}},
+		{Type: "flight", ConfirmationRef: "B", Parts: []ProposedPart{{}}},
+		{Type: "train", ConfirmationRef: "A", Parts: []ProposedPart{{}}}, // same ref, different type
+		{Type: "hotel", ConfirmationRef: "A", Parts: []ProposedPart{{}}}, // non-linkable
+	}
+	out := groupByConfirmationRef(in)
+	if len(out) != 4 {
+		t.Fatalf("nothing should merge here, got %d plans", len(out))
+	}
+}
