@@ -535,21 +535,20 @@ func (s *Store) LinkPlans(ctx context.Context, primaryID int64, absorbIDs []int6
 	}
 	defer tx.Rollback(ctx)
 
-	primary, err := scanPlan(tx.QueryRow(ctx,
-		`SELECT `+planColumns+` FROM plans WHERE id = $1 FOR UPDATE`, primaryID))
-	if err != nil {
-		return err
+	// Lock every involved plan row in one id-ordered query, so two concurrent
+	// inverse link requests (A absorbs B vs B absorbs A) can't deadlock by taking
+	// the row locks in opposite order.
+	type planRow struct {
+		tripID int64
+		typ    string
 	}
-	if !linkableType(primary.Type) {
-		return fmt.Errorf("plan type %q cannot be linked", primary.Type)
-	}
-	// Validate every absorbed plan: it exists, is in the same trip, same type.
+	ids := append([]int64{primaryID}, absorbIDs...)
 	rows, err := tx.Query(ctx,
-		`SELECT id, trip_id, type FROM plans WHERE id = ANY($1) FOR UPDATE`, absorbIDs)
+		`SELECT id, trip_id, type FROM plans WHERE id = ANY($1) ORDER BY id FOR UPDATE`, ids)
 	if err != nil {
 		return err
 	}
-	seen := map[int64]bool{}
+	byID := map[int64]planRow{}
 	for rows.Next() {
 		var id, tripID int64
 		var typ string
@@ -557,23 +556,30 @@ func (s *Store) LinkPlans(ctx context.Context, primaryID int64, absorbIDs []int6
 			rows.Close()
 			return err
 		}
-		if tripID != primary.TripID {
-			rows.Close()
-			return fmt.Errorf("plan %d is not in the same trip", id)
-		}
-		if typ != primary.Type {
-			rows.Close()
-			return fmt.Errorf("plan %d has type %q, not %q", id, typ, primary.Type)
-		}
-		seen[id] = true
+		byID[id] = planRow{tripID: tripID, typ: typ}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	primary, ok := byID[primaryID]
+	if !ok {
+		return ErrNotFound
+	}
+	if !linkableType(primary.typ) {
+		return fmt.Errorf("plan type %q cannot be linked", primary.typ)
+	}
+	// Validate every absorbed plan: it exists, is in the same trip, same type.
 	for _, id := range absorbIDs {
-		if !seen[id] {
+		a, ok := byID[id]
+		if !ok {
 			return ErrNotFound
+		}
+		if a.tripID != primary.tripID {
+			return fmt.Errorf("plan %d is not in the same trip", id)
+		}
+		if a.typ != primary.typ {
+			return fmt.Errorf("plan %d has type %q, not %q", id, a.typ, primary.typ)
 		}
 	}
 	// Repoint alerts (they carry plan_id with no FK) before re-parenting parts

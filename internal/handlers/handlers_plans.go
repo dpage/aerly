@@ -453,7 +453,14 @@ func (a *API) linkPlans(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := a.Store.LinkPlans(r.Context(), id, in.PlanIDs); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		// The plans were authorised above, so a not-found here means a bad id in
+		// the body; everything else is a validation failure. Either way, don't
+		// echo raw store/DB errors to the client.
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "plan not found")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "cannot link the selected bookings")
 		return
 	}
 	dto, err := a.planDTO(r.Context(), id, me.ID)

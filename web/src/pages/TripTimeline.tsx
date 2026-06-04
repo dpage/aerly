@@ -112,13 +112,18 @@ export default function TripTimeline() {
     [plans],
   );
 
+  // Resolve the selection against the plans actually on the timeline now, so a
+  // stale id left over from a reload can't enable a bad link.
+  const selectedPlans = useMemo(
+    () => plans.filter((p) => selected.has(p.id)),
+    [plans, selected],
+  );
   // Linking needs 2+ selected plans that all share one type.
-  const selectedTypes = useMemo(() => {
-    const s = new Set<string>();
-    for (const p of plans) if (selected.has(p.id)) s.add(p.type);
-    return s;
-  }, [selected, plans]);
-  const canLink = selected.size >= 2 && selectedTypes.size === 1;
+  const selectedTypes = useMemo(
+    () => new Set(selectedPlans.map((p) => p.type)),
+    [selectedPlans],
+  );
+  const canLink = selectedPlans.length >= 2 && selectedTypes.size === 1;
 
   const toggleSelect = (planId: number) =>
     setSelected((prev) => {
@@ -136,9 +141,7 @@ export default function TripTimeline() {
   const handleLink = async () => {
     // The earliest-starting selected plan is the primary the rest fold into.
     // The confirm button is gated on canLink, so there are always 2+ here.
-    const chosen = plans
-      .filter((p) => selected.has(p.id))
-      .sort((a, b) => earliestStart(a) - earliestStart(b));
+    const chosen = [...selectedPlans].sort((a, b) => earliestStart(a) - earliestStart(b));
     const primary = chosen[0].id;
     const absorb = chosen.slice(1).map((p) => p.id);
     setLinking(true);
@@ -201,7 +204,7 @@ export default function TripTimeline() {
                 onClick={() => void handleLink()}
                 disabled={!canLink || linking}
               >
-                Link{selected.size > 0 ? ` ${selected.size}` : ''}
+                Link{selectedPlans.length > 0 ? ` ${selectedPlans.length}` : ''}
               </Button>
               <Button size="small" onClick={cancelLink} disabled={linking}>
                 Cancel

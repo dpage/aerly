@@ -342,11 +342,13 @@ func TestLinkPlansEndpoint(t *testing.T) {
 		t.Fatalf("primary should have 2 parts after link, got %d", len(parts))
 	}
 	// The absorbed plan is gone.
-	if w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d", tid), nil, owner); w.Code == 200 {
-		for _, p := range decodeBody[map[string]any](t, w)["plans"].([]any) {
-			if int64(p.(map[string]any)["id"].(float64)) == absorbed {
-				t.Fatal("absorbed plan should no longer exist")
-			}
+	gw := e.req(t, "GET", fmt.Sprintf("/api/trips/%d", tid), nil, owner)
+	if gw.Code != http.StatusOK {
+		t.Fatalf("get trip after link = %d %s", gw.Code, gw.Body.String())
+	}
+	for _, p := range decodeBody[map[string]any](t, gw)["plans"].([]any) {
+		if int64(p.(map[string]any)["id"].(float64)) == absorbed {
+			t.Fatal("absorbed plan should no longer exist")
 		}
 	}
 
