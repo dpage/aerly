@@ -1,6 +1,29 @@
 import { describe, it, expect } from 'vitest';
 
-import { fmtAgo, fmtDateTime, fmtRelative, fmtUTC } from './format';
+import { fmtAgo, fmtDateTime, fmtRelative, fmtUTC, formatCost } from './format';
+
+describe('formatCost', () => {
+  it('returns null when there is no amount', () => {
+    expect(formatCost(undefined, 'GBP')).toBeNull();
+    expect(formatCost(null, 'GBP')).toBeNull();
+  });
+
+  it('formats with a valid ISO currency code', () => {
+    expect(formatCost(523.4, 'GBP')).toBe('£523.40');
+    // The currency symbol's exact form is locale-dependent (e.g. "$" vs "US$"),
+    // so assert the amount and a dollar sign rather than an exact string.
+    expect(formatCost(1000, 'usd')).toMatch(/\$\s?1,000\.00/);
+  });
+
+  it('falls back to amount + code for an unknown/blank currency', () => {
+    expect(formatCost(80, 'pounds')).toBe('80.00 POUNDS');
+    expect(formatCost(80, '')).toBe('80.00');
+  });
+
+  it('shows a zero amount (distinct from unknown)', () => {
+    expect(formatCost(0, 'GBP')).toBe('£0.00');
+  });
+});
 
 describe('fmtDateTime', () => {
   it('renders an airport-local time when tz is provided', () => {

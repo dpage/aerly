@@ -20,8 +20,11 @@ type Plan struct {
 	Type            string // flight|train|hotel|ground|dining|excursion
 	Title           string
 	ConfirmationRef string
+	TicketNumber    string // e-ticket / ticket number, when known (issue #22)
 	Notes           string
-	Source          string // manual|paste|upload|email
+	Source          string   // manual|paste|upload|email
+	CostAmount      *float64 // booking total, nil when unknown (issue #22)
+	CostCurrency    string   // ISO 4217 code for CostAmount, e.g. "GBP"
 	CreatedBy       *int64
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -163,8 +166,11 @@ type CreatePlanPayload struct {
 	Type            string
 	Title           string
 	ConfirmationRef string
+	TicketNumber    string
 	Notes           string
 	Source          string
+	CostAmount      *float64
+	CostCurrency    string
 	TripItUID       string // TripIt event UID for .ics imports (else ""); skips re-imported plans
 	Parts           []CreatePlanPartPayload
 }
@@ -196,11 +202,17 @@ type CreatePlanPartPayload struct {
 	Excursion *ExcursionDetail
 }
 
-// UpdatePlanPayload carries the optionally-set fields of a plan edit.
+// UpdatePlanPayload carries the optionally-set fields of a plan edit. A nil
+// pointer leaves that field unchanged (the COALESCE idiom shared with the
+// other updaters); clearing cost_amount back to NULL is not supported, mirroring
+// how ends_at can't be cleared via UpdatePlanPart.
 type UpdatePlanPayload struct {
 	Title           *string
 	ConfirmationRef *string
+	TicketNumber    *string
 	Notes           *string
+	CostAmount      *float64
+	CostCurrency    *string
 }
 
 // UpdatePlanPartPayload carries the optionally-set fields of a part edit
@@ -232,12 +244,13 @@ func (p UpdatePlanPartPayload) IsEmpty() bool {
 
 // ----- Plan CRUD -----
 
-const planColumns = `id, trip_id, type, title, confirmation_ref, notes, source, created_by, created_at, updated_at`
+const planColumns = `id, trip_id, type, title, confirmation_ref, ticket_number, notes, source, cost_amount, cost_currency, created_by, created_at, updated_at`
 
 func scanPlan(row pgx.Row) (*Plan, error) {
 	var p Plan
 	err := row.Scan(&p.ID, &p.TripID, &p.Type, &p.Title, &p.ConfirmationRef,
-		&p.Notes, &p.Source, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
+		&p.TicketNumber, &p.Notes, &p.Source, &p.CostAmount, &p.CostCurrency,
+		&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -270,10 +283,11 @@ func (s *Store) CreatePlan(ctx context.Context, in CreatePlanPayload, createdBy 
 	}
 
 	p, err := scanPlan(tx.QueryRow(ctx, `
-		INSERT INTO plans (trip_id, type, title, confirmation_ref, notes, source, created_by, tripit_uid)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO plans (trip_id, type, title, confirmation_ref, ticket_number, notes, source, cost_amount, cost_currency, created_by, tripit_uid)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING `+planColumns,
-		in.TripID, in.Type, in.Title, in.ConfirmationRef, in.Notes, source, createdBy, in.TripItUID))
+		in.TripID, in.Type, in.Title, in.ConfirmationRef, in.TicketNumber, in.Notes,
+		source, in.CostAmount, in.CostCurrency, createdBy, in.TripItUID))
 	if err != nil {
 		return nil, err
 	}
@@ -470,11 +484,14 @@ func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanPayload) 
 		UPDATE plans SET
 			title            = COALESCE($2, title),
 			confirmation_ref = COALESCE($3, confirmation_ref),
-			notes            = COALESCE($4, notes),
+			ticket_number    = COALESCE($4, ticket_number),
+			notes            = COALESCE($5, notes),
+			cost_amount      = COALESCE($6, cost_amount),
+			cost_currency    = COALESCE($7, cost_currency),
 			updated_at       = NOW()
 		WHERE id = $1
 		RETURNING `+planColumns,
-		id, in.Title, in.ConfirmationRef, in.Notes))
+		id, in.Title, in.ConfirmationRef, in.TicketNumber, in.Notes, in.CostAmount, in.CostCurrency))
 }
 
 // DeletePlan removes a plan and its parts/details (cascade).
@@ -606,7 +623,8 @@ func (s *Store) LinkPlans(ctx context.Context, primaryID int64, absorbIDs []int6
 
 // SplitPlanPart moves one part out of its plan into a brand-new plan in the same
 // trip, so a mis-grouped booking can be separated (issue #12). The new plan
-// copies the parent's type, source, title, confirmation_ref and notes, and —
+// copies the parent's type, source, title, confirmation_ref, ticket_number,
+// cost and notes, and —
 // crucially — its passengers and visibility, so the split-out leg keeps the exact
 // same audience (a split must never widen privacy). Returns the new and parent
 // plan ids. Returns ErrNotSplittable when the plan has one or zero live parts
@@ -621,13 +639,15 @@ func (s *Store) SplitPlanPart(ctx context.Context, partID int64) (newPlanID, par
 	var parent Plan
 	err = tx.QueryRow(ctx, `
 		SELECT pl.id, pl.trip_id, pl.type, pl.title, pl.confirmation_ref,
-		       pl.notes, pl.source, pl.created_by, pl.created_at, pl.updated_at
+		       pl.ticket_number, pl.notes, pl.source, pl.cost_amount, pl.cost_currency,
+		       pl.created_by, pl.created_at, pl.updated_at
 		FROM plan_parts part
 		JOIN plans pl ON pl.id = part.plan_id
 		WHERE part.id = $1
 		FOR UPDATE OF pl`, partID).Scan(
 		&parent.ID, &parent.TripID, &parent.Type, &parent.Title, &parent.ConfirmationRef,
-		&parent.Notes, &parent.Source, &parent.CreatedBy, &parent.CreatedAt, &parent.UpdatedAt)
+		&parent.TicketNumber, &parent.Notes, &parent.Source, &parent.CostAmount, &parent.CostCurrency,
+		&parent.CreatedBy, &parent.CreatedAt, &parent.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, 0, ErrNotFound
 	}
@@ -649,10 +669,11 @@ func (s *Store) SplitPlanPart(ctx context.Context, partID int64) (newPlanID, par
 	// New plan inherits the parent's identity fields (a copy — the user edits the
 	// split-out booking afterward).
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO plans (trip_id, type, title, confirmation_ref, notes, source, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-		parent.TripID, parent.Type, parent.Title, parent.ConfirmationRef, parent.Notes,
-		parent.Source, parent.CreatedBy).Scan(&newPlanID); err != nil {
+		INSERT INTO plans (trip_id, type, title, confirmation_ref, ticket_number, notes, source, cost_amount, cost_currency, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+		parent.TripID, parent.Type, parent.Title, parent.ConfirmationRef, parent.TicketNumber,
+		parent.Notes, parent.Source, parent.CostAmount, parent.CostCurrency,
+		parent.CreatedBy).Scan(&newPlanID); err != nil {
 		return 0, 0, err
 	}
 	// Copy visibility (mode + members) BEFORE passengers so the new plan's

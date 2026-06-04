@@ -328,8 +328,11 @@ type PlanDTO struct {
 	Type            string            `json:"type"`
 	Title           string            `json:"title"`
 	ConfirmationRef string            `json:"confirmation_ref"`
+	TicketNumber    string            `json:"ticket_number"`
 	Notes           string            `json:"notes"`
 	Source          string            `json:"source"`
+	CostAmount      *float64          `json:"cost_amount,omitempty"`
+	CostCurrency    string            `json:"cost_currency"`
 	CreatedBy       *int64            `json:"created_by,omitempty"`
 	PassengerIDs    []int64           `json:"passenger_ids"`
 	Visibility      PlanVisibilityDTO `json:"visibility"`
@@ -349,7 +352,10 @@ type ProposedPlanDTO struct {
 	Type             string        `json:"type"`
 	Title            string        `json:"title"`
 	ConfirmationRef  string        `json:"confirmation_ref"`
+	TicketNumber     string        `json:"ticket_number"`
 	Notes            string        `json:"notes"`
+	CostAmount       *float64      `json:"cost_amount,omitempty"`
+	CostCurrency     string        `json:"cost_currency"`
 	Confidence       float64       `json:"confidence"`
 	Parts            []PlanPartDTO `json:"parts"`
 	SupersedesPartID *int64        `json:"supersedes_part_id,omitempty"`

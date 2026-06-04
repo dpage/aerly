@@ -206,6 +206,9 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   const [type, setType] = useState<PlanType>('flight');
   const [title, setTitle] = useState('');
   const [confRef, setConfRef] = useState('');
+  const [ticketNumber, setTicketNumber] = useState('');
+  const [cost, setCost] = useState('');
+  const [currency, setCurrency] = useState('');
   const [notes, setNotes] = useState('');
   const [startLabel, setStartLabel] = useState('');
   const [endLabel, setEndLabel] = useState('');
@@ -233,11 +236,15 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
     if (type === 'flight' && ident.trim()) {
       part.flight = { ident: ident.trim().toUpperCase() };
     }
+    const costNum = cost.trim() === '' ? undefined : Number(cost);
     const input: CreatePlanInput = {
       type,
       title: title.trim(),
       confirmation_ref: confRef.trim() || undefined,
+      ticket_number: ticketNumber.trim() || undefined,
       notes: notes.trim() || undefined,
+      cost_amount: costNum != null && !Number.isNaN(costNum) ? costNum : undefined,
+      cost_currency: currency.trim().toUpperCase() || undefined,
       parts: [part],
     };
     onCreate(input);
@@ -352,6 +359,31 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
           value={confRef}
           onChange={(e) => setConfRef(e.target.value)}
           fullWidth
+        />
+        <TextField
+          label="Ticket number (optional)"
+          value={ticketNumber}
+          onChange={(e) => setTicketNumber(e.target.value)}
+          fullWidth
+        />
+      </Stack>
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <TextField
+          label="Cost (optional)"
+          type="number"
+          value={cost}
+          onChange={(e) => setCost(e.target.value)}
+          slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+          sx={{ flexGrow: 1 }}
+        />
+        <TextField
+          label="Currency"
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value)}
+          placeholder="GBP"
+          slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+          sx={{ width: { xs: '100%', sm: 120 } }}
         />
       </Stack>
 
@@ -524,7 +556,11 @@ interface DraftPlan {
   type: PlanType;
   title: string;
   confirmation_ref: string;
+  ticket_number: string;
   notes: string;
+  /** Editable cost as a free string so the field can be cleared; parsed on confirm. */
+  cost: string;
+  cost_currency: string;
   confidence: number;
   parts: PlanPartInput[];
   supersedes_part_id?: number;
@@ -537,7 +573,10 @@ function toDraft(p: ProposedPlan): DraftPlan {
     type: p.type,
     title: p.title,
     confirmation_ref: p.confirmation_ref,
+    ticket_number: p.ticket_number ?? '',
     notes: p.notes,
+    cost: p.cost_amount != null ? String(p.cost_amount) : '',
+    cost_currency: p.cost_currency ?? '',
     confidence: p.confidence,
     parts: p.parts.map((part) => ({
       type: part.type,
@@ -579,15 +618,21 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
   const confirm = () => {
     const plans: ConfirmPlanInput[] = drafts
       .filter((d) => d.accepted)
-      .map((d) => ({
-        type: d.type,
-        title: d.title.trim(),
-        confirmation_ref: d.confirmation_ref.trim() || undefined,
-        notes: d.notes.trim() || undefined,
-        parts: d.parts,
-        // Only carry the supersession when the user kept "replace existing".
-        supersedes_part_id: d.applySupersede ? d.supersedes_part_id : undefined,
-      }));
+      .map((d) => {
+        const costNum = d.cost.trim() === '' ? undefined : Number(d.cost);
+        return {
+          type: d.type,
+          title: d.title.trim(),
+          confirmation_ref: d.confirmation_ref.trim() || undefined,
+          ticket_number: d.ticket_number.trim() || undefined,
+          notes: d.notes.trim() || undefined,
+          cost_amount: costNum != null && !Number.isNaN(costNum) ? costNum : undefined,
+          cost_currency: d.cost_currency.trim().toUpperCase() || undefined,
+          parts: d.parts,
+          // Only carry the supersession when the user kept "replace existing".
+          supersedes_part_id: d.applySupersede ? d.supersedes_part_id : undefined,
+        };
+      });
     onConfirm(plans);
   };
 
@@ -680,6 +725,36 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
               fullWidth
               disabled={!d.accepted}
             />
+            <TextField
+              label="Ticket number"
+              value={d.ticket_number}
+              onChange={(e) => update(idx, { ticket_number: e.target.value })}
+              size="small"
+              fullWidth
+              disabled={!d.accepted}
+            />
+            <Stack direction="row" spacing={1}>
+              <TextField
+                label="Cost"
+                type="number"
+                value={d.cost}
+                onChange={(e) => update(idx, { cost: e.target.value })}
+                size="small"
+                slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                disabled={!d.accepted}
+                sx={{ flex: 2 }}
+              />
+              <TextField
+                label="Currency"
+                value={d.cost_currency}
+                onChange={(e) => update(idx, { cost_currency: e.target.value })}
+                size="small"
+                placeholder="GBP"
+                slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+                disabled={!d.accepted}
+                sx={{ flex: 1 }}
+              />
+            </Stack>
             <TextField
               label="Notes"
               value={d.notes}

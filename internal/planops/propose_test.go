@@ -375,6 +375,44 @@ func TestPropose_GroupsByConfirmationRef(t *testing.T) {
 	}
 }
 
+func TestGroupByConfirmationRef_PreservesTicketAndCostFromLaterFragment(t *testing.T) {
+	cost := 480.0
+	in := []ProposedPlan{
+		// Primary fragment carries no ticket/cost...
+		{Type: "flight", ConfirmationRef: "PNR1", Parts: []ProposedPart{{}}},
+		// ...the later same-PNR fragment does — it must survive the fold.
+		{Type: "flight", ConfirmationRef: "PNR1", TicketNumber: "T9", CostAmount: &cost, CostCurrency: "GBP", Parts: []ProposedPart{{}}},
+	}
+	out := groupByConfirmationRef(in)
+	if len(out) != 1 {
+		t.Fatalf("same-PNR flights should merge, got %d plans", len(out))
+	}
+	got := out[0]
+	if got.TicketNumber != "T9" {
+		t.Errorf("ticket number lost in fold: %q", got.TicketNumber)
+	}
+	if got.CostAmount == nil || *got.CostAmount != cost || got.CostCurrency != "GBP" {
+		t.Errorf("cost lost in fold: %v %q", got.CostAmount, got.CostCurrency)
+	}
+
+	// The currency backfills independently of the amount: a primary that has an
+	// amount but a blank currency picks up a later fragment's currency.
+	primaryCost, laterCost := 100.0, 200.0
+	merged := groupByConfirmationRef([]ProposedPlan{
+		{Type: "train", ConfirmationRef: "R1", CostAmount: &primaryCost, CostCurrency: "", Parts: []ProposedPart{{}}},
+		{Type: "train", ConfirmationRef: "R1", CostAmount: &laterCost, CostCurrency: "EUR", Parts: []ProposedPart{{}}},
+	})
+	if len(merged) != 1 {
+		t.Fatalf("same-PNR trains should merge, got %d", len(merged))
+	}
+	if merged[0].CostAmount == nil || *merged[0].CostAmount != primaryCost {
+		t.Errorf("primary amount should win: %v", merged[0].CostAmount)
+	}
+	if merged[0].CostCurrency != "EUR" {
+		t.Errorf("currency not backfilled: %q", merged[0].CostCurrency)
+	}
+}
+
 func TestGroupByConfirmationRef_LeavesDistinctRefsAndTypes(t *testing.T) {
 	in := []ProposedPlan{
 		{Type: "flight", ConfirmationRef: "A", Parts: []ProposedPart{{}}},

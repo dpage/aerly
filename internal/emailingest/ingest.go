@@ -471,15 +471,18 @@ func toConfirmInput(p planops.ProposedPlan) planops.ConfirmPlanInput {
 		Type:             p.Type,
 		Title:            p.Title,
 		ConfirmationRef:  p.ConfirmationRef,
+		TicketNumber:     p.TicketNumber,
 		Notes:            p.Notes,
+		CostAmount:       p.CostAmount,
+		CostCurrency:     p.CostCurrency,
 		Source:           "email",
 		SupersedesPartID: p.SupersedesPartID,
 	}
 	for _, part := range p.Parts {
 		in.Parts = append(in.Parts, planops.ConfirmPartInput{
-			Type:       part.Type,
-			StartsAt:   part.StartsAt,
-			EndsAt:     part.EndsAt,
+			Type:         part.Type,
+			StartsAt:     part.StartsAt,
+			EndsAt:       part.EndsAt,
 			StartTZ:      part.StartTZ,
 			EndTZ:        part.EndTZ,
 			StartLabel:   part.StartLabel,
@@ -488,11 +491,11 @@ func toConfirmInput(p planops.ProposedPlan) planops.ConfirmPlanInput {
 			EndAddress:   part.EndAddress,
 			Status:       part.Status,
 			Flight:       part.Flight,
-			Hotel:      part.Hotel,
-			Train:      part.Train,
-			Ground:     part.Ground,
-			Dining:     part.Dining,
-			Excursion:  part.Excursion,
+			Hotel:        part.Hotel,
+			Train:        part.Train,
+			Ground:       part.Ground,
+			Dining:       part.Dining,
+			Excursion:    part.Excursion,
 		})
 	}
 	return in

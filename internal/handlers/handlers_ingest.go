@@ -39,8 +39,11 @@ type ingestConfirmPlanReq struct {
 	Type             string             `json:"type"`
 	Title            string             `json:"title"`
 	ConfirmationRef  string             `json:"confirmation_ref"`
+	TicketNumber     string             `json:"ticket_number"`
 	Notes            string             `json:"notes"`
 	Source           string             `json:"source"`
+	CostAmount       *float64           `json:"cost_amount,omitempty"`
+	CostCurrency     string             `json:"cost_currency"`
 	PassengerIDs     []int64            `json:"passenger_ids"`
 	Visibility       *planVisibilityReq `json:"visibility"`
 	Parts            []planPartReq      `json:"parts"`
@@ -205,7 +208,10 @@ func icalProposalDTO(in planops.ConfirmPlanInput) api.ProposedPlanDTO {
 		Type:            in.Type,
 		Title:           in.Title,
 		ConfirmationRef: in.ConfirmationRef,
+		TicketNumber:    in.TicketNumber,
 		Notes:           in.Notes,
+		CostAmount:      in.CostAmount,
+		CostCurrency:    in.CostCurrency,
 		Confidence:      1,
 		Parts:           make([]api.PlanPartDTO, 0, len(in.Parts)),
 	}
@@ -286,8 +292,11 @@ func toConfirmPlanInput(p ingestConfirmPlanReq) planops.ConfirmPlanInput {
 		Type:             p.Type,
 		Title:            p.Title,
 		ConfirmationRef:  p.ConfirmationRef,
+		TicketNumber:     p.TicketNumber,
 		Notes:            p.Notes,
 		Source:           p.Source,
+		CostAmount:       p.CostAmount,
+		CostCurrency:     p.CostCurrency,
 		PassengerIDs:     p.PassengerIDs,
 		SupersedesPartID: p.SupersedesPartID,
 	}
@@ -297,12 +306,12 @@ func toConfirmPlanInput(p ingestConfirmPlanReq) planops.ConfirmPlanInput {
 	for _, part := range p.Parts {
 		cp := toCreatePartPayload(p.Type, part)
 		out.Parts = append(out.Parts, planops.ConfirmPartInput{
-			Type:       p.Type,
-			Seq:        cp.Seq,
-			StartsAt:   cp.StartsAt,
-			EndsAt:     cp.EndsAt,
-			StartTZ:    cp.StartTZ,
-			EndTZ:      cp.EndTZ,
+			Type:         p.Type,
+			Seq:          cp.Seq,
+			StartsAt:     cp.StartsAt,
+			EndsAt:       cp.EndsAt,
+			StartTZ:      cp.StartTZ,
+			EndTZ:        cp.EndTZ,
 			StartLabel:   cp.StartLabel,
 			StartLat:     cp.StartLat,
 			StartLon:     cp.StartLon,
@@ -312,12 +321,12 @@ func toConfirmPlanInput(p ingestConfirmPlanReq) planops.ConfirmPlanInput {
 			EndLon:       cp.EndLon,
 			EndAddress:   cp.EndAddress,
 			Status:       cp.Status,
-			Flight:     cp.Flight,
-			Hotel:      cp.Hotel,
-			Train:      cp.Train,
-			Ground:     cp.Ground,
-			Dining:     cp.Dining,
-			Excursion:  cp.Excursion,
+			Flight:       cp.Flight,
+			Hotel:        cp.Hotel,
+			Train:        cp.Train,
+			Ground:       cp.Ground,
+			Dining:       cp.Dining,
+			Excursion:    cp.Excursion,
 		})
 	}
 	return out
@@ -331,17 +340,20 @@ func toProposedPlanDTO(p planops.ProposedPlan) api.ProposedPlanDTO {
 		Type:             p.Type,
 		Title:            p.Title,
 		ConfirmationRef:  p.ConfirmationRef,
+		TicketNumber:     p.TicketNumber,
 		Notes:            p.Notes,
+		CostAmount:       p.CostAmount,
+		CostCurrency:     p.CostCurrency,
 		Confidence:       p.Confidence,
 		Parts:            make([]api.PlanPartDTO, 0, len(p.Parts)),
 		SupersedesPartID: p.SupersedesPartID,
 	}
 	for i, part := range p.Parts {
 		sp := &store.PlanPart{
-			Type:       part.Type,
-			Seq:        i,
-			StartsAt:   part.StartsAt,
-			EndsAt:     part.EndsAt,
+			Type:         part.Type,
+			Seq:          i,
+			StartsAt:     part.StartsAt,
+			EndsAt:       part.EndsAt,
 			StartTZ:      part.StartTZ,
 			EndTZ:        part.EndTZ,
 			StartLabel:   part.StartLabel,

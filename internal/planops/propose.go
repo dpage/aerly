@@ -59,7 +59,10 @@ type ProposedPlan struct {
 	Type             string
 	Title            string
 	ConfirmationRef  string
+	TicketNumber     string
 	Notes            string
+	CostAmount       *float64
+	CostCurrency     string
 	Confidence       float64
 	Parts            []ProposedPart
 	SupersedesPartID *int64
@@ -121,6 +124,9 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 			Type:            ep.Type,
 			Title:           ep.Title,
 			ConfirmationRef: ep.ConfirmationRef,
+			TicketNumber:    ep.TicketNumber,
+			CostAmount:      ep.CostAmount,
+			CostCurrency:    ep.CostCurrency,
 		}
 		minConf := 1.0
 		for _, part := range ep.Parts {
@@ -180,6 +186,21 @@ func groupByConfirmationRef(plans []ProposedPlan) []ProposedPlan {
 			out[i].Parts = append(out[i].Parts, p.Parts...)
 			if p.Confidence < out[i].Confidence {
 				out[i].Confidence = p.Confidence
+			}
+			// Fill ticket/cost from a later fragment when the primary lacked them,
+			// so a booking split across plans doesn't lose the metadata it carried.
+			if out[i].TicketNumber == "" {
+				out[i].TicketNumber = p.TicketNumber
+			}
+			if out[i].CostAmount == nil && p.CostAmount != nil {
+				v := *p.CostAmount
+				out[i].CostAmount = &v
+			}
+			// Backfill the currency independently of the amount: the primary may
+			// have an amount but a blank (non-ISO, dropped) currency a later
+			// fragment supplies.
+			if out[i].CostCurrency == "" {
+				out[i].CostCurrency = p.CostCurrency
 			}
 			out[i].SupersedesPartID = nil
 			continue

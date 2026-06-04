@@ -69,7 +69,9 @@ function proposal(over: Partial<ProposedPlan> = {}): ProposedPlan {
     type: 'flight',
     title: 'BA286',
     confirmation_ref: 'ABC123',
+    ticket_number: '',
     notes: '',
+    cost_currency: '',
     confidence: 0.95,
     parts: [part()],
     ...over,
@@ -128,6 +130,22 @@ describe('AddToTripDialog - manual tab', () => {
     expect(input.parts).toHaveLength(1);
     expect(input.parts[0].flight.ident).toBe('BA286');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('carries the ticket number and cost (with currency) into the CreatePlanInput', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText(/Title/), 'Flight to Lisbon');
+    await userEvent.type(screen.getByLabelText(/Ticket number/), 'E1234567890');
+    await userEvent.type(screen.getByLabelText(/^Cost/), '250.5');
+    await userEvent.type(screen.getByLabelText(/Currency/), 'gbp');
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const [, input] = h.state.createPlan.mock.calls[0];
+    expect(input.ticket_number).toBe('E1234567890');
+    expect(input.cost_amount).toBe(250.5);
+    expect(input.cost_currency).toBe('GBP');
   });
 
   it('disables submit until a title is entered', async () => {

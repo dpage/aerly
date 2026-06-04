@@ -96,17 +96,23 @@ type createPlanReq struct {
 	Type            string             `json:"type"`
 	Title           string             `json:"title"`
 	ConfirmationRef string             `json:"confirmation_ref"`
+	TicketNumber    string             `json:"ticket_number"`
 	Notes           string             `json:"notes"`
 	Source          string             `json:"source"`
+	CostAmount      *float64           `json:"cost_amount,omitempty"`
+	CostCurrency    string             `json:"cost_currency"`
 	PassengerIDs    []int64            `json:"passenger_ids"`
 	Visibility      *planVisibilityReq `json:"visibility"`
 	Parts           []planPartReq      `json:"parts"`
 }
 
 type updatePlanReq struct {
-	Title           *string `json:"title,omitempty"`
-	ConfirmationRef *string `json:"confirmation_ref,omitempty"`
-	Notes           *string `json:"notes,omitempty"`
+	Title           *string  `json:"title,omitempty"`
+	ConfirmationRef *string  `json:"confirmation_ref,omitempty"`
+	TicketNumber    *string  `json:"ticket_number,omitempty"`
+	Notes           *string  `json:"notes,omitempty"`
+	CostAmount      *float64 `json:"cost_amount,omitempty"`
+	CostCurrency    *string  `json:"cost_currency,omitempty"`
 }
 
 type planVisibilityReq struct {
@@ -175,8 +181,11 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		Type:            in.Type,
 		Title:           in.Title,
 		ConfirmationRef: in.ConfirmationRef,
+		TicketNumber:    in.TicketNumber,
 		Notes:           in.Notes,
 		Source:          in.Source,
+		CostAmount:      in.CostAmount,
+		CostCurrency:    in.CostCurrency,
 		Parts:           parts,
 	}, me.ID)
 	if err != nil {
@@ -227,7 +236,10 @@ func (a *API) updatePlan(w http.ResponseWriter, r *http.Request) {
 	if _, err := a.Store.UpdatePlan(r.Context(), id, store.UpdatePlanPayload{
 		Title:           in.Title,
 		ConfirmationRef: in.ConfirmationRef,
+		TicketNumber:    in.TicketNumber,
 		Notes:           in.Notes,
+		CostAmount:      in.CostAmount,
+		CostCurrency:    in.CostCurrency,
 	}); err != nil {
 		handleStoreErr(w, err)
 		return
@@ -812,8 +824,11 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 		Type:            plan.Type,
 		Title:           plan.Title,
 		ConfirmationRef: plan.ConfirmationRef,
+		TicketNumber:    plan.TicketNumber,
 		Notes:           plan.Notes,
 		Source:          plan.Source,
+		CostAmount:      plan.CostAmount,
+		CostCurrency:    plan.CostCurrency,
 		CreatedBy:       plan.CreatedBy,
 		PassengerIDs:    pids,
 		Visibility:      visDTO,
