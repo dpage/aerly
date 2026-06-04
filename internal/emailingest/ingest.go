@@ -435,10 +435,15 @@ func planTypeLabel(t string) string {
 	}
 }
 
-// createTripForPlan auto-creates a trip named from the plan title / dates when
-// no existing trip matches by date proximity (spec §6.3).
+// createTripForPlan auto-creates a trip when no existing trip matches by date
+// proximity (spec §6.3). For a flight booking it names the trip for where the
+// flight lands ("Trip to <city>") rather than after the flight's ident (#21),
+// falling back to the plan title and then a generic label.
 func (s *Service) createTripForPlan(ctx context.Context, userID int64, p planops.ProposedPlan, start, end time.Time) (int64, error) {
-	name := p.Title
+	name := planops.TripNameForProposedPlan(p)
+	if name == "" {
+		name = p.Title
+	}
 	if name == "" {
 		name = "Trip from email"
 	}

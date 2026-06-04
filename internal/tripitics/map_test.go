@@ -216,6 +216,56 @@ func TestMapAlphanumericAirlineCode(t *testing.T) {
 	}
 }
 
+// flightCal builds a minimal TripIt-style calendar carrying one flight leg,
+// with no calendar name of its own (no X-WR-CALNAME / X-WR-CALDESC).
+func flightCal(summary string) *Calendar {
+	out := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	in := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	return &Calendar{Events: []Event{{
+		UID:         "item-x@tripit.com",
+		Summary:     summary,
+		Description: "[Flight]",
+		Start:       DateTime{Raw: "20260701T090000Z", Time: out, HasTime: true, IsUTC: true},
+		End:         DateTime{Raw: "20260701T120000Z", Time: in, HasTime: true, IsUTC: true},
+	}}}
+}
+
+// A nameless .ics is named for where it goes, not left as a generic label (#21).
+func TestMapNamelessUsesDestinationCity(t *testing.T) {
+	mt := mapTripIt(flightCal("BA286 LHR to IAD"))
+	if mt.Name != "Trip to Washington" {
+		t.Errorf("nameless flight import name = %q, want %q", mt.Name, "Trip to Washington")
+	}
+}
+
+// With no calendar name and no flight to name it after, fall back to the
+// generic label rather than an empty name.
+func TestMapNamelessNoFlightFallsBackToGeneric(t *testing.T) {
+	cal := &Calendar{Events: []Event{{UID: "item-y@tripit.com", Summary: "Nonsense entry"}}}
+	mt := mapTripIt(cal)
+	if mt.Name != "Imported trip" {
+		t.Errorf("nameless import with no flight name = %q, want %q", mt.Name, "Imported trip")
+	}
+}
+
+// A calendar that does carry a name keeps it — destination naming is only a
+// fallback for nameless imports.
+func TestMapNamedCalendarKeepsItsName(t *testing.T) {
+	cal := flightCal("BA286 LHR to IAD")
+	cal.Name = "Conference in DC"
+	if mt := mapTripIt(cal); mt.Name != "Conference in DC" {
+		t.Errorf("named import name = %q, want %q", mt.Name, "Conference in DC")
+	}
+}
+
+// tripName returns "" when the calendar carries no name of its own, so the
+// caller can fall back to a destination-based name.
+func TestTripNameEmptyWhenNoCalendarName(t *testing.T) {
+	if got := tripName(&Calendar{}); got != "" {
+		t.Errorf("tripName(nameless) = %q, want empty", got)
+	}
+}
+
 func TestMapTripProvenance(t *testing.T) {
 	mt := mustMapTripIt(t, parseFixture(t, "pgconfeu_2016.ics"))
 	// The TripIt trip id is lifted from the envelope's show URL, for re-import

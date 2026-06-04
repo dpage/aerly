@@ -48,6 +48,26 @@ func TestTableEntriesPlausible(t *testing.T) {
 		if e.TZ == "" {
 			t.Errorf("%s has empty TZ", code)
 		}
+		if e.City == "" {
+			t.Errorf("%s has empty city", code)
+		}
+	}
+}
+
+func TestLookupCity(t *testing.T) {
+	city, ok := LookupCity("CDG")
+	if !ok || city != "Paris" {
+		t.Errorf("CDG should resolve to Paris, got (%q,%v)", city, ok)
+	}
+	// Case- and whitespace-insensitive, like the other lookups.
+	if city, ok := LookupCity("  jfk "); !ok || city != "New York" {
+		t.Errorf("jfk should resolve to New York, got (%q,%v)", city, ok)
+	}
+	if _, ok := LookupCity("ZZZ"); ok {
+		t.Error("unknown code should not resolve")
+	}
+	if _, ok := LookupCity(""); ok {
+		t.Error("empty code should not resolve")
 	}
 }
 

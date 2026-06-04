@@ -415,6 +415,32 @@ func TestIngest_PlanCapture_AutoCreatesTrip(t *testing.T) {
 	}
 }
 
+// TestIngest_PlanCapture_NamesTripFromDestination verifies an auto-created trip
+// is named for where the flight lands ("Trip to <city>"), not after the first
+// flight's ident (#21). The resolver enriches the flight to a LHR destination.
+func TestIngest_PlanCapture_NamesTripFromDestination(t *testing.T) {
+	h := newHarness(t, flightPlanResp("BA286", "2026-06-12"), nil, false)
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	writeMessage(t, h.maildir, "32", goodMessage)
+	if state := h.runUntilProcessed(t, "32", 5*time.Second); state != "removed" {
+		t.Fatalf("expected removed, got %s", state)
+	}
+	trips, err := h.store.ListTrips(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trips) != 1 {
+		t.Fatalf("expected 1 auto-created trip, got %d", len(trips))
+	}
+	if trips[0].Name != "Trip to London" {
+		t.Errorf("trip name = %q, want %q", trips[0].Name, "Trip to London")
+	}
+}
+
 // TestIngest_PlanCapture_AttachesToExistingTrip verifies the date-proximity
 // selection attaches the ingested plan to an overlapping existing trip rather
 // than creating a new one.
