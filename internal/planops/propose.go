@@ -195,6 +195,11 @@ func groupByConfirmationRef(plans []ProposedPlan) []ProposedPlan {
 			if out[i].CostAmount == nil && p.CostAmount != nil {
 				v := *p.CostAmount
 				out[i].CostAmount = &v
+			}
+			// Backfill the currency independently of the amount: the primary may
+			// have an amount but a blank (non-ISO, dropped) currency a later
+			// fragment supplies.
+			if out[i].CostCurrency == "" {
 				out[i].CostCurrency = p.CostCurrency
 			}
 			out[i].SupersedesPartID = nil
