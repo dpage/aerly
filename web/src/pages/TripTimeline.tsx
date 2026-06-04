@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Card,
+  Checkbox,
   Chip,
   Collapse,
   Divider,
@@ -40,12 +41,26 @@ function accentFor(planIds: number[], planId: number): string {
   return ACCENTS[(idx < 0 ? 0 : idx) % ACCENTS.length];
 }
 
+// Only flights and trains carry multi-leg bookings, so only they can be linked
+// into (or split out of) one multi-part plan (#12).
+function isLinkableType(type: string): boolean {
+  return type === 'flight' || type === 'train';
+}
+
+// earliestStart returns the smallest part start instant (ms) of a plan, used to
+// pick the primary (earliest) plan when linking. A plan with no parts sorts last.
+function earliestStart(plan: Plan): number {
+  return Math.min(...plan.parts.map((p) => Date.parse(p.starts_at)));
+}
+
 /** Default trip detail view (spec §11, PRD §6.2): a day-grouped vertical list
  * of plan parts sorted by `effective_at`, with sticky local-day headers, the
  * right MUI icon per type, local-time ranges, parts of one plan visually tied
  * together, multi-night hotels as a band, and superseded parts greyed. */
 export default function TripTimeline() {
   const currentTrip = useStore((s) => s.currentTrip);
+  const linkPlans = useStore((s) => s.linkPlans);
+  const setError = useStore((s) => s.setError);
   const plans = useMemo(() => currentTrip?.plans ?? [], [currentTrip]);
 
   const days = useMemo(() => buildTimeline(plans), [plans]);
@@ -85,6 +100,58 @@ export default function TripTimeline() {
     });
   const [addOpen, setAddOpen] = useState(false);
 
+  // "Link bookings" mode: editors tick 2+ same-type flight/train plans that are
+  // really one booking, then confirm to fold them into one multi-part plan (#12).
+  const canEdit = currentTrip?.my_role === 'owner' || currentTrip?.my_role === 'editor';
+  const [linkMode, setLinkMode] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
+  const [linking, setLinking] = useState(false);
+
+  const linkableCount = useMemo(
+    () => plans.filter((p) => isLinkableType(p.type)).length,
+    [plans],
+  );
+
+  // Linking needs 2+ selected plans that all share one type.
+  const selectedTypes = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of plans) if (selected.has(p.id)) s.add(p.type);
+    return s;
+  }, [selected, plans]);
+  const canLink = selected.size >= 2 && selectedTypes.size === 1;
+
+  const toggleSelect = (planId: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(planId)) next.delete(planId);
+      else next.add(planId);
+      return next;
+    });
+
+  const cancelLink = () => {
+    setLinkMode(false);
+    setSelected(new Set());
+  };
+
+  const handleLink = async () => {
+    // The earliest-starting selected plan is the primary the rest fold into.
+    // The confirm button is gated on canLink, so there are always 2+ here.
+    const chosen = plans
+      .filter((p) => selected.has(p.id))
+      .sort((a, b) => earliestStart(a) - earliestStart(b));
+    const primary = chosen[0].id;
+    const absorb = chosen.slice(1).map((p) => p.id);
+    setLinking(true);
+    try {
+      await linkPlans(primary, absorb);
+      cancelLink();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLinking(false);
+    }
+  };
+
   if (!currentTrip) {
     return (
       <Box sx={{ p: 3 }}>
@@ -117,6 +184,32 @@ export default function TripTimeline() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 760, mx: 'auto' }}>
+      {canEdit && linkableCount >= 2 && (
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+          {!linkMode ? (
+            <Button size="small" variant="outlined" onClick={() => setLinkMode(true)}>
+              Link bookings
+            </Button>
+          ) : (
+            <>
+              <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
+                Select 2 or more flights (or trains) that are one booking.
+              </Typography>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => void handleLink()}
+                disabled={!canLink || linking}
+              >
+                Link{selected.size > 0 ? ` ${selected.size}` : ''}
+              </Button>
+              <Button size="small" onClick={cancelLink} disabled={linking}>
+                Cancel
+              </Button>
+            </>
+          )}
+        </Stack>
+      )}
       {days.map((day) => (
         <Box key={day.dayKey} sx={{ mb: 2 }}>
           <Typography
@@ -148,6 +241,10 @@ export default function TripTimeline() {
                   multiPart={multiPartPlanIds.has(plan.id)}
                   expanded={expanded.has(key)}
                   onToggle={() => toggle(key)}
+                  linkMode={linkMode}
+                  selectable={isLinkableType(plan.type)}
+                  selected={selected.has(plan.id)}
+                  onSelect={() => toggleSelect(plan.id)}
                 />
               );
             })}
@@ -168,13 +265,32 @@ interface PartCardProps {
   multiPart: boolean;
   expanded: boolean;
   onToggle: () => void;
+  /** Link-selection mode: the card selects its plan instead of expanding. */
+  linkMode: boolean;
+  /** Whether this plan's type (flight/train) can be linked. */
+  selectable: boolean;
+  selected: boolean;
+  onSelect: () => void;
 }
 
 /** A timeline tile. Tapping the header expands it in place (PRD §6.2 tap-through
  * to the whole plan) to reveal the address, type-specific detail, notes and the
  * per-plan actions — owners/editors get Edit / "Privacy & passengers" / Delete
  * (§6.4), viewers get the "Notify me of changes" opt-in (§6.8). */
-function PartCard({ part, plan, trip, edge, accent, multiPart, expanded, onToggle }: PartCardProps) {
+function PartCard({
+  part,
+  plan,
+  trip,
+  edge,
+  accent,
+  multiPart,
+  expanded,
+  onToggle,
+  linkMode,
+  selectable,
+  selected,
+  onSelect,
+}: PartCardProps) {
   const deletePlan = useStore((s) => s.deletePlan);
   const setError = useStore((s) => s.setError);
   const [privacyOpen, setPrivacyOpen] = useState(false);
@@ -210,23 +326,43 @@ function PartCard({ part, plan, trip, edge, accent, multiPart, expanded, onToggl
   // Clicks inside the expanded body shouldn't fold the card back up.
   const stop = (e: MouseEvent) => e.stopPropagation();
 
+  // In link mode a click selects (eligible plans) rather than expanding; an
+  // ineligible plan (e.g. a hotel) is inert and dimmed.
+  const cardClick = linkMode ? (selectable ? onSelect : undefined) : onToggle;
+  const dimmed = linkMode && !selectable;
+
   return (
     <Card
       variant="outlined"
-      onClick={onToggle}
+      onClick={cardClick}
       sx={{
         position: 'relative',
-        opacity: greyed ? 0.55 : 1,
+        opacity: greyed ? 0.55 : dimmed ? 0.5 : 1,
         borderLeft: `4px solid ${accent}`,
+        ...(selected ? { outline: `2px solid ${accent}`, outlineOffset: -2 } : {}),
       }}
       data-testid={`part-card-${part.id}${edge ? `-${edge}` : ''}`}
     >
       <Stack
         direction="row"
         spacing={1.5}
-        sx={{ p: 1.5, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+        sx={{
+          p: 1.5,
+          cursor: linkMode && !selectable ? 'default' : 'pointer',
+          '&:hover': { bgcolor: 'action.hover' },
+        }}
         alignItems="flex-start"
       >
+        {linkMode && selectable && (
+          <Checkbox
+            checked={selected}
+            onClick={stop}
+            onChange={onSelect}
+            size="small"
+            sx={{ p: 0.5, mt: -0.25 }}
+            inputProps={{ 'aria-label': `Select ${plan.title || planTypeLabel(part.type)}` }}
+          />
+        )}
         <PlanTypeIcon type={part.type} sx={{ color: accent, mt: 0.25 }} />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
