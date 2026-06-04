@@ -155,6 +155,11 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("PUT /api/alert-prefs", req(http.HandlerFunc(a.setAlertPrefs)))
 	mux.Handle("POST /api/plans/{id}/alerts/optin", req(http.HandlerFunc(a.addPlanAlertOptin)))
 	mux.Handle("DELETE /api/plans/{id}/alerts/optin", req(http.HandlerFunc(a.removePlanAlertOptin)))
+	// Upcoming-plan reminders (issue #11): trip-level opt-in + per-plan override.
+	mux.Handle("PUT /api/trips/{id}/reminder", req(http.HandlerFunc(a.setTripReminder)))
+	mux.Handle("DELETE /api/trips/{id}/reminder", req(http.HandlerFunc(a.deleteTripReminder)))
+	mux.Handle("PUT /api/plans/{id}/reminder", req(http.HandlerFunc(a.setPlanReminder)))
+	mux.Handle("DELETE /api/plans/{id}/reminder", req(http.HandlerFunc(a.deletePlanReminder)))
 }
 
 // events streams SSE to the caller. Builds a Subscription from the auth
