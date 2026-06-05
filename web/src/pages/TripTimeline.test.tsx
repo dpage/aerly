@@ -594,6 +594,29 @@ describe('TripTimeline', () => {
       expect(state.linkPlans).toHaveBeenCalledWith(1, [2]);
     });
 
+    it('links two ground (transfer) plans of the same type', async () => {
+      state.currentTrip = tripWith([
+        plan([part({ id: 1, plan_id: 1, type: 'ground', starts_at: '2026-10-12T09:00:00Z' })], {
+          id: 1,
+          type: 'ground',
+          title: 'Airport pickup',
+        }),
+        plan([part({ id: 2, plan_id: 2, type: 'ground', starts_at: '2026-10-20T09:00:00Z' })], {
+          id: 2,
+          type: 'ground',
+          title: 'Airport drop-off',
+        }),
+      ]);
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /link bookings/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select airport pickup/i }));
+      await userEvent.click(screen.getByRole('checkbox', { name: /select airport drop-off/i }));
+      const linkBtn = screen.getByRole('button', { name: /^link 2$/i });
+      expect(linkBtn).toBeEnabled();
+      await userEvent.click(linkBtn);
+      expect(state.linkPlans).toHaveBeenCalledWith(1, [2]);
+    });
+
     it('cancels link mode back to the "Link bookings" control', async () => {
       state.currentTrip = twoFlights();
       renderTimeline();

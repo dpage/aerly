@@ -43,10 +43,10 @@ function accentFor(planIds: number[], planId: number): string {
   return ACCENTS[(idx < 0 ? 0 : idx) % ACCENTS.length];
 }
 
-// Only flights and trains carry multi-leg bookings, so only they can be linked
-// into (or split out of) one multi-part plan (#12).
+// Flights, trains and ground transport carry multi-leg bookings, so only they
+// can be linked into (or split out of) one multi-part plan (#12).
 function isLinkableType(type: string): boolean {
-  return type === 'flight' || type === 'train';
+  return type === 'flight' || type === 'train' || type === 'ground';
 }
 
 // earliestStart returns the smallest part start instant (ms) of a plan, used to
@@ -198,7 +198,7 @@ export default function TripTimeline() {
           ) : (
             <>
               <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
-                Select 2 or more flights (or trains) that are one booking.
+                Select 2 or more flights, trains or transfers that are one booking.
               </Typography>
               <Button
                 size="small"
