@@ -525,10 +525,11 @@ func (s *Store) MovePlan(ctx context.Context, planID, destTripID int64) error {
 	return nil
 }
 
-// linkableType reports whether a plan type may hold a multi-leg booking that can
-// be linked or split (flights and trains have outbound/return/connection legs).
-// Other types are single-venue and are excluded from link/split.
-func linkableType(t string) bool { return t == "flight" || t == "train" }
+// LinkableType reports whether a plan type may hold a multi-leg booking that can
+// be linked or split (flights, trains and ground transport have
+// outbound/return/connection legs). Other types are single-venue and are
+// excluded from link/split.
+func LinkableType(t string) bool { return t == "flight" || t == "train" || t == "ground" }
 
 // LinkPlans folds the absorbed plans' parts into the primary plan, making one
 // multi-part booking (issue #12). All plans must be in the same trip and share
@@ -583,7 +584,7 @@ func (s *Store) LinkPlans(ctx context.Context, primaryID int64, absorbIDs []int6
 	if !ok {
 		return ErrNotFound
 	}
-	if !linkableType(primary.typ) {
+	if !LinkableType(primary.typ) {
 		return fmt.Errorf("plan type %q cannot be linked", primary.typ)
 	}
 	// Validate every absorbed plan: it exists, is in the same trip, same type.
@@ -654,7 +655,7 @@ func (s *Store) SplitPlanPart(ctx context.Context, partID int64) (newPlanID, par
 	if err != nil {
 		return 0, 0, err
 	}
-	if !linkableType(parent.Type) {
+	if !LinkableType(parent.Type) {
 		return 0, 0, ErrNotSplittable
 	}
 	var liveCount int

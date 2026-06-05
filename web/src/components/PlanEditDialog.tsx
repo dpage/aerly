@@ -113,9 +113,11 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
 
   // The editable parts (dismissed ones are hidden) and their initial snapshot.
   const editableParts = useMemo(() => plan.parts.filter((p) => !p.dismissed_at), [plan.parts]);
-  // A multi-leg flight/train booking can have a leg split out into its own plan
-  // when it wasn't really part of the same booking (#12).
-  const canSplit = editableParts.length > 1 && (plan.type === 'flight' || plan.type === 'train');
+  // A multi-leg flight/train/ground booking can have a leg split out into its
+  // own plan when it wasn't really part of the same booking (#12).
+  const canSplit =
+    editableParts.length > 1 &&
+    (plan.type === 'flight' || plan.type === 'train' || plan.type === 'ground');
   const [forms, setForms] = useState<Record<number, PartForm>>({});
   const [initial, setInitial] = useState<Record<number, PartForm>>({});
 

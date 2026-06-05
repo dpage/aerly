@@ -413,6 +413,22 @@ func TestGroupByConfirmationRef_PreservesTicketAndCostFromLaterFragment(t *testi
 	}
 }
 
+func TestGroupByConfirmationRef_GroupsGround(t *testing.T) {
+	// Ground transport is a linkable type, so transfers sharing one booking
+	// reference fold into a single multi-part plan just like flights/trains.
+	in := []ProposedPlan{
+		{Type: "ground", ConfirmationRef: "REF1", Parts: []ProposedPart{{}}},
+		{Type: "ground", ConfirmationRef: "ref1", Parts: []ProposedPart{{}}},
+	}
+	out := groupByConfirmationRef(in)
+	if len(out) != 1 {
+		t.Fatalf("same-ref ground transfers should merge, got %d plans", len(out))
+	}
+	if len(out[0].Parts) != 2 {
+		t.Fatalf("merged ground plan should hold 2 parts, got %d", len(out[0].Parts))
+	}
+}
+
 func TestGroupByConfirmationRef_LeavesDistinctRefsAndTypes(t *testing.T) {
 	in := []ProposedPlan{
 		{Type: "flight", ConfirmationRef: "A", Parts: []ProposedPart{{}}},

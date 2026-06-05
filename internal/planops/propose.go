@@ -154,9 +154,9 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 		}
 		out = append(out, pp)
 	}
-	// Fold flight/train proposals that share a confirmation reference into one
-	// multi-part booking — the LLM (and the .ics importer) sometimes split a
-	// single PNR across several plans (issue #12).
+	// Fold linkable-type proposals (flight/train/ground) that share a
+	// confirmation reference into one multi-part booking — the LLM (and the .ics
+	// importer) sometimes split a single PNR across several plans (issue #12).
 	out = groupByConfirmationRef(out)
 	// Retime airport↔accommodation transfers whose time was defaulted off the
 	// flanking flight in the same batch (e.g. a holiday confirmation that names
@@ -165,7 +165,7 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 	return out, nil
 }
 
-// groupByConfirmationRef folds flight/train proposals that share a non-empty,
+// groupByConfirmationRef folds linkable-type proposals that share a non-empty,
 // case-insensitive confirmation_ref into a single multi-part proposal, parts
 // ordered by start. The LLM and importers sometimes split one booking (PNR)
 // across several plans; this re-groups them so the user confirms one booking.
@@ -177,7 +177,7 @@ func groupByConfirmationRef(plans []ProposedPlan) []ProposedPlan {
 	byKey := map[string]int{} // group key -> index into out
 	for _, p := range plans {
 		ref := strings.ToUpper(strings.TrimSpace(p.ConfirmationRef))
-		if ref == "" || (p.Type != "flight" && p.Type != "train") {
+		if ref == "" || !store.LinkableType(p.Type) {
 			out = append(out, p)
 			continue
 		}

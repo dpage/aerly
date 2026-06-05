@@ -75,6 +75,53 @@ func TestLinkPlans(t *testing.T) {
 	}
 }
 
+// TestLinkPlansGround covers the linkable type added beyond flight/train:
+// ground transport (e.g. a transfer booking with a pickup and a drop-off leg).
+func TestLinkPlansGround(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	t0 := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+
+	primary := mkTypedPlan(t, s, trip, owner, "ground", "Pickup", "REF1", "")
+	mkPart(t, s, primary, t0, nil, "", "", "Hotel")
+	absorbed := mkTypedPlan(t, s, trip, owner, "ground", "Drop-off", "REF1", "")
+	mkPart(t, s, absorbed, t0.Add(72*time.Hour), nil, "", "", "Airport")
+
+	if err := s.LinkPlans(ctx, primary, []int64{absorbed}); err != nil {
+		t.Fatalf("LinkPlans: %v", err)
+	}
+	parts, err := s.PartsByPlan(ctx, primary)
+	if err != nil {
+		t.Fatalf("PartsByPlan: %v", err)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("want 2 parts on primary, got %d", len(parts))
+	}
+	if _, err := s.PlanByID(ctx, absorbed); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("absorbed plan should be deleted, got %v", err)
+	}
+
+	// And the moved leg can be split back out into its own ground plan.
+	newID, parentID, err := s.SplitPlanPart(ctx, parts[1].ID)
+	if err != nil {
+		t.Fatalf("SplitPlanPart: %v", err)
+	}
+	if parentID != primary {
+		t.Fatalf("parent = %d, want %d", parentID, primary)
+	}
+	np, err := s.PlanByID(ctx, newID)
+	if err != nil {
+		t.Fatalf("PlanByID(new): %v", err)
+	}
+	if np.Type != "ground" {
+		t.Fatalf("split plan type = %q, want ground", np.Type)
+	}
+}
+
 func TestLinkPlansRejects(t *testing.T) {
 	s := newStore(t)
 	if s == nil {

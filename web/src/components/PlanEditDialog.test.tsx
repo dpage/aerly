@@ -319,6 +319,19 @@ describe('PlanEditDialog', () => {
     expect(screen.queryByRole('button', { name: /split out/i })).not.toBeInTheDocument();
   });
 
+  it('offers "Split out" on each leg of a multi-part ground (transfer) plan', () => {
+    render_(
+      plan({
+        type: 'ground',
+        parts: [
+          part({ id: 100, type: 'ground' }),
+          part({ id: 101, type: 'ground' }),
+        ],
+      }),
+    );
+    expect(screen.getAllByRole('button', { name: /split out/i })).toHaveLength(2);
+  });
+
   it('does not offer "Split out" on a multi-part non-linkable plan (hotel)', () => {
     render_(
       plan({
