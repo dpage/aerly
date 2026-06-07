@@ -231,6 +231,22 @@ describe('PlanMapView', () => {
     expect(pin.popup?.html).toContain('Hotel');
   });
 
+  it('shows the unlocated notice when an addressed part has no coordinates', () => {
+    const stranded = hotel({
+      id: 3,
+      start_lat: undefined,
+      start_lon: undefined,
+      start_address: '8028 Leesburg Pike',
+    });
+    render(<PlanMapView parts={[flight(), stranded]} />);
+    expect(screen.getByText(/couldn't be placed on the map/i)).toBeInTheDocument();
+  });
+
+  it('hides the unlocated notice when every part is located', () => {
+    render(<PlanMapView parts={[flight(), hotel()]} />);
+    expect(screen.queryByText(/couldn't be placed on the map/i)).toBeNull();
+  });
+
   it('shows an empty state when there are no mappable parts', () => {
     render(<PlanMapView parts={[]} />);
     expect(screen.getByText(/no mappable plans/i)).toBeInTheDocument();

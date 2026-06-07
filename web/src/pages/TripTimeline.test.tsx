@@ -630,6 +630,48 @@ describe('TripTimeline', () => {
     expect(await screen.findByText('Departure: Unknown')).toBeInTheDocument();
   });
 
+  it('shows a "Not on map" chip on a tile whose addressed part has no coordinates', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            type: 'ground',
+            start_label: 'Home',
+            start_address: '12 Acacia Avenue, Reading',
+            start_lat: undefined,
+            start_lon: undefined,
+          }),
+        ],
+        { id: 1, type: 'ground', title: 'Taxi' },
+      ),
+    ]);
+    renderTimeline();
+    expect(screen.getByText(/not on map/i)).toBeInTheDocument();
+  });
+
+  it('omits the "Not on map" chip once the addressed part is located', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            type: 'ground',
+            start_label: 'Home',
+            start_address: '12 Acacia Avenue, Reading',
+            start_lat: 51.45,
+            start_lon: -0.97,
+          }),
+        ],
+        { id: 1, type: 'ground', title: 'Taxi' },
+      ),
+    ]);
+    renderTimeline();
+    expect(screen.queryByText(/not on map/i)).toBeNull();
+  });
+
   describe('link bookings mode', () => {
     function twoFlights() {
       return tripWith([
