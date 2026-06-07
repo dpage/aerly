@@ -1,0 +1,14 @@
+-- Track whether a flight's route came from the flight-data provider or was
+-- entered manually (flight-route-labels-and-editing).
+--
+-- A flight's identity is its ident + date; the route IATAs, schedule and
+-- tracking are derived by resolving that ident against the provider. When the
+-- provider has no record (an obscure charter, a typo, or an exhausted quota) we
+-- fall back to the email's own data and the route is user-owned. This flag is
+-- the single source of truth for "is this flight provider-tracked": it gates
+-- whether the origin/dest IATA fields are editable in the UI (editable only
+-- when NOT resolved, so a manual route is never clobbered by a re-resolve).
+--
+-- Existing rows default to false; the one-time re-resolve backfill corrects
+-- them on its pass, and the next poll flips any it can resolve.
+ALTER TABLE flight_details ADD COLUMN resolved BOOLEAN NOT NULL DEFAULT false;

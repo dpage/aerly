@@ -562,4 +562,61 @@ describe('PlanEditDialog', () => {
       }),
     );
   });
+
+  // --- flight route/identity editing ---
+
+  function flightPart(over: Partial<PlanPart['flight']> = {}): PlanPart {
+    return part({
+      flight: {
+        ident: 'BA123',
+        callsign: '',
+        scheduled_out: '2026-10-12T11:35:00Z',
+        scheduled_in: '2026-10-12T19:55:00Z',
+        origin_iata: 'LHR',
+        dest_iata: 'IAD',
+        flight_status: 'Scheduled',
+        resolved: true,
+        ...over,
+      },
+    });
+  }
+
+  it('shows the flight number and IATA fields for a flight part', () => {
+    render_(plan({ parts: [flightPart()] }));
+    expect(screen.getByRole('textbox', { name: /flight number/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /from \(iata\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /to \(iata\)/i })).toBeInTheDocument();
+  });
+
+  it('makes the IATA read-only for a resolved flight, editable for an unresolved one', () => {
+    const { unmount } = render_(plan({ parts: [flightPart({ resolved: true })] }));
+    expect(screen.getByRole('textbox', { name: /from \(iata\)/i })).toBeDisabled();
+    unmount();
+    render_(plan({ parts: [flightPart({ resolved: false })] }));
+    expect(screen.getByRole('textbox', { name: /from \(iata\)/i })).toBeEnabled();
+  });
+
+  it('sends a changed flight number under flight.ident', async () => {
+    render_(plan({ parts: [flightPart({ resolved: true })] }));
+    const ident = screen.getByRole('textbox', { name: /flight number/i });
+    await userEvent.clear(ident);
+    await userEvent.type(ident, 'BA999');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.flight).toEqual({ ident: 'BA999' });
+  });
+
+  it('does not send IATA edits for a resolved flight, but does for an unresolved one', async () => {
+    // Resolved: the IATA field is disabled, so editing it is impossible and no
+    // flight patch is produced from it.
+    render_(plan({ parts: [flightPart({ resolved: false, origin_iata: 'LHR' })] }));
+    const origin = screen.getByRole('textbox', { name: /from \(iata\)/i });
+    await userEvent.clear(origin);
+    await userEvent.type(origin, 'lgw');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.flight).toEqual({ origin_iata: 'LGW' });
+  });
 });

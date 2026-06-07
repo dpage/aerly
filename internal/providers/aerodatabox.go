@@ -329,6 +329,7 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 	}
 	if a := f.Departure.Airport; a.IATA != "" {
 		r.OriginIATA = a.IATA
+		r.OriginName = strings.TrimSpace(a.Name)
 		if a.Location != nil {
 			r.OriginLat = a.Location.Lat
 			r.OriginLon = a.Location.Lon
@@ -336,6 +337,7 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 	}
 	if a := f.Arrival.Airport; a.IATA != "" {
 		r.DestIATA = a.IATA
+		r.DestName = strings.TrimSpace(a.Name)
 		if a.Location != nil {
 			r.DestLat = a.Location.Lat
 			r.DestLon = a.Location.Lon

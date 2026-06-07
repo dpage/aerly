@@ -268,6 +268,10 @@ export interface FlightDetail {
   aircraft_type?: string;
   /** Arrival baggage belt/carousel. Empty until published near arrival. */
   dest_baggage_belt?: string;
+  /** True when the route came from the flight-data provider. The origin/dest
+   * IATA are editable only when this is false (a manually-entered flight the
+   * provider can't track), so a manual route is never clobbered by a re-resolve. */
+  resolved: boolean;
   last_polled_at?: string;
   latest_position?: Position;
   /** Recent positions in order (oldest → newest), for the flown-track line. */

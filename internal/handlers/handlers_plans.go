@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
+	"github.com/dpage/aerly/internal/flightcoord"
 	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
@@ -143,6 +146,20 @@ type updatePlanPartReq struct {
 	EndLon       *float64   `json:"end_lon,omitempty"`
 	EndAddress   *string    `json:"end_address,omitempty"`
 	Status       *string    `json:"status,omitempty"`
+
+	// Flight carries a flight part's route/identity edit (PRD: flight route
+	// labels & editing). Changing the ident re-resolves the flight; the
+	// origin/dest IATA are only honoured for an unresolved flight.
+	Flight *flightEditReq `json:"flight,omitempty"`
+}
+
+// flightEditReq is the editable subset of a flight's route. A nil field leaves
+// it unchanged. The ident is the flight's identity (changing it re-resolves);
+// the IATAs are the manual route, applied only when the flight is unresolved.
+type flightEditReq struct {
+	Ident      *string `json:"ident,omitempty"`
+	OriginIATA *string `json:"origin_iata,omitempty"`
+	DestIATA   *string `json:"dest_iata,omitempty"`
 }
 
 type moveReq struct {
@@ -596,6 +613,19 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	// A flight route/identity edit is applied after the generic part update so
+	// a re-resolve's regenerated labels win over any label sent in the same
+	// request. Reload the part afterwards so the DTO reflects the new route.
+	if in.Flight != nil {
+		if err := a.applyFlightEdit(r.Context(), id, *in.Flight); err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+		if part, err = a.Store.PlanPartByID(r.Context(), id); err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+	}
 	dto, err := a.partDTO(r.Context(), part)
 	if err != nil {
 		handleStoreErr(w, err)
@@ -605,6 +635,95 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		a.publishPlanUpdated(r.Context(), tripID, planID)
 	}
 	writeJSON(w, http.StatusOK, dto)
+}
+
+// applyFlightEdit applies a flight part's route/identity edit. Changing the
+// ident re-resolves the flight (resolve-or-fallback, never reject): on success
+// the provider's route/schedule is adopted and the flight is marked resolved; on
+// failure the last-known route is kept and the flight is marked unresolved so the
+// poller retries and the user can correct the IATAs by hand. An IATA edit is
+// honoured only for an unresolved flight (otherwise a re-resolve would clobber
+// it), where it rewrites the route, regenerates the label, and recomputes (or
+// clears) the airport's coordinates/timezone.
+func (a *API) applyFlightEdit(ctx context.Context, partID int64, in flightEditReq) error {
+	fd, err := a.Store.FlightDetailFor(ctx, partID)
+	if err != nil {
+		return err
+	}
+	if fd == nil {
+		return nil // not a flight part — nothing to do
+	}
+
+	if in.Ident != nil {
+		newIdent := normalizeIdent(*in.Ident)
+		if newIdent != "" && newIdent != fd.Ident {
+			return a.reresolveFlightPart(ctx, partID, newIdent, fd.ScheduledOut)
+		}
+	}
+
+	// IATA edits are only meaningful on an unresolved flight; for a tracked
+	// flight the route is provider-owned and editing it would be clobbered.
+	if !fd.Resolved {
+		if up, changed := manualRouteUpdate(fd, in); changed {
+			return a.Store.UpdateFlightPartRoute(ctx, partID, up)
+		}
+	}
+	return nil
+}
+
+// reresolveFlightPart re-resolves a flight against a new ident and writes the
+// result. Success adopts the provider's route; failure (or no resolver) keeps
+// the last-known route and only records the new ident + unresolved state.
+func (a *API) reresolveFlightPart(ctx context.Context, partID int64, ident string, date time.Time) error {
+	if a.Resolver != nil {
+		if rf, rerr := a.Resolver.Resolve(ctx, ident, date); rerr == nil {
+			up := flightcoord.RouteUpdateFromResolved(rf)
+			up.Ident = &ident
+			return a.Store.UpdateFlightPartRoute(ctx, partID, up)
+		}
+	}
+	notResolved := false
+	return a.Store.UpdateFlightPartRoute(ctx, partID, store.FlightRouteUpdate{Ident: &ident, Resolved: &notResolved})
+}
+
+// normalizeIdent upper-cases and strips whitespace from a flight number, so
+// "ba 286" and "BA286" canonicalise alike.
+func normalizeIdent(s string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(s), ""))
+}
+
+// manualRouteUpdate builds the FlightRouteUpdate for a hand-typed IATA edit on
+// an unresolved flight: it rewrites the changed leg's code, friendly label and
+// timezone, and recomputes coordinates from the embedded table (clearing them
+// when the new airport is off-table, so a stale pin doesn't linger). The
+// resolved flag is left untouched (stays false). Returns whether anything
+// changed.
+func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRouteUpdate, bool) {
+	var up store.FlightRouteUpdate
+	changed := false
+	if in.OriginIATA != nil {
+		if code := strings.ToUpper(strings.TrimSpace(*in.OriginIATA)); code != fd.OriginIATA {
+			label := airports.Label(code, "")
+			up.OriginIATA, up.StartLabel = &code, &label
+			if tz, ok := airports.LookupTZ(code); ok {
+				up.StartTZ = &tz
+			}
+			up.StartLat, up.StartLon, up.ClearStartCoords = flightcoord.AirportCoords(code, 0, 0)
+			changed = true
+		}
+	}
+	if in.DestIATA != nil {
+		if code := strings.ToUpper(strings.TrimSpace(*in.DestIATA)); code != fd.DestIATA {
+			label := airports.Label(code, "")
+			up.DestIATA, up.EndLabel = &code, &label
+			if tz, ok := airports.LookupTZ(code); ok {
+				up.EndTZ = &tz
+			}
+			up.EndLat, up.EndLon, up.ClearEndCoords = flightcoord.AirportCoords(code, 0, 0)
+			changed = true
+		}
+	}
+	return up, changed
 }
 
 func (a *API) dismissPlanPart(w http.ResponseWriter, r *http.Request) {

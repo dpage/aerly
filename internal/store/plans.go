@@ -95,6 +95,10 @@ type FlightDetail struct {
 	DestTerminal    string
 	AircraftType    string
 	DestBaggageBelt string
+	// Resolved is true when the route came from the flight-data provider, false
+	// when it was entered manually / fell back to the email's own data. Gates
+	// whether the origin/dest IATA are user-editable (editable only when false).
+	Resolved bool
 }
 
 // EffectiveOut / EffectiveIn collapse the three time pairs the way the tracker
@@ -377,11 +381,12 @@ func insertDetailTx(ctx context.Context, tx pgx.Tx, partID int64, planType strin
 			INSERT INTO flight_details (plan_part_id, ident, icao24, callsign,
 				scheduled_out, scheduled_in, estimated_out, estimated_in,
 				actual_out, actual_in, origin_iata, dest_iata, flight_status,
-				last_polled_at, last_resolved_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE(NULLIF($13,''),'Scheduled'),$14,$15)`,
+				last_polled_at, last_resolved_at, aircraft_type, resolved)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE(NULLIF($13,''),'Scheduled'),$14,$15,NULLIF($16,''),$17)`,
 			partID, d.Ident, d.ICAO24, d.Callsign, d.ScheduledOut, d.ScheduledIn,
 			d.EstimatedOut, d.EstimatedIn, d.ActualOut, d.ActualIn,
-			d.OriginIATA, d.DestIATA, d.FlightStatus, d.LastPolledAt, d.LastResolvedAt)
+			d.OriginIATA, d.DestIATA, d.FlightStatus, d.LastPolledAt, d.LastResolvedAt,
+			d.AircraftType, d.Resolved)
 		return err
 	case "hotel":
 		d := in.Hotel
@@ -927,6 +932,126 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 	return s.PlanPartByID(ctx, id)
 }
 
+// FlightRouteUpdate carries a flight part's route/identity edit, spanning the
+// flight_details satellite (ident, route, schedule, airframe, resolved) and the
+// owning plan_part's display columns (labels, timezones, start/end instants,
+// coordinates). A nil pointer leaves that column unchanged. It is written by the
+// flight-edit handler in two shapes: after a successful re-resolve (a
+// provider-authoritative overwrite, Resolved=true) or a manual IATA correction
+// on an unresolved flight (Resolved stays false, coords recomputed/cleared).
+type FlightRouteUpdate struct {
+	// flight_details
+	Ident          *string
+	OriginIATA     *string
+	DestIATA       *string
+	ScheduledOut   *time.Time
+	ScheduledIn    *time.Time
+	ICAO24         *string
+	Callsign       *string
+	OriginGate     *string
+	DestGate       *string
+	OriginTerminal *string
+	DestTerminal   *string
+	AircraftType   *string
+	Resolved       *bool
+
+	// plan_parts display
+	StartLabel *string
+	EndLabel   *string
+	StartTZ    *string
+	EndTZ      *string
+	StartsAt   *time.Time
+	EndsAt     *time.Time
+
+	// Coordinates: set when both lat+lon are non-nil; ClearStartCoords /
+	// ClearEndCoords force the columns to NULL (a manual off-table edit whose
+	// new airport has no known coordinates). Leave all nil/false to keep them.
+	StartLat, StartLon *float64
+	ClearStartCoords   bool
+	EndLat, EndLon     *float64
+	ClearEndCoords     bool
+}
+
+// coordOp folds a (lat, lon, clear) triple into the CASE selector the SQL uses:
+// 0 = leave, 1 = set to the supplied value, 2 = set NULL.
+func coordOp(lat, lon *float64, clear bool) (op int, v float64) {
+	switch {
+	case clear:
+		return 2, 0
+	case lat != nil && lon != nil:
+		return 1, 0 // value supplied per-column below
+	default:
+		return 0, 0
+	}
+}
+
+func derefF(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// UpdateFlightPartRoute applies a flight route/identity edit across the
+// flight_details satellite and the owning plan_part, in one transaction.
+func (s *Store) UpdateFlightPartRoute(ctx context.Context, partID int64, in FlightRouteUpdate) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // best-effort rollback on early return
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE flight_details SET
+			ident           = COALESCE($2, ident),
+			origin_iata     = COALESCE($3, origin_iata),
+			dest_iata       = COALESCE($4, dest_iata),
+			scheduled_out   = COALESCE($5, scheduled_out),
+			scheduled_in    = COALESCE($6, scheduled_in),
+			icao24          = COALESCE($7, icao24),
+			callsign        = COALESCE($8, callsign),
+			origin_gate     = COALESCE($9, origin_gate),
+			dest_gate       = COALESCE($10, dest_gate),
+			origin_terminal = COALESCE($11, origin_terminal),
+			dest_terminal   = COALESCE($12, dest_terminal),
+			aircraft_type   = COALESCE($13, aircraft_type),
+			resolved        = COALESCE($14::boolean, resolved)
+		WHERE plan_part_id = $1`,
+		partID, in.Ident, in.OriginIATA, in.DestIATA, in.ScheduledOut, in.ScheduledIn,
+		in.ICAO24, in.Callsign, in.OriginGate, in.DestGate, in.OriginTerminal,
+		in.DestTerminal, in.AircraftType, in.Resolved)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	startOp, _ := coordOp(in.StartLat, in.StartLon, in.ClearStartCoords)
+	endOp, _ := coordOp(in.EndLat, in.EndLon, in.ClearEndCoords)
+	if _, err := tx.Exec(ctx, `
+		UPDATE plan_parts SET
+			start_label = COALESCE($2, start_label),
+			end_label   = COALESCE($3, end_label),
+			start_tz    = COALESCE($4, start_tz),
+			end_tz      = COALESCE($5, end_tz),
+			starts_at   = COALESCE($6, starts_at),
+			ends_at     = CASE WHEN $7::boolean THEN $8 ELSE ends_at END,
+			start_lat   = CASE $9::int WHEN 1 THEN $10 WHEN 2 THEN NULL ELSE start_lat END,
+			start_lon   = CASE $9::int WHEN 1 THEN $11 WHEN 2 THEN NULL ELSE start_lon END,
+			end_lat     = CASE $12::int WHEN 1 THEN $13 WHEN 2 THEN NULL ELSE end_lat END,
+			end_lon     = CASE $12::int WHEN 1 THEN $14 WHEN 2 THEN NULL ELSE end_lon END,
+			updated_at  = NOW()
+		WHERE id = $1`,
+		partID, in.StartLabel, in.EndLabel, in.StartTZ, in.EndTZ, in.StartsAt,
+		in.EndsAt != nil, in.EndsAt,
+		startOp, derefF(in.StartLat), derefF(in.StartLon),
+		endOp, derefF(in.EndLat), derefF(in.EndLon)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // DismissPlanPart stamps dismissed_at so a superseded part drops off the
 // timeline.
 func (s *Store) DismissPlanPart(ctx context.Context, id int64) error {
@@ -943,6 +1068,42 @@ func (s *Store) DismissPlanPart(ctx context.Context, id int64) error {
 
 // ----- Per-type detail loaders -----
 
+// FlightPartRow is the minimal flight identity the one-time relabel backfill
+// needs to re-resolve a part.
+type FlightPartRow struct {
+	PartID       int64
+	Ident        string
+	ScheduledOut time.Time
+	OriginIATA   string
+	DestIATA     string
+}
+
+// ListUnresolvedFlightParts returns the live (non-dismissed) flight parts whose
+// route has not yet been confirmed by the provider (resolved = false), oldest
+// first. The relabel backfill walks these; because it only returns unresolved
+// rows, a re-run resumes where an earlier (quota-stopped) run left off.
+func (s *Store) ListUnresolvedFlightParts(ctx context.Context) ([]FlightPartRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT fd.plan_part_id, fd.ident, fd.scheduled_out, fd.origin_iata, fd.dest_iata
+		FROM flight_details fd
+		JOIN plan_parts pp ON pp.id = fd.plan_part_id
+		WHERE fd.resolved = false AND pp.dismissed_at IS NULL
+		ORDER BY fd.scheduled_out`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FlightPartRow
+	for rows.Next() {
+		var r FlightPartRow
+		if err := rows.Scan(&r.PartID, &r.Ident, &r.ScheduledOut, &r.OriginIATA, &r.DestIATA); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // FlightDetailFor loads the flight satellite for a part, or (nil, nil) if none.
 func (s *Store) FlightDetailFor(ctx context.Context, partID int64) (*FlightDetail, error) {
 	var d FlightDetail
@@ -952,13 +1113,13 @@ func (s *Store) FlightDetailFor(ctx context.Context, partID int64) (*FlightDetai
 			dest_iata, flight_status, last_polled_at, last_resolved_at,
 			COALESCE(origin_gate,''), COALESCE(dest_gate,''),
 			COALESCE(origin_terminal,''), COALESCE(dest_terminal,''),
-			COALESCE(aircraft_type,''), COALESCE(dest_baggage_belt,'')
+			COALESCE(aircraft_type,''), COALESCE(dest_baggage_belt,''), resolved
 		FROM flight_details WHERE plan_part_id = $1`, partID).Scan(
 		&d.PlanPartID, &d.Ident, &d.ICAO24, &d.Callsign, &d.ScheduledOut,
 		&d.ScheduledIn, &d.EstimatedOut, &d.EstimatedIn, &d.ActualOut, &d.ActualIn,
 		&d.OriginIATA, &d.DestIATA, &d.FlightStatus, &d.LastPolledAt, &d.LastResolvedAt,
 		&d.OriginGate, &d.DestGate, &d.OriginTerminal, &d.DestTerminal,
-		&d.AircraftType, &d.DestBaggageBelt)
+		&d.AircraftType, &d.DestBaggageBelt, &d.Resolved)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // genuine "no satellite"
 	}

@@ -256,7 +256,7 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 	}
 	switch part.Type {
 	case "flight":
-		fd := enrichFlight(ctx, deps, part.Flight)
+		fd, originName, destName := enrichFlight(ctx, deps, part.Flight)
 		out.Flight = fd
 		out.StartsAt = fd.ScheduledOut
 		end := fd.ScheduledIn
@@ -267,11 +267,13 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 		if tz, ok := airports.LookupTZ(fd.DestIATA); ok {
 			out.EndTZ = tz
 		}
+		// A flight's place line IS its route, so default the label to the
+		// friendly "Name (CODE)" (e.g. "Faro (FAO)") rather than the bare code.
 		if out.StartLabel == "" {
-			out.StartLabel = fd.OriginIATA
+			out.StartLabel = airports.Label(fd.OriginIATA, originName)
 		}
 		if out.EndLabel == "" {
-			out.EndLabel = fd.DestIATA
+			out.EndLabel = airports.Label(fd.DestIATA, destName)
 		}
 	case "hotel":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 15)
@@ -324,30 +326,33 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 // fill in the schedule, falling back to the email's own schedule details (or
 // bare scheduled-out=now placeholders) when the resolver has no record. The
 // resolver gap is not fatal here — Propose surfaces what it has for the user to
-// confirm/correct.
-func enrichFlight(ctx context.Context, deps Deps, leg FlightFields) *store.FlightDetail {
+// confirm/correct. It also returns the provider's origin/dest airport names (for
+// building friendly "Name (CODE)" labels off-table) — empty on the fallback
+// path. The returned FlightDetail's Resolved flag records which path was taken.
+func enrichFlight(ctx context.Context, deps Deps, leg FlightFields) (fd *store.FlightDetail, originName, destName string) {
 	storedIdent := strings.ToUpper(strings.Join(strings.Fields(leg.Ident), ""))
 	if deps.Resolver != nil {
 		if d, err := time.Parse("2006-01-02", leg.Date); err == nil {
 			if rf, rerr := deps.Resolver.Resolve(ctx, leg.Ident, d); rerr == nil {
-				fd := &store.FlightDetail{
+				out := &store.FlightDetail{
 					Ident:        storedIdent,
 					ScheduledOut: rf.ScheduledOut,
 					ScheduledIn:  rf.ScheduledIn,
 					OriginIATA:   rf.OriginIATA,
 					DestIATA:     rf.DestIATA,
+					Resolved:     true,
 				}
 				if rf.ICAO24 != "" {
 					icao := rf.ICAO24
-					fd.ICAO24 = &icao
+					out.ICAO24 = &icao
 				}
-				return fd
+				return out, rf.OriginName, rf.DestName
 			}
 		}
 	}
-	// Fall back to the email's own schedule when we have it.
-	out := flightFromLeg(leg, storedIdent)
-	return out
+	// Fall back to the email's own schedule when we have it. Resolved stays
+	// false: the route is the user's/email's, editable and not provider-tracked.
+	return flightFromLeg(leg, storedIdent), "", ""
 }
 
 // flightFromLeg builds a best-effort FlightDetail purely from the extracted

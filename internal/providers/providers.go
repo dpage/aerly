@@ -58,9 +58,14 @@ type ResolvedFlight struct {
 	DestIATA     string
 	DestLat      float64
 	DestLon      float64
-	ICAO24       string // 24-bit Mode-S hex address (lowercase) when known
-	Callsign     string // ICAO radio callsign (e.g. "DLH493"); empty when not yet assigned
-	Notes        string // free-text summary — typically airline + aircraft model
+	// Origin/DestName are the provider's human-readable airport names (e.g.
+	// "Faro"), used to build friendly "Name (CODE)" place labels for airports
+	// the embedded table doesn't carry. Empty when the provider omits them.
+	OriginName string
+	DestName   string
+	ICAO24     string // 24-bit Mode-S hex address (lowercase) when known
+	Callsign   string // ICAO radio callsign (e.g. "DLH493"); empty when not yet assigned
+	Notes      string // free-text summary — typically airline + aircraft model
 	// AircraftType is the human-readable airframe model (e.g. "Boeing
 	// 777-300ER"), surfaced on the flight tile. Empty when the provider hasn't
 	// assigned an airframe yet.

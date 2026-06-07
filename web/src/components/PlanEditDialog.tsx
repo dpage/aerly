@@ -34,9 +34,19 @@ interface EndForm {
   tz: string;
 }
 
+/** A flight part's editable route/identity. `resolved` mirrors the provider
+ * state: the IATA fields are editable only when it's false. */
+interface FlightForm {
+  ident: string;
+  originIata: string;
+  destIata: string;
+  resolved: boolean;
+}
+
 interface PartForm {
   start: EndForm;
   end: EndForm;
+  flight?: FlightForm;
 }
 
 function endForm(label: string, address: string, iso: string | undefined, tz: string): EndForm {
@@ -58,6 +68,15 @@ function partForm(part: PlanPart): PartForm {
       part.ends_at,
       part.end_tz || part.start_tz || '',
     ),
+    flight:
+      part.type === 'flight' && part.flight
+        ? {
+            ident: part.flight.ident ?? '',
+            originIata: part.flight.origin_iata ?? '',
+            destIata: part.flight.dest_iata ?? '',
+            resolved: part.flight.resolved,
+          }
+        : undefined,
   };
 }
 
@@ -93,6 +112,24 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
       if (e.tz !== ei.tz || patch.ends_at) patch.end_tz = e.tz;
     }
   }
+
+  // Flight route/identity. The ident is always editable (changing it re-resolves
+  // server-side); the IATAs are sent only when the flight is unresolved, where
+  // they're the user-owned route. Each is included only when actually changed.
+  if (form.flight && init.flight) {
+    const f = form.flight;
+    const fi = init.flight;
+    const flight: NonNullable<UpdatePlanPartInput['flight']> = {};
+    if (f.ident.trim() !== fi.ident) flight.ident = f.ident.trim();
+    if (!f.resolved) {
+      if (f.originIata.trim().toUpperCase() !== fi.originIata)
+        flight.origin_iata = f.originIata.trim().toUpperCase();
+      if (f.destIata.trim().toUpperCase() !== fi.destIata)
+        flight.dest_iata = f.destIata.trim().toUpperCase();
+    }
+    if (Object.keys(flight).length > 0) patch.flight = flight;
+  }
+
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
@@ -178,6 +215,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
       ...prev,
       [partId]: { ...prev[partId], [which]: { ...prev[partId][which], [field]: value } },
     }));
+  };
+
+  const patchFlight = (partId: number, field: keyof FlightForm, value: string) => {
+    setForms((prev) => {
+      const f = prev[partId].flight;
+      if (!f) return prev;
+      return { ...prev, [partId]: { ...prev[partId], flight: { ...f, [field]: value } } };
+    });
   };
 
   const handleSave = async () => {
@@ -393,6 +438,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                     />
                   </Box>
                 )}
+                {form.flight && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <FlightFields
+                      form={form.flight}
+                      onChange={(f, v) => patchFlight(part.id, f, v)}
+                    />
+                  </Box>
+                )}
               </Box>
             );
           })}
@@ -449,6 +502,60 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+/** Flight route/identity inputs. The flight number is always editable —
+ * changing it re-resolves the flight server-side, re-deriving route, schedule
+ * and tracking. The origin/dest IATA are editable only for an unresolved flight
+ * (one the provider can't track); for a resolved flight they're read-only and
+ * provider-owned, since editing them would just be overwritten on the next poll. */
+function FlightFields({
+  form,
+  onChange,
+}: {
+  form: FlightForm;
+  onChange: (field: keyof FlightForm, value: string) => void;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+        Flight
+      </Typography>
+      <TextField
+        label="Flight number"
+        size="small"
+        value={form.ident}
+        onChange={(e) => onChange('ident', e.target.value)}
+        helperText="Changing this re-looks-up the flight and its route."
+        fullWidth
+      />
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="From (IATA)"
+          size="small"
+          value={form.originIata}
+          onChange={(e) => onChange('originIata', e.target.value)}
+          disabled={form.resolved}
+          slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+          sx={{ flex: 1 }}
+        />
+        <TextField
+          label="To (IATA)"
+          size="small"
+          value={form.destIata}
+          onChange={(e) => onChange('destIata', e.target.value)}
+          disabled={form.resolved}
+          slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+      <Typography variant="caption" color="text.secondary">
+        {form.resolved
+          ? 'Route is set from live flight data. Change the flight number to re-look it up.'
+          : "We couldn't match this flight number, so you can set its route by hand."}
+      </Typography>
+    </Stack>
   );
 }
 

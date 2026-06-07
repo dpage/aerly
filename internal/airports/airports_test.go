@@ -71,6 +71,32 @@ func TestLookupCity(t *testing.T) {
 	}
 }
 
+func TestLabel(t *testing.T) {
+	// On-table: uses the embedded airport name, ignores any provider name.
+	if got := Label("LHR", "ignored"); got != "London Heathrow (LHR)" {
+		t.Errorf("LHR: got %q, want %q", got, "London Heathrow (LHR)")
+	}
+	// Case- and whitespace-insensitive.
+	if got := Label("  lhr ", ""); got != "London Heathrow (LHR)" {
+		t.Errorf("lhr: got %q, want %q", got, "London Heathrow (LHR)")
+	}
+	// Off-table with a provider name: "Name (CODE)".
+	if got := Label("FAO", "Faro"); got != "Faro (FAO)" {
+		t.Errorf("FAO: got %q, want %q", got, "Faro (FAO)")
+	}
+	// Off-table without any name: bare code, never blank.
+	if got := Label("NQY", ""); got != "NQY" {
+		t.Errorf("NQY no-name: got %q, want %q", got, "NQY")
+	}
+	if got := Label("nqy", "  "); got != "NQY" {
+		t.Errorf("NQY blank provider name: got %q, want %q", got, "NQY")
+	}
+	// Blank code yields blank.
+	if got := Label("", "Faro"); got != "" {
+		t.Errorf("blank code: got %q, want \"\"", got)
+	}
+}
+
 func TestLookupTZ(t *testing.T) {
 	tz, ok := LookupTZ("LHR")
 	if !ok || tz != "Europe/London" {

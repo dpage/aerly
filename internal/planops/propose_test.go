@@ -2,6 +2,7 @@ package planops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/store"
 	"github.com/dpage/aerly/internal/testsupport"
 )
@@ -46,6 +48,56 @@ type fakeExtractor struct {
 func (f *fakeExtractor) ExtractPlans(_ context.Context, body string, _ []Document) ([]ExtractedPlan, error) {
 	f.lastBody = body
 	return f.plans, f.err
+}
+
+// fakeFlightResolver returns a fixed ResolvedFlight (or error) for proposePart.
+type fakeFlightResolver struct {
+	rf  *providers.ResolvedFlight
+	err error
+}
+
+func (r *fakeFlightResolver) Resolve(_ context.Context, _ string, _ time.Time) (*providers.ResolvedFlight, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.rf, nil
+}
+
+// TestProposePart_FlightLabelAndResolved checks a resolved flight leg gets a
+// friendly "Name (CODE)" label (provider name off-table) and Resolved=true,
+// while a leg the resolver can't find falls back to a bare code and Resolved=false.
+func TestProposePart_FlightLabelAndResolved(t *testing.T) {
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := time.Date(2026, 6, 1, 11, 0, 0, 0, time.UTC)
+	resolver := &fakeFlightResolver{rf: &providers.ResolvedFlight{
+		Ident: "TP123", ScheduledOut: out, ScheduledIn: in,
+		OriginIATA: "LHR", DestIATA: "FAO", DestName: "Faro",
+	}}
+	deps := Deps{Resolver: resolver}
+	part := ExtractedPart{Type: "flight", Flight: FlightFields{Ident: "TP123", Date: "2026-06-01"}}
+
+	got, _ := proposePart(ctx, deps, part)
+	if got.StartLabel != "London Heathrow (LHR)" {
+		t.Errorf("origin label: got %q, want %q", got.StartLabel, "London Heathrow (LHR)")
+	}
+	if got.EndLabel != "Faro (FAO)" {
+		t.Errorf("dest label (off-table, provider name): got %q, want %q", got.EndLabel, "Faro (FAO)")
+	}
+	if got.Flight == nil || !got.Flight.Resolved {
+		t.Errorf("a resolved leg should have Flight.Resolved=true, got %+v", got.Flight)
+	}
+
+	// Resolver can't find it → fall back, Resolved=false, bare-code labels.
+	deps.Resolver = &fakeFlightResolver{err: errors.New("not found")}
+	part2 := ExtractedPart{Type: "flight", Flight: FlightFields{
+		Ident: "ZZ999", Date: "2026-06-01", OriginIATA: "AAA", DestIATA: "BBB"}}
+	got2, _ := proposePart(ctx, deps, part2)
+	if got2.Flight == nil || got2.Flight.Resolved {
+		t.Errorf("an unresolved leg should have Flight.Resolved=false, got %+v", got2.Flight)
+	}
+	if got2.StartLabel != "AAA" {
+		t.Errorf("unresolved off-table origin should be bare code, got %q", got2.StartLabel)
+	}
 }
 
 // mkTrip creates a trip owned by userID via the store and returns its id.

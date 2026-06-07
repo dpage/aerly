@@ -445,27 +445,32 @@ type PlanPartDTO struct {
 // FlightDetailDTO is the flight-type satellite payload, including tracker
 // positions.
 type FlightDetailDTO struct {
-	Ident           string        `json:"ident"`
-	ICAO24          *string       `json:"icao24,omitempty"`
-	Callsign        string        `json:"callsign"`
-	ScheduledOut    time.Time     `json:"scheduled_out"`
-	ScheduledIn     time.Time     `json:"scheduled_in"`
-	EstimatedOut    *time.Time    `json:"estimated_out,omitempty"`
-	EstimatedIn     *time.Time    `json:"estimated_in,omitempty"`
-	ActualOut       *time.Time    `json:"actual_out,omitempty"`
-	ActualIn        *time.Time    `json:"actual_in,omitempty"`
-	OriginIATA      string        `json:"origin_iata"`
-	DestIATA        string        `json:"dest_iata"`
-	FlightStatus    string        `json:"flight_status"`
-	OriginGate      string        `json:"origin_gate"`
-	DestGate        string        `json:"dest_gate"`
-	OriginTerminal  string        `json:"origin_terminal"`
-	DestTerminal    string        `json:"dest_terminal"`
-	AircraftType    string        `json:"aircraft_type"`
-	DestBaggageBelt string        `json:"dest_baggage_belt"`
-	LastPolledAt    *time.Time    `json:"last_polled_at,omitempty"`
-	LatestPosition  *PositionDTO  `json:"latest_position,omitempty"`
-	Track           []PositionDTO `json:"track,omitempty"`
+	Ident           string     `json:"ident"`
+	ICAO24          *string    `json:"icao24,omitempty"`
+	Callsign        string     `json:"callsign"`
+	ScheduledOut    time.Time  `json:"scheduled_out"`
+	ScheduledIn     time.Time  `json:"scheduled_in"`
+	EstimatedOut    *time.Time `json:"estimated_out,omitempty"`
+	EstimatedIn     *time.Time `json:"estimated_in,omitempty"`
+	ActualOut       *time.Time `json:"actual_out,omitempty"`
+	ActualIn        *time.Time `json:"actual_in,omitempty"`
+	OriginIATA      string     `json:"origin_iata"`
+	DestIATA        string     `json:"dest_iata"`
+	FlightStatus    string     `json:"flight_status"`
+	OriginGate      string     `json:"origin_gate"`
+	DestGate        string     `json:"dest_gate"`
+	OriginTerminal  string     `json:"origin_terminal"`
+	DestTerminal    string     `json:"dest_terminal"`
+	AircraftType    string     `json:"aircraft_type"`
+	DestBaggageBelt string     `json:"dest_baggage_belt"`
+	// Resolved is true when the route came from the flight-data provider. The
+	// client makes the origin/dest IATA editable only when this is false (a
+	// manually-entered flight the provider can't track), so a manual route is
+	// never clobbered by a re-resolve.
+	Resolved       bool          `json:"resolved"`
+	LastPolledAt   *time.Time    `json:"last_polled_at,omitempty"`
+	LatestPosition *PositionDTO  `json:"latest_position,omitempty"`
+	Track          []PositionDTO `json:"track,omitempty"`
 }
 
 // HotelDetailDTO is the hotel-type satellite payload. standard_checkin/out are
@@ -699,6 +704,7 @@ func ToFlightDetailDTO(d *store.FlightDetail, latest *store.Position, track []*s
 		DestTerminal:    d.DestTerminal,
 		AircraftType:    d.AircraftType,
 		DestBaggageBelt: d.DestBaggageBelt,
+		Resolved:        d.Resolved,
 		LastPolledAt:    d.LastPolledAt,
 	}
 	if latest != nil {

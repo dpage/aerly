@@ -5,7 +5,10 @@
 // providers import cycle.
 package airports
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type Entry struct {
 	Lat, Lon float64
@@ -48,4 +51,28 @@ func LookupCity(code string) (string, bool) {
 		return "", false
 	}
 	return a.City, true
+}
+
+// Label renders a human-friendly airport label "Name (CODE)" for an IATA code,
+// e.g. "London Heathrow (LHR)" or "Faro (FAO)". The name is the embedded
+// table's airport name when the code is on-table; otherwise the supplied
+// providerName (the flight data source's airport name, for off-table airports
+// like NQY/FAO) is used. When no name is available it falls back to the bare
+// upper-cased code ("NQY"), so the result is never blank for a non-empty code.
+// A blank code yields "".
+func Label(code, providerName string) string {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "" {
+		return ""
+	}
+	name := ""
+	if a, ok := table[code]; ok && a.Name != "" {
+		name = a.Name
+	} else if p := strings.TrimSpace(providerName); p != "" {
+		name = p
+	}
+	if name == "" {
+		return code
+	}
+	return fmt.Sprintf("%s (%s)", name, code)
 }

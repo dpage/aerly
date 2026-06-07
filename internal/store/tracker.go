@@ -292,6 +292,37 @@ func (s *Store) RefreshFlightPartAirframe(ctx context.Context, partID int64, ica
 	return err
 }
 
+// MarkFlightPartResolved records that the flight-data provider returned a record
+// for this part (flight_details.resolved = true) and upgrades the part's bare
+// IATA place labels to the friendly "Name (CODE)" form. The label upgrade is
+// guarded so it only replaces a still-bare label (empty, or exactly the bare
+// origin/dest code) — a label the user has hand-edited (anything else) is left
+// untouched. originCode/destCode are the bare codes to match against;
+// originLabel/destLabel are the friendly replacements.
+func (s *Store) MarkFlightPartResolved(ctx context.Context, partID int64,
+	originCode, originLabel, destCode, destLabel string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // best-effort rollback on early return
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE flight_details SET resolved = true WHERE plan_part_id = $1`, partID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE plan_parts SET
+			start_label = CASE WHEN start_label = '' OR start_label = $2 THEN $3 ELSE start_label END,
+			end_label   = CASE WHEN end_label   = '' OR end_label   = $4 THEN $5 ELSE end_label END,
+			updated_at  = NOW()
+		WHERE id = $1`,
+		partID, originCode, originLabel, destCode, destLabel); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // RefreshFlightPartGate overwrites the departure/arrival gate when the supplied
 // value is non-empty (empty preserves the existing column — the provider often
 // omits gate before it's assigned, and an omission must not wipe a known gate).

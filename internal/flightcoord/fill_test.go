@@ -3,6 +3,7 @@ package flightcoord
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 type fakeBackfiller struct {
 	backfilled *store.BackfillPayload
 	airframe   int
+	resolved   int
+	startLabel string
+	endLabel   string
 }
 
 func (f *fakeBackfiller) BackfillFlightPart(_ context.Context, _ int64, in store.BackfillPayload) error {
@@ -25,6 +29,12 @@ func (f *fakeBackfiller) BackfillFlightPart(_ context.Context, _ int64, in store
 
 func (f *fakeBackfiller) RefreshFlightPartAirframe(_ context.Context, _ int64, _, _ string) error {
 	f.airframe++
+	return nil
+}
+
+func (f *fakeBackfiller) MarkFlightPartResolved(_ context.Context, _ int64, _, originLabel, _, destLabel string) error {
+	f.resolved++
+	f.startLabel, f.endLabel = originLabel, destLabel
 	return nil
 }
 
@@ -90,6 +100,30 @@ func TestFill_ResolverFillsOffTableLeg(t *testing.T) {
 	}
 	if st.backfilled == nil || st.backfilled.DestLat != 12.34 {
 		t.Errorf("expected resolver dest coords, got %+v", st.backfilled)
+	}
+	// A successful resolve flips resolved and upgrades the labels: the table leg
+	// (BRS) gets its airport name, the off-table leg with no provider name falls
+	// back to the bare code.
+	if st.resolved != 1 {
+		t.Errorf("expected MarkFlightPartResolved called once, got %d", st.resolved)
+	}
+	if !strings.Contains(st.startLabel, "(BRS)") {
+		t.Errorf("origin label should be friendly Name (BRS), got %q", st.startLabel)
+	}
+	if st.endLabel != "ZZZ" {
+		t.Errorf("off-table dest with no provider name should be bare code, got %q", st.endLabel)
+	}
+}
+
+func TestFill_ResolveErrorDoesNotMarkResolved(t *testing.T) {
+	st := &fakeBackfiller{}
+	r := &fakeResolver{err: errors.New("not found")}
+	f := &store.Flight{ID: 7, Ident: "FR9226", OriginIATA: "BRS", OriginLat: ptr(51.0), DestIATA: "ZZZ"}
+	if _, err := Fill(context.Background(), st, r, f, time.Now()); err != nil {
+		t.Fatalf("Fill: %v", err)
+	}
+	if st.resolved != 0 {
+		t.Errorf("a failed resolve must not mark the flight resolved, got %d", st.resolved)
 	}
 }
 
