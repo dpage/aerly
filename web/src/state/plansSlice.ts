@@ -3,6 +3,7 @@ import type { StateCreator } from 'zustand';
 import { api } from '../api/client';
 import type {
   CreatePlanInput,
+  PlanPart,
   PlanVisibility,
   UpdatePlanInput,
   UpdatePlanPartInput,
@@ -26,7 +27,7 @@ export interface PlansSlice {
   movePlan: (planId: number, toTripId: number) => Promise<void>;
   linkPlans: (primaryId: number, planIds: number[]) => Promise<void>;
   splitPlanPart: (partId: number) => Promise<void>;
-  updatePlanPart: (partId: number, patch: UpdatePlanPartInput) => Promise<void>;
+  updatePlanPart: (partId: number, patch: UpdatePlanPartInput) => Promise<PlanPart>;
   dismissPlanPart: (partId: number) => Promise<void>;
 }
 
@@ -78,8 +79,9 @@ export const createPlansSlice: StateCreator<StoreState, [], [], PlansSlice> = (_
   },
 
   async updatePlanPart(partId, patch) {
-    await api.updatePlanPart(partId, patch);
+    const updated = await api.updatePlanPart(partId, patch);
     await reloadCurrent(get);
+    return updated;
   },
 
   async dismissPlanPart(partId) {

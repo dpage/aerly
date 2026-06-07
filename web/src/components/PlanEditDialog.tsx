@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Dialog,
@@ -15,6 +16,7 @@ import {
 
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import { useStore } from '../state/store';
+import { endUnlocated, isUnlocated, startUnlocated } from '../lib/geo';
 import { isTransferType, planTypeLabel, splitLocal, zonedTimeToUtc } from '../lib/trip-format';
 
 interface Props {
@@ -106,6 +108,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const movePlan = useStore((s) => s.movePlan);
   const splitPlanPart = useStore((s) => s.splitPlanPart);
   const setError = useStore((s) => s.setError);
+  const setNotice = useStore((s) => s.setNotice);
 
   const [title, setTitle] = useState(plan.title);
   const [confRef, setConfRef] = useState(plan.confirmation_ref);
@@ -214,11 +217,23 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
         if (costChanged) payload.cost_amount = costNum;
         await updatePlan(plan.id, payload);
       }
+      const stranded: PlanPart[] = [];
       for (const part of editableParts) {
         const patch = buildPatch(part, forms[part.id], initial[part.id]);
-        if (patch) await updatePlanPart(part.id, patch);
+        if (!patch) continue;
+        const addrChanged =
+          patch.start_address !== undefined || patch.end_address !== undefined;
+        const updated = await updatePlanPart(part.id, patch);
+        if (addrChanged && isUnlocated(updated)) stranded.push(updated);
       }
       onClose();
+      if (stranded.length > 0) {
+        const p = stranded[0];
+        setNotice({
+          severity: 'info',
+          message: `Saved — couldn't place "${p.start_address || p.end_address}" on the map.`,
+        });
+      }
     } catch (err) {
       reportError(err);
     } finally {
@@ -360,6 +375,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                   heading={withEnd && isTransferType(part.type) ? 'From' : 'Where'}
                   form={form.start}
                   onChange={(f, v) => patchEnd(part.id, 'start', f, v)}
+                  unlocated={startUnlocated(part)}
                 />
                 {withEnd && (
                   <Box sx={{ mt: 1.5 }}>
@@ -371,6 +387,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                       // check-out), so only its time is editable — no second
                       // Place/Address.
                       timeOnly={!isTransferType(part.type)}
+                      unlocated={endUnlocated(part)}
                     />
                   </Box>
                 )}
@@ -442,11 +459,13 @@ function EndFields({
   form,
   onChange,
   timeOnly = false,
+  unlocated = false,
 }: {
   heading: string;
   form: EndForm;
   onChange: (field: keyof EndForm, value: string) => void;
   timeOnly?: boolean;
+  unlocated?: boolean;
 }) {
   return (
     <Stack spacing={1.5}>
@@ -471,6 +490,12 @@ function EndFields({
           helperText="Editing the address re-locates it on the map."
           fullWidth
         />
+      )}
+      {!timeOnly && unlocated && (
+        <Alert severity="warning" sx={{ py: 0 }}>
+          This address couldn&apos;t be located on the map. Try a simpler form — e.g. the property
+          name and town.
+        </Alert>
       )}
       <Stack direction="row" spacing={1}>
         <TextField

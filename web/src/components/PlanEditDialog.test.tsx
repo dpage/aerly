@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   splitPlanPart: vi.fn(),
   listTrips: vi.fn(),
   setError: vi.fn(),
+  setNotice: vi.fn(),
   state: { trips: [] as Trip[] },
 }));
 
@@ -24,6 +25,7 @@ vi.mock('../state/store', () => ({
       splitPlanPart: h.splitPlanPart,
       listTrips: h.listTrips,
       setError: h.setError,
+      setNotice: h.setNotice,
     }),
 }));
 
@@ -491,5 +493,73 @@ describe('PlanEditDialog', () => {
     await userEvent.type(title, 'BA999');
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('save boom'));
+  });
+
+  it('warns under the address when an endpoint has an address but no coordinates', () => {
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({
+            type: 'hotel',
+            start_label: 'Hotel',
+            start_address: '123 Nowhere St',
+            start_lat: undefined,
+            start_lon: undefined,
+            end_label: '',
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText(/couldn't be located on the map/i)).toBeInTheDocument();
+  });
+
+  it('does not warn when the endpoint has coordinates', () => {
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({
+            type: 'hotel',
+            start_label: 'Hotel',
+            start_address: '123 Somewhere St',
+            start_lat: 51.5,
+            start_lon: -0.1,
+            end_label: '',
+          }),
+        ],
+      }),
+    );
+    expect(screen.queryByText(/couldn't be located on the map/i)).not.toBeInTheDocument();
+  });
+
+  it('pops an info notice when a just-edited address is still unlocated after save', async () => {
+    // The saved part comes back still missing coordinates.
+    h.updatePlanPart.mockResolvedValue(
+      part({
+        type: 'hotel',
+        start_label: 'Hotel',
+        start_address: 'Atlantis',
+        start_lat: undefined,
+        start_lon: undefined,
+        end_label: '',
+      }),
+    );
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [part({ type: 'hotel', start_label: 'Hotel', start_address: 'Old', end_label: '' })],
+      }),
+    );
+    const address = screen.getAllByRole('textbox', { name: /^address$/i })[0];
+    await userEvent.clear(address);
+    await userEvent.type(address, 'Atlantis');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(h.setNotice).toHaveBeenCalledWith({
+        severity: 'info',
+        message: `Saved — couldn't place "Atlantis" on the map.`,
+      }),
+    );
   });
 });
