@@ -36,8 +36,12 @@ export function tripSpan(trip: Trip, plans?: Plan[]): TripSpan {
   }
   // No parts in this payload: prefer the explicit dates, then the span the
   // server inferred from the trip's parts (the list payload carries no parts).
+  // A date-only end is the *last day* of the trip, through which it's still
+  // ongoing — so extend it to the end of that day. Without this a trip ending
+  // today reads as "past" the moment UTC midnight rolls over, mis-filing a
+  // still-in-progress trip under Past (issue #29).
   const start = parseDateOnly(trip.starts_on) ?? parseDateOnly(trip.effective_start);
-  const end = parseDateOnly(trip.ends_on) ?? parseDateOnly(trip.effective_end);
+  const end = parseDateOnlyEnd(trip.ends_on) ?? parseDateOnlyEnd(trip.effective_end);
   return { start, end };
 }
 
@@ -332,6 +336,14 @@ function parseDateOnly(dateOnly?: string): number | null {
   if (!dateOnly) return null;
   const t = new Date(`${dateOnly}T00:00:00Z`).getTime();
   return Number.isNaN(t) ? null : t;
+}
+
+/** Like parseDateOnly but returns the *end* of the given day (the start of the
+ * next UTC day) — the inclusive upper bound for a date-only trip end, so a trip
+ * stays current through its whole last day rather than expiring at midnight. */
+function parseDateOnlyEnd(dateOnly?: string): number | null {
+  const t = parseDateOnly(dateOnly);
+  return t == null ? null : t + 24 * 60 * 60 * 1000;
 }
 
 /** A sortable YYYY-MM-DD key for an instant in the given tz. Uses en-CA which

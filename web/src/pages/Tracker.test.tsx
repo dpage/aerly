@@ -166,9 +166,10 @@ describe('Tracker page', () => {
     await user.click(within(listbox).getByText('pgconf'));
     const call = loadTracker.mock.calls.find((c) => c[0]?.tag === 'pgconf');
     const w = call![0].window as { from: string; to: string };
-    // Padded a day each side of the merged 05–20 Oct span.
+    // Padded a day each side of the merged span. The date-only end runs
+    // through the end of 20 Oct, so the padded "to" lands on 22 Oct.
     expect(w.from).toBe('2026-10-04');
-    expect(w.to).toBe('2026-10-21');
+    expect(w.to).toBe('2026-10-22');
   });
 
   it('a tag with only a start bound yields a from-only window (to is undefined)', async () => {
@@ -195,7 +196,8 @@ describe('Tracker page', () => {
     const call = loadTracker.mock.calls.find((c) => c[0]?.tag === 'arrival');
     const w = call![0].window as { from?: string; to?: string };
     expect(w.from).toBeUndefined();
-    expect(w.to).toBe('2026-10-21');
+    // End-only span runs through the end of 20 Oct; padded "to" lands on 22 Oct.
+    expect(w.to).toBe('2026-10-22');
   });
 
   it('selecting a tag whose trips have no derivable span keeps the current window', async () => {
