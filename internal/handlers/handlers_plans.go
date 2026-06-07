@@ -8,6 +8,7 @@ import (
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
+	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -551,18 +552,26 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// A changed address is re-geocoded synchronously so the map pin moves with
-	// the edit (the caller owns time/tz, so we only refresh coordinates).
-	// Explicit coordinates in the request, if any, still win.
+	// A changed address is re-located via the shared geocode fallback chain
+	// (address → name+country → tail backoff → airport label), the same path the
+	// backfill uses. Explicit coordinates in the request, if any, still win.
 	if a.Geocoder != nil {
 		if cur, cerr := a.Store.PlanPartByID(r.Context(), id); cerr == nil {
+			startLabel := cur.StartLabel
+			if in.StartLabel != nil {
+				startLabel = *in.StartLabel
+			}
+			endLabel := cur.EndLabel
+			if in.EndLabel != nil {
+				endLabel = *in.EndLabel
+			}
 			if in.StartAddress != nil && *in.StartAddress != "" && *in.StartAddress != cur.StartAddress && in.StartLat == nil {
-				if lat, lon, ok, gerr := a.Geocoder.Geocode(r.Context(), *in.StartAddress); gerr == nil && ok {
+				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, *in.StartAddress, startLabel); ok {
 					in.StartLat, in.StartLon = &lat, &lon
 				}
 			}
 			if in.EndAddress != nil && *in.EndAddress != "" && *in.EndAddress != cur.EndAddress && in.EndLat == nil {
-				if lat, lon, ok, gerr := a.Geocoder.Geocode(r.Context(), *in.EndAddress); gerr == nil && ok {
+				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, *in.EndAddress, endLabel); ok {
 					in.EndLat, in.EndLon = &lat, &lon
 				}
 			}

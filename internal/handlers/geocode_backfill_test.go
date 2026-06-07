@@ -16,9 +16,16 @@ type fakeGeocoder struct {
 	lat, lon float64
 	country  string
 	byCoord  map[[2]float64]string
+	resolves map[string][2]float64 // when set, Geocode answers per exact query
 }
 
-func (f fakeGeocoder) Geocode(context.Context, string) (float64, float64, bool, error) {
+func (f fakeGeocoder) Geocode(_ context.Context, q string) (float64, float64, bool, error) {
+	if f.resolves != nil {
+		if c, ok := f.resolves[q]; ok {
+			return c[0], c[1], true, nil
+		}
+		return 0, 0, false, nil
+	}
 	return f.lat, f.lon, true, nil
 }
 
