@@ -185,7 +185,7 @@ describe('PlanEditDialog', () => {
   });
 
   it('edits a part time and saves it as a UTC instant in the part tz', async () => {
-    h.updatePlanPart.mockResolvedValue(undefined);
+    h.updatePlanPart.mockResolvedValue(part({}));
     render_(plan({ parts: [part()] }));
     // The departure time prefills as London-local 12:35 (11:35Z in BST).
     const times = screen.getAllByLabelText(/^time$/i);
@@ -212,7 +212,7 @@ describe('PlanEditDialog', () => {
   });
 
   it('edits every endpoint field on a transfer part and patches them', async () => {
-    h.updatePlanPart.mockResolvedValue(undefined);
+    h.updatePlanPart.mockResolvedValue(part({}));
     render_(plan({ parts: [part()] }));
     // A transfer (flight) shows From/To headings and both endpoints.
     expect(screen.getByText('From')).toBeInTheDocument();

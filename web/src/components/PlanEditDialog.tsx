@@ -217,21 +217,23 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
         if (costChanged) payload.cost_amount = costNum;
         await updatePlan(plan.id, payload);
       }
-      const stranded: PlanPart[] = [];
+      const stranded: string[] = [];
       for (const part of editableParts) {
         const patch = buildPatch(part, forms[part.id], initial[part.id]);
         if (!patch) continue;
         const addrChanged =
           patch.start_address !== undefined || patch.end_address !== undefined;
         const updated = await updatePlanPart(part.id, patch);
-        if (addrChanged && isUnlocated(updated)) stranded.push(updated);
+        if (addrChanged && isUnlocated(updated)) {
+          stranded.push(patch.start_address || patch.end_address || '');
+        }
       }
       onClose();
       if (stranded.length > 0) {
-        const p = stranded[0];
+        // Surface a single notice even if several parts failed to geocode.
         setNotice({
           severity: 'info',
-          message: `Saved — couldn't place "${p.start_address || p.end_address}" on the map.`,
+          message: `Saved — couldn't place "${stranded[0]}" on the map.`,
         });
       }
     } catch (err) {
