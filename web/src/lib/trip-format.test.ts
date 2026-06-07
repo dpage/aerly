@@ -94,7 +94,9 @@ describe('tripSpan', () => {
   it('falls back to starts_on/ends_on when no parts', () => {
     const span = tripSpan(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }));
     expect(span.start).toBe(new Date('2026-10-12T00:00:00Z').getTime());
-    expect(span.end).toBe(new Date('2026-10-18T00:00:00Z').getTime());
+    // The end is the *end* of the last day (start of the next), so the trip
+    // stays current through all of 18 Oct rather than expiring at midnight.
+    expect(span.end).toBe(new Date('2026-10-19T00:00:00Z').getTime());
   });
 
   it('returns nulls for a date-less trip', () => {
@@ -119,6 +121,15 @@ describe('classifyTrip', () => {
 
   it('date-less → upcoming', () => {
     expect(classifyTrip({ start: null, end: null }, now)).toBe('upcoming');
+  });
+
+  it('a trip ending today is "now", not "past", past UTC midnight (issue #29)', () => {
+    // Last leg departs 19:25 GMT+2 today; "now" is 17:55 GMT+2 (= 15:55 UTC).
+    // The list payload only knows the end *date*, so tripSpan extends it to the
+    // end of that day — the trip must read as in-progress, not past.
+    const nowLocal = new Date('2026-06-07T15:55:00Z').getTime();
+    const span = tripSpan(trip({ effective_start: '2026-06-05', effective_end: '2026-06-07' }));
+    expect(classifyTrip(span, nowLocal)).toBe('now');
   });
 });
 
@@ -396,7 +407,8 @@ describe('branch edge cases', () => {
   it('tripSpan: falls back to effective_* when no starts_on/ends_on', () => {
     const span = tripSpan(trip({ effective_start: '2026-10-12', effective_end: '2026-10-18' }));
     expect(span.start).toBe(new Date('2026-10-12T00:00:00Z').getTime());
-    expect(span.end).toBe(new Date('2026-10-18T00:00:00Z').getTime());
+    // End extended to the end of the last day (start of the next).
+    expect(span.end).toBe(new Date('2026-10-19T00:00:00Z').getTime());
   });
   it('tripSpan: uses a part with no effective_at (falls back to starts_at)', () => {
     const plans = [plan([part({ id: 1, effective_at: undefined, starts_at: '2026-10-12T09:00:00Z', ends_at: undefined })])];
