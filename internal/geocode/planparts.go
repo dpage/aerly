@@ -126,6 +126,34 @@ func normalizeAddress(s string) string {
 	return strings.Join(parts, ", ")
 }
 
+// countryFromAddress returns the trimmed last comma-separated segment of an
+// address to qualify a name lookup, or "" when the address has no distinct tail
+// (fewer than two segments). Pass a normalized address (newlines already
+// collapsed to commas).
+func countryFromAddress(address string) string {
+	segs := strings.Split(address, ",")
+	if len(segs) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(segs[len(segs)-1])
+}
+
+// addressTails returns progressively shorter versions of a comma-separated
+// address, each dropping one more leading segment, most-specific first. It omits
+// the full address (already tried by the caller) and the bare final segment
+// (too coarse — usually just the country), and returns at most max candidates.
+func addressTails(address string, max int) []string {
+	segs := strings.Split(address, ",")
+	for i := range segs {
+		segs[i] = strings.TrimSpace(segs[i])
+	}
+	var tails []string
+	for i := 1; i <= len(segs)-2 && len(tails) < max; i++ {
+		tails = append(tails, strings.Join(segs[i:], ", "))
+	}
+	return tails
+}
+
 // iataIn returns an all-uppercase 3-letter token in the label that's a known
 // IATA airport (e.g. "LHR" in "LHR T5"). Requiring all-caps avoids matching
 // ordinary place-name words that happen to spell a code.

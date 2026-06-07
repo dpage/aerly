@@ -60,6 +60,46 @@ func TestGeocodeEndpoint(t *testing.T) {
 	}
 }
 
+func TestCountryFromAddress(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Quinta das Palmeiras, Porches, Portugal", "Portugal"},
+		{"Honeysuckle Cottage\n1 Example Lane\nAB12 3CD\nUnited Kingdom", "United Kingdom"},
+		{"Nowhere Addr", ""},   // single segment → no country tail
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := countryFromAddress(normalizeAddress(c.in)); got != c.want {
+			t.Errorf("countryFromAddress(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestAddressTails(t *testing.T) {
+	addr := "Quinta das Palmeiras, Bloco E3-IV, Alporchinhos, 8400-450, Porches, Algarve, Portugal"
+	got := addressTails(addr, 4)
+	want := []string{
+		"Bloco E3-IV, Alporchinhos, 8400-450, Porches, Algarve, Portugal",
+		"Alporchinhos, 8400-450, Porches, Algarve, Portugal",
+		"8400-450, Porches, Algarve, Portugal",
+		"Porches, Algarve, Portugal",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("addressTails len = %d (%v), want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("tail[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	// Too few segments → no shortened tail that isn't the bare last segment.
+	if tails := addressTails("Porches, Portugal", 4); len(tails) != 0 {
+		t.Errorf("2-segment tails = %v, want none", tails)
+	}
+	if tails := addressTails("Nowhere", 4); len(tails) != 0 {
+		t.Errorf("1-segment tails = %v, want none", tails)
+	}
+}
+
 // An IATA code in the label resolves via the airport table (no geocoder call).
 func TestGeocodeEndpoint_IATAFromLabel(t *testing.T) {
 	// Empty stub: if it resolved anything we'd know the table path wasn't taken.
