@@ -80,6 +80,10 @@ type Flight struct {
 	DestGate       string
 	OriginTerminal string
 	DestTerminal   string
+	// DestBaggageBelt is the arrival baggage belt/carousel as last resolved.
+	// Live and updatable like gate (a change to a new non-empty value drives a
+	// belt-change alert). Arrival-only; empty when unknown / not yet resolved.
+	DestBaggageBelt string
 	// IsPublic makes the flight visible to every authenticated user,
 	// independent of the creator / passenger / share-list membership.
 	IsPublic  bool

@@ -73,6 +73,10 @@ type ResolvedFlight struct {
 	DestGate       string
 	OriginTerminal string
 	DestTerminal   string
+	// DestBaggageBelt is the arrival baggage belt/carousel. Arrival-only (no
+	// departure equivalent); empty when the provider hasn't published it yet.
+	// Live and updatable like gate — a change drives a belt-change alert.
+	DestBaggageBelt string
 }
 
 // Resolver maps a flight number + departure date to a ResolvedFlight. The

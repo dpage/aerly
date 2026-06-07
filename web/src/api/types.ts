@@ -266,6 +266,8 @@ export interface FlightDetail {
   dest_terminal?: string;
   /** Aircraft model, e.g. "Boeing 777-300ER". Empty until an airframe is assigned. */
   aircraft_type?: string;
+  /** Arrival baggage belt/carousel. Empty until published near arrival. */
+  dest_baggage_belt?: string;
   last_polled_at?: string;
   latest_position?: Position;
   /** Recent positions in order (oldest → newest), for the flown-track line. */

@@ -155,7 +155,7 @@ func TestToFlightDetailDTOMapsGateAndTerminal(t *testing.T) {
 	d := &store.FlightDetail{
 		Ident: "BA286", OriginIATA: "LHR", DestIATA: "SFO",
 		OriginGate: "B32", OriginTerminal: "5", DestGate: "", DestTerminal: "",
-		AircraftType: "Boeing 777-300ER",
+		AircraftType: "Boeing 777-300ER", DestBaggageBelt: "34",
 	}
 	out := ToFlightDetailDTO(d, nil, nil)
 	if out.OriginGate != "B32" || out.OriginTerminal != "5" {
@@ -166,5 +166,8 @@ func TestToFlightDetailDTOMapsGateAndTerminal(t *testing.T) {
 	}
 	if out.AircraftType != "Boeing 777-300ER" {
 		t.Errorf("aircraft type = %q, want Boeing 777-300ER", out.AircraftType)
+	}
+	if out.DestBaggageBelt != "34" {
+		t.Errorf("dest baggage belt = %q, want 34", out.DestBaggageBelt)
 	}
 }

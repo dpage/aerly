@@ -80,6 +80,15 @@ describe('FlightDetailCard', () => {
     expect(screen.queryByText('Type')).not.toBeInTheDocument();
   });
 
+  it('shows the arrival baggage belt when present and collapses its row when absent', () => {
+    const { rerender } = render(<FlightDetailCard flight={flight({ dest_baggage_belt: '34' })} />);
+    expect(screen.getByText('Baggage belt')).toBeInTheDocument();
+    expect(screen.getByText('34')).toBeInTheDocument();
+    // Absent belt → the row collapses to null.
+    rerender(<FlightDetailCard flight={flight()} />);
+    expect(screen.queryByText('Baggage belt')).not.toBeInTheDocument();
+  });
+
   it('collapses the schedule to only the rows present', () => {
     render(<FlightDetailCard flight={flight({ callsign: '' })} />);
     // Only scheduled out/in are set; estimated/actual collapse.

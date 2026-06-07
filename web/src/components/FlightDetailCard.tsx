@@ -44,6 +44,7 @@ export default function FlightDetailCard({ flight, startTz, endTz }: Props) {
         <Row label="To" value={flight.dest_iata || null} />
         <Row label="Departure" value={fmtGate(flight.origin_terminal, flight.origin_gate)} />
         <Row label="Arrival" value={fmtGate(flight.dest_terminal, flight.dest_gate)} />
+        <Row label="Baggage belt" value={flight.dest_baggage_belt || null} />
       </Section>
 
       <Section title="Schedule">

@@ -345,6 +345,7 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 	r.DestGate = strings.TrimSpace(f.Arrival.Gate)
 	r.OriginTerminal = strings.TrimSpace(f.Departure.Terminal)
 	r.DestTerminal = strings.TrimSpace(f.Arrival.Terminal)
+	r.DestBaggageBelt = strings.TrimSpace(f.Arrival.BaggageBelt)
 	if f.Aircraft != nil {
 		r.ICAO24 = strings.ToLower(strings.TrimSpace(f.Aircraft.ModeS))
 		r.AircraftType = strings.TrimSpace(f.Aircraft.Model)
@@ -397,9 +398,11 @@ type adbMovement struct {
 	Airport       adbAirport `json:"airport"`
 	ScheduledTime *adbTime   `json:"scheduledTime,omitempty"`
 	// Gate / terminal are present on the departure/arrival movement for many
-	// airports; absent for others (omitempty → "").
-	Gate     string `json:"gate,omitempty"`
-	Terminal string `json:"terminal,omitempty"`
+	// airports; absent for others (omitempty → ""). BaggageBelt is the arrival
+	// carousel, populated on the arrival movement for many airports.
+	Gate        string `json:"gate,omitempty"`
+	Terminal    string `json:"terminal,omitempty"`
+	BaggageBelt string `json:"baggageBelt,omitempty"`
 }
 
 type adbTime struct {

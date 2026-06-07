@@ -456,6 +456,14 @@ function PartCard({
             </Typography>
           )}
 
+          {/* Belt is only known close to arrival, so show it only when published
+              (unlike the departure gate, which is known well ahead). */}
+          {part.type === 'flight' && part.flight?.dest_baggage_belt && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Baggage belt: {part.flight.dest_baggage_belt}
+            </Typography>
+          )}
+
         </Box>
       </Stack>
 

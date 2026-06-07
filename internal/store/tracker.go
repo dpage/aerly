@@ -37,6 +37,7 @@ const flightPartColumns = `part.id, fd.ident, fd.scheduled_out, fd.scheduled_in,
 	pl.created_by, pl.notes,
 	COALESCE(fd.origin_gate, ''), COALESCE(fd.dest_gate, ''),
 	COALESCE(fd.origin_terminal, ''), COALESCE(fd.dest_terminal, ''),
+	COALESCE(fd.dest_baggage_belt, ''),
 	FALSE,
 	part.created_at, part.updated_at`
 
@@ -58,6 +59,7 @@ func scanFlightPart(row pgx.Row) (*Flight, error) {
 		&f.Status, &f.ICAO24, &f.Callsign, &f.LastPolledAt, &f.LastResolvedAt,
 		&f.CreatedBy, &f.Notes,
 		&f.OriginGate, &f.DestGate, &f.OriginTerminal, &f.DestTerminal,
+		&f.DestBaggageBelt,
 		&f.IsPublic,
 		&f.CreatedAt, &f.UpdatedAt,
 	); err != nil {
@@ -304,6 +306,21 @@ func (s *Store) RefreshFlightPartGate(ctx context.Context, partID int64, originG
 			origin_gate = COALESCE(NULLIF($2, ''), origin_gate),
 			dest_gate   = COALESCE(NULLIF($3, ''), dest_gate)
 		WHERE plan_part_id = $1`, partID, originGate, destGate)
+	return err
+}
+
+// RefreshFlightPartBelt overwrites the arrival baggage belt when the supplied
+// value is non-empty (empty preserves the existing column — the provider omits
+// the belt until it's assigned near arrival, and an omission must not wipe a
+// known belt). Mirrors RefreshFlightPartGate: the belt is updatable because a
+// belt CHANGE drives the belt-change alert; the poller reads the pre-refresh
+// belt from the carrier, calls this, then diffs.
+func (s *Store) RefreshFlightPartBelt(ctx context.Context, partID int64, destBelt string) error {
+	destBelt = strings.TrimSpace(destBelt)
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flight_details SET
+			dest_baggage_belt = COALESCE(NULLIF($2, ''), dest_baggage_belt)
+		WHERE plan_part_id = $1`, partID, destBelt)
 	return err
 }
 
