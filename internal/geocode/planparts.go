@@ -42,13 +42,15 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 		// collapsing onto the other end. Flight parts are skipped: their labels
 		// are IATA codes located via the airport table / poller, which we must
 		// not pre-empt with a fuzzy name lookup.
-		if startLat == nil {
+		// A pinned endpoint carries a manual coordinate override; never geocode
+		// over it, even if its coordinates were somehow cleared.
+		if startLat == nil && !p.StartCoordsPinned {
 			if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.StartAddress, p.StartLabel); ok {
 				payload.StartLat, payload.StartLon = &lat, &lon
 				startLat, startLon = &lat, &lon
 			}
 		}
-		if endLat == nil {
+		if endLat == nil && !p.EndCoordsPinned {
 			if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.EndAddress, p.EndLabel); ok {
 				payload.EndLat, payload.EndLon = &lat, &lon
 				endLat, endLon = &lat, &lon

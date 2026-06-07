@@ -443,6 +443,10 @@ type PlanPartDTO struct {
 	// hashes it to a per-person colour so each person's trips share a hue
 	// (issue #13). 0 when unknown (e.g. ingest preview parts).
 	TripOwnerID int64 `json:"trip_owner_id,omitempty"`
+	// Coords pinned by the user — a manual override the geocoder leaves alone.
+	// Drives the edit dialog's pinned state. Omitted (false) when geocoded.
+	StartCoordsPinned bool `json:"start_coords_pinned,omitempty"`
+	EndCoordsPinned   bool `json:"end_coords_pinned,omitempty"`
 }
 
 // FlightDetailDTO is the flight-type satellite payload, including tracker
@@ -632,24 +636,26 @@ func ToPlanPartDTO(
 ) PlanPartDTO {
 	startTZ, endTZ := p.StartTZ, p.EndTZ
 	dto := PlanPartDTO{
-		ID:           p.ID,
-		PlanID:       p.PlanID,
-		Type:         p.Type,
-		Seq:          p.Seq,
-		StartsAt:     p.StartsAt,
-		EndsAt:       p.EndsAt,
-		StartLabel:   p.StartLabel,
-		StartLat:     p.StartLat,
-		StartLon:     p.StartLon,
-		StartAddress: p.StartAddress,
-		EndLabel:     p.EndLabel,
-		EndLat:       p.EndLat,
-		EndLon:       p.EndLon,
-		EndAddress:   p.EndAddress,
-		Status:       p.Status,
-		EffectiveAt:  p.EffectiveAt(),
-		SupersedesID: p.SupersedesID,
-		DismissedAt:  p.DismissedAt,
+		ID:                p.ID,
+		PlanID:            p.PlanID,
+		Type:              p.Type,
+		Seq:               p.Seq,
+		StartsAt:          p.StartsAt,
+		EndsAt:            p.EndsAt,
+		StartLabel:        p.StartLabel,
+		StartLat:          p.StartLat,
+		StartLon:          p.StartLon,
+		StartAddress:      p.StartAddress,
+		EndLabel:          p.EndLabel,
+		EndLat:            p.EndLat,
+		EndLon:            p.EndLon,
+		EndAddress:        p.EndAddress,
+		Status:            p.Status,
+		EffectiveAt:       p.EffectiveAt(),
+		SupersedesID:      p.SupersedesID,
+		DismissedAt:       p.DismissedAt,
+		StartCoordsPinned: p.StartCoordsPinned,
+		EndCoordsPinned:   p.EndCoordsPinned,
 	}
 	switch {
 	case flight != nil:

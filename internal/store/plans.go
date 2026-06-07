@@ -57,11 +57,14 @@ type PlanPart struct {
 	EndLat       *float64
 	EndLon       *float64
 	EndAddress   string
-	Status       string // planned|confirmed|cancelled
-	SupersedesID *int64
-	DismissedAt  *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// Coords pinned by the user (a manual override the geocoder must not touch).
+	StartCoordsPinned bool
+	EndCoordsPinned   bool
+	Status            string // planned|confirmed|cancelled
+	SupersedesID      *int64
+	DismissedAt       *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // EffectiveAt returns the time the front end sorts/renders a part by:
@@ -252,6 +255,9 @@ type UpdatePlanPartPayload struct {
 	EndLon       *float64
 	EndAddress   *string
 	Status       *string
+	// Pin flags: nil leaves them unchanged, mirroring the COALESCE idiom.
+	StartCoordsPinned *bool
+	EndCoordsPinned   *bool
 }
 
 // IsEmpty reports whether the payload sets no fields (so an update would be a
@@ -260,7 +266,7 @@ func (p UpdatePlanPartPayload) IsEmpty() bool {
 	return p.StartsAt == nil && p.EndsAt == nil && p.StartTZ == nil && p.EndTZ == nil &&
 		p.StartLabel == nil && p.StartLat == nil && p.StartLon == nil && p.StartAddress == nil &&
 		p.EndLabel == nil && p.EndLat == nil && p.EndLon == nil && p.EndAddress == nil &&
-		p.Status == nil
+		p.Status == nil && p.StartCoordsPinned == nil && p.EndCoordsPinned == nil
 }
 
 // ----- Plan CRUD -----
@@ -767,7 +773,7 @@ const planPartColumns = `part.id, part.plan_id, pl.type, part.seq, part.starts_a
 	part.ends_at, part.start_tz, part.end_tz, part.start_label, part.start_lat,
 	part.start_lon, part.end_label, part.end_lat, part.end_lon, part.status,
 	part.supersedes_id, part.dismissed_at, part.created_at, part.updated_at,
-	part.start_address, part.end_address`
+	part.start_address, part.end_address, part.start_coords_pinned, part.end_coords_pinned`
 
 func scanPart(row pgx.Row) (*PlanPart, error) {
 	var p PlanPart
@@ -775,7 +781,7 @@ func scanPart(row pgx.Row) (*PlanPart, error) {
 		&p.EndsAt, &p.StartTZ, &p.EndTZ, &p.StartLabel, &p.StartLat,
 		&p.StartLon, &p.EndLabel, &p.EndLat, &p.EndLon, &p.Status,
 		&p.SupersedesID, &p.DismissedAt, &p.CreatedAt, &p.UpdatedAt,
-		&p.StartAddress, &p.EndAddress)
+		&p.StartAddress, &p.EndAddress, &p.StartCoordsPinned, &p.EndCoordsPinned)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -912,6 +918,8 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 			status        = COALESCE($17, status),
 			start_address = COALESCE($18, start_address),
 			end_address   = COALESCE($19, end_address),
+			start_coords_pinned = COALESCE($20, start_coords_pinned),
+			end_coords_pinned   = COALESCE($21, end_coords_pinned),
 			updated_at  = NOW()
 		WHERE id = $1`,
 		id, in.StartsAt,
@@ -922,7 +930,8 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 		in.EndLabel,
 		in.EndLat != nil, in.EndLat,
 		in.EndLon != nil, in.EndLon,
-		in.Status, in.StartAddress, in.EndAddress)
+		in.Status, in.StartAddress, in.EndAddress,
+		in.StartCoordsPinned, in.EndCoordsPinned)
 	if err != nil {
 		return nil, err
 	}

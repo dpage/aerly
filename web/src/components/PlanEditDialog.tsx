@@ -16,7 +16,7 @@ import {
 
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import { useStore } from '../state/store';
-import { endUnlocated, isUnlocated, startUnlocated } from '../lib/geo';
+import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
 import {
   isTransferType,
   planTypeLabel,
@@ -38,6 +38,8 @@ interface EndForm {
   date: string;
   time: string;
   tz: string;
+  /** Manual "lat, lng" override, '' when the location is address-derived. */
+  coords: string;
 }
 
 /** A flight part's editable route/identity. `resolved` mirrors the provider
@@ -55,9 +57,17 @@ interface PartForm {
   flight?: FlightForm;
 }
 
-function endForm(label: string, address: string, iso: string | undefined, tz: string): EndForm {
+function endForm(
+  label: string,
+  address: string,
+  iso: string | undefined,
+  tz: string,
+  lat: number | undefined,
+  lon: number | undefined,
+): EndForm {
   const { date, time } = iso ? splitLocal(iso, tz) : { date: '', time: '' };
-  return { label, address, date, time, tz };
+  const coords = lat != null && lon != null ? `${lat}, ${lon}` : '';
+  return { label, address, date, time, tz, coords };
 }
 
 function partForm(part: PlanPart): PartForm {
@@ -67,12 +77,16 @@ function partForm(part: PlanPart): PartForm {
       part.start_address ?? '',
       part.starts_at,
       part.start_tz ?? '',
+      part.start_lat,
+      part.start_lon,
     ),
     end: endForm(
       part.end_label ?? '',
       part.end_address ?? '',
       part.ends_at,
       part.end_tz || part.start_tz || '',
+      part.end_lat,
+      part.end_lon,
     ),
     flight:
       part.type === 'flight' && part.flight
@@ -108,6 +122,19 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
     if (s.date && s.time) patch.starts_at = zonedTimeToUtc(s.date, s.time, s.tz);
     if (s.tz !== si.tz || patch.starts_at) patch.start_tz = s.tz;
   }
+  // A changed coordinate override: a valid "lat, lng" pins the location (the
+  // geocoder won't touch it); clearing it unpins, reverting to the address.
+  // Invalid input is left for handleSave to reject before we get here.
+  if (s.coords !== si.coords) {
+    const c = parseLatLon(s.coords);
+    if (c) {
+      patch.start_lat = c.lat;
+      patch.start_lon = c.lon;
+      patch.start_coords_pinned = true;
+    } else if (s.coords.trim() === '' && part.start_coords_pinned) {
+      patch.start_coords_pinned = false;
+    }
+  }
 
   if (hasEnd(part)) {
     const e = form.end;
@@ -117,6 +144,16 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
     if (e.date !== ei.date || e.time !== ei.time || e.tz !== ei.tz) {
       if (e.date && e.time) patch.ends_at = zonedTimeToUtc(e.date, e.time, e.tz);
       if (e.tz !== ei.tz || patch.ends_at) patch.end_tz = e.tz;
+    }
+    if (e.coords !== ei.coords) {
+      const c = parseLatLon(e.coords);
+      if (c) {
+        patch.end_lat = c.lat;
+        patch.end_lon = c.lon;
+        patch.end_coords_pinned = true;
+      } else if (e.coords.trim() === '' && part.end_coords_pinned) {
+        patch.end_coords_pinned = false;
+      }
     }
   }
 
@@ -233,6 +270,16 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   };
 
   const handleSave = async () => {
+    // Reject an unparseable coordinate override before writing anything.
+    for (const part of editableParts) {
+      const f = forms[part.id];
+      for (const end of [f?.start, f?.end]) {
+        if (end && end.coords.trim() !== '' && !parseLatLon(end.coords)) {
+          setError('Enter coordinates as "lat, lng" — e.g. 48.2105, 4.0823');
+          return;
+        }
+      }
+    }
     setBusy(true);
     try {
       // The plan-level metadata is sent as one snapshot when any of it changed;
@@ -612,6 +659,22 @@ function EndFields({
           This address couldn&apos;t be located on the map. Try a simpler form — e.g. the property
           name and town.
         </Alert>
+      )}
+      {!timeOnly && (
+        <TextField
+          label="Coordinates (lat, lng)"
+          size="small"
+          value={form.coords}
+          onChange={(e) => onChange('coords', e.target.value)}
+          placeholder="optional — e.g. 48.2105, 4.0823"
+          error={form.coords.trim() !== '' && parseLatLon(form.coords) === null}
+          helperText={
+            form.coords.trim() !== '' && parseLatLon(form.coords) === null
+              ? 'Enter as "lat, lng" — two numbers, e.g. from a Google Maps pin.'
+              : 'Paste a Google Maps pin to override the geocoded location.'
+          }
+          fullWidth
+        />
       )}
       <Stack direction="row" spacing={1}>
         <TextField

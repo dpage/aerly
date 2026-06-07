@@ -147,6 +147,12 @@ type updatePlanPartReq struct {
 	EndAddress   *string    `json:"end_address,omitempty"`
 	Status       *string    `json:"status,omitempty"`
 
+	// Coords pin flags: a manual lat/lon override the geocoder must not touch.
+	// Setting one true (with explicit coords) opts that endpoint out of
+	// geocoding; setting it false reverts to address-derived coordinates.
+	StartCoordsPinned *bool `json:"start_coords_pinned,omitempty"`
+	EndCoordsPinned   *bool `json:"end_coords_pinned,omitempty"`
+
 	// Flight carries a flight part's route/identity edit (PRD: flight route
 	// labels & editing). Changing the ident re-resolves the flight; the
 	// origin/dest IATA are only honoured for an unresolved flight.
@@ -582,32 +588,58 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 			if in.EndLabel != nil {
 				endLabel = *in.EndLabel
 			}
-			if in.StartAddress != nil && *in.StartAddress != "" && *in.StartAddress != cur.StartAddress && in.StartLat == nil {
-				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, *in.StartAddress, startLabel); ok {
+			// A pinned endpoint keeps its manual coordinates untouched; only an
+			// unpinned one is (re)geocoded — when its address changed, or when the
+			// user just unpinned it (reverting a manual override to address-derived
+			// coordinates). Explicit coordinates in the request always win.
+			startPinned := cur.StartCoordsPinned
+			if in.StartCoordsPinned != nil {
+				startPinned = *in.StartCoordsPinned
+			}
+			endPinned := cur.EndCoordsPinned
+			if in.EndCoordsPinned != nil {
+				endPinned = *in.EndCoordsPinned
+			}
+			startUnpinned := in.StartCoordsPinned != nil && !*in.StartCoordsPinned && cur.StartCoordsPinned
+			endUnpinned := in.EndCoordsPinned != nil && !*in.EndCoordsPinned && cur.EndCoordsPinned
+			startAddr := cur.StartAddress
+			if in.StartAddress != nil {
+				startAddr = *in.StartAddress
+			}
+			endAddr := cur.EndAddress
+			if in.EndAddress != nil {
+				endAddr = *in.EndAddress
+			}
+			startAddrChanged := in.StartAddress != nil && *in.StartAddress != cur.StartAddress
+			endAddrChanged := in.EndAddress != nil && *in.EndAddress != cur.EndAddress
+			if !startPinned && in.StartLat == nil && startAddr != "" && (startAddrChanged || startUnpinned) {
+				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, startAddr, startLabel); ok {
 					in.StartLat, in.StartLon = &lat, &lon
 				}
 			}
-			if in.EndAddress != nil && *in.EndAddress != "" && *in.EndAddress != cur.EndAddress && in.EndLat == nil {
-				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, *in.EndAddress, endLabel); ok {
+			if !endPinned && in.EndLat == nil && endAddr != "" && (endAddrChanged || endUnpinned) {
+				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, endAddr, endLabel); ok {
 					in.EndLat, in.EndLon = &lat, &lon
 				}
 			}
 		}
 	}
 	part, err := a.Store.UpdatePlanPart(r.Context(), id, store.UpdatePlanPartPayload{
-		StartsAt:     in.StartsAt,
-		EndsAt:       in.EndsAt,
-		StartTZ:      in.StartTZ,
-		EndTZ:        in.EndTZ,
-		StartLabel:   in.StartLabel,
-		StartLat:     in.StartLat,
-		StartLon:     in.StartLon,
-		StartAddress: in.StartAddress,
-		EndLabel:     in.EndLabel,
-		EndLat:       in.EndLat,
-		EndLon:       in.EndLon,
-		EndAddress:   in.EndAddress,
-		Status:       in.Status,
+		StartsAt:          in.StartsAt,
+		EndsAt:            in.EndsAt,
+		StartTZ:           in.StartTZ,
+		EndTZ:             in.EndTZ,
+		StartLabel:        in.StartLabel,
+		StartLat:          in.StartLat,
+		StartLon:          in.StartLon,
+		StartAddress:      in.StartAddress,
+		EndLabel:          in.EndLabel,
+		EndLat:            in.EndLat,
+		EndLon:            in.EndLon,
+		EndAddress:        in.EndAddress,
+		Status:            in.Status,
+		StartCoordsPinned: in.StartCoordsPinned,
+		EndCoordsPinned:   in.EndCoordsPinned,
 	})
 	if err != nil {
 		handleStoreErr(w, err)

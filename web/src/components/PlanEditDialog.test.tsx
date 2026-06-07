@@ -564,6 +564,82 @@ describe('PlanEditDialog', () => {
     expect(screen.queryByText(/couldn't be located on the map/i)).not.toBeInTheDocument();
   });
 
+  it('prefills the coordinates override from a located endpoint', () => {
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({ type: 'hotel', start_label: 'Lake', start_lat: 48.21, start_lon: 4.08, end_label: '' }),
+        ],
+      }),
+    );
+    expect(screen.getByLabelText(/coordinates/i)).toHaveValue('48.21, 4.08');
+  });
+
+  it('pins a pasted lat/lng as a manual override on save', async () => {
+    h.updatePlanPart.mockResolvedValue(part({ type: 'hotel' }));
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({
+            type: 'hotel',
+            start_label: 'Lake',
+            start_address: '10170 Droupt-Saint-Basle, France',
+            start_lat: undefined,
+            start_lon: undefined,
+            end_label: '',
+          }),
+        ],
+      }),
+    );
+    await userEvent.type(screen.getByLabelText(/coordinates/i), '48.2105, 4.0823');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.start_lat).toBe(48.2105);
+    expect(patch.start_lon).toBe(4.0823);
+    expect(patch.start_coords_pinned).toBe(true);
+  });
+
+  it('clearing a pinned override unpins it (reverts to geocoding)', async () => {
+    h.updatePlanPart.mockResolvedValue(part({ type: 'hotel' }));
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({
+            type: 'hotel',
+            start_label: 'Lake',
+            start_lat: 48.21,
+            start_lon: 4.08,
+            start_coords_pinned: true,
+            end_label: '',
+          }),
+        ],
+      }),
+    );
+    await userEvent.clear(screen.getByLabelText(/coordinates/i));
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.start_coords_pinned).toBe(false);
+    expect(patch.start_lat).toBeUndefined();
+  });
+
+  it('blocks save on an unparseable coordinate override', async () => {
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [part({ type: 'hotel', start_label: 'Lake', end_label: '' })],
+      }),
+    );
+    await userEvent.type(screen.getByLabelText(/coordinates/i), 'FWJ9+PP');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith(expect.stringContaining('lat, lng')));
+    expect(h.updatePlanPart).not.toHaveBeenCalled();
+  });
+
   it('pops an info notice when a just-edited address is still unlocated after save', async () => {
     // The saved part comes back still missing coordinates.
     h.updatePlanPart.mockResolvedValue(

@@ -363,6 +363,10 @@ export interface PlanPart {
   /** Who the booking is with (airline, operator…), copied from the plan so the
    * map row can show it. Absent when unknown. */
   supplier_name?: string;
+  /** Coordinates manually pinned by the user — a geocoder-proof override.
+   * Absent (false) when the coordinates are geocoded from the address. */
+  start_coords_pinned?: boolean;
+  end_coords_pinned?: boolean;
   /** User id of the owner of the containing trip. The map hashes it to a
    * per-person colour so each person's trips share a hue (issue #13). Absent
    * (or 0) when unknown. */
@@ -530,6 +534,10 @@ export interface UpdatePlanPartInput {
   ground?: Partial<GroundDetail>;
   dining?: Partial<DiningDetail>;
   excursion?: Partial<ExcursionDetail>;
+  /** Pin/unpin a manual coordinate override so the geocoder leaves it alone.
+   * Send true alongside start_lat/start_lon to pin; false to revert to auto. */
+  start_coords_pinned?: boolean;
+  end_coords_pinned?: boolean;
 }
 
 export interface MovePlanInput {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { PlanPart } from '../api/types';
-import { startUnlocated, endUnlocated, isUnlocated, unlocatedCount } from './geo';
+import { startUnlocated, endUnlocated, isUnlocated, parseLatLon, unlocatedCount } from './geo';
 
 function part(over: Partial<PlanPart>): PlanPart {
   return {
@@ -46,5 +46,23 @@ describe('unlocated predicates', () => {
       part({ id: 3, start_address: 'C', dismissed_at: '2026-01-01T00:00:00Z' }), // dismissed
     ];
     expect(unlocatedCount(parts)).toBe(1);
+  });
+});
+
+describe('parseLatLon', () => {
+  it('parses a comma-separated Google Maps pin', () => {
+    expect(parseLatLon('48.2105, 4.0823')).toEqual({ lat: 48.2105, lon: 4.0823 });
+  });
+  it('tolerates no space, extra space, and a space separator', () => {
+    expect(parseLatLon('48.2105,4.0823')).toEqual({ lat: 48.2105, lon: 4.0823 });
+    expect(parseLatLon('  -33.86  ,  151.21 ')).toEqual({ lat: -33.86, lon: 151.21 });
+    expect(parseLatLon('51.5 -0.12')).toEqual({ lat: 51.5, lon: -0.12 });
+  });
+  it('rejects out-of-range, partial, and non-numeric input', () => {
+    expect(parseLatLon('91, 0')).toBeNull(); // lat > 90
+    expect(parseLatLon('0, 181')).toBeNull(); // lon > 180
+    expect(parseLatLon('48.21')).toBeNull(); // only one number
+    expect(parseLatLon('FWJ9+PP')).toBeNull(); // a plus code, not coords
+    expect(parseLatLon('')).toBeNull();
   });
 });
