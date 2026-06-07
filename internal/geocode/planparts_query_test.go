@@ -24,10 +24,13 @@ func (s stubGeo) ReverseCountry(context.Context, float64, float64) (string, bool
 
 func TestGeocodeEndpoint(t *testing.T) {
 	g := stubGeo{resolves: map[string][2]float64{
-		"1 Main St":                  {1, 2},
-		"Alicante Airport":           {38, -0.5},
-		"London Heathrow Terminal 5": {51, -0.4},
-		"AB12 3CD, United Kingdom":   {51.6, -1.5},
+		"1 Main St":                         {1, 2},
+		"Alicante Airport":                  {38, -0.5},
+		"London Heathrow Terminal 5":        {51, -0.4},
+		"AB12 3CD, United Kingdom":          {51.6, -1.5},
+		"Ukino Palmeiras Village, Portugal": {37.1, -8.38}, // name + country
+		"8400-450 Porches, Portugal":        {37.0, -8.0},  // a resolvable tail
+		"Honeysuckle Cottage":               {9, 9},        // bare name — must NEVER be queried
 	}}
 	ctx := context.Background()
 	cases := []struct {
@@ -38,14 +41,21 @@ func TestGeocodeEndpoint(t *testing.T) {
 		{"address resolves", "hotel", "1 Main St", "Hotel", true, 1},
 		{"no address, airport label fallback", "ground", "", "Alicante Airport", true, 38},
 		{"address fails, terminal label fallback", "ground", "Nowhere Addr", "London Heathrow Terminal 5", true, 51},
-		{"ambiguous place label is NOT geocoded", "ground", "", "Honeysuckle Cottage", false, 0},
+		{"bare ambiguous label is NEVER geocoded", "ground", "", "Honeysuckle Cottage", false, 0},
 		{"flight never uses label", "flight", "", "LHR", false, 0},
 		{"flight still uses a resolving address", "flight", "1 Main St", "LHR", true, 1},
 		{"airport label that doesn't resolve", "ground", "", "Faro Airport", false, 0},
-		// Full address fails but the embedded UK postcode resolves (incl. a
-		// multi-line address, which is normalised first). Fictional data.
-		{"postcode fallback (one line)", "ground", "Honeysuckle Cottage, 1 Example Lane, AB12 3CD, United Kingdom", "Honeysuckle Cottage", true, 51.6},
-		{"postcode fallback (multi-line)", "ground", "Honeysuckle Cottage\n1 Example Lane\nAB12 3CD\nUnited Kingdom", "Honeysuckle Cottage", true, 51.6},
+		// Full address fails; a shortened tail resolves (incl. multi-line, normalised
+		// first). The embedded postcode rides along in the tail — no postcode regex.
+		{"tail backoff (one line)", "ground", "Honeysuckle Cottage, 1 Example Lane, AB12 3CD, United Kingdom", "Honeysuckle Cottage", true, 51.6},
+		{"tail backoff (multi-line)", "ground", "Honeysuckle Cottage\n1 Example Lane\nAB12 3CD\nUnited Kingdom", "Honeysuckle Cottage", true, 51.6},
+		// Full address fails; the property name + country tail resolves the exact hotel.
+		{"name + country wins", "hotel", "Quinta das Palmeiras, Bloco E3-IV, Alporchinhos, 8400-450 Porches, Algarve, Portugal", "Ukino Palmeiras Village", true, 37.1},
+		// No usable name; a shortened tail resolves instead.
+		{"tail backoff when name absent", "hotel", "Bloco E3-IV, Alporchinhos, 8400-450 Porches, Portugal", "", true, 37.0},
+		// 2-segment address can't reach a non-bare tail, and the name lookup is only
+		// ever country-qualified — the bare "Honeysuckle Cottage" entry stays untouched.
+		{"name fallback appends country, never bare", "ground", "Honeysuckle Cottage, Atlantis", "Honeysuckle Cottage", false, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

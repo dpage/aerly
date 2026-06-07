@@ -2,7 +2,6 @@ package geocode
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"time"
 
@@ -70,24 +69,19 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 	return changed, nil
 }
 
-// ukPostcode matches a UK postcode embedded in a freeform address (e.g.
-// "AB12 3CD"). Rural freeform addresses frequently don't geocode as a whole,
-// but the postcode reliably does.
-var ukPostcode = regexp.MustCompile(`(?i)\b[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}\b`)
-
-// geocodeEndpoint resolves an endpoint to coordinates, trying the most reliable
-// signal first:
-//  1. an IATA airport code in the label (e.g. "LHR T5") via the airport table —
-//     deterministic, no network (non-flight parts only);
-//  2. the postal address (normalised to one line);
-//  3. a UK postcode pulled from the address, when the full address won't resolve;
-//  4. an airport-like label ("… Airport"/"… Terminal") via the geocoder, for
-//     airports not in the table (e.g. "Alicante Airport").
+// geocodeEndpoint resolves an endpoint to coordinates, most reliable signal first:
+//  1. an IATA airport code in the label via the airport table (non-flight only) —
+//     deterministic, no network;
+//  2. the full postal address (normalised to one line);
+//  3. the place/property name + the address's country tail (non-flight only) —
+//     never the bare name, so a generic name ("Hilton") can't resolve on the
+//     wrong continent; skipped when there's no label or no country tail;
+//  4. tail backoff: progressively shorter versions of the address (drop the
+//     leading segment, first hit wins) — country-agnostic, a postcode rides along
+//     in whatever tail resolves;
+//  5. an airport-like label ("… Airport"/"… Terminal") via the geocoder, bare.
 //
-// It deliberately never geocodes a bare ambiguous place/home name (which can
-// resolve to a same-named place on the wrong continent); those rely on the
-// address / postcode. Flight parts never use the label. ok=false when nothing
-// resolved.
+// Flight parts never use the label. ok=false when nothing resolved.
 func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label string) (float64, float64, bool) {
 	if partType != "flight" {
 		if code := iataIn(label); code != "" {
@@ -96,14 +90,22 @@ func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label s
 			}
 		}
 	}
-	if addr := normalizeAddress(address); addr != "" {
+	addr := normalizeAddress(address)
+	if addr != "" {
 		if lat, lon, ok, err := g.Geocode(ctx, addr); err == nil && ok {
 			return lat, lon, true
 		}
-		if pc := ukPostcode.FindString(address); pc != "" {
-			if lat, lon, ok, err := g.Geocode(ctx, pc+", United Kingdom"); err == nil && ok {
+	}
+	if partType != "flight" && strings.TrimSpace(label) != "" {
+		if country := countryFromAddress(addr); country != "" {
+			if lat, lon, ok, err := g.Geocode(ctx, label+", "+country); err == nil && ok {
 				return lat, lon, true
 			}
+		}
+	}
+	for _, tail := range addressTails(addr, 4) {
+		if lat, lon, ok, err := g.Geocode(ctx, tail); err == nil && ok {
+			return lat, lon, true
 		}
 	}
 	if partType != "flight" && isAirportLabel(label) {
@@ -112,6 +114,13 @@ func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label s
 		}
 	}
 	return 0, 0, false
+}
+
+// Endpoint resolves a single plan-part endpoint to coordinates using the shared
+// fallback chain. Exported so the edit handler resolves a changed address
+// identically to the backfill path.
+func Endpoint(ctx context.Context, g Geocoder, partType, address, label string) (lat, lon float64, ok bool) {
+	return geocodeEndpoint(ctx, g, partType, address, label)
 }
 
 // normalizeAddress collapses a multi-line address into a single comma-separated
