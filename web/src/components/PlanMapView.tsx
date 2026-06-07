@@ -381,6 +381,7 @@ function PartRow({
           primary={partTitle(part)}
           secondary={[
             planTypeLabel(part.type),
+            part.supplier_name,
             fmtPartTimeRange(part),
             part.owner ? `Added by ${userName(part.owner)}` : '',
           ]

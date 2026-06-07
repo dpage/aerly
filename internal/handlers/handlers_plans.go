@@ -952,6 +952,7 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 	for i := range partDTOs {
 		partDTOs[i].Owner = ownerDTO
 		partDTOs[i].TripOwnerID = tripOwners[planID]
+		partDTOs[i].SupplierName = plan.SupplierName
 		if len(paxDTOs) > 0 {
 			partDTOs[i].Passengers = paxDTOs
 		}

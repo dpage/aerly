@@ -446,7 +446,7 @@ describe('TripTimeline', () => {
     confirmSpy.mockRestore();
   });
 
-  it('shows a confirmed chip and a confirmation reference', async () => {
+  it('shows a confirmed chip up front and the confirmation reference once expanded', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1, status: 'confirmed' })], {
         id: 1,
@@ -456,11 +456,15 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     const card = screen.getByTestId('part-card-1');
+    // The status chip is essential and stays up front.
     expect(within(card).getByText('confirmed')).toBeInTheDocument();
+    // The booking ref is admin detail — only in the expanded body.
+    expect(card).not.toHaveTextContent('Ref: XIIVFQ');
+    await userEvent.click(card);
     expect(card).toHaveTextContent('Ref: XIIVFQ');
   });
 
-  it('shows the ticket number and formatted cost', async () => {
+  it('keeps the ticket number up front but moves cost into the expanded body', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1 })], {
         id: 1,
@@ -472,8 +476,23 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     const card = screen.getByTestId('part-card-1');
+    // Ticket is essential (needed to check in) and stays up front; cost does not.
     expect(card).toHaveTextContent('Ticket: 1252300000001');
+    expect(card).not.toHaveTextContent('Cost: £523.40');
+    await userEvent.click(card);
     expect(card).toHaveTextContent('Cost: £523.40');
+  });
+
+  it('shows the flight number up front on a flight tile', () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1, flight: { ident: 'FR9226' } as PlanPart['flight'] })], {
+        id: 1,
+        title: 'Flight to Faro',
+      }),
+    ]);
+    renderTimeline();
+    // Visible without expanding — it's plan-essential.
+    expect(screen.getByTestId('part-card-1')).toHaveTextContent('Flight: FR9226');
   });
 
   it('shows the supplier and contact details with an open-in-new-tab website link', async () => {

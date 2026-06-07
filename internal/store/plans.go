@@ -1355,6 +1355,33 @@ func (s *Store) PlanOwners(ctx context.Context, planIDs []int64) (map[int64]int6
 	return out, rows.Err()
 }
 
+// SuppliersByPlan returns each plan's supplier_name (the airline/operator a
+// booking is with) keyed by plan id, in one query, so the map row can show it
+// without loading whole plans. Plans with an empty supplier_name are omitted.
+func (s *Store) SuppliersByPlan(ctx context.Context, planIDs []int64) (map[int64]string, error) {
+	out := map[int64]string{}
+	if len(planIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, supplier_name FROM plans WHERE id = ANY($1)`, planIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var planID int64
+		var name string
+		if err := rows.Scan(&planID, &name); err != nil {
+			return nil, err
+		}
+		if name != "" {
+			out[planID] = name
+		}
+	}
+	return out, rows.Err()
+}
+
 // TripOwnersByPlan returns the owner (creator) user id of each plan's containing
 // trip, keyed by plan id, in one query. The map hashes it to a per-person
 // colour so each person's trips share a hue (issue #13). Plans whose trip has a

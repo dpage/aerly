@@ -360,6 +360,9 @@ export interface PlanPart {
    * Populated on the tracker and trip-detail payloads. */
   owner?: User;
   passengers?: User[];
+  /** Who the booking is with (airline, operator…), copied from the plan so the
+   * map row can show it. Absent when unknown. */
+  supplier_name?: string;
   /** User id of the owner of the containing trip. The map hashes it to a
    * per-person colour so each person's trips share a hue (issue #13). Absent
    * (or 0) when unknown. */

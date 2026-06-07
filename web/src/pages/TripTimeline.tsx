@@ -426,21 +426,15 @@ function PartCard({
                 : fmtPartTimeRange(part)}
           </Typography>
 
-          {plan.confirmation_ref && (
+          {part.type === 'flight' && part.flight?.ident && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              Ref: {plan.confirmation_ref}
+              Flight: {part.flight.ident}
             </Typography>
           )}
 
           {plan.ticket_number && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               Ticket: {plan.ticket_number}
-            </Typography>
-          )}
-
-          {formatCost(plan.cost_amount, plan.cost_currency) && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              Cost: {formatCost(plan.cost_amount, plan.cost_currency)}
             </Typography>
           )}
 
@@ -473,6 +467,16 @@ function PartCard({
           {addr && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               {addr}
+            </Typography>
+          )}
+          {plan.confirmation_ref && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Ref: {plan.confirmation_ref}
+            </Typography>
+          )}
+          {formatCost(plan.cost_amount, plan.cost_currency) && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Cost: {formatCost(plan.cost_amount, plan.cost_currency)}
             </Typography>
           )}
           {details.map((line, i) => (

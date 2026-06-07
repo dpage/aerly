@@ -272,6 +272,18 @@ describe('PlanMapView', () => {
     expect(row.querySelector('img[src="https://gravatar/bob.png"]')).not.toBeNull();
   });
 
+  it('shows the booked supplier (airline) on the list row when present', () => {
+    render(<PlanMapView parts={[flight({ supplier_name: 'Ryanair' })]} />);
+    expect(screen.getByTestId('plan-row-1')).toHaveTextContent('Ryanair');
+  });
+
+  it('omits the supplier segment on the list row when unknown', () => {
+    render(<PlanMapView parts={[flight()]} />);
+    const row = screen.getByTestId('plan-row-1');
+    // No empty " ·  · " segment — the join drops the blank supplier.
+    expect(row.textContent).not.toMatch(/·\s+·/);
+  });
+
   it('shows a loading state (not the empty copy) while parts are pending', () => {
     render(<PlanMapView parts={[]} loading />);
     expect(screen.getByText(/loading/i)).toBeInTheDocument();

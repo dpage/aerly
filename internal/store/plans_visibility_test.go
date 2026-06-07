@@ -285,6 +285,40 @@ func TestTripOwnersByPlan(t *testing.T) {
 	}
 }
 
+// TestSuppliersByPlan maps each plan id to its booked supplier name, so the map
+// row can show who a booking is with (the airline/operator). Plans with no
+// supplier are omitted, not returned as empty strings.
+func TestSuppliersByPlan(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	alice := mkUser(t, s)
+	trip := mkTrip(t, s, alice)
+	withSupplier := mkPlan(t, s, trip, alice)
+	noSupplier := mkPlan(t, s, trip, alice)
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE plans SET supplier_name = 'Ryanair' WHERE id = $1`, withSupplier); err != nil {
+		t.Fatalf("set supplier: %v", err)
+	}
+
+	got, err := s.SuppliersByPlan(ctx, []int64{withSupplier, noSupplier})
+	if err != nil {
+		t.Fatalf("SuppliersByPlan: %v", err)
+	}
+	if got[withSupplier] != "Ryanair" {
+		t.Errorf("supplier = %q, want Ryanair", got[withSupplier])
+	}
+	// An empty supplier is omitted entirely, not returned as "".
+	if _, ok := got[noSupplier]; ok {
+		t.Errorf("plan with no supplier should be absent, got %q", got[noSupplier])
+	}
+	// Empty input → empty map, no query.
+	if m, err := s.SuppliersByPlan(ctx, nil); err != nil || len(m) != 0 {
+		t.Errorf("empty input: m=%v err=%v", m, err)
+	}
+}
+
 // TestIsTripPassenger reports whether the viewer travels on the trip (a
 // passenger on some plan), distinct from merely being a shared member (#19).
 func TestIsTripPassenger(t *testing.T) {
