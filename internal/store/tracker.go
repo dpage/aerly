@@ -160,6 +160,32 @@ func (s *Store) FlightPartsWithMissingCoords(ctx context.Context) ([]*Flight, er
 	return out, rows.Err()
 }
 
+// FlightPartsByPlanMissingCoords returns the flight parts of a single plan that
+// have at least one NULL coord column. It scopes FlightPartsWithMissingCoords to
+// one plan so the one-shot backfill fired right after ingest only touches the
+// flight(s) just committed, rather than re-scanning every stuck row.
+func (s *Store) FlightPartsByPlanMissingCoords(ctx context.Context, planID int64) ([]*Flight, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+flightPartColumns+` `+flightPartFrom+`
+		WHERE part.plan_id = $1
+		  AND (part.start_lat IS NULL OR part.start_lon IS NULL
+		    OR part.end_lat   IS NULL OR part.end_lon   IS NULL)
+		ORDER BY fd.scheduled_out ASC`, planID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Flight
+	for rows.Next() {
+		f, err := scanFlightPart(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // BackfillPayload carries optional resolver-supplied metadata for a flight
 // part that was created with blanks. The poller uses this to fill in airports,
 // airframe, and notes the first time it sees the part in its active window.

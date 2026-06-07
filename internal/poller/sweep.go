@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/flightcoord"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -14,8 +14,9 @@ import (
 // interval would also be defensible; 4h is a compromise that also lets
 // the resolver step inside the sweep eventually self-heal far-future
 // flights once their schedule is published, without burning more than
-// ~6 API calls per stuck row per day.
-const sweepInterval = 4 * time.Hour
+// ~6 API calls per stuck row per day. It mirrors flightcoord.Throttle so
+// a row resolved by one sweep tick isn't retried by the next.
+const sweepInterval = flightcoord.Throttle
 
 // Sweep finds every flight with at least one NULL coord column and tries
 // to fill the missing legs — first from the embedded airports table
@@ -49,86 +50,15 @@ func (p *Poller) Sweep(ctx context.Context) {
 // Extracted so a failure on one row doesn't unwind the whole loop.
 // The now parameter feeds the resolver throttle: a recent
 // last_resolved_at suppresses repeat API calls for rows that the
-// resolver couldn't satisfy last time.
+// resolver couldn't satisfy last time. The fill logic is shared with the
+// post-ingest backfill in flightcoord.Fill.
 func (p *Poller) sweepOne(ctx context.Context, f *store.Flight, now time.Time) {
-	var update store.BackfillPayload
-	changed := false
-	var originNeedsResolver, destNeedsResolver bool
-
-	// Table fast path.
-	if f.OriginLat == nil && f.OriginIATA != "" {
-		if lat, lon, ok := airports.Lookup(f.OriginIATA); ok {
-			update.OriginIATA, update.OriginLat, update.OriginLon = f.OriginIATA, lat, lon
-			changed = true
-		} else {
-			originNeedsResolver = true
-		}
-	}
-	if f.DestLat == nil && f.DestIATA != "" {
-		if lat, lon, ok := airports.Lookup(f.DestIATA); ok {
-			update.DestIATA, update.DestLat, update.DestLon = f.DestIATA, lat, lon
-			changed = true
-		} else {
-			destNeedsResolver = true
-		}
-	}
-
-	// Resolver slow path — only when something the table can't satisfy
-	// remains, a resolver is configured, and the throttle allows it.
-	if (originNeedsResolver || destNeedsResolver) && p.Resolver != nil && throttleAllowed(f, now) {
-		rf, rerr := p.Resolver.Resolve(ctx, f.Ident, f.ScheduledOut)
-		if rerr == nil {
-			// Merge only the legs the table couldn't fill. The
-			// table-derived coord on a satisfied leg must NOT be
-			// clobbered — BackfillFlight's "only fill empty columns"
-			// rule is enforced at the DB layer, but it also short-
-			// circuits the write entirely if BOTH lat and lon for a
-			// leg are zero in the payload. If the resolver returns
-			// zero coords for a table-known leg we'd lose the table
-			// value entirely.
-			if originNeedsResolver {
-				update.OriginIATA = rf.OriginIATA
-				update.OriginLat, update.OriginLon = rf.OriginLat, rf.OriginLon
-			}
-			if destNeedsResolver {
-				update.DestIATA = rf.DestIATA
-				update.DestLat, update.DestLon = rf.DestLat, rf.DestLon
-			}
-			update.ICAO24, update.Callsign = rf.ICAO24, rf.Callsign
-			update.Notes = rf.Notes
-			update.OriginTerminal, update.DestTerminal = rf.OriginTerminal, rf.DestTerminal
-			changed = true
-		} else {
-			slog.Warn("sweep: resolve failed", "ident", f.Ident, "id", f.ID, "err", rerr)
-		}
-		// Always bump last_resolved_at so unreachable flights don't burn
-		// API quota on every sweep tick. On error we still want the
-		// throttle — empty strings here mean "don't overwrite airframe".
-		icao24, callsign := "", ""
-		if rerr == nil {
-			icao24, callsign = rf.ICAO24, rf.Callsign
-		}
-		if terr := p.Store.RefreshFlightPartAirframe(ctx, f.ID, icao24, callsign); terr != nil {
-			slog.Error("sweep: bump last_resolved_at", "id", f.ID, "err", terr)
-		}
-	}
-
-	if !changed {
-		return
-	}
-	if err := p.Store.BackfillFlightPart(ctx, f.ID, update); err != nil {
+	changed, err := flightcoord.Fill(ctx, p.Store, p.Resolver, f, now)
+	if err != nil {
 		slog.Error("sweep: backfill", "id", f.ID, "err", err)
 		return
 	}
-	p.publishPartChange(ctx, f.ID)
-}
-
-// throttleAllowed reports whether enough time has passed since the last
-// resolver attempt for this flight to merit another one. nil means the
-// row has never been resolved, so the answer is yes.
-func throttleAllowed(f *store.Flight, now time.Time) bool {
-	if f.LastResolvedAt == nil {
-		return true
+	if changed {
+		p.publishPartChange(ctx, f.ID)
 	}
-	return now.Sub(*f.LastResolvedAt) >= sweepInterval
 }

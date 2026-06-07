@@ -77,6 +77,13 @@ func (a *API) importTrip(w http.ResponseWriter, r *http.Request) {
 		added++
 		for _, pl := range created {
 			a.publishPlanUpdated(r.Context(), trip.ID, pl.ID)
+			// Plot the newly-imported plan: geocode addressed parts (hotels,
+			// transfers) and resolve flight legs whose airports aren't in the
+			// embedded table (e.g. NQY/FAO). Both are async + best-effort, so a
+			// missing geocoder/resolver simply leaves the parts for the next
+			// startup backfill / sweep.
+			a.geocodePlanAsync(trip.ID, pl.ID)
+			a.resolveFlightCoordsAsync(trip.ID, pl.ID)
 		}
 	}
 
