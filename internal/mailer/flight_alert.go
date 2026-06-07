@@ -9,10 +9,10 @@ import (
 
 // FlightAlertInput is the data needed to render a flight-change alert email
 // (spec §9). Kind selects the headline ("delayed" / "cancelled" / "diverted" /
-// "gate"); When is the new effective time for a delay (zero for cancellations,
-// which have no meaningful new time). Detail is a short human phrase describing
-// the change, e.g. "now departing 14:35", "to a different airport", or
-// "now departs gate B32".
+// "gate" / "belt"); When is the new effective time for a delay (zero for
+// cancellations, which have no meaningful new time). Detail is a short human
+// phrase describing the change, e.g. "now departing 14:35", "to a different
+// airport", "now departs gate B32", or "bags on belt 34".
 type FlightAlertInput struct {
 	FromAddr  string
 	ToAddr    string

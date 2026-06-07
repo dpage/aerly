@@ -472,10 +472,55 @@ func TestAlert_BeltChangeNotifies(t *testing.T) {
 	}
 
 	// Same belt on the next tick must not re-alert (dedupe signature).
-	prev2, _ := s.FlightPartByID(ctx, f.ID)
+	prev2, err := s.FlightPartByID(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("refetch: %v", err)
+	}
 	p.maybeAlert(ctx, prev2, f.ID)
 	if extra := drainAlerts(t, ch); len(extra) != 0 {
 		t.Fatalf("same belt re-alerted: %+v", extra)
+	}
+}
+
+// When a gate and a belt are first published on the SAME tick, gate wins: the
+// changeKind precedence (gate before belt) means the single alert leads with
+// the gate. This locks that ordering against silent drift.
+func TestAlert_GateBeforeBeltOnSameTick(t *testing.T) {
+	p, s, hub, cap := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	// Crank the delay threshold so only gate/belt can alert.
+	if err := s.SetAlertPrefs(ctx, store.AlertPrefs{UserID: owner, InApp: true, Email: true, MinDelayMin: 600}); err != nil {
+		t.Fatalf("set prefs: %v", err)
+	}
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "BA286", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "SFO",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	prev := f // neither gate nor belt yet
+	setOriginGate(t, s, f.ID, "B32")
+	setDestBelt(t, s, f.ID, "34")
+	p.maybeAlert(ctx, prev, f.ID)
+
+	got := drainAlerts(t, ch)
+	if len(got) != 1 || got[0].Kind != "gate" {
+		t.Fatalf("expected a single gate alert (gate wins over belt), got %+v", got)
+	}
+	if !strings.Contains(got[0].Message, "B32") {
+		t.Fatalf("gate alert missing gate detail: %q", got[0].Message)
+	}
+	if cap.count() != 1 {
+		t.Fatalf("expected 1 email, got %d", cap.count())
 	}
 }
 
