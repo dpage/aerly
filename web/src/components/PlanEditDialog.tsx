@@ -17,7 +17,13 @@ import {
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import { useStore } from '../state/store';
 import { endUnlocated, isUnlocated, startUnlocated } from '../lib/geo';
-import { isTransferType, planTypeLabel, splitLocal, zonedTimeToUtc } from '../lib/trip-format';
+import {
+  isTransferType,
+  planTypeLabel,
+  splitLocal,
+  typeHasEnd,
+  zonedTimeToUtc,
+} from '../lib/trip-format';
 
 interface Props {
   open: boolean;
@@ -81,10 +87,11 @@ function partForm(part: PlanPart): PartForm {
 }
 
 /** Does this part have a meaningful "end" endpoint to edit — a transfer's
- * arrival, or anything that already carries an end time (e.g. a hotel's
- * check-out)? Single-point plans (a dining reservation) show only a start. */
+ * arrival or a hotel's check-out — or anything that already carries an end time?
+ * Single-point plans (a dining reservation) show only a start. A hotel always
+ * qualifies so a check-out can be added even when none was set at creation. */
 function hasEnd(part: PlanPart): boolean {
-  return isTransferType(part.type) || part.ends_at != null;
+  return typeHasEnd(part.type) || part.ends_at != null;
 }
 
 /** Diff a part's form against its initial snapshot into an update payload, or

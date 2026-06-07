@@ -248,6 +248,37 @@ describe('PlanEditDialog', () => {
     expect(patch.end_address).toBe('VA');
   });
 
+  it('shows "Until" (check-out) for a hotel even when it has no end time yet', async () => {
+    // A hotel added without a check-out must still let the user add one — the
+    // end section can't be gated on an end already existing (#chicken-and-egg).
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({
+            type: 'hotel',
+            start_label: 'Lake House',
+            end_label: '',
+            ends_at: undefined,
+            end_tz: '',
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText('Until')).toBeInTheDocument();
+    // Filling the empty check-out date/time saves an ends_at instant.
+    const dates = screen.getAllByLabelText(/^date$/i);
+    const times = screen.getAllByLabelText(/^time$/i);
+    // The end endpoint is the last date/time pair (start is first).
+    await userEvent.type(dates[dates.length - 1], '2026-10-15');
+    await userEvent.type(times[times.length - 1], '10:00');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.ends_at).toBeTruthy();
+  });
+
   it('shows a single "Where" endpoint for a non-transfer single-point part', () => {
     render_(
       plan({

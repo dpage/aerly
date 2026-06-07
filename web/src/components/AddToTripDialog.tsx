@@ -24,7 +24,7 @@ import {
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 
 import { useStore } from '../state/store';
-import { fmtPartPlaces, planTypeLabel } from '../lib/trip-format';
+import { fmtPartPlaces, planTypeLabel, typeHasEnd } from '../lib/trip-format';
 import PlanTypeIcon from './PlanTypeIcon';
 import type {
   ConfirmPlanInput,
@@ -261,8 +261,8 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   const isFlight = type === 'flight';
   // Point-to-point types carry a distinct departure and arrival address.
   const isTransfer = type === 'flight' || type === 'train' || type === 'ground';
-  // Hotels span nights, so they always show an end ("check-out").
-  const showEnd = type === 'hotel' || type === 'flight' || type === 'train' || type === 'ground';
+  // Transfers show an arrival; hotels span nights, so they show a check-out.
+  const showEnd = typeHasEnd(type);
 
   return (
     <Stack spacing={2} sx={{ pt: 1 }}>

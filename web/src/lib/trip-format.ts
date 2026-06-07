@@ -374,6 +374,13 @@ export function isTransferType(type: PlanType): boolean {
   return TRANSFER_TYPES.has(type);
 }
 
+/** Types that carry a distinct end the user can set: transfers (an arrival)
+ * and hotels (a check-out). Single-place types (dining, excursion) have only a
+ * start. Drives which dialogs offer an end date/time. */
+export function typeHasEnd(type: PlanType): boolean {
+  return isTransferType(type) || type === 'hotel';
+}
+
 /** The place line for a part: "A → B" for a transfer between two distinct
  * places, otherwise just the single venue — never "X → X" (a hotel's start and
  * end label are both the property, which shouldn't read like a flight). */
