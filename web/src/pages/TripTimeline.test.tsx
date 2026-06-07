@@ -628,6 +628,34 @@ describe('TripTimeline', () => {
     expect(await screen.findByText('Departure: Terminal 5 · Gate B32')).toBeInTheDocument();
   });
 
+  it('labels the departure gate as Unknown on a flight tile when neither terminal nor gate is known', async () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 5,
+            plan_id: 1,
+            type: 'flight',
+            flight: {
+              ident: 'TP456',
+              callsign: '',
+              scheduled_out: '2026-10-12T09:00:00Z',
+              scheduled_in: '2026-10-12T11:00:00Z',
+              origin_iata: 'LHR',
+              dest_iata: 'LIS',
+              flight_status: 'Scheduled',
+              origin_terminal: '',
+              origin_gate: '',
+            },
+          }),
+        ],
+        { id: 1, type: 'flight', title: 'Flight out' },
+      ),
+    ]);
+    renderTimeline();
+    expect(await screen.findByText('Departure: Unknown')).toBeInTheDocument();
+  });
+
   describe('link bookings mode', () => {
     function twoFlights() {
       return tripWith([
