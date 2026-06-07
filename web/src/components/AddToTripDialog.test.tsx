@@ -213,20 +213,29 @@ describe('AddToTripDialog - manual tab', () => {
 });
 
 describe('AddToTripDialog - manual tab field coverage', () => {
-  it('edits confirmation ref and notes, and a transfer To address', async () => {
+  it('edits confirmation ref, notes, supplier/contact and a transfer To address', async () => {
     h.state.createPlan.mockResolvedValue(undefined);
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
     // Default type is flight (a transfer) → the "To address" field is shown.
-    await userEvent.type(screen.getByLabelText(/^Title/), 'BA286');
-    await userEvent.type(screen.getByLabelText('To address'), 'Lisbon Airport');
+    // Values are kept short: this types into many fields and userEvent is slow.
+    await userEvent.type(screen.getByLabelText(/^Title/), 'BA');
+    await userEvent.type(screen.getByLabelText('To address'), 'LIS');
     await userEvent.type(screen.getByLabelText(/Confirmation ref/), 'REF42');
-    await userEvent.type(screen.getByLabelText(/Notes/), 'window seat');
+    await userEvent.type(screen.getByLabelText(/^Supplier/), 'BA');
+    await userEvent.type(screen.getByLabelText(/Contact email/), 'a@b.co');
+    await userEvent.type(screen.getByLabelText(/Contact phone/), '+1');
+    await userEvent.type(screen.getByLabelText(/^Website/), 'b.co');
+    await userEvent.type(screen.getByLabelText(/Notes/), 'seat');
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
     const [, input] = h.state.createPlan.mock.calls[0];
     expect(input.confirmation_ref).toBe('REF42');
-    expect(input.notes).toBe('window seat');
-    expect(input.parts[0].end_address).toBe('Lisbon Airport');
-  });
+    expect(input.notes).toBe('seat');
+    expect(input.supplier_name).toBe('BA');
+    expect(input.contact_email).toBe('a@b.co');
+    expect(input.contact_phone).toBe('+1');
+    expect(input.website).toBe('b.co');
+    expect(input.parts[0].end_address).toBe('LIS');
+  }, 30000);
 
   it('uses the per-type field labels for train, ground and excursion', async () => {
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
@@ -272,14 +281,23 @@ describe('AddToTripDialog - confirm step field coverage', () => {
     const conf = screen.getByLabelText('Confirmation ref');
     await userEvent.clear(conf);
     await userEvent.type(conf, 'NEWREF');
+    // Short values: typing into several controlled MUI fields is slow.
+    await userEvent.type(screen.getByLabelText('Supplier'), 'BA');
+    await userEvent.type(screen.getByLabelText('Contact email'), 'a@b.co');
+    await userEvent.type(screen.getByLabelText('Contact phone'), '+1');
+    await userEvent.type(screen.getByLabelText('Website'), 'b.co');
     const notes = screen.getByLabelText('Notes');
-    await userEvent.type(notes, 'check seats');
+    await userEvent.type(notes, 'seat');
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const plans = h.state.confirmIngest.mock.calls[0][1];
     expect(plans[0].confirmation_ref).toBe('NEWREF');
-    expect(plans[0].notes).toBe('check seats');
-  });
+    expect(plans[0].notes).toBe('seat');
+    expect(plans[0].supplier_name).toBe('BA');
+    expect(plans[0].contact_email).toBe('a@b.co');
+    expect(plans[0].contact_phone).toBe('+1');
+    expect(plans[0].website).toBe('b.co');
+  }, 30000);
 
   it('renders a proposal whose tz/labels are empty and that has no times', async () => {
     // Exercises toDraft `|| undefined` falsy branches and the part-label

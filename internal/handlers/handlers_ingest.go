@@ -44,6 +44,10 @@ type ingestConfirmPlanReq struct {
 	Source           string             `json:"source"`
 	CostAmount       *float64           `json:"cost_amount,omitempty"`
 	CostCurrency     string             `json:"cost_currency"`
+	SupplierName     string             `json:"supplier_name"`
+	ContactEmail     string             `json:"contact_email"`
+	ContactPhone     string             `json:"contact_phone"`
+	Website          string             `json:"website"`
 	PassengerIDs     []int64            `json:"passenger_ids"`
 	Visibility       *planVisibilityReq `json:"visibility"`
 	Parts            []planPartReq      `json:"parts"`
@@ -212,6 +216,10 @@ func icalProposalDTO(in planops.ConfirmPlanInput) api.ProposedPlanDTO {
 		Notes:           in.Notes,
 		CostAmount:      in.CostAmount,
 		CostCurrency:    in.CostCurrency,
+		SupplierName:    in.SupplierName,
+		ContactEmail:    in.ContactEmail,
+		ContactPhone:    in.ContactPhone,
+		Website:         in.Website,
 		Confidence:      1,
 		Parts:           make([]api.PlanPartDTO, 0, len(in.Parts)),
 	}
@@ -298,6 +306,10 @@ func toConfirmPlanInput(p ingestConfirmPlanReq) planops.ConfirmPlanInput {
 		Source:           p.Source,
 		CostAmount:       p.CostAmount,
 		CostCurrency:     p.CostCurrency,
+		SupplierName:     p.SupplierName,
+		ContactEmail:     p.ContactEmail,
+		ContactPhone:     p.ContactPhone,
+		Website:          p.Website,
 		PassengerIDs:     p.PassengerIDs,
 		SupersedesPartID: p.SupersedesPartID,
 	}
@@ -345,6 +357,10 @@ func toProposedPlanDTO(p planops.ProposedPlan) api.ProposedPlanDTO {
 		Notes:            p.Notes,
 		CostAmount:       p.CostAmount,
 		CostCurrency:     p.CostCurrency,
+		SupplierName:     p.SupplierName,
+		ContactEmail:     p.ContactEmail,
+		ContactPhone:     p.ContactPhone,
+		Website:          p.Website,
 		Confidence:       p.Confidence,
 		Parts:            make([]api.PlanPartDTO, 0, len(p.Parts)),
 		SupersedesPartID: p.SupersedesPartID,

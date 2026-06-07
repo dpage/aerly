@@ -327,19 +327,25 @@ type TripMemberDTO struct {
 // PlanDTO is a booking with its parts and per-plan visibility. passenger_ids
 // is always non-nil.
 type PlanDTO struct {
-	ID              int64             `json:"id"`
-	TripID          int64             `json:"trip_id"`
-	Type            string            `json:"type"`
-	Title           string            `json:"title"`
-	ConfirmationRef string            `json:"confirmation_ref"`
-	TicketNumber    string            `json:"ticket_number"`
-	Notes           string            `json:"notes"`
-	Source          string            `json:"source"`
-	CostAmount      *float64          `json:"cost_amount,omitempty"`
-	CostCurrency    string            `json:"cost_currency"`
-	CreatedBy       *int64            `json:"created_by,omitempty"`
-	PassengerIDs    []int64           `json:"passenger_ids"`
-	Visibility      PlanVisibilityDTO `json:"visibility"`
+	ID              int64    `json:"id"`
+	TripID          int64    `json:"trip_id"`
+	Type            string   `json:"type"`
+	Title           string   `json:"title"`
+	ConfirmationRef string   `json:"confirmation_ref"`
+	TicketNumber    string   `json:"ticket_number"`
+	Notes           string   `json:"notes"`
+	Source          string   `json:"source"`
+	CostAmount      *float64 `json:"cost_amount,omitempty"`
+	CostCurrency    string   `json:"cost_currency"`
+	// Supplier contact block: who the booking is with and how to reach them.
+	// Consistent across every plan type (issue: plan contact info).
+	SupplierName string            `json:"supplier_name"`
+	ContactEmail string            `json:"contact_email"`
+	ContactPhone string            `json:"contact_phone"`
+	Website      string            `json:"website"`
+	CreatedBy    *int64            `json:"created_by,omitempty"`
+	PassengerIDs []int64           `json:"passenger_ids"`
+	Visibility   PlanVisibilityDTO `json:"visibility"`
 	// AlertOptedIn is whether the requesting viewer has opted in to this plan's
 	// change alerts (a plan_alert_optin row). Computed per-viewer at assembly.
 	AlertOptedIn bool `json:"alert_opted_in"`
@@ -365,6 +371,10 @@ type ProposedPlanDTO struct {
 	Notes            string        `json:"notes"`
 	CostAmount       *float64      `json:"cost_amount,omitempty"`
 	CostCurrency     string        `json:"cost_currency"`
+	SupplierName     string        `json:"supplier_name"`
+	ContactEmail     string        `json:"contact_email"`
+	ContactPhone     string        `json:"contact_phone"`
+	Website          string        `json:"website"`
 	Confidence       float64       `json:"confidence"`
 	Parts            []PlanPartDTO `json:"parts"`
 	SupersedesPartID *int64        `json:"supersedes_part_id,omitempty"`

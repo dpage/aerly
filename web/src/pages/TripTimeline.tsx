@@ -109,22 +109,13 @@ export default function TripTimeline() {
   const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
   const [linking, setLinking] = useState(false);
 
-  const linkableCount = useMemo(
-    () => plans.filter((p) => isLinkableType(p.type)).length,
-    [plans],
-  );
+  const linkableCount = useMemo(() => plans.filter((p) => isLinkableType(p.type)).length, [plans]);
 
   // Resolve the selection against the plans actually on the timeline now, so a
   // stale id left over from a reload can't enable a bad link.
-  const selectedPlans = useMemo(
-    () => plans.filter((p) => selected.has(p.id)),
-    [plans, selected],
-  );
+  const selectedPlans = useMemo(() => plans.filter((p) => selected.has(p.id)), [plans, selected]);
   // Linking needs 2+ selected plans that all share one type.
-  const selectedTypes = useMemo(
-    () => new Set(selectedPlans.map((p) => p.type)),
-    [selectedPlans],
-  );
+  const selectedTypes = useMemo(() => new Set(selectedPlans.map((p) => p.type)), [selectedPlans]);
   const canLink = selectedPlans.length >= 2 && selectedTypes.size === 1;
 
   const toggleSelect = (planId: number) =>
@@ -181,7 +172,11 @@ export default function TripTimeline() {
           to add a flight, hotel, or other plan.
         </Typography>
         {addOpen && (
-          <AddToTripDialog open={addOpen} tripId={currentTrip.id} onClose={() => setAddOpen(false)} />
+          <AddToTripDialog
+            open={addOpen}
+            tripId={currentTrip.id}
+            onClose={() => setAddOpen(false)}
+          />
         )}
       </Box>
     );
@@ -317,7 +312,8 @@ function PartCard({
   const details = partDetailLines(part);
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete "${plan.title || planTypeLabel(plan.type)}" from this trip?`)) return;
+    if (!window.confirm(`Delete "${plan.title || planTypeLabel(plan.type)}" from this trip?`))
+      return;
     setBusy(true);
     try {
       await deletePlan(plan.id);
@@ -383,10 +379,22 @@ function PartCard({
               />
             )}
             {part.status === 'confirmed' && (
-              <Chip label="confirmed" size="small" color="success" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+              <Chip
+                label="confirmed"
+                size="small"
+                color="success"
+                variant="outlined"
+                sx={{ height: 18, fontSize: 10 }}
+              />
             )}
             {greyed && (
-              <Chip label="cancelled" size="small" color="warning" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+              <Chip
+                label="cancelled"
+                size="small"
+                color="warning"
+                variant="outlined"
+                sx={{ height: 18, fontSize: 10 }}
+              />
             )}
           </Stack>
 
@@ -419,6 +427,12 @@ function PartCard({
           {formatCost(plan.cost_amount, plan.cost_currency) && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               Cost: {formatCost(plan.cost_amount, plan.cost_currency)}
+            </Typography>
+          )}
+
+          {plan.supplier_name && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Supplier: {plan.supplier_name}
             </Typography>
           )}
 
@@ -455,8 +469,13 @@ function PartCard({
               {line}
             </Typography>
           ))}
+          <PlanContact plan={plan} onClickStop={stop} />
           {plan.notes && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mt: 1, whiteSpace: 'pre-wrap' }}
+            >
               {plan.notes}
             </Typography>
           )}
@@ -476,7 +495,12 @@ function PartCard({
               <Button size="small" onClick={() => setPrivacyOpen(true)}>
                 Privacy &amp; passengers
               </Button>
-              <Button size="small" color="error" onClick={() => void handleDelete()} disabled={busy}>
+              <Button
+                size="small"
+                color="error"
+                onClick={() => void handleDelete()}
+                disabled={busy}
+              >
                 Delete
               </Button>
             </Stack>
@@ -496,6 +520,62 @@ function PartCard({
         <PlanEditDialog open={editOpen} plan={plan} onClose={() => setEditOpen(false)} />
       )}
     </Card>
+  );
+}
+
+/** Turn a stored website value into a safe href, or null when it can't be one.
+ * A bare host (no scheme) is assumed https; an explicit http(s):// URL is kept;
+ * any other scheme (javascript:, data:, …) is rejected so a persisted, shared
+ * field can't become a stored script-URL injection vector. */
+function normalizeWebsite(url: string | undefined | null): string | null {
+  const trimmed = (url ?? '').trim();
+  if (!trimmed) return null;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+  if (!scheme) return `https://${trimmed}`;
+  const proto = scheme[1].toLowerCase();
+  return proto === 'http' || proto === 'https' ? trimmed : null;
+}
+
+/** The supplier contact block shown in a plan's expanded body: email and phone
+ * as mailto:/tel: links and the website as an open-in-new-tab link. Consistent
+ * across every plan type; renders nothing when no contact detail is set. The
+ * links stop click propagation so tapping them doesn't fold the card. */
+function PlanContact({ plan, onClickStop }: { plan: Plan; onClickStop: (e: MouseEvent) => void }) {
+  const website = normalizeWebsite(plan.website);
+  if (!plan.contact_email && !plan.contact_phone && !website) return null;
+  return (
+    <>
+      {plan.contact_email && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Email:{' '}
+          <Link href={`mailto:${plan.contact_email}`} onClick={onClickStop}>
+            {plan.contact_email}
+          </Link>
+        </Typography>
+      )}
+      {plan.contact_phone && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Phone:{' '}
+          <Link href={`tel:${plan.contact_phone.replace(/\s+/g, '')}`} onClick={onClickStop}>
+            {plan.contact_phone}
+          </Link>
+        </Typography>
+      )}
+      {website && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Website:{' '}
+          <Link
+            href={website}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClickStop}
+            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}
+          >
+            {plan.website.trim()} <OpenInNewIcon sx={{ fontSize: 12 }} />
+          </Link>
+        </Typography>
+      )}
+    </>
   );
 }
 

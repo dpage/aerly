@@ -48,6 +48,10 @@ type ConfirmPlanInput struct {
 	Source          string
 	CostAmount      *float64
 	CostCurrency    string
+	SupplierName    string
+	ContactEmail    string
+	ContactPhone    string
+	Website         string
 	PassengerIDs    []int64
 	Visibility      *ConfirmVisibility
 
@@ -149,6 +153,10 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 			Source:          source,
 			CostAmount:      in.CostAmount,
 			CostCurrency:    in.CostCurrency,
+			SupplierName:    in.SupplierName,
+			ContactEmail:    in.ContactEmail,
+			ContactPhone:    in.ContactPhone,
+			Website:         in.Website,
 			TripItUID:       in.TripItUID,
 			Parts:           parts,
 		}, createdBy)

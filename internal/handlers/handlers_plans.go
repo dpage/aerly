@@ -101,6 +101,10 @@ type createPlanReq struct {
 	Source          string             `json:"source"`
 	CostAmount      *float64           `json:"cost_amount,omitempty"`
 	CostCurrency    string             `json:"cost_currency"`
+	SupplierName    string             `json:"supplier_name"`
+	ContactEmail    string             `json:"contact_email"`
+	ContactPhone    string             `json:"contact_phone"`
+	Website         string             `json:"website"`
 	PassengerIDs    []int64            `json:"passenger_ids"`
 	Visibility      *planVisibilityReq `json:"visibility"`
 	Parts           []planPartReq      `json:"parts"`
@@ -113,6 +117,10 @@ type updatePlanReq struct {
 	Notes           *string  `json:"notes,omitempty"`
 	CostAmount      *float64 `json:"cost_amount,omitempty"`
 	CostCurrency    *string  `json:"cost_currency,omitempty"`
+	SupplierName    *string  `json:"supplier_name,omitempty"`
+	ContactEmail    *string  `json:"contact_email,omitempty"`
+	ContactPhone    *string  `json:"contact_phone,omitempty"`
+	Website         *string  `json:"website,omitempty"`
 }
 
 type planVisibilityReq struct {
@@ -186,6 +194,10 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		Source:          in.Source,
 		CostAmount:      in.CostAmount,
 		CostCurrency:    in.CostCurrency,
+		SupplierName:    in.SupplierName,
+		ContactEmail:    in.ContactEmail,
+		ContactPhone:    in.ContactPhone,
+		Website:         in.Website,
 		Parts:           parts,
 	}, me.ID)
 	if err != nil {
@@ -241,6 +253,10 @@ func (a *API) updatePlan(w http.ResponseWriter, r *http.Request) {
 		Notes:           in.Notes,
 		CostAmount:      in.CostAmount,
 		CostCurrency:    in.CostCurrency,
+		SupplierName:    in.SupplierName,
+		ContactEmail:    in.ContactEmail,
+		ContactPhone:    in.ContactPhone,
+		Website:         in.Website,
 	}); err != nil {
 		handleStoreErr(w, err)
 		return
@@ -835,6 +851,10 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 		Source:            plan.Source,
 		CostAmount:        plan.CostAmount,
 		CostCurrency:      plan.CostCurrency,
+		SupplierName:      plan.SupplierName,
+		ContactEmail:      plan.ContactEmail,
+		ContactPhone:      plan.ContactPhone,
+		Website:           plan.Website,
 		CreatedBy:         plan.CreatedBy,
 		PassengerIDs:      pids,
 		Visibility:        visDTO,

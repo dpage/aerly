@@ -63,6 +63,10 @@ type ProposedPlan struct {
 	Notes            string
 	CostAmount       *float64
 	CostCurrency     string
+	SupplierName     string
+	ContactEmail     string
+	ContactPhone     string
+	Website          string
 	Confidence       float64
 	Parts            []ProposedPart
 	SupersedesPartID *int64
@@ -127,6 +131,10 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 			TicketNumber:    ep.TicketNumber,
 			CostAmount:      ep.CostAmount,
 			CostCurrency:    ep.CostCurrency,
+			SupplierName:    ep.SupplierName,
+			ContactEmail:    ep.ContactEmail,
+			ContactPhone:    ep.ContactPhone,
+			Website:         ep.Website,
 		}
 		minConf := 1.0
 		for _, part := range ep.Parts {
@@ -201,6 +209,20 @@ func groupByConfirmationRef(plans []ProposedPlan) []ProposedPlan {
 			// fragment supplies.
 			if out[i].CostCurrency == "" {
 				out[i].CostCurrency = p.CostCurrency
+			}
+			// Same booking, same supplier — fill any contact detail a later
+			// fragment carried that the primary lacked.
+			if out[i].SupplierName == "" {
+				out[i].SupplierName = p.SupplierName
+			}
+			if out[i].ContactEmail == "" {
+				out[i].ContactEmail = p.ContactEmail
+			}
+			if out[i].ContactPhone == "" {
+				out[i].ContactPhone = p.ContactPhone
+			}
+			if out[i].Website == "" {
+				out[i].Website = p.Website
 			}
 			out[i].SupersedesPartID = nil
 			continue

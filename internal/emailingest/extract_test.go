@@ -350,6 +350,68 @@ func TestExtractPlans_ParsesTicketAndCost(t *testing.T) {
 	}
 }
 
+func TestExtractPlans_ParsesSupplierContact(t *testing.T) {
+	resp := `{"plans":[
+	  {"type":"hotel","title":"Plaza","confirmation_ref":"H1",
+	   "supplier_name":"The Plaza Hotel","contact_email":"reservations@plaza.example",
+	   "contact_phone":"+1 212 555 0100","website":"https://www.theplaza.example/booking",
+	   "parts":[{"type":"hotel","confidence":"high","start_date":"2026-06-12","hotel":{"property_name":"Plaza"}}]}
+	]}`
+	x, _ := newExtractor(resp)
+	plans, err := x.ExtractPlans(context.Background(), "body", nil)
+	if err != nil {
+		t.Fatalf("ExtractPlans: %v", err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("got %d plans, want 1", len(plans))
+	}
+	p := plans[0]
+	if p.SupplierName != "The Plaza Hotel" {
+		t.Errorf("supplier_name = %q", p.SupplierName)
+	}
+	if p.ContactEmail != "reservations@plaza.example" {
+		t.Errorf("contact_email = %q", p.ContactEmail)
+	}
+	if p.ContactPhone != "+1 212 555 0100" {
+		t.Errorf("contact_phone = %q", p.ContactPhone)
+	}
+	if p.Website != "https://www.theplaza.example/booking" {
+		t.Errorf("website = %q", p.Website)
+	}
+}
+
+func TestExtractPlans_MergesSupplierContactAcrossSameBookingFragments(t *testing.T) {
+	// Two flight fragments of one booking (same confirmation_ref) where only the
+	// second carries the supplier/contact block — the merge must keep it.
+	resp := `{"plans":[
+	  {"type":"flight","title":"Out","confirmation_ref":"PNR9","parts":[
+	     {"type":"flight","confidence":"high","flight":{"ident":"BA286","date":"2026-06-12","origin_iata":"LHR","dest_iata":"JFK","depart_time":"09:00","arrive_date":"2026-06-12","arrive_time":"12:00"}}
+	  ]},
+	  {"type":"flight","title":"Back","confirmation_ref":"PNR9",
+	   "supplier_name":"British Airways","contact_email":"help@ba.example",
+	   "contact_phone":"+44 20 7946 0000","website":"https://ba.example/manage","parts":[
+	     {"type":"flight","confidence":"high","flight":{"ident":"BA285","date":"2026-06-19","origin_iata":"JFK","dest_iata":"LHR","depart_time":"18:00","arrive_date":"2026-06-20","arrive_time":"06:00"}}
+	  ]}
+	]}`
+	x, _ := newExtractor(resp)
+	plans, err := x.ExtractPlans(context.Background(), "body", nil)
+	if err != nil {
+		t.Fatalf("ExtractPlans: %v", err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("got %d plans, want 1 (merged by confirmation_ref)", len(plans))
+	}
+	p := plans[0]
+	if len(p.Parts) != 2 {
+		t.Errorf("merged plan has %d parts, want 2", len(p.Parts))
+	}
+	if p.SupplierName != "British Airways" || p.ContactEmail != "help@ba.example" ||
+		p.ContactPhone != "+44 20 7946 0000" || p.Website != "https://ba.example/manage" {
+		t.Errorf("merged contact = %q/%q/%q/%q, want the second fragment's values",
+			p.SupplierName, p.ContactEmail, p.ContactPhone, p.Website)
+	}
+}
+
 func TestExtractPlans_DropsLowConfidenceAndDatelessNonFlight(t *testing.T) {
 	resp := `{"plans":[
 	  {"type":"hotel","title":"A","parts":[{"type":"hotel","confidence":"low","start_date":"2026-06-12"}]},
