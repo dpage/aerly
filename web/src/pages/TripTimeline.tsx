@@ -1,5 +1,4 @@
 import { type MouseEvent, useMemo, useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -442,17 +441,6 @@ function PartCard({
             </Typography>
           )}
 
-          {part.type === 'flight' && part.flight && (
-            <Link
-              component={RouterLink}
-              to={`/tracker?part=${part.id}`}
-              onClick={stop}
-              variant="caption"
-              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}
-            >
-              Track {part.flight.ident || plan.title} <OpenInNewIcon sx={{ fontSize: 12 }} />
-            </Link>
-          )}
         </Box>
       </Stack>
 

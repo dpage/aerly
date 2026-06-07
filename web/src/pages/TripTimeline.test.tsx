@@ -218,32 +218,6 @@ describe('TripTimeline', () => {
     expect(newCard).toHaveStyle({ opacity: '1' });
   });
 
-  it('links a flight part through to the tracker', () => {
-    state.currentTrip = tripWith([
-      plan(
-        [
-          part({
-            id: 4,
-            type: 'flight',
-            flight: {
-              ident: 'TP123',
-              callsign: '',
-              scheduled_out: '2026-10-12T09:00:00Z',
-              scheduled_in: '2026-10-12T11:00:00Z',
-              origin_iata: 'LHR',
-              dest_iata: 'LIS',
-              flight_status: 'Scheduled',
-            },
-          }),
-        ],
-        { id: 1, title: 'Flight out' },
-      ),
-    ]);
-    renderTimeline();
-    const link = screen.getByRole('link', { name: /Track TP123/i });
-    expect(link).toHaveAttribute('href', '/tracker?part=4');
-  });
-
   it('expands a tile inline (no modal) when tapped, and allows several open at once', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1, effective_at: '2026-10-12T09:00:00Z' })], {
