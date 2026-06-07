@@ -523,12 +523,17 @@ function PartCard({
   );
 }
 
-/** Prefix a bare website (no scheme) with https:// so it works as an href.
- * A mailto:/tel:/http(s):// value is left untouched. */
-function normalizeWebsite(url: string): string {
-  const trimmed = url.trim();
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+/** Turn a stored website value into a safe href, or null when it can't be one.
+ * A bare host (no scheme) is assumed https; an explicit http(s):// URL is kept;
+ * any other scheme (javascript:, data:, …) is rejected so a persisted, shared
+ * field can't become a stored script-URL injection vector. */
+function normalizeWebsite(url: string | undefined | null): string | null {
+  const trimmed = (url ?? '').trim();
+  if (!trimmed) return null;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+  if (!scheme) return `https://${trimmed}`;
+  const proto = scheme[1].toLowerCase();
+  return proto === 'http' || proto === 'https' ? trimmed : null;
 }
 
 /** The supplier contact block shown in a plan's expanded body: email and phone
@@ -536,7 +541,8 @@ function normalizeWebsite(url: string): string {
  * across every plan type; renders nothing when no contact detail is set. The
  * links stop click propagation so tapping them doesn't fold the card. */
 function PlanContact({ plan, onClickStop }: { plan: Plan; onClickStop: (e: MouseEvent) => void }) {
-  if (!plan.contact_email && !plan.contact_phone && !plan.website) return null;
+  const website = normalizeWebsite(plan.website);
+  if (!plan.contact_email && !plan.contact_phone && !website) return null;
   return (
     <>
       {plan.contact_email && (
@@ -555,17 +561,17 @@ function PlanContact({ plan, onClickStop }: { plan: Plan; onClickStop: (e: Mouse
           </Link>
         </Typography>
       )}
-      {plan.website && (
+      {website && (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
           Website:{' '}
           <Link
-            href={normalizeWebsite(plan.website)}
+            href={website}
             target="_blank"
             rel="noopener noreferrer"
             onClick={onClickStop}
             sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}
           >
-            {plan.website} <OpenInNewIcon sx={{ fontSize: 12 }} />
+            {plan.website.trim()} <OpenInNewIcon sx={{ fontSize: 12 }} />
           </Link>
         </Typography>
       )}

@@ -399,6 +399,44 @@ describe('PlanEditDialog', () => {
     );
   });
 
+  it('prefills and saves edited supplier contact details', async () => {
+    h.updatePlan.mockResolvedValue(undefined);
+    render_(
+      plan({
+        supplier_name: 'British Airways',
+        contact_email: 'old@ba.example',
+        contact_phone: '+44 1',
+        website: 'ba.example',
+      }),
+    );
+    // Prefilled from the plan.
+    expect(screen.getByRole('textbox', { name: /^supplier/i })).toHaveValue('British Airways');
+    expect(screen.getByRole('textbox', { name: /contact email/i })).toHaveValue('old@ba.example');
+    expect(screen.getByRole('textbox', { name: /contact phone/i })).toHaveValue('+44 1');
+    expect(screen.getByRole('textbox', { name: /^website/i })).toHaveValue('ba.example');
+
+    const email = screen.getByRole('textbox', { name: /contact email/i });
+    await userEvent.clear(email);
+    await userEvent.type(email, 'new@ba.example');
+    const site = screen.getByRole('textbox', { name: /^website/i });
+    await userEvent.clear(site);
+    await userEvent.type(site, 'https://ba.example/manage');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(h.updatePlan).toHaveBeenCalledWith(42, {
+        title: 'BA123',
+        confirmation_ref: 'XYZ',
+        ticket_number: '',
+        notes: 'window seat',
+        cost_currency: '',
+        supplier_name: 'British Airways',
+        contact_email: 'new@ba.example',
+        contact_phone: '+44 1',
+        website: 'https://ba.example/manage',
+      }),
+    );
+  });
+
   it('saves an edited ticket number and cost with currency', async () => {
     h.updatePlan.mockResolvedValue(undefined);
     render_(plan({ cost_currency: 'GBP' }));

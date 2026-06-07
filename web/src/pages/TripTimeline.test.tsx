@@ -530,6 +530,33 @@ describe('TripTimeline', () => {
     expect(site).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
+  it('preserves an explicit https website but suppresses unsafe schemes', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], {
+        id: 1,
+        title: 'Safe',
+        website: 'https://safe.example/path',
+      }),
+      plan([part({ id: 2, plan_id: 2 })], {
+        id: 2,
+        title: 'Unsafe',
+        // A persisted javascript: URL must never render as a clickable link.
+        website: 'javascript:alert(1)',
+      }),
+    ]);
+    renderTimeline();
+    const safe = screen.getByTestId('part-card-1');
+    await userEvent.click(safe);
+    expect(within(safe).getByRole('link', { name: /safe.example\/path/ })).toHaveAttribute(
+      'href',
+      'https://safe.example/path',
+    );
+    const unsafe = screen.getByTestId('part-card-2');
+    await userEvent.click(unsafe);
+    expect(within(unsafe).queryByRole('link', { name: /alert/ })).toBeNull();
+    expect(unsafe).not.toHaveTextContent('Website:');
+  });
+
   it('closes the edit dialog via its onClose callback', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),

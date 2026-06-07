@@ -113,10 +113,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const [notes, setNotes] = useState(plan.notes);
   const [cost, setCost] = useState(plan.cost_amount != null ? String(plan.cost_amount) : '');
   const [currency, setCurrency] = useState(plan.cost_currency ?? '');
-  const [supplierName, setSupplierName] = useState(plan.supplier_name ?? '');
-  const [contactEmail, setContactEmail] = useState(plan.contact_email ?? '');
-  const [contactPhone, setContactPhone] = useState(plan.contact_phone ?? '');
-  const [website, setWebsite] = useState(plan.website ?? '');
+  const [supplierName, setSupplierName] = useState(plan.supplier_name);
+  const [contactEmail, setContactEmail] = useState(plan.contact_email);
+  const [contactPhone, setContactPhone] = useState(plan.contact_phone);
+  const [website, setWebsite] = useState(plan.website);
   const [moveTarget, setMoveTarget] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
 
@@ -141,10 +141,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     setNotes(plan.notes);
     setCost(plan.cost_amount != null ? String(plan.cost_amount) : '');
     setCurrency(plan.cost_currency ?? '');
-    setSupplierName(plan.supplier_name ?? '');
-    setContactEmail(plan.contact_email ?? '');
-    setContactPhone(plan.contact_phone ?? '');
-    setWebsite(plan.website ?? '');
+    setSupplierName(plan.supplier_name);
+    setContactEmail(plan.contact_email);
+    setContactPhone(plan.contact_phone);
+    setWebsite(plan.website);
     setMoveTarget('');
     const snap: Record<number, PartForm> = {};
     for (const p of editableParts) snap[p.id] = partForm(p);
@@ -194,10 +194,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
         ticketNumber.trim() !== (plan.ticket_number ?? '') ||
         notes !== plan.notes ||
         curr !== (plan.cost_currency ?? '') ||
-        supplierName.trim() !== (plan.supplier_name ?? '') ||
-        contactEmail.trim() !== (plan.contact_email ?? '') ||
-        contactPhone.trim() !== (plan.contact_phone ?? '') ||
-        website.trim() !== (plan.website ?? '') ||
+        supplierName.trim() !== plan.supplier_name ||
+        contactEmail.trim() !== plan.contact_email ||
+        contactPhone.trim() !== plan.contact_phone ||
+        website.trim() !== plan.website ||
         costChanged;
       if (metaChanged) {
         const payload: UpdatePlanInput = {

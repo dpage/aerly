@@ -33,8 +33,8 @@ type Plan struct {
 	ContactPhone string
 	Website      string
 	CreatedBy    *int64
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // PlanPart is the spine: one timeline entry — a time range with a start and

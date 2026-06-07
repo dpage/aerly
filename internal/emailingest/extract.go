@@ -458,6 +458,21 @@ func mergeSameBooking(plans []planops.ExtractedPlan) []planops.ExtractedPlan {
 		k := key{p.Type, ref}
 		if i, ok := idx[k]; ok {
 			out[i].Parts = append(out[i].Parts, p.Parts...)
+			// Same booking → same supplier. Fill any contact detail a later
+			// fragment carried that the first lacked, so it isn't dropped before
+			// the propose-stage grouping runs.
+			if out[i].SupplierName == "" {
+				out[i].SupplierName = p.SupplierName
+			}
+			if out[i].ContactEmail == "" {
+				out[i].ContactEmail = p.ContactEmail
+			}
+			if out[i].ContactPhone == "" {
+				out[i].ContactPhone = p.ContactPhone
+			}
+			if out[i].Website == "" {
+				out[i].Website = p.Website
+			}
 			continue
 		}
 		idx[k] = len(out)
