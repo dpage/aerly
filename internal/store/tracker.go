@@ -206,6 +206,9 @@ type BackfillPayload struct {
 	// written via RefreshFlightPartGate (overwrite-when-non-empty).
 	OriginTerminal string
 	DestTerminal   string
+	// AircraftType (e.g. "Boeing 777-300ER") is only-fill-empty metadata too,
+	// surfaced on the flight tile.
+	AircraftType string
 }
 
 // BackfillFlightPart writes resolver-supplied metadata only into columns that
@@ -236,11 +239,13 @@ func (s *Store) BackfillFlightPart(ctx context.Context, partID int64, in Backfil
 			icao24          = COALESCE(icao24, NULLIF($4, '')),
 			callsign        = COALESCE(callsign, NULLIF($5, '')),
 			origin_terminal = COALESCE(origin_terminal, NULLIF($6, '')),
-			dest_terminal   = COALESCE(dest_terminal, NULLIF($7, ''))
+			dest_terminal   = COALESCE(dest_terminal, NULLIF($7, '')),
+			aircraft_type   = COALESCE(aircraft_type, NULLIF($8, ''))
 		WHERE plan_part_id = $1`,
 		partID, strings.ToUpper(in.OriginIATA), strings.ToUpper(in.DestIATA),
 		icao24, callsign,
-		strings.TrimSpace(in.OriginTerminal), strings.TrimSpace(in.DestTerminal)); err != nil {
+		strings.TrimSpace(in.OriginTerminal), strings.TrimSpace(in.DestTerminal),
+		strings.TrimSpace(in.AircraftType)); err != nil {
 		return err
 	}
 

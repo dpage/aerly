@@ -309,6 +309,7 @@ func TestParseADBTime(t *testing.T) {
 // many airports; the resolver must surface them (trimmed). Absent fields → "".
 func TestAeroDataBoxCarriesGateAndTerminal(t *testing.T) {
 	body := `[{"number":"BA 286","codeshareStatus":"IsOperator",
+	  "aircraft":{"model":" Boeing 777-300ER "},
 	  "departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-19 08:30Z"},"gate":" B32 ","terminal":"5"},
 	  "arrival":{"airport":{"iata":"SFO"},"scheduledTime":{"utc":"2026-05-19T19:45Z"},"gate":"A12"}}]`
 	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -329,6 +330,9 @@ func TestAeroDataBoxCarriesGateAndTerminal(t *testing.T) {
 	}
 	if rf.DestTerminal != "" {
 		t.Errorf("dest terminal = %q, want empty (absent)", rf.DestTerminal)
+	}
+	if rf.AircraftType != "Boeing 777-300ER" {
+		t.Errorf("aircraft type = %q, want Boeing 777-300ER (trimmed)", rf.AircraftType)
 	}
 }
 

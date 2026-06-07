@@ -34,6 +34,7 @@ export default function FlightDetailCard({ flight, startTz, endTz }: Props) {
     <Stack spacing={1.5} data-testid="flight-detail-card">
       <Section title="Aircraft">
         <Row label="Flight" value={flight.ident || null} />
+        <Row label="Type" value={flight.aircraft_type || null} />
         <Row label="ICAO24" value={flight.icao24 ? <Mono>{flight.icao24}</Mono> : null} />
         <Row label="Callsign" value={flight.callsign || null} />
       </Section>

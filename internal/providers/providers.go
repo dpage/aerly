@@ -61,6 +61,10 @@ type ResolvedFlight struct {
 	ICAO24       string // 24-bit Mode-S hex address (lowercase) when known
 	Callsign     string // ICAO radio callsign (e.g. "DLH493"); empty when not yet assigned
 	Notes        string // free-text summary — typically airline + aircraft model
+	// AircraftType is the human-readable airframe model (e.g. "Boeing
+	// 777-300ER"), surfaced on the flight tile. Empty when the provider hasn't
+	// assigned an airframe yet.
+	AircraftType string
 	// Gate / terminal as reported on the departure/arrival movement. Many
 	// airports populate these; absent → empty string. Gate changes are what
 	// the gate-change alert detects, so the resolver surfaces the live value

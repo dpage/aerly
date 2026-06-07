@@ -178,6 +178,28 @@ func TestFlightDetailForReturnsGateAndTerminal(t *testing.T) {
 	if fd.DestGate != "" || fd.DestTerminal != "" {
 		t.Errorf("dest gate/terminal = %q/%q, want empty", fd.DestGate, fd.DestTerminal)
 	}
+
+	// Aircraft type is backfilled only-fill-empty (like terminal) and surfaced
+	// on the flight tile via FlightDetailFor.
+	if err := s.BackfillFlightPart(ctx, parts[0].ID, BackfillPayload{
+		AircraftType: "Boeing 777-300ER",
+	}); err != nil {
+		t.Fatalf("BackfillFlightPart aircraft type: %v", err)
+	}
+	fd, _ = s.FlightDetailFor(ctx, parts[0].ID)
+	if fd.AircraftType != "Boeing 777-300ER" {
+		t.Errorf("aircraft type = %q, want Boeing 777-300ER", fd.AircraftType)
+	}
+	// A second backfill must NOT overwrite the captured type.
+	if err := s.BackfillFlightPart(ctx, parts[0].ID, BackfillPayload{
+		AircraftType: "Airbus A320",
+	}); err != nil {
+		t.Fatalf("BackfillFlightPart aircraft type again: %v", err)
+	}
+	fd, _ = s.FlightDetailFor(ctx, parts[0].ID)
+	if fd.AircraftType != "Boeing 777-300ER" {
+		t.Errorf("aircraft type should be only-fill-empty, got %q", fd.AircraftType)
+	}
 }
 
 func TestPlanPartAddressesRoundTrip(t *testing.T) {
