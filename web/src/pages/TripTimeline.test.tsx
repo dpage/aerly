@@ -672,6 +672,44 @@ describe('TripTimeline', () => {
     expect(screen.queryByText(/not on map/i)).toBeNull();
   });
 
+  it('shows the arrival baggage belt on a flight tile face only once published', async () => {
+    const flightLeg = (belt?: string) =>
+      tripWith([
+        plan(
+          [
+            part({
+              id: 5,
+              plan_id: 1,
+              type: 'flight',
+              flight: {
+                ident: 'TP456',
+                callsign: '',
+                scheduled_out: '2026-10-12T09:00:00Z',
+                scheduled_in: '2026-10-12T11:00:00Z',
+                origin_iata: 'LHR',
+                dest_iata: 'LIS',
+                flight_status: 'Scheduled',
+                ...(belt ? { dest_baggage_belt: belt } : {}),
+              },
+            }),
+          ],
+          { id: 1, type: 'flight', title: 'Flight out' },
+        ),
+      ]);
+
+    // No belt yet → no belt line on the tile face.
+    state.currentTrip = flightLeg();
+    const { unmount } = renderTimeline();
+    expect(await screen.findByText('Flight out')).toBeInTheDocument();
+    expect(screen.queryByText(/Baggage belt:/)).not.toBeInTheDocument();
+    unmount();
+
+    // Belt published → it shows.
+    state.currentTrip = flightLeg('34');
+    renderTimeline();
+    expect(await screen.findByText('Baggage belt: 34')).toBeInTheDocument();
+  });
+
   describe('link bookings mode', () => {
     function twoFlights() {
       return tripWith([

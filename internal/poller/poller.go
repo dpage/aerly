@@ -349,6 +349,13 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 		slog.Error("poller: refresh gate failed", "id", f.ID, "err", err)
 		return nil, err
 	}
+	// Arrival baggage belt is updatable like gate (a change is what the
+	// belt-change alert detects), so it takes the same overwrite-when-non-empty
+	// path rather than the only-fill-empty backfill above.
+	if err := p.Store.RefreshFlightPartBelt(ctx, f.ID, rf.DestBaggageBelt); err != nil {
+		slog.Error("poller: refresh belt failed", "id", f.ID, "err", err)
+		return nil, err
+	}
 	// Fill the schedule from the resolver when the stored one is degenerate (a
 	// manual add with just a number + date leaves scheduled_in == scheduled_out).
 	// The store guards on scheduled_in <= scheduled_out, so a real user-entered

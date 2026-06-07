@@ -74,26 +74,27 @@ func (p *PlanPart) EffectiveAt() time.Time { return p.StartsAt }
 // FlightDetail is the flight-type satellite: the tracker-specific machinery
 // (the three time pairs, the rich status enum, airframe ids, poll timestamps).
 type FlightDetail struct {
-	PlanPartID     int64
-	Ident          string
-	ICAO24         *string
-	Callsign       *string
-	ScheduledOut   time.Time
-	ScheduledIn    time.Time
-	EstimatedOut   *time.Time
-	EstimatedIn    *time.Time
-	ActualOut      *time.Time
-	ActualIn       *time.Time
-	OriginIATA     string
-	DestIATA       string
-	FlightStatus   string
-	LastPolledAt   *time.Time
-	LastResolvedAt *time.Time
-	OriginGate     string
-	DestGate       string
-	OriginTerminal string
-	DestTerminal   string
-	AircraftType   string
+	PlanPartID      int64
+	Ident           string
+	ICAO24          *string
+	Callsign        *string
+	ScheduledOut    time.Time
+	ScheduledIn     time.Time
+	EstimatedOut    *time.Time
+	EstimatedIn     *time.Time
+	ActualOut       *time.Time
+	ActualIn        *time.Time
+	OriginIATA      string
+	DestIATA        string
+	FlightStatus    string
+	LastPolledAt    *time.Time
+	LastResolvedAt  *time.Time
+	OriginGate      string
+	DestGate        string
+	OriginTerminal  string
+	DestTerminal    string
+	AircraftType    string
+	DestBaggageBelt string
 }
 
 // EffectiveOut / EffectiveIn collapse the three time pairs the way the tracker
@@ -951,13 +952,13 @@ func (s *Store) FlightDetailFor(ctx context.Context, partID int64) (*FlightDetai
 			dest_iata, flight_status, last_polled_at, last_resolved_at,
 			COALESCE(origin_gate,''), COALESCE(dest_gate,''),
 			COALESCE(origin_terminal,''), COALESCE(dest_terminal,''),
-			COALESCE(aircraft_type,'')
+			COALESCE(aircraft_type,''), COALESCE(dest_baggage_belt,'')
 		FROM flight_details WHERE plan_part_id = $1`, partID).Scan(
 		&d.PlanPartID, &d.Ident, &d.ICAO24, &d.Callsign, &d.ScheduledOut,
 		&d.ScheduledIn, &d.EstimatedOut, &d.EstimatedIn, &d.ActualOut, &d.ActualIn,
 		&d.OriginIATA, &d.DestIATA, &d.FlightStatus, &d.LastPolledAt, &d.LastResolvedAt,
 		&d.OriginGate, &d.DestGate, &d.OriginTerminal, &d.DestTerminal,
-		&d.AircraftType)
+		&d.AircraftType, &d.DestBaggageBelt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // genuine "no satellite"
 	}

@@ -311,7 +311,7 @@ func TestAeroDataBoxCarriesGateAndTerminal(t *testing.T) {
 	body := `[{"number":"BA 286","codeshareStatus":"IsOperator",
 	  "aircraft":{"model":" Boeing 777-300ER "},
 	  "departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-19 08:30Z"},"gate":" B32 ","terminal":"5"},
-	  "arrival":{"airport":{"iata":"SFO"},"scheduledTime":{"utc":"2026-05-19T19:45Z"},"gate":"A12"}}]`
+	  "arrival":{"airport":{"iata":"SFO"},"scheduledTime":{"utc":"2026-05-19T19:45Z"},"gate":"A12","baggageBelt":" 34 "}}]`
 	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(body))
 	})
@@ -333,6 +333,9 @@ func TestAeroDataBoxCarriesGateAndTerminal(t *testing.T) {
 	}
 	if rf.AircraftType != "Boeing 777-300ER" {
 		t.Errorf("aircraft type = %q, want Boeing 777-300ER (trimmed)", rf.AircraftType)
+	}
+	if rf.DestBaggageBelt != "34" {
+		t.Errorf("dest baggage belt = %q, want 34 (trimmed)", rf.DestBaggageBelt)
 	}
 }
 

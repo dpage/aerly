@@ -31,6 +31,11 @@ import (
 // cancellation; not threshold-gated). The gate is folded into the dedupe
 // signature so the same gate isn't re-alerted on the next tick. Terminal is
 // captured (origin_terminal/dest_terminal) but not alerted on.
+//
+// Baggage belt (migration 0027) works exactly like gate: dest_baggage_belt is
+// the arrival carousel, persisted overwrite-when-non-empty each tick, and a
+// change to a new non-empty belt always-alerts and is folded into the dedupe
+// signature.
 
 // delaySigBucketMin is the granularity at which a delay is folded into the
 // dedupe signature. Two polls reporting the same delay (to the minute) produce
@@ -47,10 +52,16 @@ type alertState struct {
 	terminalDV bool // status is Cancelled or Diverted
 	originGate string
 	destGate   string
+	destBelt   string // arrival baggage belt
 }
 
 func snapshot(f *store.Flight) alertState {
-	st := alertState{status: f.Status, originGate: f.OriginGate, destGate: f.DestGate}
+	st := alertState{
+		status:     f.Status,
+		originGate: f.OriginGate,
+		destGate:   f.DestGate,
+		destBelt:   f.DestBaggageBelt,
+	}
 	st.terminalDV = f.Status == "Cancelled" || f.Status == "Diverted"
 	eff := effectiveOut(f)
 	if eff != nil {
@@ -95,6 +106,9 @@ func alertSignature(st alertState) string {
 	}
 	if st.destGate != "" {
 		parts = append(parts, "dgate:"+st.destGate)
+	}
+	if st.destBelt != "" {
+		parts = append(parts, "belt:"+st.destBelt)
 	}
 	return strings.Join(parts, "|")
 }
@@ -171,6 +185,12 @@ func changeKind(prev, cur alertState) string {
 	if gateChanged(prev.originGate, cur.originGate) || gateChanged(prev.destGate, cur.destGate) {
 		return "gate"
 	}
+	// Baggage belt: the arrival belt became a NEW non-empty value. Always-alert
+	// like gate (the belt is published near arrival; a reassignment is exactly
+	// what travellers want pushed). Same new-non-empty rule as gateChanged.
+	if gateChanged(prev.destBelt, cur.destBelt) {
+		return "belt"
+	}
 	// Delay: a (deeper) departure delay. We treat any increase in the measured
 	// delay as a candidate; the min_delay_min threshold is applied per
 	// recipient so a 5-minute slip below everyone's threshold is suppressed
@@ -207,6 +227,8 @@ func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 			return "now arrives at gate " + cur.destGate
 		}
 		return "gate changed"
+	case "belt":
+		return "bags on belt " + cur.destBelt
 	default:
 		return ""
 	}
@@ -234,7 +256,7 @@ func (p *Poller) dispatchAlert(
 	recips []store.AlertRecipient,
 ) {
 	msg := alertMessage(cur.Ident, kind, detail)
-	always := kind == "cancelled" || kind == "diverted" || kind == "gate"
+	always := kind == "cancelled" || kind == "diverted" || kind == "gate" || kind == "belt"
 
 	for _, r := range recips {
 		// Threshold filter for delays only; cancellations/diversions always

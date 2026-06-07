@@ -200,6 +200,27 @@ func TestFlightDetailForReturnsGateAndTerminal(t *testing.T) {
 	if fd.AircraftType != "Boeing 777-300ER" {
 		t.Errorf("aircraft type should be only-fill-empty, got %q", fd.AircraftType)
 	}
+
+	// Arrival baggage belt is updatable (overwrite-when-non-empty), like gate,
+	// and surfaced on the flight tile via FlightDetailFor.
+	if err := s.RefreshFlightPartBelt(ctx, parts[0].ID, "34"); err != nil {
+		t.Fatalf("RefreshFlightPartBelt: %v", err)
+	}
+	fd, _ = s.FlightDetailFor(ctx, parts[0].ID)
+	if fd.DestBaggageBelt != "34" {
+		t.Errorf("baggage belt = %q, want 34", fd.DestBaggageBelt)
+	}
+	// A non-empty value overwrites; an empty value preserves the known belt.
+	if err := s.RefreshFlightPartBelt(ctx, parts[0].ID, "12"); err != nil {
+		t.Fatalf("RefreshFlightPartBelt update: %v", err)
+	}
+	if err := s.RefreshFlightPartBelt(ctx, parts[0].ID, ""); err != nil {
+		t.Fatalf("RefreshFlightPartBelt empty: %v", err)
+	}
+	fd, _ = s.FlightDetailFor(ctx, parts[0].ID)
+	if fd.DestBaggageBelt != "12" {
+		t.Errorf("baggage belt = %q, want 12 (overwritten, empty preserves)", fd.DestBaggageBelt)
+	}
 }
 
 func TestPlanPartAddressesRoundTrip(t *testing.T) {

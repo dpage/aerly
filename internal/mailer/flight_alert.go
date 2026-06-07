@@ -18,7 +18,7 @@ type FlightAlertInput struct {
 	ToAddr    string
 	PublicURL string
 	Ident     string    // flight ident, e.g. "BA123"
-	Kind      string    // delayed|cancelled|diverted|gate
+	Kind      string    // delayed|cancelled|diverted|gate|belt
 	Detail    string    // ready-to-render change phrase
 	When      time.Time // new effective time for delays; zero otherwise
 }
@@ -35,6 +35,10 @@ func FlightAlertSubject(ident, kind string) string {
 		// Lead with "Gate change" so the notification preview is actionable,
 		// e.g. "Gate change: BA286" + " — now departs gate B32".
 		return fmt.Sprintf("Gate change: %s", ident)
+	case "belt":
+		// Arrival baggage belt assigned/changed, e.g. "Baggage belt: BA286"
+		// + " — bags on belt 34".
+		return fmt.Sprintf("Baggage belt: %s", ident)
 	default:
 		return fmt.Sprintf("Your flight %s is now delayed", ident)
 	}
