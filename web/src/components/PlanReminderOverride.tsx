@@ -48,15 +48,16 @@ export default function PlanReminderOverride({ plan }: Props) {
   };
 
   return (
-    <Stack direction="row" spacing={2} alignItems="center">
+    <Stack direction="row" spacing={2} alignItems="flex-end" flexWrap="wrap">
       <TextField
         select
+        variant="standard"
         size="small"
         label="Reminder"
         value={mode}
         disabled={busy}
         onChange={(e) => void apply(e.target.value as Mode, leadNum())}
-        sx={{ minWidth: 180 }}
+        sx={{ minWidth: 160 }}
       >
         <MenuItem value="inherit">Use trip setting</MenuItem>
         <MenuItem value="on">Remind me</MenuItem>
@@ -66,13 +67,14 @@ export default function PlanReminderOverride({ plan }: Props) {
         <TextField
           label="Hours before"
           type="number"
+          variant="standard"
           size="small"
           value={lead}
           disabled={busy}
           onChange={(e) => setLead(e.target.value)}
           onBlur={() => void apply('on', leadNum())}
           slotProps={{ htmlInput: { min: 1, 'aria-label': 'Reminder lead time in hours' } }}
-          sx={{ width: 130 }}
+          sx={{ width: 110 }}
         />
       )}
     </Stack>

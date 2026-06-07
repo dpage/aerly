@@ -467,13 +467,19 @@ function PartCard({
               {plan.notes}
             </Typography>
           )}
-          {isViewer && (
-            <Box sx={{ mt: 0.5 }}>
-              <PlanAlertToggle plan={plan} />
-            </Box>
-          )}
-          <Box sx={{ mt: 0.5 }}>
-            <PlanReminderOverride plan={plan} />
+          <Box sx={{ mt: 1.5 }}>
+            <Divider sx={{ mb: 1 }} />
+            <Typography
+              variant="overline"
+              color="text.secondary"
+              sx={{ display: 'block', lineHeight: 1.5 }}
+            >
+              Notifications
+            </Typography>
+            <Stack spacing={1} alignItems="flex-start" sx={{ mt: 0.5 }}>
+              {isViewer && <PlanAlertToggle plan={plan} />}
+              <PlanReminderOverride plan={plan} />
+            </Stack>
           </Box>
           {canEdit && (
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
