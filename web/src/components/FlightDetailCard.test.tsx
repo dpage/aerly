@@ -69,6 +69,17 @@ describe('FlightDetailCard', () => {
     expect(screen.getByText('Actual in')).toBeInTheDocument();
   });
 
+  it('shows the aircraft type when present and collapses its row when absent', () => {
+    const { rerender } = render(
+      <FlightDetailCard flight={flight({ aircraft_type: 'Boeing 777-300ER' })} />,
+    );
+    expect(screen.getByText('Type')).toBeInTheDocument();
+    expect(screen.getByText('Boeing 777-300ER')).toBeInTheDocument();
+    // Absent aircraft type → the Type row collapses to null.
+    rerender(<FlightDetailCard flight={flight()} />);
+    expect(screen.queryByText('Type')).not.toBeInTheDocument();
+  });
+
   it('collapses the schedule to only the rows present', () => {
     render(<FlightDetailCard flight={flight({ callsign: '' })} />);
     // Only scheduled out/in are set; estimated/actual collapse.

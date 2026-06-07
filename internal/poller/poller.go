@@ -333,6 +333,7 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 		ICAO24: rf.ICAO24, Callsign: rf.Callsign,
 		Notes:          rf.Notes,
 		OriginTerminal: rf.OriginTerminal, DestTerminal: rf.DestTerminal,
+		AircraftType: rf.AircraftType,
 	}); err != nil {
 		slog.Error("poller: backfill write failed", "id", f.ID, "err", err)
 		return nil, err

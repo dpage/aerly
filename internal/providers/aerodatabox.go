@@ -347,6 +347,7 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 	r.DestTerminal = strings.TrimSpace(f.Arrival.Terminal)
 	if f.Aircraft != nil {
 		r.ICAO24 = strings.ToLower(strings.TrimSpace(f.Aircraft.ModeS))
+		r.AircraftType = strings.TrimSpace(f.Aircraft.Model)
 	}
 	r.Callsign = strings.ToUpper(strings.TrimSpace(f.CallSign))
 	var notes []string

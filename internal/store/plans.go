@@ -93,6 +93,7 @@ type FlightDetail struct {
 	DestGate       string
 	OriginTerminal string
 	DestTerminal   string
+	AircraftType   string
 }
 
 // EffectiveOut / EffectiveIn collapse the three time pairs the way the tracker
@@ -949,12 +950,14 @@ func (s *Store) FlightDetailFor(ctx context.Context, partID int64) (*FlightDetai
 			estimated_out, estimated_in, actual_out, actual_in, origin_iata,
 			dest_iata, flight_status, last_polled_at, last_resolved_at,
 			COALESCE(origin_gate,''), COALESCE(dest_gate,''),
-			COALESCE(origin_terminal,''), COALESCE(dest_terminal,'')
+			COALESCE(origin_terminal,''), COALESCE(dest_terminal,''),
+			COALESCE(aircraft_type,'')
 		FROM flight_details WHERE plan_part_id = $1`, partID).Scan(
 		&d.PlanPartID, &d.Ident, &d.ICAO24, &d.Callsign, &d.ScheduledOut,
 		&d.ScheduledIn, &d.EstimatedOut, &d.EstimatedIn, &d.ActualOut, &d.ActualIn,
 		&d.OriginIATA, &d.DestIATA, &d.FlightStatus, &d.LastPolledAt, &d.LastResolvedAt,
-		&d.OriginGate, &d.DestGate, &d.OriginTerminal, &d.DestTerminal)
+		&d.OriginGate, &d.DestGate, &d.OriginTerminal, &d.DestTerminal,
+		&d.AircraftType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil // genuine "no satellite"
 	}

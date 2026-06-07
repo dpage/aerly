@@ -461,6 +461,7 @@ type FlightDetailDTO struct {
 	DestGate       string        `json:"dest_gate"`
 	OriginTerminal string        `json:"origin_terminal"`
 	DestTerminal   string        `json:"dest_terminal"`
+	AircraftType   string        `json:"aircraft_type"`
 	LastPolledAt   *time.Time    `json:"last_polled_at,omitempty"`
 	LatestPosition *PositionDTO  `json:"latest_position,omitempty"`
 	Track          []PositionDTO `json:"track,omitempty"`
@@ -695,6 +696,7 @@ func ToFlightDetailDTO(d *store.FlightDetail, latest *store.Position, track []*s
 		DestGate:       d.DestGate,
 		OriginTerminal: d.OriginTerminal,
 		DestTerminal:   d.DestTerminal,
+		AircraftType:   d.AircraftType,
 		LastPolledAt:   d.LastPolledAt,
 	}
 	if latest != nil {
