@@ -6,6 +6,7 @@ import maplibregl, {
   type StyleSpecification,
 } from 'maplibre-gl';
 import {
+  Alert,
   Avatar,
   AvatarGroup,
   Box,
@@ -18,6 +19,7 @@ import {
 } from '@mui/material';
 
 import type { PlanPart } from '../api/types';
+import { unlocatedCount } from '../lib/geo';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
@@ -88,6 +90,8 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
         (a.effective_at ?? a.starts_at).localeCompare(b.effective_at ?? b.starts_at),
       );
   }, [parts]);
+
+  const strandedCount = useMemo(() => unlocatedCount(parts), [parts]);
 
   const selected = ordered.find((p) => p.id === selectedId) ?? null;
 
@@ -313,6 +317,14 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
         }}
       >
         {controls && <Box sx={{ p: 2, pb: 1 }}>{controls}</Box>}
+        {strandedCount > 0 && (
+          <Box sx={{ px: 2, pt: 1 }}>
+            <Alert severity="warning" sx={{ py: 0 }}>
+              {strandedCount} location{strandedCount === 1 ? '' : 's'} couldn&apos;t
+              be placed on the map — open the item to fix its address.
+            </Alert>
+          </Box>
+        )}
         {ordered.length === 0 ? (
           <Box sx={{ p: 2 }}>
             <Typography variant="body2" color="text.secondary">
