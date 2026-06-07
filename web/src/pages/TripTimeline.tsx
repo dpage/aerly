@@ -9,8 +9,10 @@ import {
   Divider,
   Link,
   Stack,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import LocationOffIcon from '@mui/icons-material/LocationOff';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 import { useStore } from '../state/store';
@@ -30,6 +32,7 @@ import {
 } from '../lib/trip-format';
 import { fmtGate } from '../lib/gate';
 import { formatCost } from '../lib/format';
+import { isUnlocated } from '../lib/geo';
 
 // Accent palette used to visually tie a plan's parts together (PRD §6.2). A
 // plan's parts all share the same accent stripe and connector, so a return
@@ -401,6 +404,18 @@ function PartCard({
             <Typography variant="body2" color="text.secondary" noWrap>
               {places}
             </Typography>
+          )}
+          {isUnlocated(part) && (
+            <Tooltip title="Address couldn't be located — not shown on the map">
+              <Chip
+                size="small"
+                color="warning"
+                variant="outlined"
+                icon={<LocationOffIcon sx={{ fontSize: 14 }} />}
+                label="Not on map"
+                sx={{ height: 18, fontSize: 10, mt: 0.25 }}
+              />
+            </Tooltip>
           )}
 
           <Typography variant="caption" color="text.secondary">
