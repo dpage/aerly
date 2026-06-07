@@ -209,6 +209,10 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   const [ticketNumber, setTicketNumber] = useState('');
   const [cost, setCost] = useState('');
   const [currency, setCurrency] = useState('');
+  const [supplierName, setSupplierName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [website, setWebsite] = useState('');
   const [notes, setNotes] = useState('');
   const [startLabel, setStartLabel] = useState('');
   const [endLabel, setEndLabel] = useState('');
@@ -245,6 +249,10 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
       notes: notes.trim() || undefined,
       cost_amount: costNum != null && !Number.isNaN(costNum) ? costNum : undefined,
       cost_currency: currency.trim().toUpperCase() || undefined,
+      supplier_name: supplierName.trim() || undefined,
+      contact_email: contactEmail.trim() || undefined,
+      contact_phone: contactPhone.trim() || undefined,
+      website: website.trim() || undefined,
       parts: [part],
     };
     onCreate(input);
@@ -388,6 +396,40 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
       </Stack>
 
       <TextField
+        label="Supplier (optional)"
+        value={supplierName}
+        onChange={(e) => setSupplierName(e.target.value)}
+        placeholder="Who the booking is with, e.g. British Airways"
+        fullWidth
+      />
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <TextField
+          label="Contact email (optional)"
+          type="email"
+          value={contactEmail}
+          onChange={(e) => setContactEmail(e.target.value)}
+          fullWidth
+        />
+        <TextField
+          label="Contact phone (optional)"
+          type="tel"
+          value={contactPhone}
+          onChange={(e) => setContactPhone(e.target.value)}
+          fullWidth
+        />
+      </Stack>
+
+      <TextField
+        label="Website (optional)"
+        type="url"
+        value={website}
+        onChange={(e) => setWebsite(e.target.value)}
+        placeholder="https://…"
+        fullWidth
+      />
+
+      <TextField
         label="Notes (optional)"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
@@ -419,9 +461,8 @@ function PasteTab({ disabled, onIngest }: IngestTabProps) {
   return (
     <Stack spacing={2} sx={{ pt: 1 }}>
       <Typography variant="body2" color="text.secondary">
-        Paste any confirmation text — a forwarded itinerary, a hotel email body,
-        the taxi firm’s reply — and Aerly will extract the plan for you to
-        confirm.
+        Paste any confirmation text — a forwarded itinerary, a hotel email body, the taxi firm’s
+        reply — and Aerly will extract the plan for you to confirm.
       </Typography>
       <TextField
         label="Confirmation text"
@@ -475,9 +516,8 @@ function UploadTab({ disabled, onIngest }: UploadTabProps) {
   return (
     <Stack spacing={2} sx={{ pt: 1 }}>
       <Typography variant="body2" color="text.secondary">
-        Drop in a ticket or confirmation (PDF, email, or text) — or a TripIt
-        calendar export (.ics) — and Aerly will extract the plans for you to
-        confirm.
+        Drop in a ticket or confirmation (PDF, email, or text) — or a TripIt calendar export (.ics)
+        — and Aerly will extract the plans for you to confirm.
       </Typography>
       <Button variant="outlined" component="label">
         Choose file
@@ -514,17 +554,16 @@ function EmailTab({ enabled, address }: { enabled: boolean; address?: string }) 
   if (!enabled || !address) {
     return (
       <Alert severity="info" variant="outlined" sx={{ mt: 1 }}>
-        Email forwarding isn’t enabled on this server. Use Paste text or Upload
-        to add a confirmation, or add the plan manually.
+        Email forwarding isn’t enabled on this server. Use Paste text or Upload to add a
+        confirmation, or add the plan manually.
       </Alert>
     );
   }
   return (
     <Stack spacing={2} sx={{ pt: 1 }}>
       <Typography variant="body2" color="text.secondary">
-        Forward any booking confirmation to the address below and Aerly will
-        extract the plan and file it into the trip whose dates best fit — you
-        can move it afterwards if the guess is off.
+        Forward any booking confirmation to the address below and Aerly will extract the plan and
+        file it into the trip whose dates best fit — you can move it afterwards if the guess is off.
       </Typography>
       <Alert severity="info" variant="outlined">
         <Stack spacing={0.5}>
@@ -561,6 +600,10 @@ interface DraftPlan {
   /** Editable cost as a free string so the field can be cleared; parsed on confirm. */
   cost: string;
   cost_currency: string;
+  supplier_name: string;
+  contact_email: string;
+  contact_phone: string;
+  website: string;
   confidence: number;
   parts: PlanPartInput[];
   supersedes_part_id?: number;
@@ -577,6 +620,10 @@ function toDraft(p: ProposedPlan): DraftPlan {
     notes: p.notes,
     cost: p.cost_amount != null ? String(p.cost_amount) : '',
     cost_currency: p.cost_currency ?? '',
+    supplier_name: p.supplier_name ?? '',
+    contact_email: p.contact_email ?? '',
+    contact_phone: p.contact_phone ?? '',
+    website: p.website ?? '',
     confidence: p.confidence,
     parts: p.parts.map((part) => ({
       type: part.type,
@@ -628,6 +675,10 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
           notes: d.notes.trim() || undefined,
           cost_amount: costNum != null && !Number.isNaN(costNum) ? costNum : undefined,
           cost_currency: d.cost_currency.trim().toUpperCase() || undefined,
+          supplier_name: d.supplier_name.trim() || undefined,
+          contact_email: d.contact_email.trim() || undefined,
+          contact_phone: d.contact_phone.trim() || undefined,
+          website: d.website.trim() || undefined,
           parts: d.parts,
           // Only carry the supersession when the user kept "replace existing".
           supersedes_part_id: d.applySupersede ? d.supersedes_part_id : undefined,
@@ -640,8 +691,8 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
     return (
       <Stack spacing={2}>
         <Alert severity="warning" variant="outlined">
-          Aerly couldn’t find any plans in that. Try a different paste or upload,
-          or add the plan manually.
+          Aerly couldn’t find any plans in that. Try a different paste or upload, or add the plan
+          manually.
         </Alert>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Button onClick={onCancel}>Back</Button>
@@ -653,8 +704,8 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
   return (
     <Stack spacing={2}>
       <Typography variant="body2" color="text.secondary">
-        Review what Aerly extracted. Edit anything that’s off, then add the plans
-        you want. Items flagged as uncertain are worth a second look.
+        Review what Aerly extracted. Edit anything that’s off, then add the plans you want. Items
+        flagged as uncertain are worth a second look.
       </Typography>
 
       {drafts.map((d, idx) => (
@@ -689,15 +740,13 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
             <Alert severity="warning" variant="outlined" sx={{ mb: 1.5 }}>
               <Stack spacing={1}>
                 <Typography variant="body2">
-                  This looks like a rebooking that replaces an existing plan part
-                  (#{d.supersedes_part_id}).
+                  This looks like a rebooking that replaces an existing plan part (#
+                  {d.supersedes_part_id}).
                 </Typography>
                 <FormControl size="small">
                   <Select
                     value={d.applySupersede ? 'replace' : 'keep'}
-                    onChange={(e) =>
-                      update(idx, { applySupersede: e.target.value === 'replace' })
-                    }
+                    onChange={(e) => update(idx, { applySupersede: e.target.value === 'replace' })}
                     aria-label="Supersession choice"
                   >
                     <MenuItem value="replace">Replace the existing part</MenuItem>
@@ -756,6 +805,44 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
               />
             </Stack>
             <TextField
+              label="Supplier"
+              value={d.supplier_name}
+              onChange={(e) => update(idx, { supplier_name: e.target.value })}
+              size="small"
+              fullWidth
+              disabled={!d.accepted}
+            />
+            <Stack direction="row" spacing={1}>
+              <TextField
+                label="Contact email"
+                type="email"
+                value={d.contact_email}
+                onChange={(e) => update(idx, { contact_email: e.target.value })}
+                size="small"
+                fullWidth
+                disabled={!d.accepted}
+              />
+              <TextField
+                label="Contact phone"
+                type="tel"
+                value={d.contact_phone}
+                onChange={(e) => update(idx, { contact_phone: e.target.value })}
+                size="small"
+                fullWidth
+                disabled={!d.accepted}
+              />
+            </Stack>
+            <TextField
+              label="Website"
+              type="url"
+              value={d.website}
+              onChange={(e) => update(idx, { website: e.target.value })}
+              size="small"
+              fullWidth
+              placeholder="https://…"
+              disabled={!d.accepted}
+            />
+            <TextField
               label="Notes"
               value={d.notes}
               onChange={(e) => update(idx, { notes: e.target.value })}
@@ -796,11 +883,7 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
         <Button onClick={onCancel} disabled={busy}>
           Back
         </Button>
-        <Button
-          variant="contained"
-          onClick={confirm}
-          disabled={busy || acceptedCount === 0}
-        >
+        <Button variant="contained" onClick={confirm} disabled={busy || acceptedCount === 0}>
           {acceptedCount > 1 ? `Add ${acceptedCount} plans` : 'Add plan'}
         </Button>
       </Box>

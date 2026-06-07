@@ -372,6 +372,16 @@ export interface Plan {
   cost_amount?: number;
   /** ISO 4217 currency code for cost_amount, '' when unknown. */
   cost_currency: string;
+  /** Who the booking is with (airline, hotel, operator, agent…), '' when unknown.
+   * Part of the supplier contact block shown consistently on every plan type. */
+  supplier_name: string;
+  /** Supplier contact email for this booking, '' when unknown. */
+  contact_email: string;
+  /** Supplier contact phone for this booking, '' when unknown. */
+  contact_phone: string;
+  /** Supplier booking/management URL, '' when unknown. Rendered as an
+   * open-in-new-tab link in view mode. */
+  website: string;
   created_by?: number;
   passenger_ids: number[];
   visibility: PlanVisibility;
@@ -442,6 +452,10 @@ export interface CreatePlanInput {
   notes?: string;
   cost_amount?: number;
   cost_currency?: string;
+  supplier_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  website?: string;
   passenger_ids?: number[];
   visibility?: PlanVisibility;
   parts: PlanPartInput[];
@@ -454,6 +468,10 @@ export interface UpdatePlanInput {
   notes?: string;
   cost_amount?: number;
   cost_currency?: string;
+  supplier_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  website?: string;
 }
 
 /** A part as supplied when creating/editing a plan. */
@@ -534,6 +552,10 @@ export interface ProposedPlan {
   notes: string;
   cost_amount?: number;
   cost_currency: string;
+  supplier_name: string;
+  contact_email: string;
+  contact_phone: string;
+  website: string;
   /** 0..1 extraction confidence; low values are flagged in the confirm step. */
   confidence: number;
   parts: PlanPart[];
@@ -563,6 +585,10 @@ export interface ConfirmPlanInput {
   notes?: string;
   cost_amount?: number;
   cost_currency?: string;
+  supplier_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  website?: string;
   passenger_ids?: number[];
   visibility?: PlanVisibility;
   parts: PlanPartInput[];

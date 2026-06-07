@@ -337,6 +337,12 @@ type PlanDTO struct {
 	Source          string            `json:"source"`
 	CostAmount      *float64          `json:"cost_amount,omitempty"`
 	CostCurrency    string            `json:"cost_currency"`
+	// Supplier contact block: who the booking is with and how to reach them.
+	// Consistent across every plan type (issue: plan contact info).
+	SupplierName    string            `json:"supplier_name"`
+	ContactEmail    string            `json:"contact_email"`
+	ContactPhone    string            `json:"contact_phone"`
+	Website         string            `json:"website"`
 	CreatedBy       *int64            `json:"created_by,omitempty"`
 	PassengerIDs    []int64           `json:"passenger_ids"`
 	Visibility      PlanVisibilityDTO `json:"visibility"`
@@ -365,6 +371,10 @@ type ProposedPlanDTO struct {
 	Notes            string        `json:"notes"`
 	CostAmount       *float64      `json:"cost_amount,omitempty"`
 	CostCurrency     string        `json:"cost_currency"`
+	SupplierName     string        `json:"supplier_name"`
+	ContactEmail     string        `json:"contact_email"`
+	ContactPhone     string        `json:"contact_phone"`
+	Website          string        `json:"website"`
 	Confidence       float64       `json:"confidence"`
 	Parts            []PlanPartDTO `json:"parts"`
 	SupersedesPartID *int64        `json:"supersedes_part_id,omitempty"`

@@ -74,6 +74,10 @@ function plan(over: Partial<Plan> = {}): Plan {
     source: '',
     cost_currency: '',
     passenger_ids: [],
+    supplier_name: '',
+    contact_email: '',
+    contact_phone: '',
+    website: '',
     visibility: { mode: 'everyone', user_ids: [] },
     alert_opted_in: false,
     parts: [],
@@ -113,7 +117,13 @@ describe('PlanEditDialog', () => {
 
   it('does not call updatePlan when nothing changed', async () => {
     const onClose = vi.fn();
-    render(<PlanEditDialog open plan={plan({ ticket_number: 'E9', cost_amount: 100, cost_currency: 'EUR' })} onClose={onClose} />);
+    render(
+      <PlanEditDialog
+        open
+        plan={plan({ ticket_number: 'E9', cost_amount: 100, cost_currency: 'EUR' })}
+        onClose={onClose}
+      />,
+    );
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(h.updatePlan).not.toHaveBeenCalled();
@@ -138,6 +148,10 @@ describe('PlanEditDialog', () => {
         ticket_number: '',
         notes: 'window seat',
         cost_currency: '',
+        supplier_name: '',
+        contact_email: '',
+        contact_phone: '',
+        website: '',
       }),
     );
   });
@@ -163,7 +177,9 @@ describe('PlanEditDialog', () => {
   it('hides the move control when there is nowhere to move to', () => {
     h.state.trips = [trip({ id: 7, name: 'Lisbon', my_role: 'owner' })];
     render_();
-    expect(screen.queryByRole('combobox', { name: /move to another trip/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: /move to another trip/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('edits a part time and saves it as a UTC instant in the part tz', async () => {
@@ -234,9 +250,7 @@ describe('PlanEditDialog', () => {
     render_(
       plan({
         type: 'dining',
-        parts: [
-          part({ type: 'dining', ends_at: undefined, end_label: '', end_tz: '' }),
-        ],
+        parts: [part({ type: 'dining', ends_at: undefined, end_label: '', end_tz: '' })],
       }),
     );
     expect(screen.getByText('Where')).toBeInTheDocument();
@@ -323,10 +337,7 @@ describe('PlanEditDialog', () => {
     render_(
       plan({
         type: 'ground',
-        parts: [
-          part({ id: 100, type: 'ground' }),
-          part({ id: 101, type: 'ground' }),
-        ],
+        parts: [part({ id: 100, type: 'ground' }), part({ id: 101, type: 'ground' })],
       }),
     );
     expect(screen.getAllByRole('button', { name: /split out/i })).toHaveLength(2);
@@ -380,6 +391,10 @@ describe('PlanEditDialog', () => {
         ticket_number: '',
         notes: 'aisle seat',
         cost_currency: '',
+        supplier_name: '',
+        contact_email: '',
+        contact_phone: '',
+        website: '',
       }),
     );
   });
@@ -397,6 +412,10 @@ describe('PlanEditDialog', () => {
         ticket_number: 'E1234567890',
         notes: 'window seat',
         cost_currency: 'GBP',
+        supplier_name: '',
+        contact_email: '',
+        contact_phone: '',
+        website: '',
         cost_amount: 250.5,
       }),
     );

@@ -87,6 +87,12 @@ type ExtractedPlan struct {
 	TicketNumber string
 	CostAmount   *float64
 	CostCurrency string
+	// Supplier contact block — who the booking is with and how to reach them.
+	// Empty when the source doesn't state them.
+	SupplierName string
+	ContactEmail string
+	ContactPhone string
+	Website      string
 	Parts        []ExtractedPart
 }
 

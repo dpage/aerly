@@ -350,6 +350,36 @@ func TestExtractPlans_ParsesTicketAndCost(t *testing.T) {
 	}
 }
 
+func TestExtractPlans_ParsesSupplierContact(t *testing.T) {
+	resp := `{"plans":[
+	  {"type":"hotel","title":"Plaza","confirmation_ref":"H1",
+	   "supplier_name":"The Plaza Hotel","contact_email":"reservations@plaza.example",
+	   "contact_phone":"+1 212 555 0100","website":"https://www.theplaza.example/booking",
+	   "parts":[{"type":"hotel","confidence":"high","start_date":"2026-06-12","hotel":{"property_name":"Plaza"}}]}
+	]}`
+	x, _ := newExtractor(resp)
+	plans, err := x.ExtractPlans(context.Background(), "body", nil)
+	if err != nil {
+		t.Fatalf("ExtractPlans: %v", err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("got %d plans, want 1", len(plans))
+	}
+	p := plans[0]
+	if p.SupplierName != "The Plaza Hotel" {
+		t.Errorf("supplier_name = %q", p.SupplierName)
+	}
+	if p.ContactEmail != "reservations@plaza.example" {
+		t.Errorf("contact_email = %q", p.ContactEmail)
+	}
+	if p.ContactPhone != "+1 212 555 0100" {
+		t.Errorf("contact_phone = %q", p.ContactPhone)
+	}
+	if p.Website != "https://www.theplaza.example/booking" {
+		t.Errorf("website = %q", p.Website)
+	}
+}
+
 func TestExtractPlans_DropsLowConfidenceAndDatelessNonFlight(t *testing.T) {
 	resp := `{"plans":[
 	  {"type":"hotel","title":"A","parts":[{"type":"hotel","confidence":"low","start_date":"2026-06-12"}]},

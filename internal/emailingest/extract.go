@@ -105,6 +105,10 @@ const plansSystemPrompt = `You receive the body of a forwarded travel email (and
     "confirmation_ref": "<booking reference / PNR if present, else ''>",
     "ticket_number": "<e-ticket / ticket number if present, else ''>",
     "cost": { "amount": <total price as a number, or null if not stated>, "currency": "<ISO 4217 code e.g. 'GBP','USD','EUR', else ''>" },
+    "supplier_name": "<who the booking is with: the airline, hotel, train operator, car-hire firm, restaurant or tour operator, else ''>",
+    "contact_email": "<supplier's contact email for this booking, else ''>",
+    "contact_phone": "<supplier's contact phone for this booking, in international format when possible, else ''>",
+    "website": "<supplier's booking / management website URL, else ''>",
     "parts": [{
       "type": "<same as the plan's type>",
       "confidence": "high"|"medium"|"low",
@@ -138,7 +142,7 @@ const plansSystemPrompt = `You receive the body of a forwarded travel email (and
   "notes": "optional short note"
 }
 
-Only populate the per-type detail object that matches the part's type; leave the others absent or empty. For flight parts fill the "flight" object exactly as for a flights-only extraction (ident + date are required; origin/dest/times are strongly preferred). For every non-flight part fill start_date (required) and as many of the generic + per-type fields as the email states. Fill start_address/end_address with a full postal address whenever the message states it or the place is well-known — for instance, infer the street address of a named airport terminal such as "LHR T5". When a taxi or other transfer runs out and back (a drop-off now and a return pickup later), capture BOTH runs as separate ground plans, each with its own start/end place and address. For a ground transfer between an airport and accommodation (e.g. a holiday-package "resort transfer"), set start_time from the flight times in the SAME confirmation when the transfer's own time isn't stated: for an airport→hotel transfer use the inbound flight's arrival time; for a hotel→airport transfer use a couple of hours before the outbound flight's departure. Leave start_time empty only when neither the transfer nor any flight in the email gives you a time. Set a part's confidence to "low" when its core identity (flight ident+date, or a non-flight start_date) is ambiguous and the caller will skip it. Fill ticket_number with the e-ticket / ticket number when the message states one. Fill cost with the booking total the message confirms (the grand total actually paid, not a per-night rate or a tax line) and its currency; set cost.amount to null when no price is stated. Leave any field empty ("") when the email genuinely doesn't say. Today is %s.`
+Only populate the per-type detail object that matches the part's type; leave the others absent or empty. For flight parts fill the "flight" object exactly as for a flights-only extraction (ident + date are required; origin/dest/times are strongly preferred). For every non-flight part fill start_date (required) and as many of the generic + per-type fields as the email states. Fill start_address/end_address with a full postal address whenever the message states it or the place is well-known — for instance, infer the street address of a named airport terminal such as "LHR T5". When a taxi or other transfer runs out and back (a drop-off now and a return pickup later), capture BOTH runs as separate ground plans, each with its own start/end place and address. For a ground transfer between an airport and accommodation (e.g. a holiday-package "resort transfer"), set start_time from the flight times in the SAME confirmation when the transfer's own time isn't stated: for an airport→hotel transfer use the inbound flight's arrival time; for a hotel→airport transfer use a couple of hours before the outbound flight's departure. Leave start_time empty only when neither the transfer nor any flight in the email gives you a time. Set a part's confidence to "low" when its core identity (flight ident+date, or a non-flight start_date) is ambiguous and the caller will skip it. Fill ticket_number with the e-ticket / ticket number when the message states one. Fill cost with the booking total the message confirms (the grand total actually paid, not a per-night rate or a tax line) and its currency; set cost.amount to null when no price is stated. Fill supplier_name with the company the booking is made with (the airline, hotel, train operator, car-hire firm, restaurant or tour operator) and contact_email / contact_phone / website with how to reach that supplier about this booking — prefer a booking-specific or customer-service contact over a generic marketing one. Leave any field empty ("") when the email genuinely doesn't say. Today is %s.`
 
 var identRe = regexp.MustCompile(`^[A-Z0-9]{2,3}[0-9]{1,4}[A-Z]?$`)
 var dateRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
@@ -244,7 +248,11 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 				Amount   *float64 `json:"amount"`
 				Currency string   `json:"currency"`
 			} `json:"cost"`
-			Parts []struct {
+			SupplierName string `json:"supplier_name"`
+			ContactEmail string `json:"contact_email"`
+			ContactPhone string `json:"contact_phone"`
+			Website      string `json:"website"`
+			Parts        []struct {
 				Type       string `json:"type"`
 				Confidence string `json:"confidence"`
 				Flight     struct {
@@ -299,6 +307,10 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 			Title:           pl.Title,
 			ConfirmationRef: pl.ConfirmationRef,
 			TicketNumber:    strings.TrimSpace(pl.TicketNumber),
+			SupplierName:    strings.TrimSpace(pl.SupplierName),
+			ContactEmail:    strings.TrimSpace(pl.ContactEmail),
+			ContactPhone:    strings.TrimSpace(pl.ContactPhone),
+			Website:         strings.TrimSpace(pl.Website),
 		}
 		// Carry a cost whenever the model gave a non-negative amount (0 is a
 		// valid "free" total); an ISO 4217 code is exactly three letters, so

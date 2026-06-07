@@ -33,7 +33,8 @@ vi.mock('../state/store', () => ({
 // AddToTripDialog pulls a large ingest-flow slice off the store; the timeline
 // only needs to mount it when `open`, so stub it to a minimal dialog.
 vi.mock('../components/AddToTripDialog', () => ({
-  default: ({ open }: { open: boolean }) => (open ? <div role="dialog">Add to trip dialog</div> : null),
+  default: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog">Add to trip dialog</div> : null,
 }));
 
 import TripTimeline from './TripTimeline';
@@ -132,9 +133,7 @@ describe('TripTimeline', () => {
   });
 
   it('drops dismissed parts', () => {
-    state.currentTrip = tripWith([
-      plan([part({ id: 1, dismissed_at: '2026-09-01T00:00:00Z' })]),
-    ]);
+    state.currentTrip = tripWith([plan([part({ id: 1, dismissed_at: '2026-09-01T00:00:00Z' })])]);
     renderTimeline();
     expect(screen.getByText(/Nothing on this trip yet/i)).toBeInTheDocument();
   });
@@ -144,7 +143,13 @@ describe('TripTimeline', () => {
       plan(
         [
           part({ id: 1, plan_id: 1, effective_at: '2026-10-12T09:00:00Z' }),
-          part({ id: 2, plan_id: 1, effective_at: '2026-10-18T09:00:00Z', start_label: 'LIS', end_label: 'LHR' }),
+          part({
+            id: 2,
+            plan_id: 1,
+            effective_at: '2026-10-18T09:00:00Z',
+            start_label: 'LIS',
+            end_label: 'LHR',
+          }),
         ],
         { id: 1, title: 'Return flights' },
       ),
@@ -245,7 +250,10 @@ describe('TripTimeline', () => {
         id: 1,
         title: 'Outbound',
       }),
-      plan([part({ id: 2, plan_id: 2, effective_at: '2026-10-18T09:00:00Z' })], { id: 2, title: 'Return' }),
+      plan([part({ id: 2, plan_id: 2, effective_at: '2026-10-18T09:00:00Z' })], {
+        id: 2,
+        title: 'Return',
+      }),
     ]);
     renderTimeline();
     // Collapsed: the per-plan actions aren't mounted, and there's no modal.
@@ -304,7 +312,9 @@ describe('TripTimeline', () => {
     const card = screen.getByTestId('part-card-1');
     await userEvent.click(card);
     expect(within(card).getByLabelText(/Notify me of changes/i)).toBeInTheDocument();
-    expect(within(card).queryByRole('button', { name: /Privacy & passengers/i })).not.toBeInTheDocument();
+    expect(
+      within(card).queryByRole('button', { name: /Privacy & passengers/i }),
+    ).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
   });
@@ -338,7 +348,11 @@ describe('TripTimeline', () => {
         expect: [/Eurostar/, /Coach 7/, /Seat 12A/, /Platform 4/],
       },
       {
-        p: { id: 13, type: 'ground', ground: { provider: 'Addison Lee', vehicle: 'Saloon', phone: '020' } },
+        p: {
+          id: 13,
+          type: 'ground',
+          ground: { provider: 'Addison Lee', vehicle: 'Saloon', phone: '020' },
+        },
         expect: [/Addison Lee/, /Saloon/, /020/],
       },
       {
@@ -488,6 +502,34 @@ describe('TripTimeline', () => {
     expect(card).toHaveTextContent('Cost: £523.40');
   });
 
+  it('shows the supplier and contact details with an open-in-new-tab website link', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], {
+        id: 1,
+        title: 'Flight out',
+        supplier_name: 'British Airways',
+        contact_email: 'help@ba.example',
+        contact_phone: '+44 20 7946 0000',
+        website: 'www.ba.example/manage',
+      }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    // Supplier shows in the header without expanding.
+    expect(card).toHaveTextContent('Supplier: British Airways');
+    // The contact links live in the expanded body.
+    await userEvent.click(card);
+    const email = within(card).getByRole('link', { name: /help@ba.example/ });
+    expect(email).toHaveAttribute('href', 'mailto:help@ba.example');
+    const phone = within(card).getByRole('link', { name: /\+44 20 7946 0000/ });
+    expect(phone).toHaveAttribute('href', 'tel:+442079460000');
+    const site = within(card).getByRole('link', { name: /www.ba.example\/manage/ });
+    // A bare host is normalised to https:// and opened in a new tab.
+    expect(site).toHaveAttribute('href', 'https://www.ba.example/manage');
+    expect(site).toHaveAttribute('target', '_blank');
+    expect(site).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
   it('closes the edit dialog via its onClose callback', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
@@ -516,10 +558,12 @@ describe('TripTimeline', () => {
 
   it('keeps a tile expanded when a click lands inside the expanded body', async () => {
     state.currentTrip = tripWith([
-      plan(
-        [part({ id: 1, plan_id: 1, type: 'ground', start_address: '12 Acacia Avenue' })],
-        { id: 1, type: 'ground', title: 'Taxi', notes: 'Ring on arrival' },
-      ),
+      plan([part({ id: 1, plan_id: 1, type: 'ground', start_address: '12 Acacia Avenue' })], {
+        id: 1,
+        type: 'ground',
+        title: 'Taxi',
+        notes: 'Ring on arrival',
+      }),
     ]);
     renderTimeline();
     const card = screen.getByTestId('part-card-1');
@@ -691,7 +735,15 @@ describe('TripTimeline', () => {
           title: 'Another flight',
         }),
         plan(
-          [part({ id: 3, plan_id: 3, type: 'hotel', end_label: '', starts_at: '2026-10-13T15:00:00Z' })],
+          [
+            part({
+              id: 3,
+              plan_id: 3,
+              type: 'hotel',
+              end_label: '',
+              starts_at: '2026-10-13T15:00:00Z',
+            }),
+          ],
           { id: 3, type: 'hotel', title: 'A hotel' },
         ),
       ]);
@@ -713,7 +765,15 @@ describe('TripTimeline', () => {
           title: 'A flight',
         }),
         plan(
-          [part({ id: 2, plan_id: 2, type: 'train', end_label: 'PAR', starts_at: '2026-10-13T09:00:00Z' })],
+          [
+            part({
+              id: 2,
+              plan_id: 2,
+              type: 'train',
+              end_label: 'PAR',
+              starts_at: '2026-10-13T09:00:00Z',
+            }),
+          ],
           { id: 2, type: 'train', title: 'A train' },
         ),
       ]);

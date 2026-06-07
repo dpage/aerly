@@ -44,7 +44,12 @@ function endForm(label: string, address: string, iso: string | undefined, tz: st
 
 function partForm(part: PlanPart): PartForm {
   return {
-    start: endForm(part.start_label ?? '', part.start_address ?? '', part.starts_at, part.start_tz ?? ''),
+    start: endForm(
+      part.start_label ?? '',
+      part.start_address ?? '',
+      part.starts_at,
+      part.start_tz ?? '',
+    ),
     end: endForm(
       part.end_label ?? '',
       part.end_address ?? '',
@@ -108,6 +113,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const [notes, setNotes] = useState(plan.notes);
   const [cost, setCost] = useState(plan.cost_amount != null ? String(plan.cost_amount) : '');
   const [currency, setCurrency] = useState(plan.cost_currency ?? '');
+  const [supplierName, setSupplierName] = useState(plan.supplier_name ?? '');
+  const [contactEmail, setContactEmail] = useState(plan.contact_email ?? '');
+  const [contactPhone, setContactPhone] = useState(plan.contact_phone ?? '');
+  const [website, setWebsite] = useState(plan.website ?? '');
   const [moveTarget, setMoveTarget] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
 
@@ -132,6 +141,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     setNotes(plan.notes);
     setCost(plan.cost_amount != null ? String(plan.cost_amount) : '');
     setCurrency(plan.cost_currency ?? '');
+    setSupplierName(plan.supplier_name ?? '');
+    setContactEmail(plan.contact_email ?? '');
+    setContactPhone(plan.contact_phone ?? '');
+    setWebsite(plan.website ?? '');
     setMoveTarget('');
     const snap: Record<number, PartForm> = {};
     for (const p of editableParts) snap[p.id] = partForm(p);
@@ -150,10 +163,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     [trips, plan.trip_id],
   );
 
-  const reportError = (err: unknown) =>
-    setError(err instanceof Error ? err.message : String(err));
+  const reportError = (err: unknown) => setError(err instanceof Error ? err.message : String(err));
 
-  const patchEnd = (partId: number, which: 'start' | 'end', field: keyof EndForm, value: string) => {
+  const patchEnd = (
+    partId: number,
+    which: 'start' | 'end',
+    field: keyof EndForm,
+    value: string,
+  ) => {
     setForms((prev) => ({
       ...prev,
       [partId]: { ...prev[partId], [which]: { ...prev[partId][which], [field]: value } },
@@ -177,6 +194,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
         ticketNumber.trim() !== (plan.ticket_number ?? '') ||
         notes !== plan.notes ||
         curr !== (plan.cost_currency ?? '') ||
+        supplierName.trim() !== (plan.supplier_name ?? '') ||
+        contactEmail.trim() !== (plan.contact_email ?? '') ||
+        contactPhone.trim() !== (plan.contact_phone ?? '') ||
+        website.trim() !== (plan.website ?? '') ||
         costChanged;
       if (metaChanged) {
         const payload: UpdatePlanInput = {
@@ -185,6 +206,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
           ticket_number: ticketNumber.trim(),
           notes,
           cost_currency: curr,
+          supplier_name: supplierName.trim(),
+          contact_email: contactEmail.trim(),
+          contact_phone: contactPhone.trim(),
+          website: website.trim(),
         };
         if (costChanged) payload.cost_amount = costNum;
         await updatePlan(plan.id, payload);
@@ -269,6 +294,35 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
               sx={{ flex: 1 }}
             />
           </Stack>
+          <TextField
+            label="Supplier"
+            value={supplierName}
+            onChange={(e) => setSupplierName(e.target.value)}
+            placeholder="Who the booking is with, e.g. British Airways"
+            fullWidth
+          />
+          <TextField
+            label="Contact email"
+            type="email"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+            fullWidth
+          />
+          <TextField
+            label="Contact phone"
+            type="tel"
+            value={contactPhone}
+            onChange={(e) => setContactPhone(e.target.value)}
+            fullWidth
+          />
+          <TextField
+            label="Website"
+            type="url"
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            placeholder="https://…"
+            fullWidth
+          />
           <TextField
             label="Notes"
             value={notes}
