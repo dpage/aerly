@@ -43,25 +43,51 @@ country keeps the wrong-continent guard intact.
 
 1. IATA code in label → airport table *(unchanged)*
 2. Full normalized address *(unchanged)*
-3. UK postcode → `"<pc>, United Kingdom"` *(unchanged)*
-4. **NEW** — generic postcode + country tail → e.g. `"8400-450, Portugal"`
+3. **NEW** — label + country tail → e.g. `"Ukino Palmeiras Village, Portugal"`
+4. **NEW** — tail backoff (see below) → first resolvable shortened address
 5. Airport-like label, bare *(unchanged)*
-6. **NEW** — label + country tail → e.g. `"Ukino Palmeiras Village, Portugal"`
 
-Steps 4 and 6 only fire when earlier steps miss. Step 6 is **never** queried with a
-bare label — only with a country tail present; when no country can be extracted,
-steps 4 and 6 are skipped entirely (graceful, preserves the ambiguity guard).
-Flight parts continue to use only the address step (no label lookups).
+This replaces the old UK-postcode rule (step 3 in the prior draft) entirely — no
+per-country postcode regexes. Steps 3 and 4 only fire when the full address misses.
+
+**Name-first ordering:** step 3 (the property name + country) is tried before tail
+backoff because, when the name is distinctive, it yields the *exact* property pin
+rather than a town-level one. It is **never** queried with a bare label — only with
+a country tail present — so the wrong-continent guard is preserved; when no country
+can be extracted, step 3 is skipped (graceful).
+
+### Tail backoff (replaces postcode extraction)
+
+The reason a postcode "works" is not the postcode itself — it's that a shorter,
+cleaner *tail* of the address resolves when the noisy full string (leading building
+/ unit detail) does not. So rather than recognising postcode formats per country,
+shorten the address itself:
+
+- Split the normalized address on commas into segments.
+- If the full string missed, retry while dropping the **leading** segment each time,
+  taking the **first hit** (most precise resolvable subset):
+
+  ```
+  Quinta das Palmeiras, Bloco E3-IV, Alporchinhos, 8400-450 Porches, Algarve, Portugal  ✗
+  Bloco E3-IV, Alporchinhos, 8400-450 Porches, Algarve, Portugal                         ✗
+  Alporchinhos, 8400-450 Porches, Algarve, Portugal                                      ✓
+  ```
+
+- **Country-agnostic:** the postcode just rides along inside whatever tail resolves;
+  we never parse it. **Safe:** every candidate is a real substring of the user's own
+  address — no invented tokens.
+- **Bounded:** cap at ~4 attempts total and stop at the first hit; only runs on a
+  miss. Stop before the tail collapses to a bare single segment (e.g. just the
+  country), which is too coarse to be useful.
 
 ### Helpers
 
-- `countryFromAddress(address string) string` — returns the trimmed last
-  comma-separated segment of the normalized address, or `""` when absent. No
-  validation against a country list (Nominatim tolerates a bad tail by simply
-  failing to resolve, which is harmless because it's a last-resort fallback).
-- Generic postcode regex: `\b\d{4,5}(?:-\d{3,4})?\b` — matches PT (`8400-450`),
-  ES (`03001`), and similar numeric postcodes. Always paired with a country tail
-  and only tried after the full address misses.
+- `countryFromAddress(address string) string` — trimmed last comma-separated
+  segment of the normalized address, or `""` when absent. Used only to qualify the
+  step-3 label lookup. No validation against a country list (Nominatim tolerates a
+  bad tail by simply failing to resolve, harmless as a last-resort fallback).
+- `addressTails(address string, max int) []string` — the shortened candidates for
+  step 4, most-specific first, capped at `max`.
 
 ### Edit-path unification — `internal/handlers/handlers_plans.go`
 
@@ -121,12 +147,15 @@ the reloaded `PlanPart` (which already carries `start_address`/`start_lat` etc.)
 
 ### Backend
 - `geocodeEndpoint`: full address misses but `"<label>, <country>"` hits → coords
-  returned via step 6; full address misses but `"<postcode>, <country>"` hits →
-  step 4. Use a fake `Geocoder` keyed by exact query string.
+  returned via step 3; full address + name miss but a shortened tail hits → step 4.
+  Use a fake `Geocoder` keyed by exact query string.
 - Ambiguity guard: assert a bare label (no country in address) is **never** passed
   to the geocoder.
+- Tail backoff: the candidates are most-specific-first, capped at ~4, stop at first
+  hit, and never collapse to a bare single segment; postcode-bearing addresses (PT
+  `8400-450`, UK, etc.) resolve via the tail without any format-specific code.
 - `countryFromAddress`: tail extraction (present / absent / single-segment).
-- Generic postcode regex: matches `8400-450`, `03001`; rejects obvious non-codes.
+- `addressTails`: ordering, cap, and the single-segment stop condition.
 - Edit handler: a `PATCH /api/plan-parts/{id}` changing the address to one that only
   resolves via a fallback ends up with coordinates (proves the edit path uses the
   shared chain).
