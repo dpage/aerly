@@ -619,4 +619,32 @@ describe('PlanEditDialog', () => {
     const [, patch] = h.updatePlanPart.mock.calls[0];
     expect(patch.flight).toEqual({ origin_iata: 'LGW' });
   });
+
+  it('sends a changed destination IATA (upper-cased) for an unresolved flight', async () => {
+    render_(plan({ parts: [flightPart({ resolved: false, dest_iata: 'IAD' })] }));
+    const dest = screen.getByRole('textbox', { name: /to \(iata\)/i });
+    await userEvent.clear(dest);
+    await userEvent.type(dest, 'jfk');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.flight).toEqual({ dest_iata: 'JFK' });
+  });
+
+  it('sends no flight patch when an unresolved flight is saved unchanged', async () => {
+    // Forces a non-flight change so Save writes, but the untouched flight fields
+    // must not produce a flight patch (covers the "nothing changed" branch).
+    render_(
+      plan({ title: 'BA123', parts: [flightPart({ resolved: false })] }),
+    );
+    const title = screen.getByRole('textbox', { name: /title/i });
+    await userEvent.clear(title);
+    await userEvent.type(title, 'BA124');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlan).toHaveBeenCalled());
+    if (h.updatePlanPart.mock.calls.length > 0) {
+      const [, patch] = h.updatePlanPart.mock.calls[0];
+      expect(patch.flight).toBeUndefined();
+    }
+  });
 });
