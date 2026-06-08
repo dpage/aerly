@@ -465,6 +465,9 @@ export interface TrackerPart {
   ident: string;
   dest_iata: string;
   latest_position?: Position;
+  last_polled_at?: string;
+  /** Recent positions in order (oldest → newest), for the flown-track line. */
+  track?: Position[];
 }
 
 /** The tracker payload: flight convergence parts plus in-window venue markers. */

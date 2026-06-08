@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
@@ -227,6 +229,22 @@ func TestTickInsertsPositionRefreshesAndPublishes(t *testing.T) {
 	case ev := <-events:
 		if ev.Type != "plan_part.updated" {
 			t.Errorf("event type = %q", ev.Type)
+		}
+		// The broadcast must carry the live freshness + flown track so the FE
+		// can refresh "Last polled" and grow the polyline in place, rather than
+		// freezing both at the last full HTTP fetch.
+		var dto api.TrackerPartDTO
+		if err := json.Unmarshal(ev.Data, &dto); err != nil {
+			t.Fatalf("unmarshal payload: %v", err)
+		}
+		if dto.LastPolledAt == nil {
+			t.Error("broadcast payload missing last_polled_at")
+		}
+		if len(dto.Track) == 0 {
+			t.Error("broadcast payload missing flown track")
+		}
+		if dto.LatestPosition == nil {
+			t.Error("broadcast payload missing latest_position")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no SSE event published")

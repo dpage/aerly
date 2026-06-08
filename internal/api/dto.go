@@ -573,6 +573,12 @@ type TrackerPartDTO struct {
 	Ident          string       `json:"ident"`
 	DestIATA       string       `json:"dest_iata"`
 	LatestPosition *PositionDTO `json:"latest_position,omitempty"`
+	// LastPolledAt and Track let the live SSE merge keep the flight card's
+	// "Last polled" freshness and the flown-track polyline current — without
+	// them the FE freezes both at the last full HTTP fetch, so a moving plane
+	// trails no path and "Last polled" drifts stale (issue: flight-path-polling).
+	LastPolledAt *time.Time    `json:"last_polled_at,omitempty"`
+	Track        []PositionDTO `json:"track,omitempty"`
 }
 
 // TrackerMarkerDTO is one geocoded non-flight place plotted on the tracker map

@@ -263,6 +263,32 @@ describe('applyPlanPartUpdate fold fallbacks', () => {
     expect(row.status).toBe('Enroute');
     expect(row.flight).toBeUndefined();
   });
+
+  it('keeps existing track/last_polled_at when the update omits them', () => {
+    const track = [{ ts: '2024-01-01T11:00:00Z', lat: 1, lon: 2, is_estimated: false }];
+    useStore.setState({
+      trackerParts: [
+        part({
+          id: 10,
+          flight: {
+            ident: 'BA1',
+            callsign: 'BAW1',
+            scheduled_out: '',
+            scheduled_in: '',
+            origin_iata: 'LHR',
+            dest_iata: 'JFK',
+            flight_status: 'Enroute',
+            last_polled_at: '2024-01-01T11:30:00Z',
+            track,
+          },
+        }),
+      ],
+    });
+    useStore.getState().applyPlanPartUpdate(trackerPart({ plan_part_id: 10, status: 'Enroute' }));
+    const row = useStore.getState().trackerParts[0];
+    expect(row.flight?.last_polled_at).toBe('2024-01-01T11:30:00Z');
+    expect(row.flight?.track).toEqual(track);
+  });
 });
 
 describe('setTrackerWindow', () => {
@@ -291,6 +317,20 @@ describe('applyPlanPartUpdate', () => {
     expect(row.flight?.flight_status).toBe('Enroute');
     expect(row.flight?.latest_position).toEqual(pos);
     expect(row.start_label).toBe('LHR'); // untouched
+  });
+
+  it('folds the live track + last_polled_at so the polyline grows and freshness stays live', () => {
+    const track = [
+      { ts: '2024-01-01T12:00:00Z', lat: 51, lon: -1, is_estimated: false },
+      { ts: '2024-01-01T12:01:00Z', lat: 52, lon: -2, is_estimated: false },
+    ];
+    useStore.setState({ trackerParts: [part()] });
+    useStore.getState().applyPlanPartUpdate(
+      trackerPart({ status: 'Enroute', last_polled_at: '2024-01-01T12:01:30Z', track }),
+    );
+    const row = useStore.getState().trackerParts[0];
+    expect(row.flight?.track).toEqual(track);
+    expect(row.flight?.last_polled_at).toBe('2024-01-01T12:01:30Z');
   });
 
   it('does not insert a part absent from the list (window/visibility-scoped)', () => {
