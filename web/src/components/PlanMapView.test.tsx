@@ -222,6 +222,53 @@ describe('PlanMapView', () => {
       expect(planeFor(1)!.lngLat).toEqual([-77.46, 38.95]); // destination (IAD)
     });
 
+    it('orients the live fix along the route when the fix carries no heading', () => {
+      at('2026-10-12T11:30:00Z'); // mid-flight, position without heading_deg
+      render(
+        <PlanMapView
+          parts={[
+            flight({
+              flight: {
+                ...flight().flight!,
+                flight_status: 'Enroute',
+                latest_position: { ts: '2026-10-12T11:30:00Z', lat: 48, lon: -30, is_estimated: false },
+              },
+            }),
+          ]}
+        />,
+      );
+      const plane = planeFor(1)!;
+      expect(plane.lngLat).toEqual([-30, 48]);
+      // No ADS-B heading → fall back to the route bearing (LHR → IAD).
+      expect(plane.rotation).toBeCloseTo(initialBearing(51.47, -0.45, 38.95, -77.46), 5);
+    });
+
+    it('parks an end-only flight at its destination, pointing north (no route bearing)', () => {
+      at('2026-10-12T08:00:00Z'); // before departure, inside the window
+      render(<PlanMapView parts={[flight({ start_lat: undefined, start_lon: undefined })]} />);
+      const plane = planeFor(1)!;
+      expect(plane.lngLat).toEqual([-77.46, 38.95]); // destination (IAD)
+      expect(plane.rotation).toBe(0); // only one endpoint → no bearing, due north
+    });
+
+    it('windows a flight with no known arrival on departure + 2h', () => {
+      // No arrival time anywhere (no actual/estimated/scheduled_in, no ends_at):
+      // the window falls back to [departure − 2h, departure + 2h].
+      const noArr = () =>
+        flight({
+          ends_at: undefined,
+          flight: { ...flight().flight!, scheduled_in: undefined as unknown as string },
+        });
+      at('2026-10-12T10:30:00Z'); // 1.5h after departure → still inside
+      const { unmount } = render(<PlanMapView parts={[noArr()]} />);
+      expect(planeFor(1)).toBeDefined();
+      unmount();
+      resetMaplibreMock();
+      at('2026-10-12T11:30:00Z'); // 2.5h after departure → past the window
+      render(<PlanMapView parts={[noArr()]} />);
+      expect(planeFor(1)).toBeUndefined();
+    });
+
     it('hides the plane before its window opens and after it closes', () => {
       at('2026-10-12T06:00:00Z'); // 3h before departure → window opens at 07:00
       const { unmount } = render(<PlanMapView parts={[flight()]} />);
