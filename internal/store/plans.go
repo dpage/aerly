@@ -32,6 +32,9 @@ type Plan struct {
 	ContactEmail string
 	ContactPhone string
 	Website      string
+	// ShareAllFriends, when true, grants every accepted friend of the trip
+	// owner a plan-scoped view of this plan (computed at read time).
+	ShareAllFriends bool
 	CreatedBy    *int64
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -271,14 +274,14 @@ func (p UpdatePlanPartPayload) IsEmpty() bool {
 
 // ----- Plan CRUD -----
 
-const planColumns = `id, trip_id, type, title, confirmation_ref, ticket_number, notes, source, cost_amount, cost_currency, supplier_name, contact_email, contact_phone, website, created_by, created_at, updated_at`
+const planColumns = `id, trip_id, type, title, confirmation_ref, ticket_number, notes, source, cost_amount, cost_currency, supplier_name, contact_email, contact_phone, website, created_by, created_at, updated_at, share_all_friends`
 
 func scanPlan(row pgx.Row) (*Plan, error) {
 	var p Plan
 	err := row.Scan(&p.ID, &p.TripID, &p.Type, &p.Title, &p.ConfirmationRef,
 		&p.TicketNumber, &p.Notes, &p.Source, &p.CostAmount, &p.CostCurrency,
 		&p.SupplierName, &p.ContactEmail, &p.ContactPhone, &p.Website,
-		&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
+		&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.ShareAllFriends)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -677,7 +680,7 @@ func (s *Store) SplitPlanPart(ctx context.Context, partID int64) (newPlanID, par
 		SELECT pl.id, pl.trip_id, pl.type, pl.title, pl.confirmation_ref,
 		       pl.ticket_number, pl.notes, pl.source, pl.cost_amount, pl.cost_currency,
 		       pl.supplier_name, pl.contact_email, pl.contact_phone, pl.website,
-		       pl.created_by, pl.created_at, pl.updated_at
+		       pl.created_by, pl.created_at, pl.updated_at, pl.share_all_friends
 		FROM plan_parts part
 		JOIN plans pl ON pl.id = part.plan_id
 		WHERE part.id = $1
@@ -685,7 +688,7 @@ func (s *Store) SplitPlanPart(ctx context.Context, partID int64) (newPlanID, par
 		&parent.ID, &parent.TripID, &parent.Type, &parent.Title, &parent.ConfirmationRef,
 		&parent.TicketNumber, &parent.Notes, &parent.Source, &parent.CostAmount, &parent.CostCurrency,
 		&parent.SupplierName, &parent.ContactEmail, &parent.ContactPhone, &parent.Website,
-		&parent.CreatedBy, &parent.CreatedAt, &parent.UpdatedAt)
+		&parent.CreatedBy, &parent.CreatedAt, &parent.UpdatedAt, &parent.ShareAllFriends)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, 0, ErrNotFound
 	}
