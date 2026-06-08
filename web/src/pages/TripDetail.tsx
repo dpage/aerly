@@ -266,6 +266,7 @@ export default function TripDetail() {
           myRole={loaded.my_role}
           members={loaded.members}
           passengerIds={loaded.passenger_ids}
+          shareAllFriendsRole={loaded.share_all_friends_role}
           onClose={() => setShareOpen(false)}
         />
       )}

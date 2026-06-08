@@ -583,6 +583,16 @@ describe('setTripShareAllFriends', () => {
   });
 });
 
+describe('shareTripByEmail', () => {
+  it('POST /api/trips/:id/share-by-email with the email + role', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 202));
+    await api.shareTripByEmail(7, { email: 'x@y.com', role: 'viewer' });
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/7/share-by-email');
+    expect(spy.mock.calls[0][1]?.method).toBe('POST');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ email: 'x@y.com', role: 'viewer' }));
+  });
+});
+
 describe('notifications', () => {
   it('GET /api/notifications returns the typed body', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(

@@ -26,6 +26,7 @@ import type {
   PlanVisibility,
   ResolveFlightInput,
   ResolvedFlight,
+  ShareByEmailTripInput,
   TagSuggestion,
   TrackerResponse,
   Trip,
@@ -323,6 +324,10 @@ export const api = {
     request<Trip>('PUT', `/api/trips/${tripId}/share-all-friends`, { role: role ?? '' }),
   setPlanShareAllFriends: (planId: number, enabled: boolean) =>
     request<Plan>('PUT', `/api/plans/${planId}/share-all-friends`, { enabled }),
+  // Pre-share to an address that may not yet be an Aerly user. Returns 202 with
+  // no body; we collapse it to Promise<void>.
+  shareTripByEmail: (tripId: number, input: ShareByEmailTripInput) =>
+    request<void>('POST', `/api/trips/${tripId}/share-by-email`, input).then(() => undefined),
   notifyTripShares: (tripId: number, input: NotifySharesInput) =>
     request<void>('POST', `/api/trips/${tripId}/notify-shares`, input).then(() => undefined),
   notifyPlanShares: (planId: number, input: NotifySharesInput) =>

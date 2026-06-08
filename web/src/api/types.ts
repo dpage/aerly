@@ -465,6 +465,13 @@ export interface AddTripMemberInput {
   role: TripRole;
 }
 
+/** Input body for the share-by-email endpoint: pre-shares a trip to an address
+ * that may not yet belong to an Aerly user. */
+export interface ShareByEmailTripInput {
+  email: string;
+  role: 'viewer' | 'editor';
+}
+
 export interface CreatePlanInput {
   type: PlanType;
   title: string;

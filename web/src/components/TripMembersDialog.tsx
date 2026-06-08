@@ -1,13 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Avatar,
   Box,
   Button,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
+  FormControlLabel,
   IconButton,
   MenuItem,
   Stack,
@@ -24,7 +27,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 
 import type { TripMember, TripRole, User } from '../api/types';
 import { userInitial, userName } from '../lib/format';
-import { useFriendUsers } from '../state/friendUsers';
+import { useFriendCandidates } from '../state/friendUsers';
 import { useStore } from '../state/store';
 
 interface Props {
@@ -35,8 +38,13 @@ interface Props {
   members: TripMember[];
   /** User ids who are trip-level passengers (travellers on the whole trip). */
   passengerIds: number[];
+  /** The trip's current share-with-all-friends role, if any (owners manage it). */
+  shareAllFriendsRole?: 'viewer' | 'editor';
   onClose: () => void;
 }
+
+/** The all-friends control's value: 'off' disables it. */
+type ShareAllValue = 'off' | 'viewer' | 'editor';
 
 /** A role pickable when sharing. 'passenger' isn't a trip_members role — it adds
  * a trip-level passenger (a traveller on every plan, issue #20) — but it sits in
@@ -52,6 +60,7 @@ export default function TripMembersDialog({
   myRole,
   members,
   passengerIds,
+  shareAllFriendsRole,
   onClose,
 }: Props) {
   const users = useStore((s) => s.users);
@@ -60,15 +69,41 @@ export default function TripMembersDialog({
   const removeTripMember = useStore((s) => s.removeTripMember);
   const addTripPassenger = useStore((s) => s.addTripPassenger);
   const removeTripPassenger = useStore((s) => s.removeTripPassenger);
+  const setTripShareAllFriends = useStore((s) => s.setTripShareAllFriends);
+  const shareTripByEmail = useStore((s) => s.shareTripByEmail);
+  const notifyTripShares = useStore((s) => s.notifyTripShares);
   const setError = useStore((s) => s.setError);
   const openHelp = useStore((s) => s.openHelp);
-  const friends = useFriendUsers();
+  const friendCandidates = useFriendCandidates();
 
   const passengerSet = useMemo(() => new Set(passengerIds), [passengerIds]);
 
   const [pick, setPick] = useState<number | ''>('');
   const [role, setRole] = useState<AddRole>('viewer');
+  const [email, setEmail] = useState('');
+  const [emailRole, setEmailRole] = useState<'viewer' | 'editor'>('viewer');
   const [busy, setBusy] = useState(false);
+  // Local mirror of the all-friends role so the Select reflects a change
+  // immediately (the trip prop only updates after the store refetch lands).
+  const [shareAll, setShareAll] = useState<ShareAllValue>(shareAllFriendsRole ?? 'off');
+
+  useEffect(() => {
+    setShareAll(shareAllFriendsRole ?? 'off');
+  }, [shareAllFriendsRole]);
+
+  // People who newly gained access during this dialog session; on close we
+  // offer to notify them. Reset whenever the dialog is (re)opened.
+  const [addedUserIds, setAddedUserIds] = useState<Set<number>>(() => new Set());
+  const [invitedEmails, setInvitedEmails] = useState<Set<string>>(() => new Set());
+  const [notify, setNotify] = useState(true);
+
+  useEffect(() => {
+    if (open) {
+      setAddedUserIds(new Set());
+      setInvitedEmails(new Set());
+      setNotify(true);
+    }
+  }, [open]);
 
   const canManage = myRole === 'owner' || myRole === 'editor';
 
@@ -78,11 +113,12 @@ export default function TripMembersDialog({
     return m;
   }, [users]);
 
-  // Friends not already on the trip are eligible to be added.
+  // Friends not already on the trip are eligible to be added; pending friends
+  // are offered too (pre-share to someone who hasn't accepted yet).
   const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members]);
   const candidates = useMemo(
-    () => friends.filter((f) => !memberIds.has(f.id)),
-    [friends, memberIds],
+    () => friendCandidates.filter((c) => !memberIds.has(c.user.id)),
+    [friendCandidates, memberIds],
   );
 
   const reportError = (err: unknown) =>
@@ -95,13 +131,15 @@ export default function TripMembersDialog({
 
   const handleAdd = async () => {
     if (pick === '') return;
+    const addedId = pick;
     setBusy(true);
     try {
       if (role === 'passenger') {
-        await addTripPassenger(tripId, pick);
+        await addTripPassenger(tripId, addedId);
       } else {
-        await addTripMember(tripId, { user_id: pick, role });
+        await addTripMember(tripId, { user_id: addedId, role });
       }
+      setAddedUserIds((prev) => new Set(prev).add(addedId));
       setPick('');
       setRole('viewer');
     } catch (err) {
@@ -109,6 +147,59 @@ export default function TripMembersDialog({
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleShareAllChange = async (value: ShareAllValue) => {
+    setShareAll(value);
+    setBusy(true);
+    try {
+      await setTripShareAllFriends(tripId, value === 'off' ? null : value);
+      // Turning it on newly grants access to every accepted friend who isn't
+      // already an explicit member; queue them for the close-time notify.
+      if (value !== 'off') {
+        setAddedUserIds((prev) => {
+          const next = new Set(prev);
+          for (const c of friendCandidates) {
+            if (!c.pending && !memberIds.has(c.user.id)) next.add(c.user.id);
+          }
+          return next;
+        });
+      }
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleInviteEmail = async () => {
+    const addr = email.trim();
+    if (!addr) return;
+    setBusy(true);
+    try {
+      await shareTripByEmail(tripId, { email: addr, role: emailRole });
+      setInvitedEmails((prev) => new Set(prev).add(addr));
+      setEmail('');
+      setEmailRole('viewer');
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleClose = async () => {
+    if (notify && addedUserIds.size + invitedEmails.size > 0) {
+      try {
+        await notifyTripShares(tripId, {
+          user_ids: [...addedUserIds],
+          emails: [...invitedEmails],
+        });
+      } catch {
+        // Best-effort: never block closing the dialog on a notify failure.
+      }
+    }
+    onClose();
   };
 
   const handleRole = async (userId: number, next: TripRole) => {
@@ -137,10 +228,36 @@ export default function TripMembersDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={() => void handleClose()} maxWidth="sm" fullWidth>
       <DialogTitle>Share trip</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={3}>
+          {canManage && (
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Share with all friends
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  select
+                  size="small"
+                  label="All friends"
+                  value={shareAll}
+                  onChange={(e) => void handleShareAllChange(e.target.value as ShareAllValue)}
+                  disabled={busy}
+                  sx={{ minWidth: 160 }}
+                >
+                  <MenuItem value="off">Off</MenuItem>
+                  <MenuItem value="viewer">Viewer</MenuItem>
+                  <MenuItem value="editor">Editor</MenuItem>
+                </TextField>
+                <Typography variant="body2" color="text.secondary">
+                  Everyone you&apos;re friends with gets this access automatically.
+                </Typography>
+              </Stack>
+            </Box>
+          )}
+
           {canManage && (
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
@@ -164,9 +281,10 @@ export default function TripMembersDialog({
                   <MenuItem value="" disabled>
                     Choose a friend…
                   </MenuItem>
-                  {candidates.map((u) => (
-                    <MenuItem key={u.id} value={String(u.id)}>
-                      {userName(u)}
+                  {candidates.map((c) => (
+                    <MenuItem key={c.user.id} value={String(c.user.id)}>
+                      {userName(c.user)}
+                      {c.pending ? ' (invited)' : ''}
                     </MenuItem>
                   ))}
                 </TextField>
@@ -188,6 +306,43 @@ export default function TripMembersDialog({
                   disabled={busy || pick === ''}
                 >
                   Add
+                </Button>
+              </Stack>
+            </Box>
+          )}
+
+          {canManage && (
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Invite by email
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <TextField
+                  size="small"
+                  type="email"
+                  label="Email"
+                  fullWidth
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  helperText="Pre-share to someone who isn't on Aerly yet."
+                />
+                <TextField
+                  select
+                  size="small"
+                  label="Email role"
+                  value={emailRole}
+                  onChange={(e) => setEmailRole(e.target.value as 'viewer' | 'editor')}
+                  sx={{ minWidth: 130 }}
+                >
+                  <MenuItem value="editor">Editor</MenuItem>
+                  <MenuItem value="viewer">Viewer</MenuItem>
+                </TextField>
+                <Button
+                  variant="outlined"
+                  onClick={() => void handleInviteEmail()}
+                  disabled={busy || email.trim() === ''}
+                >
+                  Invite
                 </Button>
               </Stack>
             </Box>
@@ -268,11 +423,28 @@ export default function TripMembersDialog({
           </Box>
         </Stack>
       </DialogContent>
+      {addedUserIds.size + invitedEmails.size > 0 && (
+        <>
+          <Divider />
+          <Box sx={{ px: 3, py: 1 }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={notify}
+                  onChange={(e) => setNotify(e.target.checked)}
+                />
+              }
+              label="Notify the people I just added"
+            />
+          </Box>
+        </>
+      )}
       <DialogActions sx={{ justifyContent: 'space-between' }}>
         <Button size="small" color="inherit" onClick={() => openHelp('sharing')}>
           How sharing works
         </Button>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={() => void handleClose()}>Close</Button>
       </DialogActions>
     </Dialog>
   );

@@ -6,6 +6,7 @@ import type {
   CreateTripInput,
   NotifySharesInput,
   Plan,
+  ShareByEmailTripInput,
   TagSuggestion,
   Trip,
   UpdateTripInput,
@@ -40,6 +41,7 @@ export interface TripsSlice {
   setTripTags: (tripId: number, labels: string[]) => Promise<void>;
   suggestTags: (q: string) => Promise<void>;
   setTripShareAllFriends: (tripId: number, role: 'viewer' | 'editor' | null) => Promise<void>;
+  shareTripByEmail: (tripId: number, input: ShareByEmailTripInput) => Promise<void>;
   notifyTripShares: (tripId: number, input: NotifySharesInput) => Promise<void>;
 }
 
@@ -147,6 +149,13 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
   async setTripShareAllFriends(tripId, role) {
     const updated = await api.setTripShareAllFriends(tripId, role);
     set((s) => ({ trips: s.trips.map((t) => (t.id === tripId ? updated : t)) }));
+  },
+
+  async shareTripByEmail(tripId, input) {
+    await api.shareTripByEmail(tripId, input);
+    // The share may have matched an existing user (added as a member), so
+    // refetch the open trip to reflect any new member/passenger.
+    await get().loadTrip(tripId);
   },
 
   async notifyTripShares(tripId, input) {

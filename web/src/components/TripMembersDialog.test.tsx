@@ -9,8 +9,12 @@ const h = vi.hoisted(() => ({
   removeTripMember: vi.fn(),
   addTripPassenger: vi.fn(),
   removeTripPassenger: vi.fn(),
+  setTripShareAllFriends: vi.fn(),
+  shareTripByEmail: vi.fn(),
+  notifyTripShares: vi.fn(),
   setError: vi.fn(),
   openHelp: vi.fn(),
+  candidates: [] as { user: User; pending: boolean }[],
   state: {
     users: [] as User[],
     friendships: [] as Friendship[],
@@ -28,9 +32,16 @@ vi.mock('../state/store', () => ({
       removeTripMember: h.removeTripMember,
       addTripPassenger: h.addTripPassenger,
       removeTripPassenger: h.removeTripPassenger,
+      setTripShareAllFriends: h.setTripShareAllFriends,
+      shareTripByEmail: h.shareTripByEmail,
+      notifyTripShares: h.notifyTripShares,
       setError: h.setError,
       openHelp: h.openHelp,
     }),
+}));
+
+vi.mock('../state/friendUsers', () => ({
+  useFriendCandidates: () => h.candidates,
 }));
 
 import TripMembersDialog from './TripMembersDialog';
@@ -61,12 +72,22 @@ beforeEach(() => {
     user({ id: 3, username: 'carol', name: 'Carol' }),
   ];
   h.state.friendships = [accepted(2), accepted(3)];
+  // The dialog sources its picker from useFriendCandidates(); mirror the two
+  // accepted friends as candidates by default.
+  h.candidates = [
+    { user: user({ id: 2, username: 'bob', name: 'Bob' }), pending: false },
+    { user: user({ id: 3, username: 'carol', name: 'Carol' }), pending: false },
+  ];
 });
 
 function render_(
   members: TripMember[],
   role: 'owner' | 'editor' | 'viewer' = 'owner',
   passengerIds: number[] = [],
+  opts: {
+    shareAllFriendsRole?: 'viewer' | 'editor';
+    onClose?: () => void;
+  } = {},
 ) {
   return render(
     <TripMembersDialog
@@ -75,7 +96,8 @@ function render_(
       myRole={role}
       members={members}
       passengerIds={passengerIds}
-      onClose={() => {}}
+      shareAllFriendsRole={opts.shareAllFriendsRole}
+      onClose={opts.onClose ?? (() => {})}
     />,
   );
 }
@@ -250,5 +272,73 @@ describe('TripMembersDialog', () => {
       { user_id: 999, role: 'editor' },
     ]);
     expect(screen.getByText('User #999')).toBeInTheDocument();
+  });
+
+  it('sets the all-friends role to viewer, and back to off', async () => {
+    h.setTripShareAllFriends.mockResolvedValue(undefined);
+    render_([{ user_id: 100, role: 'owner' }]);
+
+    await userEvent.click(screen.getByLabelText('All friends'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Viewer' }));
+    await waitFor(() => expect(h.setTripShareAllFriends).toHaveBeenCalledWith(7, 'viewer'));
+
+    await userEvent.click(screen.getByLabelText('All friends'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Off' }));
+    await waitFor(() => expect(h.setTripShareAllFriends).toHaveBeenCalledWith(7, null));
+  });
+
+  it('reflects the current all-friends role as selected', () => {
+    render_([{ user_id: 100, role: 'owner' }], 'owner', [], { shareAllFriendsRole: 'viewer' });
+    // The MUI Select renders its current value as the combobox's text.
+    expect(screen.getByLabelText('All friends')).toHaveTextContent('Viewer');
+  });
+
+  it('notifies the friends just added when closing with the box checked', async () => {
+    h.addTripMember.mockResolvedValue(undefined);
+    h.notifyTripShares.mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    render_([{ user_id: 100, role: 'owner' }], 'owner', [], { onClose });
+
+    await userEvent.click(screen.getByLabelText('Friend'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Carol' }));
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    await waitFor(() => expect(h.addTripMember).toHaveBeenCalled());
+
+    // The notify checkbox now appears, checked by default.
+    await userEvent.click(screen.getByRole('button', { name: /close/i }));
+    await waitFor(() =>
+      expect(h.notifyTripShares).toHaveBeenCalledWith(7, { user_ids: [3], emails: [] }),
+    );
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('invites by email and notifies that address on close', async () => {
+    h.shareTripByEmail.mockResolvedValue(undefined);
+    h.notifyTripShares.mockResolvedValue(undefined);
+    render_([{ user_id: 100, role: 'owner' }]);
+
+    await userEvent.type(screen.getByLabelText('Email'), 'x@y.com');
+    await userEvent.click(screen.getByRole('button', { name: /^invite$/i }));
+    await waitFor(() =>
+      expect(h.shareTripByEmail).toHaveBeenCalledWith(7, { email: 'x@y.com', role: 'viewer' }),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /close/i }));
+    await waitFor(() =>
+      expect(h.notifyTripShares).toHaveBeenCalledWith(7, {
+        user_ids: [],
+        emails: ['x@y.com'],
+      }),
+    );
+  });
+
+  it('labels a pending friend in the picker with "(invited)"', async () => {
+    h.candidates = [
+      { user: user({ id: 2, username: 'bob', name: 'Bob' }), pending: false },
+      { user: user({ id: 4, username: 'dora', name: 'Dora' }), pending: true },
+    ];
+    render_([{ user_id: 100, role: 'owner' }]);
+    await userEvent.click(screen.getByLabelText('Friend'));
+    expect(await screen.findByRole('option', { name: /Dora \(invited\)/ })).toBeInTheDocument();
   });
 });
