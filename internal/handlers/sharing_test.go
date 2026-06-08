@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -79,5 +80,53 @@ func TestSetPlanShareAllFriends(t *testing.T) {
 		map[string]any{"enabled": true}, other)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("non-editor code = %d, want 403", w.Code)
+	}
+}
+
+func TestNotifyTripShares(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "ntowner", false)
+	bob := e.user(t, "ntbob", false)
+	e.befriend(t, owner, bob)
+	tripID := newTrip(t, e, owner, "Trip")
+	// bob is a member
+	e.req(t, "POST", "/api/trips/"+strconv.FormatInt(tripID, 10)+"/members",
+		map[string]any{"user_id": bob, "role": "viewer"}, owner)
+
+	w := e.req(t, "POST", "/api/trips/"+strconv.FormatInt(tripID, 10)+"/notify-shares",
+		map[string]any{"user_ids": []int64{bob}, "emails": []string{}}, owner)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("code = %d, want 204; body=%s", w.Code, w.Body.String())
+	}
+	n, err := e.store.CountUnreadNotifications(context.Background(), bob)
+	if err != nil {
+		t.Fatalf("CountUnreadNotifications: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("bob unread notifications = %d, want 1", n)
+	}
+}
+
+func TestNotifyPlanShares(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "npowner", false)
+	bob := e.user(t, "npbob", false)
+	e.befriend(t, owner, bob)
+	tripID := newTrip(t, e, owner, "Trip")
+	planID := newFlightPlan(t, e, tripID, owner, "BA286", time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC))
+	e.req(t, "POST", "/api/trips/"+strconv.FormatInt(tripID, 10)+"/members",
+		map[string]any{"user_id": bob, "role": "viewer"}, owner)
+
+	w := e.req(t, "POST", "/api/plans/"+strconv.FormatInt(planID, 10)+"/notify-shares",
+		map[string]any{"user_ids": []int64{bob}, "emails": []string{}}, owner)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("code = %d, want 204; body=%s", w.Code, w.Body.String())
+	}
+	n, err := e.store.CountUnreadNotifications(context.Background(), bob)
+	if err != nil {
+		t.Fatalf("CountUnreadNotifications: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("bob unread notifications = %d, want 1", n)
 	}
 }
