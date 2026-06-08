@@ -92,7 +92,11 @@ func TestPlanCRUDEndpoints(t *testing.T) {
 	}
 }
 
-func TestPlanPassengerEndpointMakesViewer(t *testing.T) {
+// TestPlanPassengerCanOpenTripScoped: adding an accepted-friend as a plan
+// passenger lets them open the trip detail (the friend-gated any-grant tile
+// rule), even though the passenger→viewer trigger was dropped so they hold NO
+// trip_members row. Their access is plan-scoped, not trip membership.
+func TestPlanPassengerCanOpenTripScoped(t *testing.T) {
 	e := setup(t, nil, nil)
 	owner := e.user(t, "owner", false)
 	pax := e.user(t, "pax", false)
@@ -104,6 +108,12 @@ func TestPlanPassengerEndpointMakesViewer(t *testing.T) {
 	}, owner)
 	pid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
 
+	// Before being added as a passenger, an accepted friend with no grant on
+	// the trip cannot open it.
+	if w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d", tid), nil, pax); w.Code == 200 {
+		t.Fatalf("friend with no plan grant should not open the trip yet: %d", w.Code)
+	}
+
 	// Add passenger; response is the plan with passenger_ids.
 	w = e.req(t, "POST", fmt.Sprintf("/api/plans/%d/passengers", pid), map[string]any{"user_id": pax}, owner)
 	if w.Code != 200 {
@@ -113,14 +123,27 @@ func TestPlanPassengerEndpointMakesViewer(t *testing.T) {
 		t.Error("expected 1 passenger_id")
 	}
 
-	// The trigger made pax a trip viewer, so they can now GET the trip.
-	if w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d", tid), nil, pax); w.Code != 200 {
-		t.Errorf("passenger should now see the trip (viewer via trigger): %d", w.Code)
+	// The passenger can now open the trip detail via the plan-scoped grant.
+	w = e.req(t, "GET", fmt.Sprintf("/api/trips/%d", tid), nil, pax)
+	if w.Code != 200 {
+		t.Fatalf("passenger should now open the trip (plan-scoped): %d", w.Code)
+	}
+	// ...but they are NOT a trip member: they don't appear in the members list.
+	body := decodeBody[map[string]any](t, w)
+	for _, m := range body["members"].([]any) {
+		if int64(m.(map[string]any)["user_id"].(float64)) == pax {
+			t.Error("plan passenger must not be a trip member")
+		}
 	}
 
 	// Remove passenger.
 	if w := e.req(t, "DELETE", fmt.Sprintf("/api/plans/%d/passengers/%d", pid, pax), nil, owner); w.Code != 204 {
 		t.Errorf("remove passenger = %d, want 204", w.Code)
+	}
+
+	// With the passenger grant gone, access is revoked again.
+	if w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d", tid), nil, pax); w.Code == 200 {
+		t.Errorf("removed passenger should no longer open the trip: %d", w.Code)
 	}
 }
 
@@ -216,8 +239,12 @@ func TestPlanVisibilityFilteringEndpoint(t *testing.T) {
 	}
 }
 
-// TestMovePlanEndpointRecomputesVisibility moves a plan to a trip the named
-// viewer isn't on; the plan then drops out of their trip view of neither trip.
+// TestMovePlanEndpointRecomputesVisibility moves a plan (with an
+// only_visible_to grant for the named viewer) between two trips owned by the
+// same owner. The plan_visibility grant travels with the plan, so under the
+// friend-gated any-grant rule the named viewer's access follows it: the plan
+// drops out of the source trip and reappears under the destination trip, which
+// the named viewer can now open via that plan-scoped grant.
 func TestMovePlanEndpointRecomputesVisibility(t *testing.T) {
 	e := setup(t, nil, nil)
 	owner := e.user(t, "owner", false)
@@ -265,9 +292,11 @@ func TestMovePlanEndpointRecomputesVisibility(t *testing.T) {
 		t.Fatalf("move = %d %s", w.Code, w.Body.String())
 	}
 
-	// named is not on the destination trip, so they can't even see that trip.
-	if w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d", dst), nil, named); w.Code != 404 {
-		t.Errorf("named GET dest trip = %d, want 404 (not a member)", w.Code)
+	// The only_visible_to grant travelled with the plan, so the named viewer
+	// (an accepted friend of the owner) now has a plan-scoped grant on the dest
+	// trip and can open it and see the plan there.
+	if !seesIn(dst) {
+		t.Error("plan (with its only_visible_to grant) should appear under the dest trip after the move")
 	}
 	// And the plan no longer shows under the source trip (it moved away).
 	if seesIn(src) {

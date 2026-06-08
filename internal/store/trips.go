@@ -472,17 +472,46 @@ func (s *Store) CanEditTrip(ctx context.Context, tripID, viewerID int64) (bool, 
 	return ok, err
 }
 
-// CanViewTrip reports whether the viewer is on the trip in any role, or owns
-// it. Used to gate the trip-detail read.
+// CanViewTrip reports whether the viewer may open the trip-detail read. The
+// owner always can. Otherwise the viewer must be an accepted friend of the
+// owner AND hold any grant on the trip: a trip_members row, a trip-level
+// share_all_friends_role, or a plan-scoped grant (plan ownership, passenger,
+// plan-level share_all_friends, or an only_visible_to membership). This mirrors
+// the friend-gated, any-grant "tile" rule used by ListTrips / sees_trip.
 func (s *Store) CanViewTrip(ctx context.Context, tripID, viewerID int64) (bool, error) {
 	var ok bool
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM trips t
 			WHERE t.id = $1
-			  AND (t.created_by = $2
-			    OR EXISTS (SELECT 1 FROM trip_members tm
-			               WHERE tm.trip_id = t.id AND tm.user_id = $2))
+			  AND (
+			       t.created_by = $2
+			    OR (
+			         EXISTS (SELECT 1 FROM friendships f
+			                 WHERE f.status = 'accepted'
+			                   AND f.user_low = LEAST(t.created_by, $2)
+			                   AND f.user_high = GREATEST(t.created_by, $2))
+			         AND (
+			              EXISTS (SELECT 1 FROM trip_members tm
+			                      WHERE tm.trip_id = t.id AND tm.user_id = $2)
+			           OR t.share_all_friends_role IS NOT NULL
+			           OR EXISTS (
+			                SELECT 1 FROM plans pl
+			                WHERE pl.trip_id = t.id
+			                  AND (
+			                       pl.created_by = $2
+			                    OR pl.share_all_friends
+			                    OR EXISTS (SELECT 1 FROM plan_passengers pp
+			                               WHERE pp.plan_id = pl.id AND pp.user_id = $2)
+			                    OR EXISTS (SELECT 1 FROM plan_visibility pv
+			                               JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
+			                               WHERE pv.plan_id = pl.id AND pv.mode = 'only_visible_to'
+			                                 AND m.user_id = $2)
+			                     )
+			              )
+			         )
+			       )
+			  )
 		)`, tripID, viewerID).Scan(&ok)
 	return ok, err
 }

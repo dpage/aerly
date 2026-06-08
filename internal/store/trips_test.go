@@ -134,10 +134,13 @@ func TestTripMembersAndRoles(t *testing.T) {
 		t.Errorf("double remove = %v, want ErrNotFound", err)
 	}
 
-	// CanViewTrip: editor yes, stranger no.
+	// CanViewTrip is friend-gated: the editor is a trip member, but the rule now
+	// also requires an accepted friendship with the owner.
+	befriendStore(t, s, owner, editor)
 	if ok, _ := s.CanViewTrip(ctx, trip, editor); !ok {
-		t.Error("editor should view trip")
+		t.Error("editor (member + accepted friend) should view trip")
 	}
+	// A stranger with neither friendship nor membership stays false.
 	stranger := mkUser(t, s)
 	if ok, _ := s.CanViewTrip(ctx, trip, stranger); ok {
 		t.Error("stranger should not view trip")
