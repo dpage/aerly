@@ -76,38 +76,16 @@ func TestMigration0010UpDown(t *testing.T) {
 		t.Error("positions.plan_part_id missing after up")
 	}
 
-	// The passenger⇒viewer trigger: inserting a plan_passenger should create a
-	// viewer trip_members row for that user on the plan's trip.
-	uid := testsupport.InsertUser(t, pool, "trigtest", false, true)
-	var tripID, planID int64
-	if err := pool.QueryRow(ctx,
-		`INSERT INTO trips (name, created_by) VALUES ('T', $1) RETURNING id`, uid,
-	).Scan(&tripID); err != nil {
-		t.Fatalf("insert trip: %v", err)
-	}
-	other := testsupport.InsertUser(t, pool, "trigpax", false, true)
-	if err := pool.QueryRow(ctx,
-		`INSERT INTO plans (trip_id, type) VALUES ($1, 'flight') RETURNING id`, tripID,
-	).Scan(&planID); err != nil {
-		t.Fatalf("insert plan: %v", err)
-	}
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO plan_passengers (plan_id, user_id) VALUES ($1, $2)`, planID, other,
-	); err != nil {
-		t.Fatalf("insert plan_passenger: %v", err)
-	}
-	var role string
-	if err := pool.QueryRow(ctx,
-		`SELECT role FROM trip_members WHERE trip_id=$1 AND user_id=$2`, tripID, other,
-	).Scan(&role); err != nil {
-		t.Fatalf("trigger should have inserted trip_members row: %v", err)
-	}
-	if role != "viewer" {
-		t.Errorf("trigger role = %q, want viewer", role)
-	}
+	// NOTE: the plan_passengers ⇒ trip_members 'viewer' trigger that migration
+	// 0010 created is dropped by migration 0030 (passengers are now plan-scoped).
+	// Since NewPool applies all migrations, that trigger no longer exists here;
+	// its removal is covered by TestMigration0030. Other 0010 schema assertions
+	// below remain valid.
 
 	// Down then up again — exercises the reverse, and that the FK is restored.
 	// A correct rollback chain unwinds the later migrations first:
+	//   - 0030 created notifications/pending_shares tables with FKs to
+	//     trips/plans/users, so those must be dropped before 0010 can drop them;
 	//   - 0024 added reminder opt-in/sent tables → trips/plans/plan_parts/users,
 	//     so they must be dropped before 0010 can drop those tables (0023 only
 	//     adds columns to plans, so it needs no unwind here);
@@ -119,12 +97,16 @@ func TestMigration0010UpDown(t *testing.T) {
 	//   - 0020-down then drops the flight_alerts table itself;
 	//   - 0013 (applied by NewPool) dropped the legacy flights tables, so its
 	//     down must run before 0010-down's positions→flights FK restore.
+	_, down0030 := readUpDown(t, "0030_share_all_friends")
 	_, down0024 := readUpDown(t, "0024_plan_reminders")
 	_, down0022 := readUpDown(t, "0022_trip_passengers")
 	_, down0021 := readUpDown(t, "0021_schema_hardening")
 	_, down0020 := readUpDown(t, "0020_flight_alerts")
 	up0013, down0013 := readUpDown(t, "0013_drop_legacy_flights")
 	up, down := readUpDown(t, "0010_trip_core")
+	if _, err := pool.Exec(ctx, down0030); err != nil {
+		t.Fatalf("apply 0030 down: %v", err)
+	}
 	if _, err := pool.Exec(ctx, down0024); err != nil {
 		t.Fatalf("apply 0024 down: %v", err)
 	}
