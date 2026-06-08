@@ -284,13 +284,22 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     syncRef.current?.();
   }, [ordered, selectedId, minuteTick]);
 
-  // Fit the map: to the selected item's path/point, else to everything.
+  // Fit the map: to the selected item's path/point, else to everything. Each
+  // fit runs once per change of *intent* — picking a different item, or the set
+  // of plotted points changing while nothing's selected. A live data refresh
+  // (an active flight's position/track updating, an SSE poll) must NOT re-fit,
+  // or it would keep yanking the map back from a zoom the user set by hand.
   const fitKeyRef = useRef('');
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const run = () => {
       if (selected) {
+        // Re-fit only when the selection changes, not when the selected part's
+        // own data refreshes (which would otherwise reset a manual zoom).
+        const key = `sel:${selected.id}`;
+        if (key === fitKeyRef.current) return;
+        fitKeyRef.current = key;
         const pts = partCoords(selected);
         if (pts.length === 1) {
           map.flyTo({ center: pts[0], zoom: 11, duration: 600 });
