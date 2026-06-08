@@ -392,6 +392,26 @@ func TestCountIncomingFriendRequestsMultiple(t *testing.T) {
 	}
 }
 
+func TestAnyFriendshipEdge(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	a, b, c := mkUser(t, s), mkUser(t, s), mkUser(t, s)
+	if _, err := s.RequestFriendship(ctx, a, b, ""); err != nil { // pending a→b
+		t.Fatalf("request: %v", err)
+	}
+	if ok, _ := s.AnyFriendshipEdge(ctx, a, b); !ok {
+		t.Error("pending edge should count as an edge")
+	}
+	if ok, _ := s.AnyFriendshipEdge(ctx, a, c); ok {
+		t.Error("no edge between a and c")
+	}
+	if ok, _ := s.AnyFriendshipEdge(ctx, a, a); ok {
+		t.Error("self is not an edge")
+	}
+}
+
 func TestAreAcceptedFriends(t *testing.T) {
 	s := newStore(t)
 	a := testsupport.InsertUser(t, s.pool, fmt.Sprintf("aaf-a%d", loginSeq.Add(1)), false, true)

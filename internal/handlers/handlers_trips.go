@@ -541,11 +541,14 @@ func (a *API) requireTripOwner(ctx context.Context, tripID int64, u *store.User,
 }
 
 // requireFriendTarget ensures `target` may be added to a shared resource by
-// `actor`: the target must be the actor themselves or an accepted friend. This
-// mirrors the front end, which only offers accepted friends as passengers/trip
-// members (spec §6.4); enforcing it server-side stops an editor adding (and
-// thereby granting trip visibility to) an arbitrary user id. Superusers bypass.
-// Writes the response and returns a non-nil error when the check fails.
+// `actor`: the target must be the actor themselves or share any friendship edge
+// (pending or accepted) with the actor. Pre-sharing to a pending friend is safe
+// because the read-time friend gate keeps the share dormant until the target
+// accepts. This mirrors the front end, which offers friends as
+// passengers/trip members (spec §6.4); enforcing it server-side stops an editor
+// adding (and thereby granting trip visibility to) an arbitrary user id.
+// Superusers bypass. Writes the response and returns a non-nil error when the
+// check fails.
 func (a *API) requireFriendTarget(ctx context.Context, actor *store.User, target int64, w http.ResponseWriter) error {
 	if actor == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -554,14 +557,16 @@ func (a *API) requireFriendTarget(ctx context.Context, actor *store.User, target
 	if actor.IsSuperuser || actor.ID == target {
 		return nil
 	}
-	ok, err := a.Store.AreAcceptedFriends(ctx, actor.ID, target)
+	// Accept any friendship edge (pending or accepted): a pending share stays
+	// dormant until the target accepts — see the read-time friend gate.
+	ok, err := a.Store.AnyFriendshipEdge(ctx, actor.ID, target)
 	if err != nil {
 		serverError(w, err)
 		return err
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "user must be an accepted friend")
-		return errors.New("not an accepted friend")
+		writeError(w, http.StatusForbidden, "user must be a friend (or invited)")
+		return errors.New("not a friend")
 	}
 	return nil
 }

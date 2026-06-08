@@ -85,6 +85,21 @@ func (s *Store) AreAcceptedFriends(ctx context.Context, a, b int64) (bool, error
 	return ok, err
 }
 
+// AnyFriendshipEdge reports whether a and b have any friendship row (pending or
+// accepted). Used to allow pre-sharing to a pending friend; the read-time gate
+// keeps the share dormant until the edge is accepted. Returns false when a==b.
+func (s *Store) AnyFriendshipEdge(ctx context.Context, a, b int64) (bool, error) {
+	if a == b {
+		return false, nil
+	}
+	low, high := pairOrder(a, b)
+	var ok bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM friendships WHERE user_low=$1 AND user_high=$2)`,
+		low, high).Scan(&ok)
+	return ok, err
+}
+
 // ListFriendships returns every friendship row involving viewerID,
 // regardless of status. Pending rows come first ('p' > 'a' alphabetically
 // under status DESC) so the UI surfaces action items (incoming requests)
