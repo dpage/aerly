@@ -57,6 +57,23 @@ function splitOnAntimeridian(coords: LatLon[]): LatLon[] {
   return out;
 }
 
+/** Initial great-circle bearing from a → b, in degrees clockwise from north
+ *  (0–360). This is the compass heading you'd set off on to fly the route, used
+ *  to orient a parked plane icon along its path (origin → destination). */
+export function initialBearing(
+  fromLat: number,
+  fromLon: number,
+  toLat: number,
+  toLon: number,
+): number {
+  const φ1 = rad(fromLat);
+  const φ2 = rad(toLat);
+  const Δλ = rad(toLon - fromLon);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (deg(Math.atan2(y, x)) + 360) % 360;
+}
+
 /** Great-circle distance between two points, in statute miles.
  *  Uses the spherical law of cosines on a 3,958.7613-mile Earth radius. */
 export function greatCircleMiles(

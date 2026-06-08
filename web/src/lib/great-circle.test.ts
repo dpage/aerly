@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { greatCircle, greatCircleMiles, toMultiLine } from './great-circle';
+import { greatCircle, greatCircleMiles, initialBearing, toMultiLine } from './great-circle';
 
 describe('greatCircle', () => {
   it('returns a single point for (near-)identical endpoints (Δ<1e-9 early return)', () => {
@@ -66,6 +66,28 @@ describe('toMultiLine', () => {
   it('returns [] when nothing has more than one point', () => {
     expect(toMultiLine([[1, 1]])).toEqual([]);
     expect(toMultiLine([])).toEqual([]);
+  });
+});
+
+describe('initialBearing', () => {
+  it('is 90° due east along the equator', () => {
+    expect(initialBearing(0, 0, 0, 10)).toBeCloseTo(90, 5);
+  });
+
+  it('is 0° due north along a meridian', () => {
+    expect(initialBearing(0, 0, 10, 0)).toBeCloseTo(0, 5);
+  });
+
+  it('is 180° due south along a meridian', () => {
+    expect(initialBearing(10, 0, 0, 0)).toBeCloseTo(180, 5);
+  });
+
+  it('returns a value in [0, 360) for a westbound great circle (LHR → IAD)', () => {
+    const b = initialBearing(51.47, -0.45, 38.95, -77.46);
+    expect(b).toBeGreaterThanOrEqual(0);
+    expect(b).toBeLessThan(360);
+    // Heads west-north-west across the Atlantic.
+    expect(b).toBeGreaterThan(270);
   });
 });
 
