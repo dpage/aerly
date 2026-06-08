@@ -106,6 +106,11 @@ export default function TripMembersDialog({
   }, [open]);
 
   const canManage = myRole === 'owner' || myRole === 'editor';
+  // The all-friends and invite-by-email controls map to owner-only endpoints
+  // (setTripShareAllFriends / shareTripByEmail both require trip ownership), so
+  // gate them on ownership rather than canManage to avoid showing editors a
+  // control that would 403.
+  const isOwner = myRole === 'owner';
 
   const userIndex = useMemo(() => {
     const m = new Map<number, User>();
@@ -232,7 +237,7 @@ export default function TripMembersDialog({
       <DialogTitle>Share trip</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={3}>
-          {canManage && (
+          {isOwner && (
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
                 Share with all friends
@@ -311,7 +316,7 @@ export default function TripMembersDialog({
             </Box>
           )}
 
-          {canManage && (
+          {isOwner && (
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
                 Invite by email
