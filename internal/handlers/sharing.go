@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"strings"
 
 	"github.com/dpage/aerly/internal/auth"
@@ -88,6 +90,128 @@ func (a *API) setPlanShareAllFriends(w http.ResponseWriter, r *http.Request) {
 	}
 	a.publishPlanUpdated(r.Context(), dto.TripID, id)
 	writeJSON(w, http.StatusOK, dto)
+}
+
+// parseShareEmail trims, validates and lowercases a share-by-email address.
+// On a parse failure it writes a 400 and returns ok=false.
+func parseShareEmail(w http.ResponseWriter, raw string) (string, bool) {
+	addr := strings.TrimSpace(raw)
+	if addr == "" {
+		writeError(w, http.StatusBadRequest, "email required")
+		return "", false
+	}
+	parsed, err := mail.ParseAddress(addr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid email address")
+		return "", false
+	}
+	return strings.ToLower(parsed.Address), true
+}
+
+// writeShareAccepted mirrors inviteFriend's enumeration-safe 202 response so
+// the share-by-email endpoints reveal nothing about whether the address
+// belongs to an existing account.
+func writeShareAccepted(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write([]byte(inviteFriendAcceptedBody))
+}
+
+type shareByEmailTripReq struct {
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+// shareTripByEmail shares a trip with an email address — including one that
+// has no account yet — by sending a friend request/invite and recording the
+// grant (or pre-share) so it activates on acceptance. Owner-only.
+func (a *API) shareTripByEmail(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requireTripOwner(r.Context(), id, me, w); err != nil {
+		return
+	}
+	var in shareByEmailTripReq
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if in.Role != "viewer" && in.Role != "editor" {
+		writeError(w, http.StatusBadRequest, "role must be viewer or editor")
+		return
+	}
+	addr, ok := parseShareEmail(w, in.Email)
+	if !ok {
+		return
+	}
+	a.shareByEmail(r.Context(), me, addr, "trip", id, in.Role)
+	writeShareAccepted(w)
+}
+
+type shareByEmailPlanReq struct {
+	Email string `json:"email"`
+}
+
+// sharePlanByEmail shares a plan with an email address, mirroring
+// shareTripByEmail. Requires editor rights on the plan's trip.
+func (a *API) sharePlanByEmail(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	if err := a.requirePlanEdit(r.Context(), id, me, w); err != nil {
+		return
+	}
+	var in shareByEmailPlanReq
+	if err := decode(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	addr, ok := parseShareEmail(w, in.Email)
+	if !ok {
+		return
+	}
+	a.shareByEmail(r.Context(), me, addr, "plan", id, "")
+	writeShareAccepted(w)
+}
+
+// shareByEmail invites the address as a friend and records the share so it
+// activates on acceptance. Best-effort and enumeration-safe (no signal about
+// whether the address belongs to an existing user). kind "trip" uses role.
+func (a *API) shareByEmail(ctx context.Context, me *store.User, addr, kind string, targetID int64, role string) {
+	target, err := a.Store.UserByVerifiedEmail(ctx, addr)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		a.inviteFriendByEmail(ctx, me, addr, "")
+		if err := a.Store.InsertPendingShare(ctx, store.PendingShare{
+			EmailLower: addr, Kind: kind, TargetID: targetID, Role: role, InviterID: me.ID,
+		}); err != nil {
+			slog.Error("shareByEmail: insert pending share", "err", err)
+		}
+	case err != nil:
+		slog.Error("shareByEmail: lookup", "err", err)
+	default:
+		if target.ID == me.ID {
+			return // sharing with self: no-op
+		}
+		a.inviteFriendByUserID(ctx, me, target, addr, "")
+		switch kind {
+		case "trip":
+			if err := a.Store.AddTripMember(ctx, targetID, target.ID, role); err != nil {
+				slog.Error("shareByEmail: add trip member", "err", err)
+			}
+		case "plan":
+			if err := a.Store.AddPlanPassenger(ctx, targetID, target.ID); err != nil {
+				slog.Error("shareByEmail: add plan passenger", "err", err)
+			}
+		}
+	}
 }
 
 // actorLabel renders the human-facing name for a sharing actor, falling back

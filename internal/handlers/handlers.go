@@ -111,6 +111,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("PUT /api/trips/{id}/tags", req(http.HandlerFunc(a.setTripTags)))
 	mux.Handle("PUT /api/trips/{id}/share-all-friends", req(http.HandlerFunc(a.setTripShareAllFriends)))
 	mux.Handle("POST /api/trips/{id}/notify-shares", req(http.HandlerFunc(a.notifyTripShares)))
+	mux.Handle("POST /api/trips/{id}/share-by-email", req(http.HandlerFunc(a.shareTripByEmail)))
 	mux.Handle("GET /api/tags/suggest", req(http.HandlerFunc(a.suggestTags)))
 
 	// Plans, parts, passengers, visibility, move (Wave 1B).
@@ -122,6 +123,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("PUT /api/plans/{id}/visibility", req(http.HandlerFunc(a.setPlanVisibility)))
 	mux.Handle("PUT /api/plans/{id}/share-all-friends", req(http.HandlerFunc(a.setPlanShareAllFriends)))
 	mux.Handle("POST /api/plans/{id}/notify-shares", req(http.HandlerFunc(a.notifyPlanShares)))
+	mux.Handle("POST /api/plans/{id}/share-by-email", req(http.HandlerFunc(a.sharePlanByEmail)))
 	mux.Handle("POST /api/plans/{id}/move", req(http.HandlerFunc(a.movePlan)))
 	mux.Handle("POST /api/plans/{id}/link", req(http.HandlerFunc(a.linkPlans)))
 	mux.Handle("PATCH /api/plan-parts/{id}", req(http.HandlerFunc(a.updatePlanPart)))
