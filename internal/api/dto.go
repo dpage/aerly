@@ -316,6 +316,9 @@ type TripDTO struct {
 	// upcoming-plan reminder opt-in (issue #11), projected per-viewer.
 	ReminderOptedIn   bool `json:"reminder_opted_in"`
 	ReminderLeadHours int  `json:"reminder_lead_hours"`
+	// ShareAllFriendsRole is the persistent "share with all friends" role
+	// ("viewer"|"editor") granted to every accepted friend; omitted when off.
+	ShareAllFriendsRole string `json:"share_all_friends_role,omitempty"`
 }
 
 // TripMemberDTO is one membership edge.
@@ -354,7 +357,10 @@ type PlanDTO struct {
 	// override's lead in hours when "on" (else the default 24).
 	ReminderOverride  string        `json:"reminder_override"`
 	ReminderLeadHours int           `json:"reminder_lead_hours"`
-	Parts             []PlanPartDTO `json:"parts"`
+	// ShareAllFriends grants every accepted friend of the trip view access to
+	// this plan when true (per-plan all-friends share).
+	ShareAllFriends bool          `json:"share_all_friends"`
+	Parts           []PlanPartDTO `json:"parts"`
 	CreatedAt         time.Time     `json:"created_at"`
 	UpdatedAt         time.Time     `json:"updated_at"`
 }
@@ -588,9 +594,10 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 		MyRole:      myRole,
 		Members:     members,
 		Tags:        tags,
-		CountryCode: t.CountryCode,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
+		CountryCode:         t.CountryCode,
+		CreatedAt:           t.CreatedAt,
+		UpdatedAt:           t.UpdatedAt,
+		ShareAllFriendsRole: t.ShareAllFriendsRole,
 	}
 	if t.StartsOn != nil {
 		s := t.StartsOn.Format("2006-01-02")
