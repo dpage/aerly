@@ -64,6 +64,7 @@ export default function Layout() {
   const openHelp = useStore((s) => s.openHelp);
   const pendingRequests = useStore((s) => s.notifications.friend_requests_pending);
   const unreadAlerts = useStore((s) => s.notifications.unread_alerts);
+  const unreadShares = useStore((s) => s.notifications.unread_shares);
   const alerts = useStore((s) => s.alerts);
   const markAlertsRead = useStore((s) => s.markAlertsRead);
   const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
@@ -161,10 +162,10 @@ export default function Layout() {
             </Tooltip>
           )}
           <Badge
-            badgeContent={pendingRequests + unreadAlerts}
+            badgeContent={pendingRequests + unreadAlerts + unreadShares}
             color="error"
             overlap="circular"
-            invisible={pendingRequests + unreadAlerts === 0}
+            invisible={pendingRequests + unreadAlerts + unreadShares === 0}
             anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
           >
             <Tooltip title="Account menu">
@@ -209,10 +210,11 @@ export default function Layout() {
                     key={al.id}
                     onClick={() => {
                       closeMenu();
-                      // Reminders span all plan types, so they open the trip
-                      // timeline; flight-change alerts open the flight tracker.
-                      if (al.kind === 'reminder') navigate(`/trips/${al.trip_id}`);
-                      else navigate(`/tracker?part=${al.plan_part_id}`);
+                      // Generic inbox items carry the human-readable message and,
+                      // when set, the trip they belong to — open that trip's
+                      // timeline so flight changes, reminders, and shares all land
+                      // somewhere sensible.
+                      if (al.trip_id) navigate(`/trips/${al.trip_id}`);
                     }}
                   >
                     <ListItemIcon>

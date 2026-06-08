@@ -1,7 +1,12 @@
 import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
-import type { AlertPrefs, FlightAlert, UpdateAlertPrefsInput } from '../api/types';
+import type {
+  AlertPrefs,
+  FlightAlert,
+  NotificationItem,
+  UpdateAlertPrefsInput,
+} from '../api/types';
 import { errorMessage, reloadCurrent } from './helpers';
 import type { StoreState } from './store';
 
@@ -12,7 +17,7 @@ import type { StoreState } from './store';
  * per-plan opt-in toggle on top of these. */
 export interface AlertsSlice {
   alertPrefs: AlertPrefs | null;
-  alerts: FlightAlert[];
+  alerts: NotificationItem[];
 
   loadAlertPrefs: () => Promise<void>;
   updateAlertPrefs: (patch: UpdateAlertPrefsInput) => Promise<void>;
@@ -80,10 +85,9 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
 
   async loadAlerts() {
     try {
-      // The REST endpoint now returns the generic NotificationItem shape; cast
-      // to FlightAlert[] so existing state/SSE/component consumers are unaffected
-      // until the inbox UI is updated in Task 15.
-      const alerts = (await api.getAlerts()) as unknown as FlightAlert[];
+      // The REST endpoint returns the generic NotificationItem inbox shape,
+      // which is exactly the stored list type now.
+      const alerts = await api.getAlerts();
       set({ alerts });
     } catch {
       // Non-fatal: SSE / next reload recovers the inbox.
@@ -91,14 +95,25 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
   },
 
   applyIncomingAlert(alert) {
+    // The SSE alert.created payload is still the flight-only FlightAlert; map
+    // it into the generic NotificationItem shape the inbox list now stores.
+    const item: NotificationItem = {
+      id: alert.id,
+      kind: alert.kind,
+      trip_id: alert.trip_id,
+      plan_id: alert.plan_id,
+      message: alert.message,
+      created_at: alert.created_at,
+      read_at: alert.read_at,
+    };
     set((s) => {
       // SSE can redeliver on reconnect — dedupe by id so the inbox and the
       // unread badge don't double-count the same alert.
-      if (s.alerts.some((a) => a.id === alert.id)) return {};
+      if (s.alerts.some((a) => a.id === item.id)) return {};
       return {
-        alerts: [alert, ...s.alerts].slice(0, 50),
+        alerts: [item, ...s.alerts].slice(0, 50),
         // Only bump the unread badge for an actually-unread alert.
-        notifications: alert.read_at
+        notifications: item.read_at
           ? s.notifications
           : { ...s.notifications, unread_alerts: s.notifications.unread_alerts + 1 },
       };

@@ -8,6 +8,9 @@ const h = vi.hoisted(() => ({
   setPlanVisibility: vi.fn(),
   addPlanPassenger: vi.fn(),
   removePlanPassenger: vi.fn(),
+  setPlanShareAllFriends: vi.fn(),
+  sharePlanByEmail: vi.fn(),
+  notifyPlanShares: vi.fn(),
   setError: vi.fn(),
   openHelp: vi.fn(),
   state: {
@@ -26,10 +29,22 @@ vi.mock('../state/store', () => ({
       setPlanVisibility: h.setPlanVisibility,
       addPlanPassenger: h.addPlanPassenger,
       removePlanPassenger: h.removePlanPassenger,
+      setPlanShareAllFriends: h.setPlanShareAllFriends,
+      sharePlanByEmail: h.sharePlanByEmail,
+      notifyPlanShares: h.notifyPlanShares,
       setError: h.setError,
       openHelp: h.openHelp,
     }),
 }));
+
+// useFriendCandidates derives from the mocked store state (users + friendships);
+// re-export the real implementation so the passenger/share pickers see friends.
+vi.mock('../state/friendUsers', async () => {
+  const actual = await vi.importActual<typeof import('../state/friendUsers')>(
+    '../state/friendUsers',
+  );
+  return actual;
+});
 
 import PlanPrivacyDialog from './PlanPrivacyDialog';
 
@@ -59,6 +74,7 @@ function plan(over: Partial<Plan> = {}): Plan {
     confirmation_ref: '',
     notes: '',
     source: '',
+    share_all_friends: false,
     passenger_ids: [],
     visibility: { mode: 'everyone', user_ids: [] },
     parts: [],
@@ -234,5 +250,49 @@ describe('PlanPrivacyDialog', () => {
     render_(plan({ passenger_ids: [2] }));
     await userEvent.click(screen.getByLabelText(/remove passenger bob/i));
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('rm pax boom'));
+  });
+
+  it('toggles "Share with all friends" on', async () => {
+    h.setPlanShareAllFriends.mockResolvedValue(undefined);
+    render_();
+    await userEvent.click(screen.getByRole('checkbox', { name: /share with all friends/i }));
+    await waitFor(() => expect(h.setPlanShareAllFriends).toHaveBeenCalledWith(42, true));
+  });
+
+  it('renders the share-all switch checked when the plan already shares', () => {
+    render_(plan({ share_all_friends: true }));
+    expect(screen.getByRole('checkbox', { name: /share with all friends/i })).toBeChecked();
+  });
+
+  it('notifies the people just added on close', async () => {
+    h.addPlanPassenger.mockResolvedValue(undefined);
+    h.notifyPlanShares.mockResolvedValue(undefined);
+    render_();
+
+    await userEvent.click(screen.getByLabelText('Add passenger'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Carol' }));
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    await waitFor(() => expect(h.addPlanPassenger).toHaveBeenCalledWith(42, 3));
+
+    // The notify checkbox appears once someone's been added; close to fire it.
+    await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
+    await waitFor(() =>
+      expect(h.notifyPlanShares).toHaveBeenCalledWith(42, { user_ids: [3], emails: [] }),
+    );
+  });
+
+  it('invites by email and notifies that address on close', async () => {
+    h.sharePlanByEmail.mockResolvedValue(undefined);
+    h.notifyPlanShares.mockResolvedValue(undefined);
+    render_();
+
+    await userEvent.type(screen.getByLabelText('Email'), 'x@y.com');
+    await userEvent.click(screen.getByRole('button', { name: /^invite$/i }));
+    await waitFor(() => expect(h.sharePlanByEmail).toHaveBeenCalledWith(42, 'x@y.com'));
+
+    await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
+    await waitFor(() =>
+      expect(h.notifyPlanShares).toHaveBeenCalledWith(42, { user_ids: [], emails: ['x@y.com'] }),
+    );
   });
 });

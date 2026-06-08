@@ -14,15 +14,16 @@ const h = vi.hoisted(() => ({
   state: {
     me: null as User | null,
     capabilities: { email_ingest_enabled: false } as { email_ingest_enabled: boolean },
-    notifications: { friend_requests_pending: 0, unread_alerts: 0 } as { friend_requests_pending: number; unread_alerts: number },
+    notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 } as {
+      friend_requests_pending: number;
+      unread_alerts: number;
+      unread_shares: number;
+    },
     alerts: [] as Array<{
       id: number;
-      plan_part_id: number;
-      plan_id: number;
-      trip_id: number;
-      ident: string;
       kind: string;
-      status: string;
+      trip_id?: number;
+      plan_id?: number;
       message: string;
       created_at: string;
     }>,
@@ -110,7 +111,7 @@ beforeEach(() => {
   h.markAlertsRead.mockResolvedValue(undefined);
   h.state.me = user();
   h.state.capabilities = { email_ingest_enabled: false };
-  h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0 };
+  h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 };
   h.state.alerts = [];
 });
 
@@ -174,7 +175,7 @@ describe('Layout', () => {
   });
 
   it('shows a pending friend-request chip when there are some', async () => {
-    h.state.notifications = { friend_requests_pending: 3, unread_alerts: 0 };
+    h.state.notifications = { friend_requests_pending: 3, unread_alerts: 0, unread_shares: 0 };
     renderLayout();
     await openMenu();
     const friends = screen.getByText('Friends…').closest('li')!;
@@ -340,16 +341,13 @@ describe('Layout (narrow / mobile)', () => {
 
 describe('Layout (alerts)', () => {
   it('shows alerts in the account menu and marks them read on open', async () => {
-    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 1 };
+    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 0 };
     h.state.alerts = [
       {
         id: 1,
-        plan_part_id: 9,
         plan_id: 1,
         trip_id: 1,
-        ident: 'BA286',
         kind: 'gate',
-        status: 'Scheduled',
         message: 'BA286 now departs gate B32',
         created_at: '2026-06-01T00:00:00Z',
       },
@@ -367,16 +365,13 @@ describe('Layout (alerts)', () => {
     expect(h.markAlertsRead).not.toHaveBeenCalled();
   });
 
-  it('opens the flight tracker for a flight-change alert', async () => {
+  it('opens the trip timeline for an alert with a trip', async () => {
     h.state.alerts = [
       {
         id: 1,
-        plan_part_id: 9,
         plan_id: 1,
         trip_id: 4,
-        ident: 'BA286',
         kind: 'gate',
-        status: 'Scheduled',
         message: 'BA286 now departs gate B32',
         created_at: '2026-06-01T00:00:00Z',
       },
@@ -384,19 +379,16 @@ describe('Layout (alerts)', () => {
     renderLayout();
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
     await userEvent.click(screen.getByText('BA286 now departs gate B32'));
-    expect(screen.getByTestId('page')).toHaveTextContent('tracker page');
+    expect(screen.getByTestId('page')).toHaveTextContent('trip page');
   });
 
   it('opens the trip timeline for a reminder alert', async () => {
     h.state.alerts = [
       {
         id: 2,
-        plan_part_id: 9,
         plan_id: 1,
         trip_id: 4,
-        ident: 'Hilton Vienna',
         kind: 'reminder',
-        status: 'hotel',
         message: 'Upcoming: Hilton Vienna',
         created_at: '2026-06-01T00:00:00Z',
       },
@@ -405,5 +397,12 @@ describe('Layout (alerts)', () => {
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
     await userEvent.click(screen.getByText('Upcoming: Hilton Vienna'));
     expect(screen.getByTestId('page')).toHaveTextContent('trip page');
+  });
+
+  it('counts unread shares in the avatar badge', () => {
+    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 2 };
+    renderLayout();
+    // The badge surfaces the combined inbox count (here, share notifications).
+    expect(screen.getByText('2')).toBeInTheDocument();
   });
 });

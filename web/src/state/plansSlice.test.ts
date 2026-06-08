@@ -17,6 +17,7 @@ vi.mock('../api/client', () => ({
     updatePlanPart: vi.fn(),
     dismissPlanPart: vi.fn(),
     setPlanShareAllFriends: vi.fn(),
+    sharePlanByEmail: vi.fn(),
     notifyPlanShares: vi.fn(),
     getTrip: vi.fn(),
   },
@@ -151,6 +152,15 @@ describe('mutations that reload the current trip', () => {
     await useStore.getState().setPlanShareAllFriends(1, true);
     expect(mockApi.setPlanShareAllFriends).toHaveBeenCalledWith(1, true);
     expect(mockApi.getTrip).toHaveBeenCalled();
+  });
+
+  it('sharePlanByEmail calls the client and reloads', async () => {
+    useStore.setState({ currentTrip: tripWithPlans(7) });
+    mockApi.sharePlanByEmail.mockResolvedValue(undefined);
+    mockApi.getTrip.mockResolvedValue(tripWithPlans(7));
+    await useStore.getState().sharePlanByEmail(1, 'x@y.com');
+    expect(mockApi.sharePlanByEmail).toHaveBeenCalledWith(1, 'x@y.com');
+    expect(mockApi.getTrip).toHaveBeenCalledWith(7);
   });
 });
 

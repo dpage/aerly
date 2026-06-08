@@ -31,6 +31,7 @@ export interface PlansSlice {
   updatePlanPart: (partId: number, patch: UpdatePlanPartInput) => Promise<PlanPart>;
   dismissPlanPart: (partId: number) => Promise<void>;
   setPlanShareAllFriends: (planId: number, enabled: boolean) => Promise<void>;
+  sharePlanByEmail: (planId: number, email: string) => Promise<void>;
   notifyPlanShares: (planId: number, input: NotifySharesInput) => Promise<void>;
 }
 
@@ -94,6 +95,11 @@ export const createPlansSlice: StateCreator<StoreState, [], [], PlansSlice> = (_
 
   async setPlanShareAllFriends(planId, enabled) {
     await api.setPlanShareAllFriends(planId, enabled);
+    await reloadCurrent(get);
+  },
+
+  async sharePlanByEmail(planId, email) {
+    await api.sharePlanByEmail(planId, email);
     await reloadCurrent(get);
   },
 

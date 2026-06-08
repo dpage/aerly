@@ -170,6 +170,28 @@ describe('alertsSlice inbox', () => {
     expect(useStore.getState().notifications.unread_alerts).toBe(2);
   });
 
+  it('applyIncomingAlert maps the FlightAlert SSE payload into a NotificationItem', () => {
+    useStore.setState({
+      alerts: [],
+      notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
+    });
+    useStore.getState().applyIncomingAlert(mk(7, 'gate change'));
+    const stored = useStore.getState().alerts[0];
+    expect(stored).toEqual({
+      id: 7,
+      kind: 'gate',
+      trip_id: 1,
+      plan_id: 1,
+      message: 'gate change',
+      created_at: '2026-06-01T00:00:00Z',
+      read_at: undefined,
+    });
+    // Flight-only fields are not carried into the generic inbox item.
+    expect('ident' in stored).toBe(false);
+    expect('plan_part_id' in stored).toBe(false);
+    expect('status' in stored).toBe(false);
+  });
+
   it('applyIncomingAlert dedupes a redelivered alert by id (no double-count)', () => {
     useStore.setState({
       alerts: [mk(1, 'a')],

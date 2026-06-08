@@ -328,6 +328,8 @@ export const api = {
   // no body; we collapse it to Promise<void>.
   shareTripByEmail: (tripId: number, input: ShareByEmailTripInput) =>
     request<void>('POST', `/api/trips/${tripId}/share-by-email`, input).then(() => undefined),
+  sharePlanByEmail: (planId: number, email: string) =>
+    request<void>('POST', `/api/plans/${planId}/share-by-email`, { email }).then(() => undefined),
   notifyTripShares: (tripId: number, input: NotifySharesInput) =>
     request<void>('POST', `/api/trips/${tripId}/notify-shares`, input).then(() => undefined),
   notifyPlanShares: (planId: number, input: NotifySharesInput) =>

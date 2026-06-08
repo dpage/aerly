@@ -593,6 +593,16 @@ describe('shareTripByEmail', () => {
   });
 });
 
+describe('sharePlanByEmail', () => {
+  it('POST /api/plans/:id/share-by-email with the email', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 202));
+    await api.sharePlanByEmail(42, 'x@y.com');
+    expect(spy.mock.calls[0][0]).toBe('/api/plans/42/share-by-email');
+    expect(spy.mock.calls[0][1]?.method).toBe('POST');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ email: 'x@y.com' }));
+  });
+});
+
 describe('notifications', () => {
   it('GET /api/notifications returns the typed body', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(

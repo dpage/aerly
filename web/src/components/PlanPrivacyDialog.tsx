@@ -9,6 +9,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   FormControl,
   FormControlLabel,
   FormLabel,
@@ -20,6 +21,7 @@ import {
   RadioGroup,
   Select,
   Stack,
+  Switch,
   TextField,
   Tooltip,
   Typography,
@@ -28,7 +30,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 
 import type { Plan, PlanVisibilityMode, TripMember, User } from '../api/types';
 import { userInitial, userName } from '../lib/format';
-import { useFriendUsers } from '../state/friendUsers';
+import { useFriendCandidates } from '../state/friendUsers';
 import { useStore } from '../state/store';
 
 interface Props {
@@ -50,14 +52,27 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
   const setPlanVisibility = useStore((s) => s.setPlanVisibility);
   const addPlanPassenger = useStore((s) => s.addPlanPassenger);
   const removePlanPassenger = useStore((s) => s.removePlanPassenger);
+  const setPlanShareAllFriends = useStore((s) => s.setPlanShareAllFriends);
+  const sharePlanByEmail = useStore((s) => s.sharePlanByEmail);
+  const notifyPlanShares = useStore((s) => s.notifyPlanShares);
   const setError = useStore((s) => s.setError);
   const openHelp = useStore((s) => s.openHelp);
-  const friends = useFriendUsers();
+  const friendCandidates = useFriendCandidates();
 
   const [mode, setMode] = useState<PlanVisibilityMode>(plan.visibility.mode);
   const [scopeIds, setScopeIds] = useState<number[]>(plan.visibility.user_ids);
   const [pax, setPax] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
+  // Local mirror of the all-friends flag so the Switch reflects a toggle
+  // immediately (the plan prop only updates after the store refetch lands).
+  const [shareAll, setShareAll] = useState(plan.share_all_friends);
+  const [email, setEmail] = useState('');
+
+  // People who newly gained access during this dialog session; on close we
+  // offer to notify them. Reset whenever the dialog is (re)opened.
+  const [addedUserIds, setAddedUserIds] = useState<Set<number>>(() => new Set());
+  const [invitedEmails, setInvitedEmails] = useState<Set<string>>(() => new Set());
+  const [notify, setNotify] = useState(true);
 
   // Re-sync local state when the dialog (re)opens or switches to a different
   // plan. Deliberately NOT keyed on plan.visibility.* — while the dialog is
@@ -70,6 +85,11 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
     setMode(plan.visibility.mode);
     setScopeIds(plan.visibility.user_ids);
     setPax('');
+    setShareAll(plan.share_all_friends);
+    setEmail('');
+    setAddedUserIds(new Set());
+    setInvitedEmails(new Set());
+    setNotify(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sync only on (re)open / plan switch
   }, [open, plan.id]);
 
@@ -91,10 +111,11 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
     [members],
   );
 
-  // Passengers are picked from accepted friends not already aboard.
+  // Passengers are picked from friends (accepted + pending, so you can
+  // pre-share to an invited person) not already aboard.
   const paxCandidates = useMemo(
-    () => friends.filter((f) => !plan.passenger_ids.includes(f.id)),
-    [friends, plan.passenger_ids],
+    () => friendCandidates.filter((c) => !plan.passenger_ids.includes(c.user.id)),
+    [friendCandidates, plan.passenger_ids],
   );
 
   const reportError = (err: unknown) =>
@@ -108,7 +129,7 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
         // Only the scoped modes carry a user list; "everyone" sends an empty one.
         user_ids: mode === 'everyone' ? [] : scopeIds,
       });
-      onClose();
+      await handleClose();
     } catch (err) {
       reportError(err);
     } finally {
@@ -118,15 +139,69 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
 
   const handleAddPax = async () => {
     if (pax === '') return;
+    const addedId = pax;
     setBusy(true);
     try {
-      await addPlanPassenger(plan.id, pax);
+      await addPlanPassenger(plan.id, addedId);
+      setAddedUserIds((prev) => new Set(prev).add(addedId));
       setPax('');
     } catch (err) {
       reportError(err);
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleShareAllChange = async (checked: boolean) => {
+    setShareAll(checked);
+    setBusy(true);
+    try {
+      await setPlanShareAllFriends(plan.id, checked);
+      // Turning it on newly grants access to every accepted friend who isn't
+      // already a passenger; queue them for the close-time notify.
+      if (checked) {
+        setAddedUserIds((prev) => {
+          const next = new Set(prev);
+          for (const c of friendCandidates) {
+            if (!c.pending && !plan.passenger_ids.includes(c.user.id)) next.add(c.user.id);
+          }
+          return next;
+        });
+      }
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleInviteEmail = async () => {
+    const addr = email.trim();
+    if (!addr) return;
+    setBusy(true);
+    try {
+      await sharePlanByEmail(plan.id, addr);
+      setInvitedEmails((prev) => new Set(prev).add(addr));
+      setEmail('');
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleClose = async () => {
+    if (notify && addedUserIds.size + invitedEmails.size > 0) {
+      try {
+        await notifyPlanShares(plan.id, {
+          user_ids: [...addedUserIds],
+          emails: [...invitedEmails],
+        });
+      } catch {
+        // Best-effort: never block closing the dialog on a notify failure.
+      }
+    }
+    onClose();
   };
 
   const handleRemovePax = async (userId: number) => {
@@ -141,7 +216,7 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
     mode === 'hidden_from' ? 'Hidden from' : mode === 'only_visible_to' ? 'Only visible to' : '';
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={() => void handleClose()} maxWidth="sm" fullWidth>
       <DialogTitle>Privacy &amp; passengers</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={3}>
@@ -208,6 +283,46 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
           </FormControl>
 
           <Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={shareAll}
+                  onChange={(e) => void handleShareAllChange(e.target.checked)}
+                  disabled={busy}
+                />
+              }
+              label="Share with all friends"
+            />
+            <Typography variant="caption" color="text.secondary" component="div">
+              Everyone you&apos;re friends with can see this plan automatically.
+            </Typography>
+          </Box>
+
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Invite by email
+            </Typography>
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <TextField
+                size="small"
+                type="email"
+                label="Email"
+                fullWidth
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                helperText="Pre-share to someone who isn't on Aerly yet."
+              />
+              <Button
+                variant="outlined"
+                onClick={() => void handleInviteEmail()}
+                disabled={busy || email.trim() === ''}
+              >
+                Invite
+              </Button>
+            </Stack>
+          </Box>
+
+          <Box>
             <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
               Passengers
             </Typography>
@@ -258,9 +373,10 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
                 <MenuItem value="" disabled>
                   Choose a friend…
                 </MenuItem>
-                {paxCandidates.map((u) => (
-                  <MenuItem key={u.id} value={String(u.id)}>
-                    {userName(u)}
+                {paxCandidates.map((c) => (
+                  <MenuItem key={c.user.id} value={String(c.user.id)}>
+                    {userName(c.user)}
+                    {c.pending ? ' (invited)' : ''}
                   </MenuItem>
                 ))}
               </TextField>
@@ -275,12 +391,29 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
           </Box>
         </Stack>
       </DialogContent>
+      {addedUserIds.size + invitedEmails.size > 0 && (
+        <>
+          <Divider />
+          <Box sx={{ px: 3, py: 1 }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={notify}
+                  onChange={(e) => setNotify(e.target.checked)}
+                />
+              }
+              label="Notify the people I just added"
+            />
+          </Box>
+        </>
+      )}
       <DialogActions sx={{ justifyContent: 'space-between' }}>
         <Button size="small" color="inherit" onClick={() => openHelp('sharing')}>
           How sharing works
         </Button>
         <Box>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={() => void handleClose()}>Close</Button>
           <Button variant="contained" onClick={() => void handleSave()} disabled={busy}>
             Save visibility
           </Button>
