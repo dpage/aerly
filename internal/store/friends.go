@@ -390,6 +390,9 @@ func consumePendingInvitesTx(ctx context.Context, tx pgx.Tx, userID int64) ([]in
 			return nil, err
 		}
 	}
+	if err := consumePendingSharesTx(ctx, tx, userID); err != nil {
+		return nil, err
+	}
 	return inviters, nil
 }
 

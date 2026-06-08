@@ -2,6 +2,99 @@ package store
 
 import "testing"
 
+// linkLoginWithEmail simulates a first verified login via the real LinkLogin
+// path (the same entrypoint TestLinkLoginConsumesPendingInvites exercises),
+// seeding the given verified email, and returns the new user's id. Each call
+// must use a distinct login so the provider_user_id / username don't collide.
+func linkLoginWithEmail(t *testing.T, s *Store, login, email string) int64 {
+	t.Helper()
+	u, _, err := s.LinkLogin(ctx,
+		OAuthProfile{Provider: "github", ProviderUserID: login,
+			Username: login, Email: email}, false)
+	if err != nil {
+		t.Fatalf("LinkLogin %s: %v", login, err)
+	}
+	return u.ID
+}
+
+func TestPendingTripShareConvertsOnLogin(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	tripID := mkTrip(t, s, owner)
+
+	// Owner pre-shared the trip with joiner@example.com before they had an account.
+	if err := s.InsertPendingShare(ctx, PendingShare{
+		EmailLower: "joiner@example.com", Kind: "trip", TargetID: tripID,
+		Role: "viewer", InviterID: owner,
+	}); err != nil {
+		t.Fatalf("InsertPendingShare: %v", err)
+	}
+	// Queue the friend invite too, so login accepts the friendship (the gate).
+	if _, err := s.UpsertPendingFriendInvite(ctx, owner, "joiner@example.com", ""); err != nil {
+		t.Fatalf("UpsertPendingFriendInvite: %v", err)
+	}
+
+	// Joiner signs in for the first time with that verified email.
+	joiner := linkLoginWithEmail(t, s, "joinerlogin", "joiner@example.com")
+
+	// The pending share converted to a live grant; the trip is now visible.
+	if !tripVisible(t, s, joiner, tripID) {
+		t.Error("pending trip share should convert to a live grant on first login")
+	}
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM pending_shares WHERE email_lower='joiner@example.com'`).Scan(&n); err != nil {
+		t.Fatalf("count pending_shares: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("pending_shares not consumed: %d rows left", n)
+	}
+}
+
+func TestPendingPlanShareConvertsOnLogin(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	tripID := mkTrip(t, s, owner)
+	planID := mkPlan(t, s, tripID, owner)
+
+	// Owner pre-shared a single plan with planjoiner@example.com (role-less).
+	if err := s.InsertPendingShare(ctx, PendingShare{
+		EmailLower: "planjoiner@example.com", Kind: "plan", TargetID: planID,
+		Role: "", InviterID: owner,
+	}); err != nil {
+		t.Fatalf("InsertPendingShare: %v", err)
+	}
+	// Queue the friend invite too, so login accepts the friendship (the gate).
+	if _, err := s.UpsertPendingFriendInvite(ctx, owner, "planjoiner@example.com", ""); err != nil {
+		t.Fatalf("UpsertPendingFriendInvite: %v", err)
+	}
+
+	// Joiner signs in for the first time with that verified email.
+	joiner := linkLoginWithEmail(t, s, "planjoinerlogin", "planjoiner@example.com")
+
+	ok, err := s.CanViewPlan(ctx, planID, joiner, false)
+	if err != nil {
+		t.Fatalf("CanViewPlan: %v", err)
+	}
+	if !ok {
+		t.Error("pending plan share should convert to a live plan-passenger grant on first login")
+	}
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM pending_shares WHERE email_lower='planjoiner@example.com'`).Scan(&n); err != nil {
+		t.Fatalf("count pending_shares: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("pending_shares not consumed: %d rows left", n)
+	}
+}
+
 func TestShareAllFriendsFlagsRoundTrip(t *testing.T) {
 	s := newStore(t)
 	if s == nil {
