@@ -115,6 +115,39 @@ describe('PlanMapView', () => {
     expect(map.fitBounds).toHaveBeenCalled();
   });
 
+  it('does not re-fit the map when a selected flight refreshes (keeps a manual zoom)', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<PlanMapView parts={[flight(), hotel()]} />);
+    const map = FakeMap.instances[0];
+    await user.click(screen.getByTestId('plan-row-1'));
+    expect(map.fitBounds).toHaveBeenCalled(); // the initial fit on selection
+    // The user has now zoomed in by hand; clear the spy and simulate a live
+    // tracking refresh (new part objects with an updated position + track).
+    map.fitBounds.mockClear();
+    map.flyTo.mockClear();
+    rerender(
+      <PlanMapView
+        parts={[
+          flight({
+            flight: {
+              ...flight().flight!,
+              flight_status: 'Enroute',
+              latest_position: { ts: '2026-10-12T11:31:00Z', lat: 47, lon: -35, is_estimated: false },
+              track: [
+                ...flight().flight!.track!,
+                { ts: '2026-10-12T11:31:00Z', lat: 47, lon: -35, is_estimated: false },
+              ],
+            },
+          }),
+          hotel(),
+        ]}
+      />,
+    );
+    // The selection is unchanged, so the refresh must not move the camera.
+    expect(map.fitBounds).not.toHaveBeenCalled();
+    expect(map.flyTo).not.toHaveBeenCalled();
+  });
+
   it('expands a non-flight to its detail block and flies to the point', async () => {
     const user = userEvent.setup();
     render(<PlanMapView parts={[flight(), hotel()]} />);
