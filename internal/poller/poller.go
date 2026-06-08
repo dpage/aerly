@@ -83,8 +83,17 @@ func (p *Poller) Run(ctx context.Context) {
 // Enroute flights are polled at the base interval; all other active statuses
 // (Scheduled, etc.) are polled at 5× the base interval since they change
 // infrequently before departure.
-func (p *Poller) minPollAge(status string) time.Duration {
-	if status == "Enroute" {
+//
+// The stored status only flips Scheduled→Enroute inside refresh() (via
+// RefreshFlightPartStatus, which derives it from the schedule), and refresh()
+// only runs once this throttle lets the flight through. Keying purely off the
+// stored status is therefore a chicken-and-egg trap: a flight that has just
+// crossed its scheduled departure is airborne but still stored as Scheduled,
+// so the slow 5× cadence would delay the flip to Enroute (and position
+// tracking) by up to one slow interval. Treat a flight at/after its scheduled
+// departure as enroute for cadence purposes so it's polled promptly.
+func (p *Poller) minPollAge(f *store.Flight, now time.Time) time.Duration {
+	if f.Status == "Enroute" || !now.Before(f.ScheduledOut) {
 		return p.Interval
 	}
 	return p.Interval * 5
@@ -101,7 +110,7 @@ func (p *Poller) tick(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f.Status) {
+		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f, now) {
 			continue
 		}
 		guard("poller.refresh", f.ID, func() { p.refresh(ctx, f, now) })
@@ -123,7 +132,7 @@ func (p *Poller) tick(ctx context.Context) {
 		// Same per-flight cadence as the main loop, so a degenerate flight the
 		// resolver can't fix doesn't re-resolve every tick (it stays "needs
 		// backfill" forever otherwise).
-		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f.Status) {
+		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f, now) {
 			continue
 		}
 		guard("poller.refreshMetadata", f.ID, func() { p.refreshMetadata(ctx, f, now) })
