@@ -192,3 +192,58 @@ func TestFriendGateActivationAndRevocation(t *testing.T) {
 		t.Error("unfriending must revoke access")
 	}
 }
+
+func tripVisible(t *testing.T, s *Store, viewer, tripID int64) bool {
+	t.Helper()
+	trips, err := s.ListTrips(ctx, viewer)
+	if err != nil {
+		t.Fatalf("ListTrips: %v", err)
+	}
+	for _, tr := range trips {
+		if tr.ID == tripID {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTileVisibleForPlanScopedViewer(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	claire := mkUser(t, s)
+	befriendStore(t, s, owner, claire)
+	tripID := mkTrip(t, s, owner)
+	flight := mkPlan(t, s, tripID, owner)
+	if err := s.AddPlanPassenger(ctx, flight, claire); err != nil {
+		t.Fatalf("AddPlanPassenger: %v", err)
+	}
+	if !tripVisible(t, s, claire, tripID) {
+		t.Error("plan-scoped viewer should see the trip tile")
+	}
+	stranger := mkUser(t, s)
+	befriendStore(t, s, owner, stranger)
+	if tripVisible(t, s, stranger, tripID) {
+		t.Error("friend with no grant must not see the tile")
+	}
+}
+
+func TestTileVisibleForTripAllFriends(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	fran := mkUser(t, s)
+	befriendStore(t, s, owner, fran)
+	tripID := mkTrip(t, s, owner)
+	_ = mkPlan(t, s, tripID, owner)
+	if err := s.SetTripShareAllFriends(ctx, tripID, "viewer"); err != nil {
+		t.Fatalf("SetTripShareAllFriends: %v", err)
+	}
+	if !tripVisible(t, s, fran, tripID) {
+		t.Error("all-friends trip should be visible to a friend")
+	}
+}

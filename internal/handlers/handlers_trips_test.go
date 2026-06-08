@@ -109,6 +109,10 @@ func TestListTripsViewerIsPassenger(t *testing.T) {
 		`INSERT INTO trip_members (trip_id, user_id, role) VALUES ($1, $2, 'viewer')`, tid, shared); err != nil {
 		t.Fatalf("shared member: %v", err)
 	}
+	// The trip-list visibility gate now requires an accepted friendship with the
+	// owner before either grantee can see the trip via ListTrips.
+	e.befriend(t, owner, pax)
+	e.befriend(t, owner, shared)
 
 	flagFor := func(uid int64) (string, bool) {
 		t.Helper()

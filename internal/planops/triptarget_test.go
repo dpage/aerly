@@ -186,6 +186,14 @@ func TestSelectTrip_AttachesToEditableSharedTrip(t *testing.T) {
 	if err := e.s.AddTripMember(ctx, trip, editor, "editor"); err != nil {
 		t.Fatalf("AddTripMember: %v", err)
 	}
+	// The trip-list visibility gate now requires an accepted friendship between
+	// owner and member before the member can see the trip via ListTrips.
+	if _, err := e.s.RequestFriendship(ctx, owner, editor, ""); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := e.s.AcceptFriendship(ctx, editor, owner); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
 	tOut := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	tIn := time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC)
 	e.mkFlightPlan(t, trip, owner, "BA286", "PNR1", tOut, tIn)

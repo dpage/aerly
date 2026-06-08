@@ -114,8 +114,31 @@ func (s *Store) scanTripList(rows pgx.Rows) ([]*Trip, error) {
 func (s *Store) ListTrips(ctx context.Context, viewerID int64) ([]*Trip, error) {
 	rows, err := s.pool.Query(ctx, listTripsSelect+`
 		WHERE t.created_by = $1
-		   OR EXISTS (SELECT 1 FROM trip_members tm
-		              WHERE tm.trip_id = t.id AND tm.user_id = $1)
+		   OR (
+		        EXISTS (SELECT 1 FROM friendships f
+		                WHERE f.status = 'accepted'
+		                  AND f.user_low = LEAST(t.created_by, $1)
+		                  AND f.user_high = GREATEST(t.created_by, $1))
+		        AND (
+		             EXISTS (SELECT 1 FROM trip_members tm
+		                     WHERE tm.trip_id = t.id AND tm.user_id = $1)
+		          OR t.share_all_friends_role IS NOT NULL
+		          OR EXISTS (
+		               SELECT 1 FROM plans pl
+		               WHERE pl.trip_id = t.id
+		                 AND (
+		                      pl.created_by = $1
+		                   OR pl.share_all_friends
+		                   OR EXISTS (SELECT 1 FROM plan_passengers pp
+		                              WHERE pp.plan_id = pl.id AND pp.user_id = $1)
+		                   OR EXISTS (SELECT 1 FROM plan_visibility pv
+		                              JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
+		                              WHERE pv.plan_id = pl.id AND pv.mode = 'only_visible_to'
+		                                AND m.user_id = $1)
+		                     )
+		             )
+		           )
+		      )
 		ORDER BY t.updated_at DESC, t.id DESC`, viewerID)
 	if err != nil {
 		return nil, err
