@@ -3,6 +3,7 @@ import type { StateCreator } from 'zustand';
 import { api } from '../api/client';
 import type {
   CreatePlanInput,
+  NotifySharesInput,
   PlanPart,
   PlanVisibility,
   UpdatePlanInput,
@@ -29,6 +30,8 @@ export interface PlansSlice {
   splitPlanPart: (partId: number) => Promise<void>;
   updatePlanPart: (partId: number, patch: UpdatePlanPartInput) => Promise<PlanPart>;
   dismissPlanPart: (partId: number) => Promise<void>;
+  setPlanShareAllFriends: (planId: number, enabled: boolean) => Promise<void>;
+  notifyPlanShares: (planId: number, input: NotifySharesInput) => Promise<void>;
 }
 
 
@@ -87,5 +90,14 @@ export const createPlansSlice: StateCreator<StoreState, [], [], PlansSlice> = (_
   async dismissPlanPart(partId) {
     await api.dismissPlanPart(partId);
     await reloadCurrent(get);
+  },
+
+  async setPlanShareAllFriends(planId, enabled) {
+    await api.setPlanShareAllFriends(planId, enabled);
+    await reloadCurrent(get);
+  },
+
+  async notifyPlanShares(planId, input) {
+    await api.notifyPlanShares(planId, input);
   },
 });

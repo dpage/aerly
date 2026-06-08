@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client';
 import type {
   AddTripMemberInput,
   CreateTripInput,
+  NotifySharesInput,
   Plan,
   TagSuggestion,
   Trip,
@@ -38,6 +39,8 @@ export interface TripsSlice {
   removeTripPassenger: (tripId: number, userId: number) => Promise<void>;
   setTripTags: (tripId: number, labels: string[]) => Promise<void>;
   suggestTags: (q: string) => Promise<void>;
+  setTripShareAllFriends: (tripId: number, role: 'viewer' | 'editor' | null) => Promise<void>;
+  notifyTripShares: (tripId: number, input: NotifySharesInput) => Promise<void>;
 }
 
 export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (set, get) => ({
@@ -139,6 +142,15 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
     } catch {
       // Non-fatal: autocomplete is best-effort.
     }
+  },
+
+  async setTripShareAllFriends(tripId, role) {
+    const updated = await api.setTripShareAllFriends(tripId, role);
+    set((s) => ({ trips: s.trips.map((t) => (t.id === tripId ? updated : t)) }));
+  },
+
+  async notifyTripShares(tripId, input) {
+    await api.notifyTripShares(tripId, input);
   },
 });
 

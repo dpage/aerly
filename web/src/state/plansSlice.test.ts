@@ -16,6 +16,8 @@ vi.mock('../api/client', () => ({
     splitPlanPart: vi.fn(),
     updatePlanPart: vi.fn(),
     dismissPlanPart: vi.fn(),
+    setPlanShareAllFriends: vi.fn(),
+    notifyPlanShares: vi.fn(),
     getTrip: vi.fn(),
   },
 }));
@@ -143,6 +145,13 @@ describe('mutations that reload the current trip', () => {
     expect(mockApi.dismissPlanPart).toHaveBeenCalledWith(1);
     expect(mockApi.getTrip).toHaveBeenCalled();
   });
+
+  it('setPlanShareAllFriends calls the client and reloads', async () => {
+    mockApi.setPlanShareAllFriends.mockResolvedValue(undefined);
+    await useStore.getState().setPlanShareAllFriends(1, true);
+    expect(mockApi.setPlanShareAllFriends).toHaveBeenCalledWith(1, true);
+    expect(mockApi.getTrip).toHaveBeenCalled();
+  });
 });
 
 describe('reloadCurrent no-op when no trip open', () => {
@@ -150,5 +159,14 @@ describe('reloadCurrent no-op when no trip open', () => {
     mockApi.updatePlan.mockResolvedValue(undefined);
     await useStore.getState().updatePlan(1, { title: 'x' } as never);
     expect(mockApi.getTrip).not.toHaveBeenCalled();
+  });
+});
+
+describe('notifyPlanShares', () => {
+  it('calls the client with the given planId and input', async () => {
+    mockApi.notifyPlanShares.mockResolvedValue(undefined);
+    const input = { user_ids: [3], emails: ['x@y.com'] };
+    await useStore.getState().notifyPlanShares(5, input);
+    expect(mockApi.notifyPlanShares).toHaveBeenCalledWith(5, input);
   });
 });

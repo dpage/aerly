@@ -23,6 +23,8 @@ vi.mock('../api/client', () => ({
     removeTripPassenger: vi.fn(),
     setTripTags: vi.fn(),
     suggestTags: vi.fn(),
+    setTripShareAllFriends: vi.fn(),
+    notifyTripShares: vi.fn(),
   },
 }));
 
@@ -254,5 +256,33 @@ describe('suggestTags', () => {
     await useStore.getState().suggestTags('x');
     expect(useStore.getState().tagSuggestions).toHaveLength(1);
     expect(useStore.getState().error).toBeNull();
+  });
+});
+
+describe('setTripShareAllFriends', () => {
+  it('replaces the matching trip with the updated one', async () => {
+    useStore.setState({ trips: [trip({ id: 1, name: 'old' }), trip({ id: 2 })] });
+    mockApi.setTripShareAllFriends.mockResolvedValue(trip({ id: 1, name: 'updated' }));
+    await useStore.getState().setTripShareAllFriends(1, 'viewer');
+    expect(mockApi.setTripShareAllFriends).toHaveBeenCalledWith(1, 'viewer');
+    expect(useStore.getState().trips.find((t) => t.id === 1)?.name).toBe('updated');
+    // unrelated trip untouched
+    expect(useStore.getState().trips.find((t) => t.id === 2)?.id).toBe(2);
+  });
+
+  it('passes null role through to the client', async () => {
+    useStore.setState({ trips: [trip({ id: 3 })] });
+    mockApi.setTripShareAllFriends.mockResolvedValue(trip({ id: 3 }));
+    await useStore.getState().setTripShareAllFriends(3, null);
+    expect(mockApi.setTripShareAllFriends).toHaveBeenCalledWith(3, null);
+  });
+});
+
+describe('notifyTripShares', () => {
+  it('calls the client with the given tripId and input', async () => {
+    mockApi.notifyTripShares.mockResolvedValue(undefined);
+    const input = { user_ids: [7, 8], emails: ['a@b.com'] };
+    await useStore.getState().notifyTripShares(1, input);
+    expect(mockApi.notifyTripShares).toHaveBeenCalledWith(1, input);
   });
 });
