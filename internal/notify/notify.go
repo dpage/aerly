@@ -27,22 +27,20 @@ type planEventPayload struct {
 	PlanID int64 `json:"plan_id"`
 }
 
-// TripUpdated broadcasts a trip.updated event scoped to the trip's members
-// (owner + every membership row). A nil hub/store is a no-op. All errors are
-// logged, never returned — a dropped publish is covered by the SPA's refetch on
-// focus / reconnect.
+// TripUpdated broadcasts a trip.updated event scoped to the friend-gated tile
+// audience: the owner plus every user who can currently see the trip under the
+// CanViewTrip / ListTrips rule (explicit members, all-friends sharing, and
+// plan-scoped grants alike). A nil hub/store is a no-op. All errors are logged,
+// never returned — a dropped publish is covered by the SPA's refetch on focus /
+// reconnect.
 func TripUpdated(ctx context.Context, st *store.Store, hub *sse.Hub, tripID int64) {
 	if st == nil || hub == nil {
 		return
 	}
-	members, err := st.TripMembers(ctx, tripID)
+	visible, err := st.VisibleTripUserIDs(ctx, tripID)
 	if err != nil {
-		slog.Error("notify.TripUpdated: members", "err", err, "trip", tripID)
+		slog.Error("notify.TripUpdated: visibility", "err", err, "trip", tripID)
 		return
-	}
-	visible := make([]int64, 0, len(members))
-	for _, m := range members {
-		visible = append(visible, m.UserID)
 	}
 	payload, err := json.Marshal(tripEventPayload{ID: tripID})
 	if err != nil {

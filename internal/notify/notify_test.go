@@ -53,6 +53,46 @@ func TestTripUpdated_ScopedToMembers(t *testing.T) {
 	}
 }
 
+// TestTripUpdated_ReachesPlanScopedFriend confirms the event now fans out to the
+// full friend-gated tile audience: an accepted friend who can see the trip only
+// via a plan-scoped grant (a plan passenger, with no trip_members row of their
+// own) still receives trip.updated.
+func TestTripUpdated_ReachesPlanScopedFriend(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	st := store.New(pool)
+	hub := sse.NewHub()
+	ctx := context.Background()
+
+	owner := testsupport.InsertUser(t, pool, "notify-aown", false, true)
+	friend := testsupport.InsertUser(t, pool, "notify-afriend", false, true)
+	if _, err := st.RequestFriendship(ctx, owner, friend, ""); err != nil {
+		t.Fatalf("RequestFriendship: %v", err)
+	}
+	if _, err := st.AcceptFriendship(ctx, friend, owner); err != nil {
+		t.Fatalf("AcceptFriendship: %v", err)
+	}
+	trip, err := st.CreateTrip(ctx, store.CreateTripPayload{Name: "Trip"}, owner)
+	if err != nil {
+		t.Fatalf("CreateTrip: %v", err)
+	}
+	plan, err := st.CreatePlan(ctx, store.CreatePlanPayload{TripID: trip.ID, Type: "dining", Title: "Dinner"}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	if err := st.AddPlanPassenger(ctx, plan.ID, friend); err != nil {
+		t.Fatalf("AddPlanPassenger: %v", err)
+	}
+
+	friendCh, unsub := hub.Subscribe(sse.Subscription{ViewerID: friend})
+	defer unsub()
+
+	TripUpdated(ctx, st, hub, trip.ID)
+
+	if e, ok := recv(friendCh); !ok || e.Type != "trip.updated" {
+		t.Errorf("plan-scoped friend did not receive trip.updated (ok=%v, type=%q)", ok, e.Type)
+	}
+}
+
 func TestPlanUpdated_ScopedToVisibility(t *testing.T) {
 	pool := testsupport.NewPool(t)
 	st := store.New(pool)

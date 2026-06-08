@@ -340,3 +340,62 @@ func TestTileVisibleForTripAllFriends(t *testing.T) {
 		t.Error("all-friends trip should be visible to a friend")
 	}
 }
+
+// TestVisibleTripUserIDs covers the friend-gated tile audience used to scope the
+// trip.updated SSE event. It must match CanViewTrip / ListTrips: owner always
+// included; a friend with a plan-scoped grant included; a friend with no grant
+// excluded; after enabling all-friends sharing every accepted friend included;
+// and a non-friend with a (stale) trip_members row excluded by the gate.
+func TestVisibleTripUserIDs(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	passenger := mkUser(t, s)   // accepted friend, plan passenger -> included
+	bare := mkUser(t, s)        // accepted friend, no grant -> excluded
+	staleMember := mkUser(t, s) // NOT a friend, but has a trip_members row -> excluded
+	befriendStore(t, s, owner, passenger)
+	befriendStore(t, s, owner, bare)
+
+	tripID := mkTrip(t, s, owner)
+	flight := mkPlan(t, s, tripID, owner)
+	if err := s.AddPlanPassenger(ctx, flight, passenger); err != nil {
+		t.Fatalf("AddPlanPassenger: %v", err)
+	}
+	// A stale membership row for a non-friend must not, on its own, grant the
+	// tile: the friend gate fails first.
+	addMember(t, s, tripID, staleMember, "viewer")
+
+	ids, err := s.VisibleTripUserIDs(ctx, tripID)
+	if err != nil {
+		t.Fatalf("VisibleTripUserIDs: %v", err)
+	}
+	if !containsID(ids, owner) {
+		t.Error("owner must always be in the audience")
+	}
+	if !containsID(ids, passenger) {
+		t.Error("accepted friend who is a plan passenger must be included")
+	}
+	if containsID(ids, bare) {
+		t.Error("accepted friend with no grant must NOT be included")
+	}
+	if containsID(ids, staleMember) {
+		t.Error("non-friend with a stale trip_members row must NOT be included")
+	}
+
+	// After enabling all-friends sharing, every accepted friend is included.
+	if err := s.SetTripShareAllFriends(ctx, tripID, "viewer"); err != nil {
+		t.Fatalf("SetTripShareAllFriends: %v", err)
+	}
+	ids, err = s.VisibleTripUserIDs(ctx, tripID)
+	if err != nil {
+		t.Fatalf("VisibleTripUserIDs (all-friends): %v", err)
+	}
+	if !containsID(ids, owner) || !containsID(ids, passenger) || !containsID(ids, bare) {
+		t.Errorf("all accepted friends must be included after all-friends sharing: %v", ids)
+	}
+	if containsID(ids, staleMember) {
+		t.Error("non-friend must still be excluded even with all-friends sharing")
+	}
+}

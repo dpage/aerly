@@ -515,3 +515,50 @@ func (s *Store) CanViewTrip(ctx context.Context, tripID, viewerID int64) (bool, 
 		)`, tripID, viewerID).Scan(&ok)
 	return ok, err
 }
+
+// VisibleTripUserIDs returns every user who can currently see trip tripID under
+// the friend-gated tile rule (the same rule as CanViewTrip / ListTrips). Used
+// to scope the trip.updated SSE event so all-friends and plan-scoped viewers —
+// who have no trip_members row — still get live updates.
+func (s *Store) VisibleTripUserIDs(ctx context.Context, tripID int64) ([]int64, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT u.id FROM users u
+		JOIN trips t ON t.id = $1
+		WHERE
+		     u.id = t.created_by
+		  OR (
+		       EXISTS (SELECT 1 FROM friendships f
+		               WHERE f.status = 'accepted'
+		                 AND f.user_low = LEAST(t.created_by, u.id)
+		                 AND f.user_high = GREATEST(t.created_by, u.id))
+		       AND (
+		            EXISTS (SELECT 1 FROM trip_members tm WHERE tm.trip_id = t.id AND tm.user_id = u.id)
+		         OR t.share_all_friends_role IS NOT NULL
+		         OR EXISTS (
+		              SELECT 1 FROM plans pl
+		              WHERE pl.trip_id = t.id
+		                AND (
+		                     pl.created_by = u.id
+		                  OR pl.share_all_friends
+		                  OR EXISTS (SELECT 1 FROM plan_passengers pp WHERE pp.plan_id = pl.id AND pp.user_id = u.id)
+		                  OR EXISTS (SELECT 1 FROM plan_visibility pv
+		                             JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
+		                             WHERE pv.plan_id = pl.id AND pv.mode = 'only_visible_to' AND m.user_id = u.id)
+		                   )
+		            )
+		          )
+		     )`, tripID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
