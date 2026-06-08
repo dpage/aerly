@@ -655,6 +655,7 @@ export interface NotificationItem {
   actor_id?: number;
   trip_id?: number;
   plan_id?: number;
+  plan_part_id?: number;
   message: string;
   created_at: string;
   read_at?: string;

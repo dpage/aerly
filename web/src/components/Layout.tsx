@@ -210,11 +210,15 @@ export default function Layout() {
                     key={al.id}
                     onClick={() => {
                       closeMenu();
-                      // Generic inbox items carry the human-readable message and,
-                      // when set, the trip they belong to — open that trip's
-                      // timeline so flight changes, reminders, and shares all land
-                      // somewhere sensible.
-                      if (al.trip_id) navigate(`/trips/${al.trip_id}`);
+                      // Flight alerts carry plan_part_id — deep-link to the
+                      // tracker so the user lands on the right flight tile.
+                      // Other inbox items (shares, reminders) open the trip
+                      // timeline instead.
+                      if (al.plan_part_id) {
+                        navigate(`/tracker?part=${al.plan_part_id}`);
+                      } else if (al.trip_id) {
+                        navigate(`/trips/${al.trip_id}`);
+                      }
                     }}
                   >
                     <ListItemIcon>

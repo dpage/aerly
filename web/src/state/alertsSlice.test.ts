@@ -182,13 +182,15 @@ describe('alertsSlice inbox', () => {
       kind: 'gate',
       trip_id: 1,
       plan_id: 1,
+      plan_part_id: 1,
       message: 'gate change',
       created_at: '2026-06-01T00:00:00Z',
       read_at: undefined,
     });
-    // Flight-only fields are not carried into the generic inbox item.
+    // plan_part_id is preserved for tracker deep-linking.
+    expect(stored.plan_part_id).toBe(1);
+    // Truly flight-only fields (ident, status) are still not carried over.
     expect('ident' in stored).toBe(false);
-    expect('plan_part_id' in stored).toBe(false);
     expect('status' in stored).toBe(false);
   });
 

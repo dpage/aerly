@@ -281,18 +281,18 @@ func ToFlightAlertDTO(a store.FlightAlert) FlightAlertDTO {
 
 // NotificationItemDTO is one generic inbox item, the element type of
 // GET /api/alerts. Flight alerts and share notifications are both mapped
-// onto this shape and merged time-sorted; flight-specific fields
-// (ident/plan_part_id/status) are intentionally dropped — the inbox renders
-// message + a link.
+// onto this shape and merged time-sorted. PlanPartID is populated only for
+// flight alerts (to deep-link to the tracker) and is nil for all other kinds.
 type NotificationItemDTO struct {
-	ID        int64      `json:"id"`
-	Kind      string     `json:"kind"`
-	ActorID   *int64     `json:"actor_id,omitempty"`
-	TripID    *int64     `json:"trip_id,omitempty"`
-	PlanID    *int64     `json:"plan_id,omitempty"`
-	Message   string     `json:"message"`
-	CreatedAt time.Time  `json:"created_at"`
-	ReadAt    *time.Time `json:"read_at,omitempty"`
+	ID         int64      `json:"id"`
+	Kind       string     `json:"kind"`
+	ActorID    *int64     `json:"actor_id,omitempty"`
+	TripID     *int64     `json:"trip_id,omitempty"`
+	PlanID     *int64     `json:"plan_id,omitempty"`
+	PlanPartID *int64     `json:"plan_part_id,omitempty"`
+	Message    string     `json:"message"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ReadAt     *time.Time `json:"read_at,omitempty"`
 }
 
 // ToNotificationItemDTO projects a stored notification onto the inbox shape.

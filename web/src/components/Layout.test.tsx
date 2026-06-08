@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
       kind: string;
       trip_id?: number;
       plan_id?: number;
+      plan_part_id?: number;
       message: string;
       created_at: string;
     }>,
@@ -365,11 +366,12 @@ describe('Layout (alerts)', () => {
     expect(h.markAlertsRead).not.toHaveBeenCalled();
   });
 
-  it('opens the trip timeline for an alert with a trip', async () => {
+  it('deep-links to the tracker for a flight alert that has a plan_part_id', async () => {
     h.state.alerts = [
       {
         id: 1,
         plan_id: 1,
+        plan_part_id: 5,
         trip_id: 4,
         kind: 'gate',
         message: 'BA286 now departs gate B32',
@@ -379,6 +381,23 @@ describe('Layout (alerts)', () => {
     renderLayout();
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
     await userEvent.click(screen.getByText('BA286 now departs gate B32'));
+    expect(screen.getByTestId('page')).toHaveTextContent('tracker page');
+  });
+
+  it('opens the trip timeline for an alert without a plan_part_id (share or reminder)', async () => {
+    h.state.alerts = [
+      {
+        id: 1,
+        plan_id: 1,
+        trip_id: 4,
+        kind: 'share',
+        message: 'Alice shared Rome 2026 with you',
+        created_at: '2026-06-01T00:00:00Z',
+      },
+    ];
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(screen.getByText('Alice shared Rome 2026 with you'));
     expect(screen.getByTestId('page')).toHaveTextContent('trip page');
   });
 

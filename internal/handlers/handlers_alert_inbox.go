@@ -28,14 +28,16 @@ func (a *API) listAlerts(w http.ResponseWriter, r *http.Request) {
 	for _, al := range alerts {
 		tripID := al.TripID
 		planID := al.PlanID
+		partID := al.PlanPartID
 		out = append(out, api.NotificationItemDTO{
-			ID:        al.ID,
-			Kind:      al.Kind,
-			TripID:    &tripID,
-			PlanID:    &planID,
-			Message:   al.Message,
-			CreatedAt: al.CreatedAt,
-			ReadAt:    al.ReadAt,
+			ID:         al.ID,
+			Kind:       al.Kind,
+			TripID:     &tripID,
+			PlanID:     &planID,
+			PlanPartID: &partID,
+			Message:    al.Message,
+			CreatedAt:  al.CreatedAt,
+			ReadAt:     al.ReadAt,
 		})
 	}
 	for _, n := range notes {

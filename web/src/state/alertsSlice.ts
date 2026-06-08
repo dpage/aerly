@@ -102,6 +102,7 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
       kind: alert.kind,
       trip_id: alert.trip_id,
       plan_id: alert.plan_id,
+      plan_part_id: alert.plan_part_id,
       message: alert.message,
       created_at: alert.created_at,
       read_at: alert.read_at,
