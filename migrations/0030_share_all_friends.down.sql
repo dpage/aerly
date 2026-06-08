@@ -1,5 +1,5 @@
 -- Recreate the passenger⇒viewer trigger (mirror of 0010_trip_core).
-CREATE FUNCTION plan_passenger_ensure_member() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION plan_passenger_ensure_member() RETURNS trigger AS $$
 BEGIN
     INSERT INTO trip_members (trip_id, user_id, role)
     SELECT p.trip_id, NEW.user_id, 'viewer'
@@ -10,6 +10,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS plan_passengers_ensure_member ON plan_passengers;
 CREATE TRIGGER plan_passengers_ensure_member
     AFTER INSERT ON plan_passengers
     FOR EACH ROW

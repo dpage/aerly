@@ -25,7 +25,8 @@ CREATE TABLE pending_shares (
     role        TEXT   CHECK (role IN ('viewer', 'editor')),
     inviter_id  BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (email_lower, kind, target_id)
+    UNIQUE (email_lower, kind, target_id),
+    CHECK (kind = 'plan' OR role IN ('viewer', 'editor'))
 );
 CREATE INDEX pending_shares_email_idx ON pending_shares (email_lower);
 
@@ -36,8 +37,8 @@ CREATE TABLE notifications (
     user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     kind       TEXT   NOT NULL,
     actor_id   BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    trip_id    BIGINT,
-    plan_id    BIGINT,
+    trip_id    BIGINT REFERENCES trips(id) ON DELETE CASCADE,
+    plan_id    BIGINT REFERENCES plans(id) ON DELETE CASCADE,
     message    TEXT   NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     read_at    TIMESTAMPTZ
@@ -51,15 +52,10 @@ CREATE INDEX notifications_user_unread_idx ON notifications (user_id) WHERE read
 DROP TRIGGER IF EXISTS plan_passengers_ensure_member ON plan_passengers;
 DROP FUNCTION IF EXISTS plan_passenger_ensure_member();
 
--- Legacy cleanup: remove viewer trip_members rows whose only justification was
--- the dropped trigger — i.e. the user is a plan_passenger somewhere in the trip
--- and is a plain 'viewer' and is NOT a trip-level passenger (trip passengers
--- legitimately keep their viewer row). After this they are correctly
--- plan-scoped via their plan_passengers rows. Owners/editors untouched.
-DELETE FROM trip_members tm
- WHERE tm.role = 'viewer'
-   AND NOT EXISTS (SELECT 1 FROM trip_passengers tp
-                   WHERE tp.trip_id = tm.trip_id AND tp.user_id = tm.user_id)
-   AND EXISTS (SELECT 1 FROM plan_passengers pp
-               JOIN plans pl ON pl.id = pp.plan_id
-               WHERE pl.trip_id = tm.trip_id AND pp.user_id = tm.user_id);
+-- NOTE: legacy trip_members 'viewer' rows that were auto-created by the dropped
+-- trigger for plan passengers are intentionally NOT cleaned up here. trip_members
+-- has no provenance column, so a blanket DELETE could not distinguish those from
+-- viewer memberships an owner added on purpose. The cleanup is performed as a
+-- separate, manually-validated step against production (see the implementation
+-- plan). New passenger adds no longer create a viewer row, so they are correctly
+-- plan-scoped going forward.
