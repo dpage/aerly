@@ -405,6 +405,16 @@ function PartCard({
               {places}
             </Typography>
           )}
+          {/* The street address is at-a-glance info (e.g. to read to a cab
+              driver), so it lives on the collapsed tile rather than behind a
+              tap. Shown only when it says something the place label doesn't —
+              an airport's address echoes its label and would just be noise.
+              Wraps fully so a long address stays readable. */}
+          {addr && addr !== places && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {addr}
+            </Typography>
+          )}
           {isUnlocated(part) && (
             <Tooltip title="Address couldn't be located — not shown on the map">
               <Chip
@@ -457,18 +467,12 @@ function PartCard({
               Baggage belt: {part.flight.dest_baggage_belt}
             </Typography>
           )}
-
         </Box>
       </Stack>
 
       <Collapse in={expanded} unmountOnExit>
         <Box onClick={stop} sx={{ px: 1.5, pb: 1.5, pl: 5.5 }}>
           <Divider sx={{ mb: 1 }} />
-          {addr && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              {addr}
-            </Typography>
-          )}
           {plan.confirmation_ref && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               Ref: {plan.confirmation_ref}

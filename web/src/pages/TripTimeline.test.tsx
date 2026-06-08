@@ -239,7 +239,7 @@ describe('TripTimeline', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('shows part addresses when a tile is expanded', async () => {
+  it('shows part addresses on the collapsed tile, without expanding', () => {
     state.currentTrip = tripWith([
       plan(
         [
@@ -258,9 +258,25 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     const card = screen.getByTestId('part-card-1');
-    await userEvent.click(card);
+    // No click — the address is at-a-glance info on the collapsed tile.
     expect(card).toHaveTextContent('12 Acacia Avenue, Reading');
     expect(card).toHaveTextContent('Heathrow Terminal 5');
+  });
+
+  it('omits the collapsed address line when it adds nothing over the place label', () => {
+    state.currentTrip = tripWith([
+      // A flight carries only airport labels and no street address, so there is
+      // no distinct address worth repeating under the route.
+      plan([part({ id: 1, plan_id: 1, start_label: 'LHR', end_label: 'LIS' })], {
+        id: 1,
+        title: 'Flight out',
+      }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    expect(card).toHaveTextContent('LHR → LIS');
+    // The route appears exactly once — no duplicate address line beneath it.
+    expect(card.textContent?.match(/LHR/g) ?? []).toHaveLength(1);
   });
 
   it('surfaces privacy/passenger, edit and delete in the expanded tile (owner/editor)', async () => {
