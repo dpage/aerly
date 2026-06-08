@@ -634,3 +634,35 @@ describe('notifications', () => {
     );
   });
 });
+
+describe('setPlanShareAllFriends', () => {
+  it('PUT /api/plans/:id/share-all-friends with {enabled}', async () => {
+    const spy = mockFetch(() => jsonResponse({ id: 42 }));
+    await api.setPlanShareAllFriends(42, true);
+    expect(spy.mock.calls[0][0]).toBe('/api/plans/42/share-all-friends');
+    expect(spy.mock.calls[0][1]?.method).toBe('PUT');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ enabled: true }));
+  });
+});
+
+describe('notifyTripShares', () => {
+  it('POST /api/trips/:id/notify-shares with user_ids + emails', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.notifyTripShares(7, { user_ids: [1, 2], emails: ['a@b.com'] });
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/7/notify-shares');
+    expect(spy.mock.calls[0][1]?.method).toBe('POST');
+    expect(spy.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({ user_ids: [1, 2], emails: ['a@b.com'] }),
+    );
+  });
+});
+
+describe('notifyPlanShares', () => {
+  it('POST /api/plans/:id/notify-shares with user_ids + emails', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.notifyPlanShares(42, { user_ids: [3], emails: [] });
+    expect(spy.mock.calls[0][0]).toBe('/api/plans/42/notify-shares');
+    expect(spy.mock.calls[0][1]?.method).toBe('POST');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ user_ids: [3], emails: [] }));
+  });
+});

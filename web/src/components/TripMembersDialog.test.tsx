@@ -341,4 +341,35 @@ describe('TripMembersDialog', () => {
     await userEvent.click(screen.getByLabelText('Friend'));
     expect(await screen.findByRole('option', { name: /Dora \(invited\)/ })).toBeInTheDocument();
   });
+
+  it('invites by email with the editor role when selected', async () => {
+    h.shareTripByEmail.mockResolvedValue(undefined);
+    render_([{ user_id: 100, role: 'owner' }]);
+
+    await userEvent.click(screen.getByLabelText('Email role'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Editor' }));
+    await userEvent.type(screen.getByLabelText('Email'), 'z@y.com');
+    await userEvent.click(screen.getByRole('button', { name: /^invite$/i }));
+
+    await waitFor(() =>
+      expect(h.shareTripByEmail).toHaveBeenCalledWith(7, { email: 'z@y.com', role: 'editor' }),
+    );
+  });
+
+  it('does not notify when the notify box is unchecked on close', async () => {
+    h.addTripMember.mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    render_([{ user_id: 100, role: 'owner' }], 'owner', [], { onClose });
+
+    await userEvent.click(screen.getByLabelText('Friend'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Carol' }));
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    await waitFor(() => expect(h.addTripMember).toHaveBeenCalled());
+
+    // Uncheck the default-checked notify box, then close.
+    await userEvent.click(screen.getByRole('checkbox', { name: /notify the people/i }));
+    await userEvent.click(screen.getByRole('button', { name: /close/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(h.notifyTripShares).not.toHaveBeenCalled();
+  });
 });
