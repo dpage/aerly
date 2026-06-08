@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
 import { useStore } from './store';
-import { useFriendUsers } from './friendUsers';
+import { useFriendUsers, useFriendCandidates } from './friendUsers';
 import type { Friendship, User } from '../api/types';
 
 function user(id: number, name = `user${id}`): User {
@@ -68,6 +68,62 @@ describe('useFriendUsers', () => {
       ],
     });
     const { result } = renderHook(() => useFriendUsers());
+    expect(result.current).toEqual([]);
+  });
+});
+
+describe('useFriendCandidates', () => {
+  beforeEach(() => {
+    useStore.setState({
+      me: user(1) as never,
+      users: [user(1), user(2), user(3), user(4)],
+      friendships: [],
+    });
+  });
+
+  it('returns an accepted friendship as pending:false', () => {
+    useStore.setState({
+      friendships: [friendship(2, 'accepted')],
+    });
+    const { result } = renderHook(() => useFriendCandidates());
+    expect(result.current).toEqual([{ user: user(2), pending: false }]);
+  });
+
+  it('returns a pending friendship (incoming) as pending:true', () => {
+    useStore.setState({
+      friendships: [{ ...friendship(3, 'pending'), direction: 'incoming' as const }],
+    });
+    const { result } = renderHook(() => useFriendCandidates());
+    expect(result.current).toEqual([{ user: user(3), pending: true }]);
+  });
+
+  it('returns a pending friendship (outgoing with friend_id) as pending:true', () => {
+    useStore.setState({
+      friendships: [{ ...friendship(2, 'pending'), direction: 'outgoing' as const }],
+    });
+    const { result } = renderHook(() => useFriendCandidates());
+    expect(result.current).toEqual([{ user: user(2), pending: true }]);
+  });
+
+  it('excludes outgoing email-only invites (friend_id undefined)', () => {
+    useStore.setState({
+      friendships: [
+        {
+          status: 'pending',
+          email: 'stranger@example.com',
+          direction: 'outgoing' as const,
+          requested_at: '2026-01-01T00:00:00Z',
+          // friend_id intentionally omitted
+        },
+      ],
+    });
+    const { result } = renderHook(() => useFriendCandidates());
+    expect(result.current).toEqual([]);
+  });
+
+  it('returns [] when me is null', () => {
+    useStore.setState({ me: null });
+    const { result } = renderHook(() => useFriendCandidates());
     expect(result.current).toEqual([]);
   });
 });
