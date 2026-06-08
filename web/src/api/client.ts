@@ -1,6 +1,7 @@
 import type {
   AcceptFriendTokenResult,
   AddTripMemberInput,
+  AdminInfo,
   AlertPrefs,
   AuthProvider,
   CalendarScope,
@@ -156,6 +157,9 @@ export const api = {
     request<Flight[]>('GET', '/api/me/flights'),
   resolveFlight: (input: ResolveFlightInput) =>
     request<ResolvedFlight>('POST', '/api/flights/resolve', input),
+
+  // Superuser-only build/runtime/config diagnostics for the About dialog.
+  getAdminInfo: () => request<AdminInfo>('GET', '/api/admin/info'),
 
   listUsers: () => request<User[]>('GET', '/api/users'),
   inviteUser: (input: InviteUserInput) => request<User>('POST', '/api/users', input),

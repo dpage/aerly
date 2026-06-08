@@ -7,6 +7,15 @@ WEB_DIR   := web
 BIN_DIR   := bin
 BIN_NAME  := aerly
 
+# Build provenance stamped into the binary (surfaced in the superuser "About"
+# panel). The Go toolchain also embeds a VCS stamp automatically, but injecting
+# these explicitly keeps the commit/time correct even when building outside a
+# git work tree.
+VERSION_PKG := github.com/dpage/aerly/internal/version
+COMMIT      ?= $(shell git rev-parse HEAD 2>/dev/null)
+BUILD_TIME  ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+VERSION_LDFLAGS := -X $(VERSION_PKG).commit=$(COMMIT) -X $(VERSION_PKG).buildTime=$(BUILD_TIME)
+
 .PHONY: build build-go build-web run dev test test-go test-web cover-go \
         cover-web lint lint-go lint-web typecheck-web fmt-web clean tidy
 
@@ -19,7 +28,7 @@ build-web:
 
 build-go:
 	mkdir -p $(BIN_DIR)
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' \
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w $(VERSION_LDFLAGS)' \
 		-o $(BIN_DIR)/$(BIN_NAME) ./cmd/server
 
 ## run: run the built binary with environment variables from .env (if present).

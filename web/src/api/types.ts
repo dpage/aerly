@@ -48,6 +48,41 @@ export interface UserEmail {
   created_at: string;
 }
 
+/** Superuser-only "About" / diagnostics payload (GET /api/admin/info). */
+export interface AdminInfo {
+  version: {
+    commit: string;
+    short: string;
+    modified: boolean;
+    build_time: string;
+    go_version: string;
+    os: string;
+    arch: string;
+  };
+  runtime: {
+    started_at: string;
+    uptime_sec: number;
+    goroutines: number;
+    num_cpu: number;
+  };
+  config: {
+    public_url: string;
+    tracker: string;
+    tracker_authed: boolean;
+    resolver_available: boolean;
+    poll_interval_sec: number;
+    email_ingest_enabled: boolean;
+    email_ingest_address?: string;
+    llm_configured: boolean;
+    llm_provider: string;
+    llm_model: string;
+    mail_configured: boolean;
+    dev_auth_bypass: boolean;
+    auth_github: boolean;
+    auth_google: boolean;
+  };
+}
+
 export interface ResolveFlightInput {
   ident: string;
   /** YYYY-MM-DD in UTC. */

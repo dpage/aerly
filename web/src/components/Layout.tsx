@@ -37,11 +37,13 @@ import NotificationsIcon from '@mui/icons-material/NotificationsOutlined';
 import HomeIcon from '@mui/icons-material/HomeOutlined';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 
 import { useStore } from '../state/store';
 import { userInitial, userName } from '../lib/format';
 import { useThemeMode, type ThemePreference } from '../theme';
+import AboutDialog from './AboutDialog';
 import AdminDialog from './AdminDialog';
 import HelpPanel from './HelpPanel';
 import AlertPrefsDialog from './AlertPrefsDialog';
@@ -76,6 +78,7 @@ export default function Layout() {
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [adminOpen, setAdminOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const [emailsOpen, setEmailsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
@@ -305,6 +308,19 @@ export default function Layout() {
               </ListItemIcon>
               Subscribe to calendar…
             </MenuItem>
+            {me?.is_superuser && (
+              <MenuItem
+                onClick={() => {
+                  closeMenu();
+                  setAboutOpen(true);
+                }}
+              >
+                <ListItemIcon>
+                  <InfoOutlinedIcon fontSize="small" />
+                </ListItemIcon>
+                About Aerly…
+              </MenuItem>
+            )}
             <Divider />
             <MenuItem disabled sx={{ opacity: '1 !important' }}>
               <Typography variant="caption" color="text.secondary">
@@ -376,6 +392,7 @@ export default function Layout() {
       </Box>
 
       <AdminDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
       <EmailsDialog open={emailsOpen} onClose={() => setEmailsOpen(false)} />
       <FriendsDialog open={friendsOpen} onClose={() => setFriendsOpen(false)} />
       <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} />
