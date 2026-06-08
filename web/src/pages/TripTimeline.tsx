@@ -456,7 +456,7 @@ function PartCard({
 
           {part.type === 'flight' && part.flight && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              Departure: {fmtGate(part.flight.origin_terminal, part.flight.origin_gate)}
+              Departure gate: {fmtGate(part.flight.origin_terminal, part.flight.origin_gate)}
             </Typography>
           )}
 
