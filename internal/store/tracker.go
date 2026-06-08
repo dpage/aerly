@@ -406,6 +406,10 @@ type TrackerPart struct {
 	EffectiveAt time.Time
 	Ident       string
 	DestIATA    string
+	// LastPolledAt is the poll-loop heartbeat for the part; carried so the
+	// SSE broadcast can refresh the flight card's "Last polled" freshness in
+	// place (otherwise the FE shows the value from the last full HTTP fetch).
+	LastPolledAt *time.Time
 }
 
 // trackerVisible is the spec §4 plan-visibility predicate, inlined for the
@@ -626,13 +630,15 @@ func (s *Store) TrackerPartRow(ctx context.Context, partID int64) (*TrackerPart,
 	err := s.pool.QueryRow(ctx, `
 		SELECT part.id, pl.id, pl.trip_id, pl.created_by,
 			COALESCE(NULLIF(pl.title, ''), fd.ident) AS title,
-			fd.flight_status, `+effectiveDeparture+`, fd.ident, fd.dest_iata
+			fd.flight_status, `+effectiveDeparture+`, fd.ident, fd.dest_iata,
+			fd.last_polled_at
 		FROM plan_parts part
 		JOIN flight_details fd ON fd.plan_part_id = part.id
 		JOIN plans pl ON pl.id = part.plan_id
 		WHERE part.id = $1 AND pl.type = 'flight'`,
 		partID).Scan(&tp.PlanPartID, &tp.PlanID, &tp.TripID, &tp.OwnerID,
-		&tp.Title, &tp.Status, &tp.EffectiveAt, &tp.Ident, &tp.DestIATA)
+		&tp.Title, &tp.Status, &tp.EffectiveAt, &tp.Ident, &tp.DestIATA,
+		&tp.LastPolledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

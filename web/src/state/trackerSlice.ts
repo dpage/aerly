@@ -132,6 +132,11 @@ function foldUpdate(pp: PlanPart, u: TrackerPart): PlanPart {
           ...pp.flight,
           flight_status: u.status || pp.flight.flight_status,
           latest_position: u.latest_position ?? pp.flight.latest_position,
+          // Keep "Last polled" live and let the flown-track polyline grow with
+          // the plane: the broadcast carries the fresh values, so prefer them
+          // over the (now-stale) ones from the last full HTTP fetch.
+          last_polled_at: u.last_polled_at ?? pp.flight.last_polled_at,
+          track: u.track ?? pp.flight.track,
         }
       : pp.flight,
   };

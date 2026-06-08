@@ -261,19 +261,32 @@ func (p *Poller) publishPartChange(ctx context.Context, partID int64) {
 	}
 	latest, _ := p.Store.LatestPartPositions(ctx, []int64{partID})
 	dto := api.TrackerPartDTO{
-		PlanPartID:  tp.PlanPartID,
-		PlanID:      tp.PlanID,
-		TripID:      tp.TripID,
-		OwnerID:     tp.OwnerID,
-		Title:       tp.Title,
-		Status:      tp.Status,
-		EffectiveAt: tp.EffectiveAt,
-		Ident:       tp.Ident,
-		DestIATA:    tp.DestIATA,
+		PlanPartID:   tp.PlanPartID,
+		PlanID:       tp.PlanID,
+		TripID:       tp.TripID,
+		OwnerID:      tp.OwnerID,
+		Title:        tp.Title,
+		Status:       tp.Status,
+		EffectiveAt:  tp.EffectiveAt,
+		Ident:        tp.Ident,
+		DestIATA:     tp.DestIATA,
+		LastPolledAt: tp.LastPolledAt,
 	}
 	if pos := latest[partID]; pos != nil {
 		pd := api.ToPositionDTO(pos)
 		dto.LatestPosition = &pd
+	}
+	// Carry the flown track so the FE polyline grows live with the plane.
+	// Without this the track only ever reflects the last full HTTP fetch, so
+	// a moving plane trails no path between page loads. Best-effort: a track
+	// lookup failure shouldn't suppress the position/status broadcast.
+	if tracks, err := p.Store.PartTracks(ctx, []int64{partID}, 0); err != nil {
+		slog.Warn("poller: load track for broadcast", "id", partID, "err", err)
+	} else if track := tracks[partID]; len(track) > 0 {
+		dto.Track = make([]api.PositionDTO, len(track))
+		for i, pos := range track {
+			dto.Track[i] = api.ToPositionDTO(pos)
+		}
 	}
 	payload, err := json.Marshal(dto)
 	if err != nil {
