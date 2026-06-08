@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { PlanPart, User } from '../api/types';
+import { initialBearing } from '../lib/great-circle';
 import maplibreMock, { FakeMap, FakeMarker, resetMaplibreMock } from '../test/maplibre-mock';
 
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
@@ -166,41 +167,112 @@ describe('PlanMapView', () => {
       (m) => m.getElement()?.dataset.role === 'plane' && m.getElement()?.dataset.partId === String(partId),
     );
 
-  it('parks the plane icon at the origin for a flight that has not departed', () => {
-    render(<PlanMapView parts={[flight()]} />); // default status Scheduled, no live position
-    const plane = planeFor(1);
-    expect(plane).toBeDefined();
-    expect(plane!.lngLat).toEqual([-0.45, 51.47]); // origin (LHR)
-    expect(plane!.getElement().dataset.estimated).toBe('0');
-  });
+  // The default flight departs 09:00, arrives 13:00 (2026-10-12). The plane icon
+  // is only shown inside its window (2h before departure … 2h after arrival), so
+  // these tests pin the clock there. Fake timers also satisfy the minute-tick
+  // interval the component installs.
+  describe('plane icon (within its visibility window)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+    const at = (iso: string) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(iso));
+    };
 
-  it('draws the plane at the live position, rotated and dimmed when dead-reckoned', () => {
-    render(
-      <PlanMapView
-        parts={[
-          flight({
-            flight: {
-              ...flight().flight!,
-              flight_status: 'Enroute',
-              latest_position: { ts: '2026-10-12T11:30:00Z', lat: 48, lon: -30, heading_deg: 270, is_estimated: true },
-            },
-          }),
-        ]}
-      />,
-    );
-    const plane = planeFor(1)!;
-    expect(plane.lngLat).toEqual([-30, 48]);
-    expect(plane.rotation).toBe(270);
-    expect(plane.getElement().dataset.estimated).toBe('1'); // dead-reckoned → dimmed
-  });
+    it('parks the plane icon at the origin, along the route, before departure', () => {
+      at('2026-10-12T08:00:00Z'); // 1h before departure → inside the window
+      render(<PlanMapView parts={[flight()]} />); // Scheduled, no live position
+      const plane = planeFor(1);
+      expect(plane).toBeDefined();
+      expect(plane!.lngLat).toEqual([-0.45, 51.47]); // origin (LHR)
+      expect(plane!.getElement().dataset.estimated).toBe('0');
+      // Oriented along the great-circle to IAD (≈west), not due north.
+      expect(plane!.rotation).toBeCloseTo(initialBearing(51.47, -0.45, 38.95, -77.46), 5);
+    });
 
-  it('parks the plane at the destination once the flight has arrived', () => {
-    render(
-      <PlanMapView
-        parts={[flight({ flight: { ...flight().flight!, flight_status: 'Arrived' } })]}
-      />,
-    );
-    expect(planeFor(1)!.lngLat).toEqual([-77.46, 38.95]); // destination (IAD)
+    it('draws the plane at the live position, rotated and dimmed when dead-reckoned', () => {
+      at('2026-10-12T11:30:00Z'); // mid-flight
+      render(
+        <PlanMapView
+          parts={[
+            flight({
+              flight: {
+                ...flight().flight!,
+                flight_status: 'Enroute',
+                latest_position: { ts: '2026-10-12T11:30:00Z', lat: 48, lon: -30, heading_deg: 270, is_estimated: true },
+              },
+            }),
+          ]}
+        />,
+      );
+      const plane = planeFor(1)!;
+      expect(plane.lngLat).toEqual([-30, 48]);
+      expect(plane.rotation).toBe(270); // live ADS-B heading, not the route bearing
+      expect(plane.getElement().dataset.estimated).toBe('1'); // dead-reckoned → dimmed
+    });
+
+    it('parks the plane at the destination once the flight has arrived', () => {
+      at('2026-10-12T13:30:00Z'); // 30m after arrival → still inside the window
+      render(
+        <PlanMapView
+          parts={[flight({ flight: { ...flight().flight!, flight_status: 'Arrived' } })]}
+        />,
+      );
+      expect(planeFor(1)!.lngLat).toEqual([-77.46, 38.95]); // destination (IAD)
+    });
+
+    it('hides the plane before its window opens and after it closes', () => {
+      at('2026-10-12T06:00:00Z'); // 3h before departure → window opens at 07:00
+      const { unmount } = render(<PlanMapView parts={[flight()]} />);
+      expect(planeFor(1)).toBeUndefined();
+      unmount();
+      resetMaplibreMock();
+      at('2026-10-12T16:00:00Z'); // 3h after arrival → window closed at 15:00
+      render(<PlanMapView parts={[flight()]} />);
+      expect(planeFor(1)).toBeUndefined();
+    });
+
+    it('shows only one plane across a connection, handing off at the layover midpoint', () => {
+      // Two legs of one booking (same plan_id): LHR→DXB (09:00–13:00) then
+      // DXB→SYD (14:00–22:00). The windows overlap, so the handoff is the
+      // midpoint of the layover (13:00…14:00) = 13:30.
+      const leg1 = flight({ id: 1, plan_id: 7 });
+      const leg2 = flight({
+        id: 2,
+        plan_id: 7,
+        seq: 1,
+        starts_at: '2026-10-12T14:00:00Z',
+        ends_at: '2026-10-12T22:00:00Z',
+        effective_at: '2026-10-12T14:00:00Z',
+        start_label: 'IAD',
+        end_label: 'SYD',
+        start_lat: 38.95,
+        start_lon: -77.46,
+        end_lat: -33.95,
+        end_lon: 151.18,
+        flight: {
+          ...flight().flight!,
+          ident: 'QF8',
+          scheduled_out: '2026-10-12T14:00:00Z',
+          scheduled_in: '2026-10-12T22:00:00Z',
+          origin_iata: 'IAD',
+          dest_iata: 'SYD',
+        },
+      });
+
+      at('2026-10-12T13:15:00Z'); // just before the handoff → only leg 1
+      const { unmount } = render(<PlanMapView parts={[leg1, leg2]} />);
+      expect(planeFor(1)).toBeDefined();
+      expect(planeFor(2)).toBeUndefined();
+      unmount();
+      resetMaplibreMock();
+
+      at('2026-10-12T13:45:00Z'); // just after the handoff → only leg 2
+      render(<PlanMapView parts={[leg1, leg2]} />);
+      expect(planeFor(1)).toBeUndefined();
+      expect(planeFor(2)).toBeDefined();
+    });
   });
 
   it('draws no plane icon for a non-flight part', () => {

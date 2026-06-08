@@ -20,7 +20,7 @@ import {
 
 import type { PlanPart } from '../api/types';
 import { unlocatedCount } from '../lib/geo';
-import { greatCircle, toMultiLine } from '../lib/great-circle';
+import { greatCircle, initialBearing, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
 import { personColor } from '../lib/person-color';
@@ -77,8 +77,11 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
   const readyRef = useRef(false);
   // One teardrop pin per geocoded endpoint, keyed by part + role + coordinate.
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
-  // One plane icon per flight part — at its live position when airborne, else
-  // parked at the origin (not departed) or destination (arrived). Keyed by part id.
+  // The active flight's plane icon — at its live position when airborne, else
+  // parked at the origin (not departed) or destination (arrived) and oriented
+  // along its route. Only flights inside their visibility window get one, and a
+  // booking's connecting legs hand the single icon off between them so only one
+  // plane is ever shown per journey. Keyed by part id.
   const planesRef = useRef<Map<number, maplibregl.Marker>>(new Map());
 
   // Mappable parts only (need at least one coordinate), time-ordered.
@@ -94,6 +97,15 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
   const strandedCount = useMemo(() => unlocatedCount(parts), [parts]);
 
   const selected = ordered.find((p) => p.id === selectedId) ?? null;
+
+  // A minute tick so the plane visibility windows (2h before departure … 2h
+  // after arrival) are re-evaluated against wall-clock time even when no SSE
+  // refresh arrives — planes appear/disappear and hand off at the boundary.
+  const [minuteTick, setMinuteTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setMinuteTick((t) => t + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Keep selection valid as the parts change (e.g. SSE refresh removes a part).
   useEffect(() => {
@@ -226,11 +238,17 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       }
     }
 
-    // Sync plane icons: one per flight part, rotated to its heading and dimmed
-    // when the position is dead-reckoned. Parked at the origin/destination when
-    // the flight hasn't departed / has landed (matches the old pure tracker).
+    // Sync plane icons: one per active flight, rotated to its heading (or its
+    // route bearing when parked) and dimmed when the position is dead-reckoned.
+    // Only flights inside their visibility window get an icon, and a booking's
+    // connecting legs hand the single icon off between them (planeWindows), so
+    // only one plane is ever shown per journey.
+    const now = Date.now();
+    const windows = planeWindows(ordered);
     const livePlanes = new Set<number>();
     for (const p of ordered) {
+      const win = windows.get(p.id);
+      if (!win || now < win.start || now >= win.end) continue;
       const place = planePlacement(p);
       if (!place) continue;
       livePlanes.add(p.id);
@@ -264,7 +282,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
 
   useEffect(() => {
     syncRef.current?.();
-  }, [ordered, selectedId]);
+  }, [ordered, selectedId, minuteTick]);
 
   // Fit the map: to the selected item's path/point, else to everything.
   const fitKeyRef = useRef('');
@@ -480,10 +498,11 @@ function endpoints(p: PlanPart): Endpoint[] {
   return [start, end].filter((e): e is Endpoint => e != null);
 }
 
-/** Where to draw a flight's plane icon, and how. Live position when we have one
- * (estimated/dead-reckoned included); else parked at the origin before
- * departure or the destination once arrived. null for non-flight parts or a
- * flight with no usable coordinate. */
+/** Where to draw a flight's plane icon, and how. Live position with its
+ * reported heading when airborne (estimated/dead-reckoned included); else parked
+ * at the origin before departure or the destination once arrived, oriented along
+ * the route (origin → destination initial bearing). null for non-flight parts or
+ * a flight with no usable coordinate. */
 interface PlanePlacement {
   lon: number;
   lat: number;
@@ -495,19 +514,90 @@ function planePlacement(p: PlanPart): PlanePlacement | null {
   if (p.type !== 'flight') return null;
   const hasStart = p.start_lat != null && p.start_lon != null;
   const hasEnd = p.end_lat != null && p.end_lon != null;
+  // When parked on the ground, point the icon along the route (origin → dest)
+  // rather than due north. Needs both endpoints; falls back to north otherwise.
+  const routeHeading =
+    hasStart && hasEnd ? initialBearing(p.start_lat!, p.start_lon!, p.end_lat!, p.end_lon!) : 0;
   // Landed: park at the destination, regardless of the last tracked fix.
   if (p.flight?.flight_status === 'Arrived' && hasEnd) {
-    return { lon: p.end_lon!, lat: p.end_lat!, heading: 0, estimated: false };
+    return { lon: p.end_lon!, lat: p.end_lat!, heading: routeHeading, estimated: false };
   }
-  // Airborne (or dead-reckoned through an ADS-B gap): the live position.
+  // Airborne (or dead-reckoned through an ADS-B gap): the live position and its
+  // reported heading (route bearing as a fallback when the fix lacks one).
   const pos = p.flight?.latest_position;
   if (pos) {
-    return { lon: pos.lon, lat: pos.lat, heading: pos.heading_deg ?? 0, estimated: pos.is_estimated };
+    return {
+      lon: pos.lon,
+      lat: pos.lat,
+      heading: pos.heading_deg ?? routeHeading,
+      estimated: pos.is_estimated,
+    };
   }
-  // Not departed yet: park at the origin.
-  if (hasStart) return { lon: p.start_lon!, lat: p.start_lat!, heading: 0, estimated: false };
-  if (hasEnd) return { lon: p.end_lon!, lat: p.end_lat!, heading: 0, estimated: false };
+  // Not departed yet: park at the origin, oriented along the route.
+  if (hasStart) return { lon: p.start_lon!, lat: p.start_lat!, heading: routeHeading, estimated: false };
+  if (hasEnd) return { lon: p.end_lon!, lat: p.end_lat!, heading: routeHeading, estimated: false };
   return null;
+}
+
+/** How long before departure / after arrival a flight's plane icon is shown. */
+const PLANE_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/** A flight leg's effective departure / arrival epoch ms (actual → estimated →
+ * scheduled, falling back to the part's own start/end), or null when unknown. */
+function flightDeparture(p: PlanPart): number | null {
+  const f = p.flight;
+  return parseMs(f?.actual_out) ?? parseMs(f?.estimated_out) ?? parseMs(f?.scheduled_out) ?? parseMs(p.starts_at);
+}
+function flightArrival(p: PlanPart): number | null {
+  const f = p.flight;
+  return parseMs(f?.actual_in) ?? parseMs(f?.estimated_in) ?? parseMs(f?.scheduled_in) ?? parseMs(p.ends_at);
+}
+function parseMs(iso?: string | null): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : t;
+}
+
+/** The visibility window [start, end) per flight part. A booking's connecting
+ * legs share one Plan (plan_id), so we group by it: each leg shows from 2h
+ * before its departure to 2h after its arrival, and where consecutive legs would
+ * overlap we hand the icon off at the midpoint of the layover. That guarantees a
+ * single plane per journey at any instant. Non-flight parts are skipped. */
+function planeWindows(parts: PlanPart[]): Map<number, { start: number; end: number }> {
+  const out = new Map<number, { start: number; end: number }>();
+  const groups = new Map<number, PlanPart[]>();
+  for (const p of parts) {
+    if (p.type !== 'flight') continue;
+    const g = groups.get(p.plan_id) ?? [];
+    g.push(p);
+    groups.set(p.plan_id, g);
+  }
+  for (const legs of groups.values()) {
+    const wins = legs
+      .map((p) => ({ id: p.id, dep: flightDeparture(p), arr: flightArrival(p) }))
+      .filter((w): w is { id: number; dep: number; arr: number | null } => w.dep != null)
+      .sort((a, b) => a.dep - b.dep)
+      .map((w) => ({
+        id: w.id,
+        dep: w.dep,
+        arr: w.arr ?? w.dep,
+        start: w.dep - PLANE_WINDOW_MS,
+        end: (w.arr ?? w.dep) + PLANE_WINDOW_MS,
+      }));
+    // Clamp overlapping consecutive legs to a single handoff at the layover's
+    // midpoint, so the previous leg's icon hides exactly as the next appears.
+    for (let i = 0; i + 1 < wins.length; i++) {
+      const a = wins[i];
+      const b = wins[i + 1];
+      if (a.end > b.start) {
+        const mid = (a.arr + b.dep) / 2;
+        a.end = mid;
+        b.start = mid;
+      }
+    }
+    for (const w of wins) out.set(w.id, { start: w.start, end: w.end });
+  }
+  return out;
 }
 
 /** A north-pointing plane glyph in `color` (the owner's person colour, else the
