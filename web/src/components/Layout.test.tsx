@@ -424,4 +424,41 @@ describe('Layout (alerts)', () => {
     // The badge surfaces the combined inbox count (here, share notifications).
     expect(screen.getByText('2')).toBeInTheDocument();
   });
+
+  it('marks alerts read on menu open when only share notifications are unread (unread_alerts==0, unread_shares>0)', async () => {
+    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 1 };
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(h.markAlertsRead).toHaveBeenCalled();
+  });
+
+  it('does NOT mark alerts read when both unread_alerts and unread_shares are zero', async () => {
+    // beforeEach already sets both to 0, but be explicit.
+    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 };
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    expect(h.markAlertsRead).not.toHaveBeenCalled();
+  });
+
+  it('renders inbox items with composite kind-id keys (no duplicate-key warnings for colliding ids)', () => {
+    // A flight alert and a share notification sharing the same numeric id.
+    h.state.alerts = [
+      {
+        id: 7, kind: 'gate', trip_id: 1, plan_id: 1, plan_part_id: 2,
+        message: 'Flight gate change', created_at: '2026-06-01T00:00:00Z',
+      },
+      {
+        id: 7, kind: 'share', trip_id: 2, plan_id: 2,
+        message: 'Alice shared Rome 2026', created_at: '2026-06-01T00:00:01Z',
+      },
+    ];
+    renderLayout();
+    // Both items must appear — if React saw duplicate keys one would be dropped.
+    // We only open the menu here; the badge visible check suffices without opening.
+    // Open and verify both messages appear.
+    return userEvent.click(screen.getByRole('button', { name: /account menu/i })).then(() => {
+      expect(screen.getByText('Flight gate change')).toBeInTheDocument();
+      expect(screen.getByText('Alice shared Rome 2026')).toBeInTheDocument();
+    });
+  });
 });

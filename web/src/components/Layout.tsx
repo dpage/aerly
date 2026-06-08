@@ -173,7 +173,7 @@ export default function Layout() {
                 size="small"
                 onClick={(e) => {
                   setMenuAnchor(e.currentTarget);
-                  if (unreadAlerts > 0) void markAlertsRead();
+                  if (unreadAlerts > 0 || unreadShares > 0) void markAlertsRead();
                 }}
                 aria-label="Account menu"
               >
@@ -207,7 +207,7 @@ export default function Layout() {
                 </MenuItem>
                 {alerts.slice(0, 6).map((al) => (
                   <MenuItem
-                    key={al.id}
+                    key={`${al.kind}-${al.id}`}
                     onClick={() => {
                       closeMenu();
                       // Flight alerts carry plan_part_id — deep-link to the

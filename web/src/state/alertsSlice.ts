@@ -108,9 +108,12 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
       read_at: alert.read_at,
     };
     set((s) => {
-      // SSE can redeliver on reconnect — dedupe by id so the inbox and the
-      // unread badge don't double-count the same alert.
-      if (s.alerts.some((a) => a.id === item.id)) return {};
+      // SSE can redeliver on reconnect — dedupe by (kind, id) so the inbox
+      // and the unread badge don't double-count the same alert. Flight-alert ids
+      // and share-notification ids come from separate DB sequences and can
+      // collide, so keying on id alone would wrongly suppress a flight alert
+      // whose id happens to match an already-stored share notification.
+      if (s.alerts.some((a) => a.kind === item.kind && a.id === item.id)) return {};
       return {
         alerts: [item, ...s.alerts].slice(0, 50),
         // Only bump the unread badge for an actually-unread alert.
@@ -127,9 +130,10 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
     // them unread, and they'd only reconcile on the next reload.
     const prevAlerts = get().alerts;
     const prevUnread = get().notifications.unread_alerts;
+    const prevUnreadShares = get().notifications.unread_shares;
     const now = new Date().toISOString();
     set((s) => ({
-      notifications: { ...s.notifications, unread_alerts: 0 },
+      notifications: { ...s.notifications, unread_alerts: 0, unread_shares: 0 },
       alerts: s.alerts.map((a) => (a.read_at ? a : { ...a, read_at: now })),
     }));
     try {
@@ -137,7 +141,11 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
     } catch (err) {
       set((s) => ({
         alerts: prevAlerts,
-        notifications: { ...s.notifications, unread_alerts: prevUnread },
+        notifications: {
+          ...s.notifications,
+          unread_alerts: prevUnread,
+          unread_shares: prevUnreadShares,
+        },
         error: errorMessage(err),
       }));
     }

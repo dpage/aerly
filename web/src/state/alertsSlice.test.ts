@@ -237,4 +237,55 @@ describe('alertsSlice inbox', () => {
     expect(useStore.getState().alerts[0].read_at).toBeUndefined();
     expect(useStore.getState().error).toBe('boom');
   });
+
+  it('markAlertsRead zeroes BOTH unread_alerts and unread_shares optimistically', async () => {
+    mockApi.markAlertsRead.mockResolvedValue(undefined);
+    useStore.setState({
+      alerts: [mk(1, 'a')],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 2 },
+    });
+    await useStore.getState().markAlertsRead();
+    expect(useStore.getState().notifications.unread_alerts).toBe(0);
+    expect(useStore.getState().notifications.unread_shares).toBe(0);
+  });
+
+  it('markAlertsRead rolls back unread_shares too on server failure', async () => {
+    mockApi.markAlertsRead.mockRejectedValue(new Error('net'));
+    useStore.setState({
+      alerts: [mk(1, 'a')],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 3 },
+    });
+    await useStore.getState().markAlertsRead();
+    expect(useStore.getState().notifications.unread_shares).toBe(3);
+  });
+
+  it('applyIncomingAlert does NOT dedupe a flight alert whose id collides with a share notification', () => {
+    // Share notification (kind='share') already in the inbox with id=5.
+    useStore.setState({
+      alerts: [
+        {
+          id: 5, kind: 'share', trip_id: 1, plan_id: 1, message: 'Alice shared Rome',
+          created_at: '2026-06-01T00:00:00Z',
+        },
+      ],
+      notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 1 },
+    });
+    // Incoming flight alert with the same id=5 but a different kind.
+    useStore.getState().applyIncomingAlert(mk(5, 'gate change'));
+    // Both items must coexist — the flight alert must NOT be suppressed.
+    const alerts = useStore.getState().alerts;
+    expect(alerts).toHaveLength(2);
+    expect(alerts.some((a) => a.kind === 'gate' && a.id === 5)).toBe(true);
+    expect(alerts.some((a) => a.kind === 'share' && a.id === 5)).toBe(true);
+  });
+
+  it('applyIncomingAlert still dedupes a redelivered flight alert (same kind AND id)', () => {
+    useStore.setState({
+      alerts: [mk(3, 'original')],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1 },
+    });
+    useStore.getState().applyIncomingAlert(mk(3, 'original')); // exact same kind+id
+    expect(useStore.getState().alerts).toHaveLength(1);
+    expect(useStore.getState().notifications.unread_alerts).toBe(1);
+  });
 });
