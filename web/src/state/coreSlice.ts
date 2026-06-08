@@ -79,7 +79,7 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
   friendships: [],
   showAll: loadShowAll(),
   error: null,
-  notifications: { friend_requests_pending: 0, unread_alerts: 0 },
+  notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
   notice: null,
 
   async init() {
@@ -153,7 +153,7 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
         poll_interval_sec: 60,
         email_ingest_enabled: false,
       },
-      notifications: { friend_requests_pending: 0, unread_alerts: 0 },
+      notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
       notice: null,
     });
   },

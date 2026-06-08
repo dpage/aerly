@@ -565,6 +565,24 @@ describe('api.getDevAuthBypassEnabled', () => {
   });
 });
 
+describe('setTripShareAllFriends', () => {
+  it('PUT /api/trips/:id/share-all-friends with the given role', async () => {
+    const spy = mockFetch(() => jsonResponse({ id: 7 }));
+    await api.setTripShareAllFriends(7, 'viewer');
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/7/share-all-friends');
+    expect(spy.mock.calls[0][1]?.method).toBe('PUT');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ role: 'viewer' }));
+  });
+
+  it('sends {role:""} when role is null (disable share-all-friends)', async () => {
+    const spy = mockFetch(() => jsonResponse({ id: 7 }));
+    await api.setTripShareAllFriends(7, null);
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/7/share-all-friends');
+    expect(spy.mock.calls[0][1]?.method).toBe('PUT');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ role: '' }));
+  });
+});
+
 describe('notifications', () => {
   it('GET /api/notifications returns the typed body', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(

@@ -80,7 +80,10 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
 
   async loadAlerts() {
     try {
-      const alerts = await api.getAlerts();
+      // The REST endpoint now returns the generic NotificationItem shape; cast
+      // to FlightAlert[] so existing state/SSE/component consumers are unaffected
+      // until the inbox UI is updated in Task 15.
+      const alerts = (await api.getAlerts()) as unknown as FlightAlert[];
       set({ alerts });
     } catch {
       // Non-fatal: SSE / next reload recovers the inbox.

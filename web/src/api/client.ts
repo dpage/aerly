@@ -10,7 +10,6 @@ import type {
   CreatePlanInput,
   CreateTripInput,
   Flight,
-  FlightAlert,
   Friendship,
   IngestInput,
   IngestResult,
@@ -19,6 +18,8 @@ import type {
   InviteUserInput,
   LinkPlansInput,
   MovePlanInput,
+  NotificationItem,
+  NotifySharesInput,
   Notifications,
   Plan,
   PlanPart,
@@ -175,7 +176,7 @@ export const api = {
     request<AcceptFriendTokenResult>('POST', '/api/friends/accept-token', { token }),
 
   getNotifications: () => request<Notifications>('GET', '/api/notifications'),
-  getAlerts: () => request<FlightAlert[]>('GET', '/api/alerts'),
+  getAlerts: () => request<NotificationItem[]>('GET', '/api/alerts'),
   markAlertsRead: () => request<void>('POST', '/api/alerts/read'),
 
   listMyEmails: () => request<UserEmail[]>('GET', '/api/me/emails'),
@@ -314,6 +315,18 @@ export const api = {
   setPlanReminder: (planId: number, enabled: boolean, leadHours: number) =>
     request<void>('PUT', `/api/plans/${planId}/reminder`, { enabled, lead_hours: leadHours }),
   clearPlanReminder: (planId: number) => request<void>('DELETE', `/api/plans/${planId}/reminder`),
+
+  // -------------------------------------------------------------------------
+  // Share-all-friends & notify (share feature).
+  // -------------------------------------------------------------------------
+  setTripShareAllFriends: (tripId: number, role: 'viewer' | 'editor' | null) =>
+    request<Trip>('PUT', `/api/trips/${tripId}/share-all-friends`, { role: role ?? '' }),
+  setPlanShareAllFriends: (planId: number, enabled: boolean) =>
+    request<Plan>('PUT', `/api/plans/${planId}/share-all-friends`, { enabled }),
+  notifyTripShares: (tripId: number, input: NotifySharesInput) =>
+    request<void>('POST', `/api/trips/${tripId}/notify-shares`, input).then(() => undefined),
+  notifyPlanShares: (planId: number, input: NotifySharesInput) =>
+    request<void>('POST', `/api/plans/${planId}/notify-shares`, input).then(() => undefined),
 };
 
 export { ApiError };

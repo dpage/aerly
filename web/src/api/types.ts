@@ -165,6 +165,8 @@ export interface Notifications {
   friend_requests_pending: number;
   /** Count of the viewer's unread flight alerts (in-app inbox). */
   unread_alerts: number;
+  /** Count of unread share notifications (trips/plans shared with the viewer). */
+  unread_shares: number;
 }
 
 export interface AcceptFriendTokenResult {
@@ -214,6 +216,8 @@ export interface Trip {
   starts_on?: string;
   /** YYYY-MM-DD; absent when the trip has no fixed end. */
   ends_on?: string;
+  /** Role granted to all accepted friends: 'viewer', 'editor', or '' (disabled). */
+  share_all_friends_role?: 'viewer' | 'editor';
   /** YYYY-MM-DD span inferred from the trip's parts (list payload), used to show
    * dates when starts_on/ends_on aren't set. */
   effective_start?: string;
@@ -398,6 +402,8 @@ export interface Plan {
    * open-in-new-tab link in view mode. */
   website: string;
   created_by?: number;
+  /** When true, all accepted friends have access to this plan. */
+  share_all_friends: boolean;
   passenger_ids: number[];
   visibility: PlanVisibility;
   /** Whether the requesting viewer has opted in to this plan's change alerts
@@ -631,6 +637,26 @@ export interface CalendarToken {
   /** Ready-to-use feed URL. */
   url: string;
   created_at: string;
+}
+
+/** Generic in-app inbox item returned by GET /api/alerts.
+ * Replaces the narrower FlightAlert list shape on the REST endpoint; the SSE
+ * alert.created payload still uses FlightAlert. */
+export interface NotificationItem {
+  id: number;
+  kind: string;
+  actor_id?: number;
+  trip_id?: number;
+  plan_id?: number;
+  message: string;
+  created_at: string;
+  read_at?: string;
+}
+
+/** Input body for the notify-shares endpoints. */
+export interface NotifySharesInput {
+  user_ids: number[];
+  emails: string[];
 }
 
 /** A persisted in-app flight-change alert (inbox item / alert.created payload). */
