@@ -215,6 +215,15 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 	if pos != nil {
 		if err := p.Store.InsertPartPosition(ctx, *pos); err != nil {
 			slog.Error("poller: insert position", "id", f.ID, "err", err)
+		} else if !pos.IsEstimated {
+			// A real fix just landed. Dead-reckoned estimates always head for
+			// the destination, so a fix that arrives off that line leaves a
+			// dog-leg in the flown track. Re-lay the preceding estimates onto a
+			// smooth great-circle from the nearest solid anchor (origin or last
+			// real fix) to this position — a smoothed path beats the kink.
+			if err := p.Store.SmoothEstimatedTrack(ctx, f, *pos); err != nil {
+				slog.Error("poller: smooth estimated track", "id", f.ID, "err", err)
+			}
 		}
 	}
 	// Always refresh the status from the schedule; preserves Cancelled /

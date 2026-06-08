@@ -1,8 +1,11 @@
 package store
 
 import (
+	"math"
 	"testing"
 	"time"
+
+	"github.com/dpage/aerly/internal/geo"
 )
 
 // mkFlightPart seeds a trip + flight plan + one plan_part + its flight_details
@@ -121,3 +124,121 @@ func TestPositions(t *testing.T) {
 		t.Errorf("LatestPosition expected estimated i=2 (lat=2), got %+v", any)
 	}
 }
+
+// onArc asserts a smoothed estimate landed on the great-circle from anchor to
+// fix at its time-share frac — i.e. equals Slerp(anchor, fix, frac).
+func onArc(t *testing.T, got *Position, aLat, aLon, fLat, fLon, frac float64) {
+	t.Helper()
+	wantLat, wantLon := geo.Slerp(aLat, aLon, fLat, fLon, frac)
+	if math.Abs(got.Lat-wantLat) > 1e-6 || math.Abs(got.Lon-wantLon) > 1e-6 {
+		t.Errorf("estimate at ts=%s off the arc: got (%.6f,%.6f) want (%.6f,%.6f)",
+			got.Ts.Format(time.RFC3339), got.Lat, got.Lon, wantLat, wantLon)
+	}
+	if !got.IsEstimated {
+		t.Errorf("smoothing must keep the sample flagged is_estimated: %+v", got)
+	}
+}
+
+// posByTs indexes positions by their (whole-minute-unique) timestamp.
+func posByTs(ps []*Position) map[time.Time]*Position {
+	m := map[time.Time]*Position{}
+	for _, p := range ps {
+		m[p.Ts.UTC().Truncate(time.Second)] = p
+	}
+	return m
+}
+
+// TestSmoothEstimatedTrack covers the dog-leg removal: when a real fix lands,
+// the dead-reckoned estimates that preceded it are re-laid onto a smooth
+// great-circle from the nearest solid anchor (origin or last real fix) to the
+// new position.
+func TestSmoothEstimatedTrack(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+
+	// --- Case A: a prior real fix is the closer anchor ----------------------
+	// Origin is far away, so the last real fix wins the "whichever is closer".
+	t.Run("anchors on last real fix", func(t *testing.T) {
+		now := time.Now().UTC()
+		out := now.Add(-time.Hour)
+		part := mkFlightPart(t, s, owner, "SMTH-A", out, now.Add(time.Hour))
+		f := &Flight{ID: part, ScheduledOut: out,
+			OriginLat: ptr(51.0), OriginLon: ptr(0.0)}
+
+		ts := func(min int) time.Time { return now.Add(time.Duration(min) * time.Minute) }
+		ins := func(at time.Time, lat, lon float64, est bool) {
+			t.Helper()
+			h := int16(200)
+			if err := s.InsertPartPosition(ctx, Position{FlightID: part, Ts: at,
+				Lat: lat, Lon: lon, HeadingDeg: &h, IsEstimated: est}); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+		}
+
+		// Real anchor near the new fix; origin (51,0) is far.
+		ins(ts(-40), 45.0, -20.0, false)
+		// Dead-reckoned dog-leg veering off toward the destination.
+		ins(ts(-30), 44.0, -25.0, true)
+		ins(ts(-20), 43.0, -30.0, true)
+		// The new real fix, off the extrapolated line.
+		fix := Position{FlightID: part, Ts: ts(-10), Lat: 44.0, Lon: -22.0}
+		ins(fix.Ts, fix.Lat, fix.Lon, false)
+
+		if err := s.SmoothEstimatedTrack(ctx, f, fix); err != nil {
+			t.Fatalf("SmoothEstimatedTrack: %v", err)
+		}
+
+		all, _ := s.PositionsForFlight(ctx, part, 0)
+		by := posByTs(all)
+		// span anchor(-40) → fix(-10) is 30m; estimate at -30 → 1/3, -20 → 2/3.
+		onArc(t, by[ts(-30).Truncate(time.Second)], 45.0, -20.0, 44.0, -22.0, 1.0/3)
+		onArc(t, by[ts(-20).Truncate(time.Second)], 45.0, -20.0, 44.0, -22.0, 2.0/3)
+		// Real fixes are never moved.
+		if r := by[ts(-40).Truncate(time.Second)]; r.Lat != 45.0 || r.Lon != -20.0 {
+			t.Errorf("anchor real fix moved: %+v", r)
+		}
+		if r := by[ts(-10).Truncate(time.Second)]; r.Lat != 44.0 || r.Lon != -22.0 {
+			t.Errorf("new real fix moved: %+v", r)
+		}
+	})
+
+	// --- Case B: no real fix yet → anchor on the origin ---------------------
+	t.Run("anchors on origin when no real fix precedes", func(t *testing.T) {
+		now := time.Now().UTC()
+		out := now.Add(-time.Hour)
+		part := mkFlightPart(t, s, owner, "SMTH-B", out, now.Add(time.Hour))
+		oLat, oLon := 51.0, 0.0
+		f := &Flight{ID: part, ScheduledOut: out, OriginLat: ptr(oLat), OriginLon: ptr(oLon)}
+
+		ts := func(min int) time.Time { return now.Add(time.Duration(min) * time.Minute) }
+		ins := func(at time.Time, lat, lon float64, est bool) {
+			t.Helper()
+			h := int16(200)
+			if err := s.InsertPartPosition(ctx, Position{FlightID: part, Ts: at,
+				Lat: lat, Lon: lon, HeadingDeg: &h, IsEstimated: est}); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+		}
+
+		// Only schedule-based estimates so far, then a real fix.
+		ins(ts(-40), 49.0, -8.0, true)
+		ins(ts(-20), 47.0, -12.0, true)
+		fix := Position{FlightID: part, Ts: ts(-10), Lat: 48.0, Lon: -6.0}
+		ins(fix.Ts, fix.Lat, fix.Lon, false)
+
+		if err := s.SmoothEstimatedTrack(ctx, f, fix); err != nil {
+			t.Fatalf("SmoothEstimatedTrack: %v", err)
+		}
+
+		all, _ := s.PositionsForFlight(ctx, part, 0)
+		by := posByTs(all)
+		// span origin(scheduled_out=-60) → fix(-10) is 50m; -40 → 20/50, -20 → 40/50.
+		onArc(t, by[ts(-40).Truncate(time.Second)], oLat, oLon, fix.Lat, fix.Lon, 20.0/50)
+		onArc(t, by[ts(-20).Truncate(time.Second)], oLat, oLon, fix.Lat, fix.Lon, 40.0/50)
+	})
+}
+
+func ptr[T any](v T) *T { return &v }
