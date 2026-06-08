@@ -247,9 +247,10 @@ func (a *API) removeFriend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Both sides get a notifications.updated so the friend list and user
-	// cache refresh. The legacy per-flight visibility fan-out that used to
-	// live here was retired with the flights table in Wave 3 — plan-level
-	// visibility is trip-membership based and unaffected by unfriending.
+	// cache refresh. No visibility cross-table cleanup is needed: trip/plan
+	// access for friend-derived grants is gated live on an accepted friendship
+	// with the owner, so removing the friendship row revokes shared access
+	// immediately without any denormalized state to unwind.
 	a.publishNotifications(r.Context(), me.ID)
 	a.publishNotifications(r.Context(), otherID)
 	w.WriteHeader(http.StatusNoContent)
