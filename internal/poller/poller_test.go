@@ -172,11 +172,22 @@ func TestNewDefaultsInterval(t *testing.T) {
 
 func TestMinPollAge(t *testing.T) {
 	p := New(nil, nil, nil, 10*time.Second)
-	if p.minPollAge("Enroute") != 10*time.Second {
-		t.Errorf("Enroute minPollAge = %v", p.minPollAge("Enroute"))
+	now := time.Now()
+	enroute := &store.Flight{Status: "Enroute", ScheduledOut: now.Add(-time.Hour)}
+	if p.minPollAge(enroute, now) != 10*time.Second {
+		t.Errorf("Enroute minPollAge = %v", p.minPollAge(enroute, now))
 	}
-	if p.minPollAge("Scheduled") != 50*time.Second {
-		t.Errorf("non-Enroute minPollAge = %v", p.minPollAge("Scheduled"))
+	// Scheduled and still before departure: slow 5× cadence.
+	future := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(time.Hour)}
+	if p.minPollAge(future, now) != 50*time.Second {
+		t.Errorf("pre-departure Scheduled minPollAge = %v", p.minPollAge(future, now))
+	}
+	// Scheduled but already past departure (airborne, stored status not yet
+	// flipped): must use the fast cadence so refresh() runs and flips it to
+	// Enroute promptly, rather than waiting out the slow interval.
+	departed := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(-time.Minute)}
+	if p.minPollAge(departed, now) != 10*time.Second {
+		t.Errorf("past-departure Scheduled minPollAge = %v, want fast cadence", p.minPollAge(departed, now))
 	}
 }
 
