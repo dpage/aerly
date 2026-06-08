@@ -634,7 +634,7 @@ describe('TripTimeline', () => {
       ),
     ]);
     renderTimeline();
-    expect(await screen.findByText('Departure: Terminal 5 · Gate B32')).toBeInTheDocument();
+    expect(await screen.findByText('Departure gate: Terminal 5 · Gate B32')).toBeInTheDocument();
   });
 
   it('labels the departure gate as Unknown on a flight tile when neither terminal nor gate is known', async () => {
@@ -662,7 +662,7 @@ describe('TripTimeline', () => {
       ),
     ]);
     renderTimeline();
-    expect(await screen.findByText('Departure: Unknown')).toBeInTheDocument();
+    expect(await screen.findByText('Departure gate: Unknown')).toBeInTheDocument();
   });
 
   it('shows a "Not on map" chip on a tile whose addressed part has no coordinates', () => {

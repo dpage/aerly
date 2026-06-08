@@ -185,11 +185,11 @@ describe('FlightDetailCard', () => {
     expect(screen.queryByText('ICAO24')).not.toBeInTheDocument();
     expect(screen.queryByText('Callsign')).not.toBeInTheDocument();
     // Route survives: From/To collapse (empty IATA) but Departure/Arrival
-    // always render via fmtGate's "Unknown" fallback.
+    // gate rows always render via fmtGate's "Unknown" fallback.
     expect(screen.getByText('Route')).toBeInTheDocument();
     expect(screen.queryByText('From')).not.toBeInTheDocument();
     expect(screen.queryByText('To')).not.toBeInTheDocument();
-    expect(screen.getByText('Departure')).toBeInTheDocument();
+    expect(screen.getByText('Departure gate')).toBeInTheDocument();
   });
 
   it('ticks the live fix-age on its interval', () => {
