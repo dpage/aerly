@@ -394,42 +394,10 @@ func TestPlanPartEditAndDismiss(t *testing.T) {
 	}
 }
 
-func TestPlanPassengerTriggerMakesViewer(t *testing.T) {
-	s := newStore(t)
-	if s == nil {
-		return
-	}
-	owner := mkUser(t, s)
-	pax := mkUser(t, s)
-	trip := mkTrip(t, s, owner)
-	plan := mkPlan(t, s, trip, owner)
-
-	// pax is not yet a trip member.
-	if _, err := s.TripRole(ctx, trip, pax); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("pax should not be a member yet: %v", err)
-	}
-	if err := s.AddPlanPassenger(ctx, plan, pax); err != nil {
-		t.Fatalf("AddPlanPassenger: %v", err)
-	}
-	// The DB trigger should have made them a viewer.
-	role, err := s.TripRole(ctx, trip, pax)
-	if err != nil || role != "viewer" {
-		t.Errorf("after add passenger role = %q, %v; want viewer (trigger)", role, err)
-	}
-
-	got, _ := s.PassengersByPlan(ctx, []int64{plan})
-	if len(got[plan]) != 1 || got[plan][0] != pax {
-		t.Errorf("PassengersByPlan = %v", got)
-	}
-
-	// Removing the passenger leaves the trip membership intact.
-	if err := s.RemovePlanPassenger(ctx, plan, pax); err != nil {
-		t.Fatalf("RemovePlanPassenger: %v", err)
-	}
-	if role, _ := s.TripRole(ctx, trip, pax); role != "viewer" {
-		t.Errorf("after remove passenger role = %q, want viewer (kept)", role)
-	}
-}
+// TestPlanPassengerTriggerMakesViewer was removed: migration 0030 dropped the
+// plan_passengers_ensure_member trigger, so adding a plan passenger no longer
+// creates a trip_members viewer row — passengers are now plan-scoped. The
+// passenger's plan-scoped visibility is covered by TestPlanGrantIsScoped.
 
 func TestPlanPassengerTriggerDoesNotDemoteOwner(t *testing.T) {
 	s := newStore(t)
@@ -494,31 +462,33 @@ func TestSetAndGetPlanVisibility(t *testing.T) {
 	}
 }
 
-// TestMovePlanRecomputesVisibility: a plan only_visible_to a user on the source
-// trip becomes invisible to that user after a move to a trip they aren't on —
-// the §4 predicate's trip_members gate fails against the destination trip.
+// TestMovePlanRecomputesVisibility: a member who saw a default-visibility plan
+// through the source trip's membership loses access after the plan is moved to
+// a trip they aren't on — the trip-default grant is recomputed against the
+// destination trip's membership. (A friend of the owner; only the trip_members
+// gate, evaluated against the new trip, decides the trip-default tier.)
 func TestMovePlanRecomputesVisibility(t *testing.T) {
 	s := newStore(t)
 	if s == nil {
 		return
 	}
 	owner := mkUser(t, s)
-	named := mkUser(t, s)
+	member := mkUser(t, s)
+	befriendStore(t, s, owner, member) // friend gate
 
 	src := mkTrip(t, s, owner)
 	dst := mkTrip(t, s, owner)
-	// `named` is a member of the source trip only.
-	addMember(t, s, src, named, "viewer")
+	// `member` is a member of the source trip only.
+	addMember(t, s, src, member, "viewer")
 
 	plan := mkPlan(t, s, src, owner)
-	setVisibility(t, s, plan, "only_visible_to", named)
 
-	// On the source trip, named can see it.
-	if !mustCanView(t, s, plan, named) {
-		t.Fatal("named should see only_visible_to plan on source trip")
+	// On the source trip, member sees the default-visibility plan.
+	if !mustCanView(t, s, plan, member) {
+		t.Fatal("member should see default-visibility plan on source trip")
 	}
 
-	// Move to the destination trip, where named is NOT a member.
+	// Move to the destination trip, where member is NOT a member.
 	if err := s.MovePlan(ctx, plan, dst); err != nil {
 		t.Fatalf("MovePlan: %v", err)
 	}
@@ -526,10 +496,9 @@ func TestMovePlanRecomputesVisibility(t *testing.T) {
 	if got.TripID != dst {
 		t.Fatalf("plan trip_id = %d, want %d", got.TripID, dst)
 	}
-	// Visibility now evaluated against dst: named isn't a member → can't see it,
-	// even though the only_visible_to row still names them (it's gone inert).
-	if mustCanView(t, s, plan, named) {
-		t.Error("after move to a trip named isn't on, the plan must be invisible to them")
+	// Visibility now evaluated against dst: member isn't on it → can't see it.
+	if mustCanView(t, s, plan, member) {
+		t.Error("after move to a trip member isn't on, the plan must be invisible to them")
 	}
 	// The owner of both trips still sees it.
 	if !mustCanView(t, s, plan, owner) {

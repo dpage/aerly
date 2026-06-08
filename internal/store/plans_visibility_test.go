@@ -114,6 +114,7 @@ func TestCanViewPlanDefault(t *testing.T) {
 	stranger := mkUser(t, s)
 	trip := mkTrip(t, s, owner)
 	addMember(t, s, trip, member, "viewer")
+	befriendStore(t, s, owner, member) // friend gate: a member must be an accepted friend
 	plan := mkPlan(t, s, trip, owner)
 
 	if !mustCanView(t, s, plan, member) {
@@ -153,8 +154,9 @@ func TestCanViewPlanPassengerAlwaysSees(t *testing.T) {
 	owner := mkUser(t, s)
 	pax := mkUser(t, s)
 	trip := mkTrip(t, s, owner)
+	befriendStore(t, s, owner, pax) // friend gate: any grant requires accepted friendship
 	plan := mkPlan(t, s, trip, owner)
-	addPlanPassenger(t, s, plan, pax) // trigger makes pax a trip viewer
+	addPlanPassenger(t, s, plan, pax) // plan-scoped grant (the trigger is gone, no trip-member row)
 	setVisibility(t, s, plan, "only_visible_to" /* nobody named */)
 
 	if !mustCanView(t, s, plan, pax) {
@@ -175,6 +177,8 @@ func TestCanViewPlanHiddenFrom(t *testing.T) {
 	trip := mkTrip(t, s, owner)
 	addMember(t, s, trip, hidden, "viewer")
 	addMember(t, s, trip, allowed, "viewer")
+	befriendStore(t, s, owner, hidden) // friend gate
+	befriendStore(t, s, owner, allowed)
 	plan := mkPlan(t, s, trip, owner)
 	setVisibility(t, s, plan, "hidden_from", hidden)
 
@@ -199,6 +203,8 @@ func TestCanViewPlanOnlyVisibleTo(t *testing.T) {
 	trip := mkTrip(t, s, owner)
 	addMember(t, s, trip, named, "viewer")
 	addMember(t, s, trip, other, "viewer")
+	befriendStore(t, s, owner, named) // friend gate
+	befriendStore(t, s, owner, other)
 	plan := mkPlan(t, s, trip, owner)
 	setVisibility(t, s, plan, "only_visible_to", named)
 
@@ -430,6 +436,7 @@ func TestTripPassengerRespectsHiddenPlans(t *testing.T) {
 	}
 	owner := mkUser(t, s)
 	partner := mkUser(t, s)
+	befriendStore(t, s, owner, partner) // friend gate: passenger grants require friendship
 	trip := mkTrip(t, s, owner)
 	visible := mkPlan(t, s, trip, owner)
 	hidden := mkPlan(t, s, trip, owner)
@@ -580,6 +587,7 @@ func TestListVisiblePlanParts(t *testing.T) {
 	stranger := mkUser(t, s)
 	trip := mkTrip(t, s, owner)
 	addMember(t, s, trip, member, "viewer")
+	befriendStore(t, s, owner, member) // friend gate
 	plan := mkPlan(t, s, trip, owner)
 	part := addPlanPart(t, s, plan, time.Now().Add(48*time.Hour))
 
@@ -612,6 +620,8 @@ func TestVisiblePlanUserIDs(t *testing.T) {
 	trip := mkTrip(t, s, owner)
 	addMember(t, s, trip, named, "viewer")
 	addMember(t, s, trip, other, "viewer")
+	befriendStore(t, s, owner, named) // friend gate
+	befriendStore(t, s, owner, other)
 	plan := mkPlan(t, s, trip, owner)
 	setVisibility(t, s, plan, "only_visible_to", named)
 

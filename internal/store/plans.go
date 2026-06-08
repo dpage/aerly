@@ -1530,15 +1530,19 @@ func (s *Store) SetPlanVisibility(ctx context.Context, planID int64, mode string
 
 // ----- Visibility predicate (implemented now — spec §4) -----
 
-// canViewPlanPredicate is the SQL fragment of the spec §4 plan-visibility
-// rule, parameterised on $1 = planID, $2 = viewerID. It is shared by
-// CanViewPlan and ListVisiblePlanParts so the rule lives in exactly one place
-// (replacing the three duplicated flight predicates).
+// canViewPlanPredicate is the SQL fragment of the two-tier, friend-gated
+// plan-visibility rule, parameterised on $1 = planID, $2 = viewerID. It is
+// shared by CanViewPlan and VisiblePlanUserIDs (and mirrored by
+// ListVisiblePlanParts) so the rule lives in one place.
 //
-// A viewer V can see plan P in trip T when V is on T (or owns it) AND P is not
-// hidden from V — the creator, passengers, and the trip owner are granted
-// before plan_visibility is consulted, so a stray hidden_from row naming one of
-// them is inert.
+// The trip owner always sees their plans. Every other viewer V must be an
+// ACCEPTED friend of the owner for any grant to be live (pending shares stay
+// dormant until accepted; unfriending revokes). Beyond the friend gate there
+// are two grant tiers: a plan-scoped grant (V is the plan creator, a passenger,
+// the plan is share_all_friends, or V is named in an only_visible_to set) lets
+// V see ONLY that plan; a trip-level grant (V is a trip_member, or the trip is
+// share_all_friends_role) lets V see every non-restricted plan (not the ones an
+// only_visible_to excludes them from, nor a hidden_from naming them).
 const canViewPlanPredicate = `
 	EXISTS (
 		SELECT 1 FROM plans p
@@ -1547,24 +1551,32 @@ const canViewPlanPredicate = `
 		  AND (
 		       t.created_by = $2
 		    OR (
-		         EXISTS (SELECT 1 FROM trip_members tm
-		                 WHERE tm.trip_id = p.trip_id AND tm.user_id = $2)
+		         EXISTS (SELECT 1 FROM friendships f
+		                 WHERE f.status = 'accepted'
+		                   AND f.user_low = LEAST(t.created_by, $2)
+		                   AND f.user_high = GREATEST(t.created_by, $2))
 		         AND (
 		              p.created_by = $2
 		           OR EXISTS (SELECT 1 FROM plan_passengers pp
 		                      WHERE pp.plan_id = p.id AND pp.user_id = $2)
-		           OR NOT EXISTS (SELECT 1 FROM plan_visibility pv
-		                          WHERE pv.plan_id = p.id)
-		           OR EXISTS (SELECT 1 FROM plan_visibility pv
-		                      WHERE pv.plan_id = p.id
-		                        AND pv.mode = 'hidden_from'
-		                        AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
-		                                        WHERE m.plan_id = p.id AND m.user_id = $2))
+		           OR p.share_all_friends
 		           OR EXISTS (SELECT 1 FROM plan_visibility pv
 		                      JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
 		                      WHERE pv.plan_id = p.id
 		                        AND pv.mode = 'only_visible_to'
 		                        AND m.user_id = $2)
+		           OR (
+		                ( EXISTS (SELECT 1 FROM trip_members tm
+		                          WHERE tm.trip_id = p.trip_id AND tm.user_id = $2)
+		                  OR t.share_all_friends_role IS NOT NULL )
+		                AND (
+		                     NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = p.id)
+		                  OR EXISTS (SELECT 1 FROM plan_visibility pv
+		                             WHERE pv.plan_id = p.id AND pv.mode = 'hidden_from'
+		                               AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
+		                                               WHERE m.plan_id = p.id AND m.user_id = $2))
+		                    )
+		              )
 		         )
 		       )
 		  )
@@ -1616,21 +1628,31 @@ func (s *Store) ListVisiblePlanParts(ctx context.Context, viewerID int64, opts L
 	visible := `(
 		t.created_by = $1
 	 OR (
-		  EXISTS (SELECT 1 FROM trip_members tm
-		          WHERE tm.trip_id = pl.trip_id AND tm.user_id = $1)
+		  EXISTS (SELECT 1 FROM friendships f
+		          WHERE f.status = 'accepted'
+		            AND f.user_low = LEAST(t.created_by, $1)
+		            AND f.user_high = GREATEST(t.created_by, $1))
 		  AND (
 		       pl.created_by = $1
 		    OR EXISTS (SELECT 1 FROM plan_passengers pp
 		               WHERE pp.plan_id = pl.id AND pp.user_id = $1)
-		    OR NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = pl.id)
-		    OR EXISTS (SELECT 1 FROM plan_visibility pv
-		               WHERE pv.plan_id = pl.id AND pv.mode = 'hidden_from'
-		                 AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
-		                                 WHERE m.plan_id = pl.id AND m.user_id = $1))
+		    OR pl.share_all_friends
 		    OR EXISTS (SELECT 1 FROM plan_visibility pv
 		               JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
 		               WHERE pv.plan_id = pl.id AND pv.mode = 'only_visible_to'
 		                 AND m.user_id = $1)
+		    OR (
+		         ( EXISTS (SELECT 1 FROM trip_members tm
+		                   WHERE tm.trip_id = pl.trip_id AND tm.user_id = $1)
+		           OR t.share_all_friends_role IS NOT NULL )
+		         AND (
+		              NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = pl.id)
+		           OR EXISTS (SELECT 1 FROM plan_visibility pv
+		                      WHERE pv.plan_id = pl.id AND pv.mode = 'hidden_from'
+		                        AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
+		                                        WHERE m.plan_id = pl.id AND m.user_id = $1))
+		             )
+		       )
 		  )
 		)
 	)`
@@ -1697,22 +1719,32 @@ func (s *Store) VisiblePlanUserIDs(ctx context.Context, planID int64) ([]int64, 
 	rows, err := s.pool.Query(ctx, `
 		SELECT u.id FROM users u
 		JOIN plans p ON p.id = $1
+		JOIN trips t ON t.id = p.trip_id
 		WHERE
-		     u.id = p.created_by
-		  OR EXISTS (SELECT 1 FROM trips t WHERE t.id = p.trip_id AND t.created_by = u.id)
-		  OR EXISTS (SELECT 1 FROM plan_passengers pp WHERE pp.plan_id = p.id AND pp.user_id = u.id)
+		     u.id = t.created_by
 		  OR (
-		       EXISTS (SELECT 1 FROM trip_members tm WHERE tm.trip_id = p.trip_id AND tm.user_id = u.id)
+		       EXISTS (SELECT 1 FROM friendships f
+		               WHERE f.status = 'accepted'
+		                 AND f.user_low = LEAST(t.created_by, u.id)
+		                 AND f.user_high = GREATEST(t.created_by, u.id))
 		       AND (
-		            NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = p.id)
-		         OR EXISTS (SELECT 1 FROM plan_visibility pv
-		                    WHERE pv.plan_id = p.id AND pv.mode = 'hidden_from'
-		                      AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
-		                                      WHERE m.plan_id = p.id AND m.user_id = u.id))
+		            u.id = p.created_by
+		         OR EXISTS (SELECT 1 FROM plan_passengers pp WHERE pp.plan_id = p.id AND pp.user_id = u.id)
+		         OR p.share_all_friends
 		         OR EXISTS (SELECT 1 FROM plan_visibility pv
 		                    JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
-		                    WHERE pv.plan_id = p.id AND pv.mode = 'only_visible_to'
-		                      AND m.user_id = u.id)
+		                    WHERE pv.plan_id = p.id AND pv.mode = 'only_visible_to' AND m.user_id = u.id)
+		         OR (
+		              ( EXISTS (SELECT 1 FROM trip_members tm WHERE tm.trip_id = p.trip_id AND tm.user_id = u.id)
+		                OR t.share_all_friends_role IS NOT NULL )
+		              AND (
+		                   NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = p.id)
+		                OR EXISTS (SELECT 1 FROM plan_visibility pv
+		                           WHERE pv.plan_id = p.id AND pv.mode = 'hidden_from'
+		                             AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
+		                                             WHERE m.plan_id = p.id AND m.user_id = u.id))
+		                  )
+		            )
 		       )
 		     )`, planID)
 	if err != nil {
