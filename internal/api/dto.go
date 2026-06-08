@@ -245,9 +245,11 @@ type NotificationsDTO struct {
 	Alert *FlightAlertDTO `json:"alert,omitempty"`
 }
 
-// FlightAlertDTO is a persisted in-app flight-change alert. It is both the
-// element type of GET /api/alerts and the payload carried on the alert.created
-// SSE event the poller publishes when a tracked flight changes (spec §9).
+// FlightAlertDTO is a persisted in-app flight-change alert. It is the payload
+// carried on the alert.created SSE event the poller publishes when a tracked
+// flight changes (spec §9). GET /api/alerts returns the generic
+// NotificationItemDTO (flight alerts merged with share notifications); flight
+// alerts are mapped into that shape there.
 type FlightAlertDTO struct {
 	ID         int64      `json:"id"`
 	PlanPartID int64      `json:"plan_part_id"`

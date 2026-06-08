@@ -42,6 +42,11 @@ func (a *API) listAlerts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, api.ToNotificationItemDTO(n))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	// Each sub-query caps at alertInboxLimit; cap the merged list too so the
+	// inbox returns at most the most-recent alertInboxLimit items across both.
+	if len(out) > alertInboxLimit {
+		out = out[:alertInboxLimit]
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
