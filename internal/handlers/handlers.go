@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/config"
@@ -38,10 +39,14 @@ type API struct {
 	// SendVerifyEmail dispatches the verification message. Defaulted in
 	// New() to the real sendmail pipe; tests can override.
 	SendVerifyEmail func(ctx context.Context, to, token string) error
+
+	// StartedAt is the process start time, used by the superuser "About"
+	// panel to report uptime. Defaulted to time.Now() in New().
+	StartedAt time.Time
 }
 
 func New(s *store.Store, a *auth.Handler, hub *sse.Hub, cfg *config.Config, r providers.Resolver) *API {
-	api := &API{Store: s, Auth: a, Hub: hub, Config: cfg, Resolver: r}
+	api := &API{Store: s, Auth: a, Hub: hub, Config: cfg, Resolver: r, StartedAt: time.Now()}
 	api.SendVerifyEmail = api.defaultSendVerifyEmail
 	return api
 }
@@ -88,6 +93,11 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/friends/accept-token", req(http.HandlerFunc(a.acceptFriendToken)))
 	mux.Handle("POST /api/friends/{userId}/accept", req(http.HandlerFunc(a.acceptFriend)))
 	mux.Handle("DELETE /api/friends/{userId}", req(http.HandlerFunc(a.removeFriend)))
+
+	// Superuser-only "About" / diagnostics: running build (commit hash, build
+	// time) plus runtime and configuration facts. Gated server-side too, so the
+	// build provenance is never exposed to ordinary users.
+	mux.Handle("GET /api/admin/info", sup(http.HandlerFunc(a.getAdminInfo)))
 
 	mux.Handle("GET /api/users", req(http.HandlerFunc(a.listUsers)))
 	mux.Handle("POST /api/users", sup(http.HandlerFunc(a.inviteUser)))

@@ -64,6 +64,7 @@ function stubDialog(testid: string) {
     ) : null;
 }
 vi.mock('./AddToTripDialog', () => ({ default: stubDialog('add-dialog') }));
+vi.mock('./AboutDialog', () => ({ default: stubDialog('about-dialog') }));
 vi.mock('./AdminDialog', () => ({ default: stubDialog('admin-dialog') }));
 vi.mock('./AlertPrefsDialog', () => ({ default: stubDialog('alertprefs-dialog') }));
 vi.mock('./EmailsDialog', () => ({ default: stubDialog('emails-dialog') }));
@@ -165,6 +166,20 @@ describe('Layout', () => {
     renderLayout();
     await userEvent.click(screen.getByRole('button', { name: /manage users/i }));
     expect(screen.getByTestId('admin-dialog')).toBeInTheDocument();
+  });
+
+  it('hides the About Aerly item for non-superusers', async () => {
+    renderLayout();
+    await openMenu();
+    expect(screen.queryByText('About Aerly…')).not.toBeInTheDocument();
+  });
+
+  it('shows and opens About Aerly from the menu for superusers', async () => {
+    h.state.me = user({ is_superuser: true });
+    renderLayout();
+    await openMenu();
+    await userEvent.click(screen.getByText('About Aerly…'));
+    expect(screen.getByTestId('about-dialog')).toBeInTheDocument();
   });
 
   it('hides the friend-request badge/chip when there are none', async () => {
