@@ -238,6 +238,7 @@ func ToFlightDTO(
 type NotificationsDTO struct {
 	FriendRequestsPending int `json:"friend_requests_pending"`
 	UnreadAlerts          int `json:"unread_alerts"`
+	UnreadShares          int `json:"unread_shares"`
 	// Alert is set only on the alert.created SSE event the poller publishes
 	// when a tracked flight changes meaningfully (spec §9). It is omitted on
 	// the GET /api/notifications body and on friend-count updates.
@@ -273,6 +274,30 @@ func ToFlightAlertDTO(a store.FlightAlert) FlightAlertDTO {
 		Message:    a.Message,
 		CreatedAt:  a.CreatedAt,
 		ReadAt:     a.ReadAt,
+	}
+}
+
+// NotificationItemDTO is one generic inbox item, the element type of
+// GET /api/alerts. Flight alerts and share notifications are both mapped
+// onto this shape and merged time-sorted; flight-specific fields
+// (ident/plan_part_id/status) are intentionally dropped — the inbox renders
+// message + a link.
+type NotificationItemDTO struct {
+	ID        int64      `json:"id"`
+	Kind      string     `json:"kind"`
+	ActorID   *int64     `json:"actor_id,omitempty"`
+	TripID    *int64     `json:"trip_id,omitempty"`
+	PlanID    *int64     `json:"plan_id,omitempty"`
+	Message   string     `json:"message"`
+	CreatedAt time.Time  `json:"created_at"`
+	ReadAt    *time.Time `json:"read_at,omitempty"`
+}
+
+// ToNotificationItemDTO projects a stored notification onto the inbox shape.
+func ToNotificationItemDTO(n store.Notification) NotificationItemDTO {
+	return NotificationItemDTO{
+		ID: n.ID, Kind: n.Kind, ActorID: n.ActorID, TripID: n.TripID,
+		PlanID: n.PlanID, Message: n.Message, CreatedAt: n.CreatedAt, ReadAt: n.ReadAt,
 	}
 }
 

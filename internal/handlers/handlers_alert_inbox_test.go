@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/dpage/aerly/internal/api"
@@ -59,14 +60,17 @@ func TestListAndMarkAlertsRead(t *testing.T) {
 	seedAlert(t, e, uid, "BA286 now departs gate B32")
 	seedAlert(t, e, other, "not yours")
 
-	// List: only the viewer's alert.
+	// List: only the viewer's alert, in the merged inbox shape, still unread.
 	w := e.req(t, http.MethodGet, "/api/alerts", nil, uid)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list status = %d", w.Code)
 	}
-	list := decodeBody[[]api.FlightAlertDTO](t, w)
+	list := decodeBody[[]api.NotificationItemDTO](t, w)
 	if len(list) != 1 || list[0].Message != "BA286 now departs gate B32" {
 		t.Fatalf("list = %+v", list)
+	}
+	if list[0].Kind != "gate" || list[0].ReadAt != nil {
+		t.Fatalf("inbox item kind/read_at = %+v", list[0])
 	}
 
 	// Mark read clears the unread count.
@@ -77,6 +81,36 @@ func TestListAndMarkAlertsRead(t *testing.T) {
 	w = e.req(t, http.MethodGet, "/api/notifications", nil, uid)
 	if decodeBody[api.NotificationsDTO](t, w).UnreadAlerts != 0 {
 		t.Errorf("unread after mark-read != 0")
+	}
+}
+
+func TestInboxIncludesShareNotifications(t *testing.T) {
+	e := setup(t, nil, nil)
+	actor := e.user(t, "inboxactor", false)
+	uid := e.user(t, "inboxuser", false)
+	tripID := newTrip(t, e, actor, "Trip")
+	if _, err := e.store.InsertNotification(context.Background(), store.Notification{
+		UserID: uid, Kind: "share", ActorID: &actor, TripID: &tripID,
+		Message: "actor shared T with you",
+	}); err != nil {
+		t.Fatalf("InsertNotification: %v", err)
+	}
+	// Badge reflects the unread share.
+	w := e.req(t, "GET", "/api/notifications", nil, uid)
+	if !strings.Contains(w.Body.String(), `"unread_shares":1`) {
+		t.Errorf("notifications DTO missing unread_shares: %s", w.Body.String())
+	}
+	// Inbox lists the share item.
+	w = e.req(t, "GET", "/api/alerts", nil, uid)
+	if !strings.Contains(w.Body.String(), "shared T with you") {
+		t.Errorf("alert inbox missing share item: %s", w.Body.String())
+	}
+	// Marking read clears the unread share count.
+	if w := e.req(t, "POST", "/api/alerts/read", nil, uid); w.Code != http.StatusNoContent {
+		t.Fatalf("mark read code = %d", w.Code)
+	}
+	if n, _ := e.store.CountUnreadNotifications(context.Background(), uid); n != 0 {
+		t.Errorf("unread notifications after read = %d, want 0", n)
 	}
 }
 

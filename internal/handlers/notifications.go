@@ -33,7 +33,11 @@ func (a *API) buildNotificationsDTO(ctx context.Context, userID int64) (api.Noti
 	if err != nil {
 		return api.NotificationsDTO{}, err
 	}
-	return api.NotificationsDTO{FriendRequestsPending: n, UnreadAlerts: unread}, nil
+	unreadShares, err := a.Store.CountUnreadNotifications(ctx, userID)
+	if err != nil {
+		return api.NotificationsDTO{}, err
+	}
+	return api.NotificationsDTO{FriendRequestsPending: n, UnreadAlerts: unread, UnreadShares: unreadShares}, nil
 }
 
 // publishNotifications recomputes userID's notification counts and
