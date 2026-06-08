@@ -140,9 +140,10 @@ func TestBackfillTripCountries(t *testing.T) {
 
 // TestDeriveTripCountryFromParts covers the flag fix: a trip with no destination
 // must take its country from where its plans actually are (reverse-geocoded
-// endpoints, majority wins) and must NEVER geocode the freeform trip name — the
-// "50's, Hopefully" → Oregon → US bug. Here a Folkestone↔Calais round trip plus
-// a French hotel votes France even though the name would (mis)resolve to "us".
+// endpoints, weighted by dwell time) and must NEVER geocode the freeform trip
+// name — the "50's, Hopefully" → Oregon → US bug. Here a Folkestone↔Calais round
+// trip plus a two-day French hotel picks France even though the name would
+// (mis)resolve to "us".
 func TestDeriveTripCountryFromParts(t *testing.T) {
 	e := setup(t, nil, nil)
 	const folkLat, folkLon = 51.08169, 1.16734       // GB
@@ -196,5 +197,83 @@ func TestDeriveTripCountryFromParts(t *testing.T) {
 	got, _ := e.store.TripByID(ctx, trip.ID)
 	if got.CountryCode != "fr" {
 		t.Errorf("country = %q, want fr (from the French plans, not 'us' from the name)", got.CountryCode)
+	}
+}
+
+// TestDeriveTripCountryByDwellTime covers the there-and-back flag bug: a trip to
+// "Tallinn, Estonia" whose endpoints are mostly in the UK (the home↔airport cab
+// out and back) must fly the Estonian flag because that's where the week is spent.
+// A plain endpoint count would pick "gb" (four UK endpoints vs one EE), so the
+// derivation must weight by dwell time — the week-long hotel stay wins.
+func TestDeriveTripCountryByDwellTime(t *testing.T) {
+	e := setup(t, nil, nil)
+	const homeLat, homeLon = 51.5, -0.5    // GB
+	const lhrLat, lhrLon = 51.4700, -0.4543 // GB
+	const hotelLat, hotelLon = 59.4370, 24.7536 // EE (Tallinn)
+	// country:"ee" stands in for geocoding the destination "Tallinn, Estonia".
+	// byCoord drives the reverse lookups: four GB endpoints (cab out + back) vs a
+	// single EE one, so a pure endpoint vote would (wrongly) pick "gb".
+	e.api.Geocoder = fakeGeocoder{
+		country: "ee",
+		byCoord: map[[2]float64]string{
+			{homeLat, homeLon}:   "gb",
+			{lhrLat, lhrLon}:     "gb",
+			{hotelLat, hotelLon}: "ee",
+		},
+	}
+	ctx := context.Background()
+	uid := e.user(t, "traveller", false)
+
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{
+		Name: "Tallinn break", Destination: "Tallinn, Estonia",
+	}, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := func(f float64) *float64 { return &f }
+	at := time.Date(2026, 7, 1, 6, 0, 0, 0, time.UTC)
+	end := at.Add(time.Hour)
+	// Outbound cab home → LHR.
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "ground", Title: "Cab to LHR",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: at, EndsAt: &end,
+			StartLabel: "Home", StartLat: p(homeLat), StartLon: p(homeLon),
+			EndLabel: "LHR T3", EndLat: p(lhrLat), EndLon: p(lhrLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	// Return cab LHR → home.
+	rb := at.Add(7 * 24 * time.Hour)
+	rbEnd := rb.Add(time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "ground", Title: "Cab home",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: rb, EndsAt: &rbEnd,
+			StartLabel: "LHR T3", StartLat: p(lhrLat), StartLon: p(lhrLon),
+			EndLabel: "Home", EndLat: p(homeLat), EndLon: p(homeLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	// A week at the Radisson Tallinn.
+	checkout := at.Add(7 * 24 * time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "hotel", Title: "Radisson Tallinn",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: at, EndsAt: &checkout,
+			StartLabel: "Radisson Tallinn", StartLat: p(hotelLat), StartLon: p(hotelLon),
+			Hotel: &store.HotelDetail{PropertyName: "Radisson Tallinn"},
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	e.api.BackfillTripCountries(ctx)
+
+	got, _ := e.store.TripByID(ctx, trip.ID)
+	if got.CountryCode != "ee" {
+		t.Errorf("country = %q, want ee (the stated destination, not 'gb' from the UK endpoints)", got.CountryCode)
 	}
 }

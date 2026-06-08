@@ -479,14 +479,23 @@ func (s *Store) PlansByTrip(ctx context.Context, tripID int64) ([]*Plan, error) 
 	return out, rows.Err()
 }
 
-// TripPartEndpoints returns every geocoded endpoint coordinate of a trip's
-// live (non-dismissed) plan parts — both start and end where present — as
-// [lat, lon] pairs. Used to derive the trip's country from where its plans
-// actually are, rather than from a freeform name. Order is by part then
-// start-before-end so the derivation's tie-breaking is deterministic.
-func (s *Store) TripPartEndpoints(ctx context.Context, tripID int64) ([][2]float64, error) {
+// TripPartDwell pairs a live plan part's duration with its geocoded endpoint
+// coordinates, for time-weighted trip-country derivation. Seconds is the part's
+// span (ends_at − starts_at), or 0 when it's open-ended/instantaneous. Coords
+// holds the part's geocoded endpoints (start then end where present), 0–2 of them.
+type TripPartDwell struct {
+	Seconds float64
+	Coords  [][2]float64
+}
+
+// TripPartDwells returns the duration and geocoded endpoints of a trip's live
+// (non-dismissed) plan parts. Used to derive the trip's country from where its
+// plans actually spend time — a week-long hotel stay outweighs the brief
+// transfers at either end — rather than from a freeform name. Order is by part
+// so the derivation's tie-breaking is deterministic.
+func (s *Store) TripPartDwells(ctx context.Context, tripID int64) ([]TripPartDwell, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT part.start_lat, part.start_lon, part.end_lat, part.end_lon
+		`SELECT part.starts_at, part.ends_at, part.start_lat, part.start_lon, part.end_lat, part.end_lon
 		   FROM plan_parts part
 		   JOIN plans pl ON pl.id = part.plan_id
 		  WHERE pl.trip_id = $1 AND part.dismissed_at IS NULL
@@ -495,17 +504,27 @@ func (s *Store) TripPartEndpoints(ctx context.Context, tripID int64) ([][2]float
 		return nil, err
 	}
 	defer rows.Close()
-	var out [][2]float64
+	var out []TripPartDwell
 	for rows.Next() {
+		var startsAt, endsAt *time.Time
 		var sLat, sLon, eLat, eLon *float64
-		if err := rows.Scan(&sLat, &sLon, &eLat, &eLon); err != nil {
+		if err := rows.Scan(&startsAt, &endsAt, &sLat, &sLon, &eLat, &eLon); err != nil {
 			return nil, err
 		}
+		var d TripPartDwell
+		if startsAt != nil && endsAt != nil {
+			if sec := endsAt.Sub(*startsAt).Seconds(); sec > 0 {
+				d.Seconds = sec
+			}
+		}
 		if sLat != nil && sLon != nil {
-			out = append(out, [2]float64{*sLat, *sLon})
+			d.Coords = append(d.Coords, [2]float64{*sLat, *sLon})
 		}
 		if eLat != nil && eLon != nil {
-			out = append(out, [2]float64{*eLat, *eLon})
+			d.Coords = append(d.Coords, [2]float64{*eLat, *eLon})
+		}
+		if len(d.Coords) > 0 {
+			out = append(out, d)
 		}
 	}
 	return out, rows.Err()

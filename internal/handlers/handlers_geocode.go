@@ -68,32 +68,46 @@ func (a *API) deriveTripCountryAsync(tripID int64) {
 	}()
 }
 
-// deriveTripCountry picks a trip's flag country. It prefers where the plans
-// actually are — reverse-geocoding each plotted plan endpoint and taking the
-// most common country (ties broken by earliest part, though a hotel's country
-// usually outvotes a there-and-back transfer). It falls back to the user-stated
+// deriveTripCountry picks a trip's flag country. It prefers the country the trip
+// spends the most time in: a week in a Tallinn hotel outweighs the brief UK cab
+// rides and the connecting flights at either end, so a there-and-back trip flies
+// the destination's flag and not the origin's. (A plain endpoint count gets this
+// wrong — a UK→Estonia round trip has more UK endpoints, the home pickup, the
+// airport, and both again on the way back, than Estonian ones — so we weight each
+// reverse-geocoded endpoint by the owning part's duration; the country with the
+// most dwell time wins, ties broken by earliest part. Parts with no duration
+// still count by presence, so a trip of instantaneous markers degrades to a
+// simple majority.) When nothing's plotted it falls back to the user-stated
 // destination, and deliberately NEVER geocodes the trip name: a freeform name
 // like "50's, Hopefully" matches a spurious place (a road in Oregon), flying the
 // wrong flag. ok is false when nothing resolved (caller stores the "zz"
 // sentinel so it isn't re-queried forever).
 func (a *API) deriveTripCountry(ctx context.Context, t *store.Trip) (string, bool) {
-	if pts, err := a.Store.TripPartEndpoints(ctx, t.ID); err == nil && len(pts) > 0 {
-		counts := map[string]int{}
+	if dwells, err := a.Store.TripPartDwells(ctx, t.ID); err == nil && len(dwells) > 0 {
+		weight := map[string]float64{}
 		var order []string
-		for _, p := range pts {
-			code, ok, gerr := a.Geocoder.ReverseCountry(ctx, p[0], p[1])
-			if gerr != nil || !ok || code == "" {
-				continue
+		for _, d := range dwells {
+			// A one-second floor so a part with no duration still registers its
+			// presence; real multi-hour/day stays dwarf it and decide the winner.
+			w := d.Seconds
+			if w <= 0 {
+				w = 1
 			}
-			if counts[code] == 0 {
-				order = append(order, code)
+			for _, c := range d.Coords {
+				code, ok, gerr := a.Geocoder.ReverseCountry(ctx, c[0], c[1])
+				if gerr != nil || !ok || code == "" {
+					continue
+				}
+				if weight[code] == 0 {
+					order = append(order, code)
+				}
+				weight[code] += w
 			}
-			counts[code]++
 		}
-		best, bestN := "", 0
+		best, bestW := "", 0.0
 		for _, code := range order {
-			if counts[code] > bestN {
-				best, bestN = code, counts[code]
+			if weight[code] > bestW {
+				best, bestW = code, weight[code]
 			}
 		}
 		if best != "" {
