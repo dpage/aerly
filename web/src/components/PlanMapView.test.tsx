@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { PlanPart, User } from '../api/types';
+import type { PlanPart, Position, User } from '../api/types';
 import { initialBearing } from '../lib/great-circle';
 import maplibreMock, { FakeMap, FakeMarker, resetMaplibreMock } from '../test/maplibre-mock';
 
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
 import PlanMapView from './PlanMapView';
+import { fmtScrubTime, planePlacementAt, positionAt, trackFC } from '../lib/flight-track';
 
 function user(over: Partial<User> = {}): User {
   return {
@@ -360,6 +361,138 @@ describe('PlanMapView', () => {
     expect(planeFor(2)).toBeUndefined();
   });
 
+  // The time scrubber lets you drag back and replay where flights were. The
+  // default flight departs 09:00, arrives 13:00 (2026-10-12). These tests pin
+  // the clock so the slider's window (trip start … min(now, trip end)) is open.
+  describe('time slider', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+    const clockAt = (iso: string) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(iso));
+    };
+    const ms = (iso: string) => new Date(iso).getTime();
+    // A mid-flight fixture: an Enroute leg with a live fix and a 3-point track.
+    const enroute = (over: Partial<PlanPart> = {}) =>
+      flight({
+        flight: {
+          ...flight().flight!,
+          flight_status: 'Enroute',
+          latest_position: { ts: '2026-10-12T11:30:00Z', lat: 47, lon: -35, is_estimated: false },
+          track: [
+            { ts: '2026-10-12T10:00:00Z', lat: 50, lon: -10, is_estimated: false },
+            { ts: '2026-10-12T11:00:00Z', lat: 48, lon: -30, is_estimated: false },
+            { ts: '2026-10-12T11:30:00Z', lat: 47, lon: -35, is_estimated: false },
+          ],
+        },
+        ...over,
+      });
+    const scrubTo = (iso: string) =>
+      fireEvent.change(screen.getByRole('slider'), { target: { value: String(ms(iso)) } });
+
+    it('shows the slider only once a flight trip has started', () => {
+      clockAt('2026-10-12T11:30:00Z'); // mid-flight → window [09:00 … 11:30] open
+      render(<PlanMapView parts={[enroute()]} />);
+      expect(screen.getByTestId('time-slider')).toBeInTheDocument();
+    });
+
+    it('hides the slider with no flights, or before the trip starts', () => {
+      clockAt('2026-10-12T11:30:00Z');
+      const { unmount } = render(<PlanMapView parts={[hotel()]} />); // nothing moves
+      expect(screen.queryByTestId('time-slider')).toBeNull();
+      unmount();
+      resetMaplibreMock();
+      clockAt('2026-10-01T00:00:00Z'); // before the flight → no past to scrub
+      render(<PlanMapView parts={[enroute()]} />);
+      expect(screen.queryByTestId('time-slider')).toBeNull();
+    });
+
+    it('pins the right edge to the live view while the flight is in progress', () => {
+      clockAt('2026-10-12T11:30:00Z');
+      render(<PlanMapView parts={[enroute()]} />);
+      // Live: the LIVE badge, no reset button, and the plane at its live fix.
+      expect(screen.getByTestId('time-slider-live')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Live' })).toBeNull();
+      expect(planeFor(1)!.lngLat).toEqual([-35, 47]);
+    });
+
+    it('replays the plane along its flown track when scrubbed back', () => {
+      clockAt('2026-10-12T11:30:00Z');
+      render(<PlanMapView parts={[enroute(), hotel()]} />); // hotel: a static part
+      fireEvent.click(screen.getByTestId('plan-row-1')); // select → draw the track
+      scrubTo('2026-10-12T10:30:00Z'); // midway between the 10:00 and 11:00 fixes
+      // Interpolated half-way: lat 50→48, lon -10→-30.
+      expect(planeFor(1)!.lngLat).toEqual([-20, 49]);
+      // The orange trail is clipped to the scrubbed instant + an interpolated tip.
+      const track = FakeMap.instances[0].getSource('pmv-track')!;
+      const fc = track.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
+      expect((fc.features[0].geometry as GeoJSON.LineString).coordinates).toEqual([
+        [-10, 50],
+        [-20, 49],
+      ]);
+      // Scrubbing swaps the LIVE badge for the scrubbed time + a re-lock button.
+      expect(screen.queryByTestId('time-slider-live')).toBeNull();
+      expect(screen.getByText('Positions at')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Live' })).toBeInTheDocument();
+    });
+
+    it('re-locks to live when dragged back to the right edge', () => {
+      clockAt('2026-10-12T11:30:00Z');
+      render(<PlanMapView parts={[enroute()]} />);
+      scrubTo('2026-10-12T10:30:00Z');
+      expect(screen.queryByTestId('time-slider-live')).toBeNull();
+      scrubTo('2026-10-12T11:30:00Z'); // the live edge
+      expect(screen.getByTestId('time-slider-live')).toBeInTheDocument();
+    });
+
+    it('re-locks to live via the Live button', () => {
+      clockAt('2026-10-12T11:30:00Z');
+      render(<PlanMapView parts={[enroute()]} />);
+      scrubTo('2026-10-12T10:30:00Z');
+      fireEvent.click(screen.getByRole('button', { name: 'Live' }));
+      expect(screen.getByTestId('time-slider-live')).toBeInTheDocument();
+      expect(planeFor(1)!.lngLat).toEqual([-35, 47]); // back at the live fix
+    });
+
+    it('drops the scrub back to live when the parts (trip/tag) change', () => {
+      clockAt('2026-10-12T11:30:00Z');
+      const { rerender } = render(<PlanMapView parts={[enroute()]} />);
+      scrubTo('2026-10-12T10:30:00Z');
+      expect(screen.queryByTestId('time-slider-live')).toBeNull();
+      // A different dataset (new start instant) → the scrub resets to the live edge.
+      rerender(
+        <PlanMapView
+          parts={[enroute({ id: 9, starts_at: '2026-10-12T08:00:00Z', effective_at: '2026-10-12T08:00:00Z' })]}
+        />,
+      );
+      expect(screen.getByTestId('time-slider-live')).toBeInTheDocument();
+    });
+
+    it('offers a "Latest" reset for a wholly past trip and replays it on scrub', () => {
+      clockAt('2026-10-12T20:00:00Z'); // hours after arrival → the trip is past
+      render(<PlanMapView parts={[enroute()]} />);
+      // Past trip: no LIVE badge, and the reset reads "Latest", not "Live".
+      expect(screen.queryByTestId('time-slider-live')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Latest' })).toBeInTheDocument();
+      // Default (now is past the window) shows no plane until you scrub in.
+      expect(planeFor(1)).toBeUndefined();
+      scrubTo('2026-10-12T10:30:00Z'); // replay mid-flight → interpolated on the track
+      const plane = planeFor(1)!;
+      expect(plane.lngLat).toEqual([-20, 49]);
+      fireEvent.click(screen.getByRole('button', { name: 'Latest' }));
+      expect(plane.remove).toHaveBeenCalled(); // reset → back to the (empty) live edge
+    });
+
+    it('parks the plane at the origin when scrubbed before departure', () => {
+      clockAt('2026-10-12T11:30:00Z');
+      // A hotel from 08:00 widens the window so we can scrub before the 09:00 push-back.
+      render(<PlanMapView parts={[enroute(), hotel({ id: 3, starts_at: '2026-10-12T08:00:00Z', effective_at: '2026-10-12T08:00:00Z' })]} />);
+      scrubTo('2026-10-12T08:30:00Z'); // before departure → parked at LHR
+      expect(planeFor(1)!.lngLat).toEqual([-0.45, 51.47]);
+    });
+  });
+
   it('clicking a pin highlights its list row (bidirectional)', async () => {
     render(<PlanMapView parts={[flight(), hotel()]} />);
     pinFor(2).getElement().dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -625,5 +758,172 @@ describe('PlanMapView', () => {
     await user.click(screen.getByTestId('plan-row-5'));
     const lastCall = track!.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
     expect(lastCall.features).toHaveLength(0);
+  });
+});
+
+const pos = (iso: string, lat: number, lon: number, extra: Partial<Position> = {}): Position => ({
+  ts: iso,
+  lat,
+  lon,
+  is_estimated: false,
+  ...extra,
+});
+
+describe('positionAt', () => {
+  const track: Position[] = [pos('2026-10-12T10:00:00Z', 50, -10), pos('2026-10-12T11:00:00Z', 48, -30)];
+  const t = (iso: string) => new Date(iso).getTime();
+
+  it('returns null for an empty track or an instant before the first fix', () => {
+    expect(positionAt([], t('2026-10-12T10:30:00Z'))).toBeNull();
+    expect(positionAt(track, t('2026-10-12T09:00:00Z'))).toBeNull();
+  });
+
+  it('returns the last fix at or after the final sample', () => {
+    expect(positionAt(track, t('2026-10-12T12:00:00Z'))).toMatchObject({ lat: 48, lon: -30 });
+  });
+
+  it('linearly interpolates between the bracketing samples', () => {
+    expect(positionAt(track, t('2026-10-12T10:30:00Z'))).toMatchObject({ lat: 49, lon: -20 });
+  });
+
+  it('selects the right bracket within a multi-segment track', () => {
+    const three = [pos('2026-10-12T10:00:00Z', 50, -10), ...track.slice(1), pos('2026-10-12T12:00:00Z', 44, -50)];
+    // 11:30 sits in the 11:00→12:00 segment (lat 48→44, lon -30→-50).
+    expect(positionAt(three, t('2026-10-12T11:30:00Z'))).toMatchObject({ lat: 46, lon: -40 });
+  });
+
+  it('derives heading from the later fix, the earlier one, then the bearing', () => {
+    const withB = [pos('2026-10-12T10:00:00Z', 50, -10), pos('2026-10-12T11:00:00Z', 48, -30, { heading_deg: 270 })];
+    expect(positionAt(withB, t('2026-10-12T10:30:00Z'))!.heading).toBe(270);
+    const withA = [pos('2026-10-12T10:00:00Z', 50, -10, { heading_deg: 99 }), pos('2026-10-12T11:00:00Z', 48, -30)];
+    expect(positionAt(withA, t('2026-10-12T10:30:00Z'))!.heading).toBe(99);
+    expect(positionAt(track, t('2026-10-12T10:30:00Z'))!.heading).toBeCloseTo(
+      initialBearing(50, -10, 48, -30),
+      5,
+    );
+  });
+
+  it('flags the interpolated point estimated when either end is, and copes with equal timestamps', () => {
+    const est = [pos('2026-10-12T10:00:00Z', 50, -10, { is_estimated: true }), pos('2026-10-12T11:00:00Z', 48, -30)];
+    expect(positionAt(est, t('2026-10-12T10:30:00Z'))!.estimated).toBe(true);
+    // Equal-instant leading samples are skipped without dividing by zero — the
+    // bracket advances to the later of the duplicates.
+    const dup = [pos('2026-10-12T10:00:00Z', 50, -10), pos('2026-10-12T10:00:00Z', 60, 5), pos('2026-10-12T11:00:00Z', 48, -30)];
+    expect(positionAt(dup, t('2026-10-12T10:00:00Z'))).toMatchObject({ lat: 60, lon: 5 });
+  });
+});
+
+describe('planePlacementAt', () => {
+  const t = (iso: string) => new Date(iso).getTime();
+  const routeHeading = initialBearing(51.47, -0.45, 38.95, -77.46);
+  const track: Position[] = [pos('2026-10-12T10:00:00Z', 50, -10), pos('2026-10-12T11:00:00Z', 48, -30)];
+
+  it('returns null for a non-flight part', () => {
+    expect(planePlacementAt(hotel(), t('2026-10-12T10:30:00Z'))).toBeNull();
+  });
+
+  it('parks at the origin (along the route) before push-back', () => {
+    expect(planePlacementAt(flight(), t('2026-10-12T08:00:00Z'))).toEqual({
+      lon: -0.45,
+      lat: 51.47,
+      heading: routeHeading,
+      estimated: false,
+    });
+  });
+
+  it('parks an origin-less flight at its destination before departure', () => {
+    const endOnly = flight({ start_lat: undefined, start_lon: undefined });
+    expect(planePlacementAt(endOnly, t('2026-10-12T08:00:00Z'))).toMatchObject({ lon: -77.46, lat: 38.95 });
+  });
+
+  it('parks at the destination once it has landed', () => {
+    const arrived = flight({ flight: { ...flight().flight!, flight_status: 'Arrived' } });
+    expect(planePlacementAt(arrived, t('2026-10-12T14:00:00Z'))).toMatchObject({ lon: -77.46, lat: 38.95 });
+  });
+
+  it('falls back to the origin for a landed flight with no destination coordinate', () => {
+    const arrivedNoEnd = flight({
+      end_lat: undefined,
+      end_lon: undefined,
+      flight: { ...flight().flight!, flight_status: 'Arrived' },
+    });
+    expect(planePlacementAt(arrivedNoEnd, t('2026-10-12T14:00:00Z'))).toMatchObject({ lon: -0.45, lat: 51.47 });
+  });
+
+  it('interpolates along the flown track while airborne', () => {
+    const enroute = flight({ flight: { ...flight().flight!, flight_status: 'Enroute', track } });
+    expect(planePlacementAt(enroute, t('2026-10-12T10:30:00Z'))).toMatchObject({ lon: -20, lat: 49 });
+  });
+
+  it('orients along the route when the last fix carries no heading', () => {
+    // Enroute past the final fix (which has no heading) but not flagged Arrived.
+    const enroute = flight({ flight: { ...flight().flight!, flight_status: 'Enroute', track } });
+    expect(planePlacementAt(enroute, t('2026-10-12T12:30:00Z'))!.heading).toBeCloseTo(routeHeading, 5);
+  });
+
+  it('falls back by phase when there is no usable track sample', () => {
+    const noTrack = flight({ flight: { ...flight().flight!, track: [] } });
+    // Mid-flight, no track → parked at the origin.
+    expect(planePlacementAt(noTrack, t('2026-10-12T11:00:00Z'))).toMatchObject({ lon: -0.45, lat: 51.47 });
+    // Past the (scheduled) arrival, not flagged Arrived, no track → the destination.
+    expect(planePlacementAt(noTrack, t('2026-10-12T14:00:00Z'))).toMatchObject({ lon: -77.46, lat: 38.95 });
+  });
+
+  it('handles a flight with no resolvable departure time', () => {
+    const noDep = flight({
+      starts_at: '',
+      ends_at: undefined,
+      effective_at: '',
+      flight: {
+        ...flight().flight!,
+        scheduled_out: '',
+        scheduled_in: '',
+        track: [],
+      },
+    });
+    expect(planePlacementAt(noDep, t('2026-10-12T10:00:00Z'))).toMatchObject({ lon: -0.45, lat: 51.47 });
+  });
+});
+
+describe('trackFC', () => {
+  const coordsOf = (fc: GeoJSON.FeatureCollection) =>
+    (fc.features[0]?.geometry as GeoJSON.LineString | undefined)?.coordinates;
+  const t = (iso: string) => new Date(iso).getTime();
+
+  it('returns an empty collection without a selection or with a sparse track', () => {
+    expect(trackFC(null, null).features).toHaveLength(0);
+    expect(trackFC(flight({ flight: { ...flight().flight!, track: [pos('2026-10-12T10:00:00Z', 50, -10)] } }), null).features).toHaveLength(0);
+  });
+
+  it('draws the full trail when not scrubbing', () => {
+    expect(coordsOf(trackFC(flight(), null))).toEqual([
+      [-10, 50],
+      [-30, 48],
+    ]);
+  });
+
+  it('clips the trail to the scrubbed instant plus an interpolated tip', () => {
+    expect(coordsOf(trackFC(flight(), t('2026-10-12T10:30:00Z')))).toEqual([
+      [-10, 50],
+      [-20, 49],
+    ]);
+  });
+
+  it('keeps every sample (no duplicate tip) when scrubbed to/after the last fix', () => {
+    expect(coordsOf(trackFC(flight(), t('2026-10-12T11:00:00Z')))).toEqual([
+      [-10, 50],
+      [-30, 48],
+    ]);
+  });
+
+  it('returns nothing when scrubbed before the first fix', () => {
+    expect(trackFC(flight(), t('2026-10-12T09:00:00Z')).features).toHaveLength(0);
+  });
+});
+
+describe('fmtScrubTime', () => {
+  it('formats a valid instant and blanks an invalid one', () => {
+    expect(fmtScrubTime(new Date('2026-10-12T11:30:00Z').getTime())).toMatch(/\d{1,2}:\d{2}/);
+    expect(fmtScrubTime(NaN)).toBe('');
   });
 });

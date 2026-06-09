@@ -10,17 +10,29 @@ import {
   Avatar,
   AvatarGroup,
   Box,
+  Button,
+  Chip,
   Collapse,
   List,
   ListItemButton,
   ListItemText,
+  Slider,
+  Stack,
   Tooltip,
   Typography,
 } from '@mui/material';
 
 import type { PlanPart } from '../api/types';
 import { unlocatedCount } from '../lib/geo';
-import { greatCircle, initialBearing, toMultiLine } from '../lib/great-circle';
+import {
+  fmtScrubTime,
+  parseMs,
+  planePlacement,
+  planePlacementAt,
+  planeWindows,
+  trackFC,
+} from '../lib/flight-track';
+import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
 import { personColor } from '../lib/person-color';
@@ -107,6 +119,61 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     return () => window.clearInterval(id);
   }, []);
 
+  // Time scrubber (issue: map time slider). null = parked on the live edge —
+  // the map shows where flights *are now*; a number = an instant the user has
+  // scrubbed back to, where the map shows where they *were* then. Replays the
+  // flown tracks rather than fetching anything (every position is already
+  // loaded with the part).
+  const [scrubMs, setScrubMs] = useState<number | null>(null);
+
+  // The slider's domain (recomputed each minute so the live edge keeps up with
+  // wall-clock time): far left = the earliest plotted instant (the trip/window
+  // start), far right = the earlier of *now* or the latest plotted instant. A
+  // still-running trip therefore pins the right edge to "now" (the live view);
+  // a wholly past one pins it to the trip's end.
+  const timeDomain = useMemo(() => {
+    let lo: number | null = null;
+    let hi: number | null = null;
+    let hasFlight = false;
+    for (const p of ordered) {
+      if (p.type === 'flight') hasFlight = true;
+      const s = parseMs(p.starts_at) ?? parseMs(p.effective_at);
+      if (s != null) lo = lo == null ? s : Math.min(lo, s);
+      const e = parseMs(p.ends_at) ?? parseMs(p.effective_at) ?? s;
+      if (e != null) hi = hi == null ? e : Math.max(hi, e);
+    }
+    const now = Date.now();
+    const end = hi != null ? Math.min(now, hi) : now;
+    // The right edge tracks the live "now" while the trip is still running.
+    const inProgress = hi != null && now < hi;
+    // Only worth a slider once there's a past to look back over, and only when
+    // something actually moves (flights) — venues/hotels are static.
+    const show = hasFlight && lo != null && end > lo;
+    return { start: lo ?? now, end, inProgress, show };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- minuteTick advances `now`
+  }, [ordered, minuteTick]);
+
+  // The instant currently shown: the clamped scrub time, else the live edge.
+  const scrubbing = scrubMs != null;
+  const valueMs = scrubbing
+    ? Math.min(Math.max(scrubMs, timeDomain.start), timeDomain.end)
+    : timeDomain.end;
+  // Genuinely "live" (vs. scrubbed back, or pinned to a past trip's end).
+  const liveEdge = !scrubbing && timeDomain.inProgress;
+
+  // Switching trip/tag (the parts — and so the domain's start — change) drops
+  // back to the live edge rather than stranding the slider at an out-of-range
+  // instant from the previous dataset.
+  const prevStartRef = useRef(timeDomain.start);
+  useEffect(() => {
+    if (prevStartRef.current !== timeDomain.start) {
+      prevStartRef.current = timeDomain.start;
+      // Functional no-op when not scrubbing so React bails out (no spurious
+      // re-render / act warning on every parts change).
+      setScrubMs((cur) => (cur == null ? cur : null));
+    }
+  }, [timeDomain.start]);
+
   // Keep selection valid as the parts change (e.g. SSE refresh removes a part).
   useEffect(() => {
     if (selectedId != null && !ordered.some((p) => p.id === selectedId)) setSelectedId(null);
@@ -187,7 +254,9 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     const trackSrc = map.getSource(TRACK) as maplibregl.GeoJSONSource | undefined;
     if (!legsSrc || !trackSrc) return;
     legsSrc.setData(legsFC(ordered, selectedId));
-    trackSrc.setData(trackFC(selected));
+    // Scrubbed back: clip the flown trail to the scrubbed instant; live: the
+    // full trail.
+    trackSrc.setData(trackFC(selected, scrubbing ? valueMs : null));
 
     // Sync the teardrop pins (one per geocoded endpoint). Reuse existing
     // markers, drop stale ones, and dim the unselected when something's picked.
@@ -243,13 +312,17 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     // Only flights inside their visibility window get an icon, and a booking's
     // connecting legs hand the single icon off between them (planeWindows), so
     // only one plane is ever shown per journey.
-    const now = Date.now();
+    // The instant to render at: the scrubbed time, else the real "now" (so the
+    // live path is byte-for-byte the original behaviour).
+    const at = scrubbing ? valueMs : Date.now();
     const windows = planeWindows(ordered);
     const livePlanes = new Set<number>();
     for (const p of ordered) {
       const win = windows.get(p.id);
-      if (!win || now < win.start || now >= win.end) continue;
-      const place = planePlacement(p);
+      if (!win || at < win.start || at >= win.end) continue;
+      // Live: the latest reported fix. Scrubbed back: where it was at `at`,
+      // interpolated along the flown track.
+      const place = scrubbing ? planePlacementAt(p, at) : planePlacement(p);
       if (!place) continue;
       livePlanes.add(p.id);
       let plane = planesRef.current.get(p.id);
@@ -282,7 +355,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
 
   useEffect(() => {
     syncRef.current?.();
-  }, [ordered, selectedId, minuteTick]);
+  }, [ordered, selectedId, minuteTick, scrubMs]);
 
   // Fit the map: to the selected item's path/point, else to everything. Each
   // fit runs once per change of *intent* — picking a different item, or the set
@@ -333,6 +406,23 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     >
       <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 240 }}>
         <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} data-testid="plan-map" />
+        {timeDomain.show && (
+          <TimeSlider
+            start={timeDomain.start}
+            end={timeDomain.end}
+            value={valueMs}
+            liveEdge={liveEdge}
+            inProgress={timeDomain.inProgress}
+            onScrub={(ms) =>
+              // Snapping to the right edge of a running trip re-locks the live
+              // view (null); anywhere else is a fixed past instant.
+              setScrubMs(
+                timeDomain.inProgress && ms >= timeDomain.end - SCRUB_STEP_MS ? null : ms,
+              )
+            }
+            onReset={() => setScrubMs(null)}
+          />
+        )}
       </Box>
       <Box
         sx={{
@@ -443,6 +533,90 @@ function PartRow({
   );
 }
 
+/** Scrubber granularity: one minute is fine enough to track a plane yet keeps
+ * the live re-lock snap (the right edge) a comfortable target. */
+const SCRUB_STEP_MS = 60_000;
+
+/** The bottom-of-map time scrubber. Drag left to replay where flights were in
+ * the past; the right edge is the live view (a running trip) or the trip's end
+ * (a past one), and a still-running trip re-locks to live when dragged back to
+ * that edge. */
+function TimeSlider({
+  start,
+  end,
+  value,
+  liveEdge,
+  inProgress,
+  onScrub,
+  onReset,
+}: {
+  start: number;
+  end: number;
+  value: number;
+  liveEdge: boolean;
+  inProgress: boolean;
+  onScrub: (ms: number) => void;
+  onReset: () => void;
+}) {
+  return (
+    <Box
+      data-testid="time-slider"
+      sx={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 2,
+        px: 2,
+        py: 0.75,
+        bgcolor: 'rgba(255,255,255,0.92)',
+        borderTop: 1,
+        borderColor: 'divider',
+      }}
+    >
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Box sx={{ minWidth: 132, flex: 'none' }}>
+          {liveEdge ? (
+            <Chip
+              label="● LIVE"
+              size="small"
+              color="error"
+              data-testid="time-slider-live"
+              sx={{ height: 18, fontSize: 11, fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }}
+            />
+          ) : (
+            <Typography variant="caption" color="text.secondary" display="block">
+              Positions at
+            </Typography>
+          )}
+          <Typography
+            variant="body2"
+            data-testid="time-slider-time"
+            sx={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.3 }}
+          >
+            {fmtScrubTime(value)}
+          </Typography>
+        </Box>
+        <Slider
+          size="small"
+          min={start}
+          max={end}
+          step={SCRUB_STEP_MS}
+          value={value}
+          onChange={(_, v) => onScrub(v as number)}
+          aria-label="Scrub flight positions back in time"
+          sx={{ flexGrow: 1 }}
+        />
+        {!liveEdge && (
+          <Button size="small" onClick={onReset} sx={{ flex: 'none' }}>
+            {inProgress ? 'Live' : 'Latest'}
+          </Button>
+        )}
+      </Stack>
+    </Box>
+  );
+}
+
 // --- helpers ----------------------------------------------------------------
 
 /** A human title for a row: a flight's ident, else its place line, else type. */
@@ -507,108 +681,6 @@ function endpoints(p: PlanPart): Endpoint[] {
   return [start, end].filter((e): e is Endpoint => e != null);
 }
 
-/** Where to draw a flight's plane icon, and how. Live position with its
- * reported heading when airborne (estimated/dead-reckoned included); else parked
- * at the origin before departure or the destination once arrived, oriented along
- * the route (origin → destination initial bearing). null for non-flight parts or
- * a flight with no usable coordinate. */
-interface PlanePlacement {
-  lon: number;
-  lat: number;
-  heading: number;
-  estimated: boolean;
-}
-
-function planePlacement(p: PlanPart): PlanePlacement | null {
-  if (p.type !== 'flight') return null;
-  const hasStart = p.start_lat != null && p.start_lon != null;
-  const hasEnd = p.end_lat != null && p.end_lon != null;
-  // When parked on the ground, point the icon along the route (origin → dest)
-  // rather than due north. Needs both endpoints; falls back to north otherwise.
-  const routeHeading =
-    hasStart && hasEnd ? initialBearing(p.start_lat!, p.start_lon!, p.end_lat!, p.end_lon!) : 0;
-  // Landed: park at the destination, regardless of the last tracked fix.
-  if (p.flight?.flight_status === 'Arrived' && hasEnd) {
-    return { lon: p.end_lon!, lat: p.end_lat!, heading: routeHeading, estimated: false };
-  }
-  // Airborne (or dead-reckoned through an ADS-B gap): the live position and its
-  // reported heading (route bearing as a fallback when the fix lacks one).
-  const pos = p.flight?.latest_position;
-  if (pos) {
-    return {
-      lon: pos.lon,
-      lat: pos.lat,
-      heading: pos.heading_deg ?? routeHeading,
-      estimated: pos.is_estimated,
-    };
-  }
-  // Not departed yet: park at the origin, oriented along the route.
-  if (hasStart) return { lon: p.start_lon!, lat: p.start_lat!, heading: routeHeading, estimated: false };
-  if (hasEnd) return { lon: p.end_lon!, lat: p.end_lat!, heading: routeHeading, estimated: false };
-  return null;
-}
-
-/** How long before departure / after arrival a flight's plane icon is shown. */
-const PLANE_WINDOW_MS = 2 * 60 * 60 * 1000;
-
-/** A flight leg's effective departure / arrival epoch ms (actual → estimated →
- * scheduled, falling back to the part's own start/end), or null when unknown. */
-function flightDeparture(p: PlanPart): number | null {
-  const f = p.flight;
-  return parseMs(f?.actual_out) ?? parseMs(f?.estimated_out) ?? parseMs(f?.scheduled_out) ?? parseMs(p.starts_at);
-}
-function flightArrival(p: PlanPart): number | null {
-  const f = p.flight;
-  return parseMs(f?.actual_in) ?? parseMs(f?.estimated_in) ?? parseMs(f?.scheduled_in) ?? parseMs(p.ends_at);
-}
-function parseMs(iso?: string | null): number | null {
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? null : t;
-}
-
-/** The visibility window [start, end) per flight part. A booking's connecting
- * legs share one Plan (plan_id), so we group by it: each leg shows from 2h
- * before its departure to 2h after its arrival, and where consecutive legs would
- * overlap we hand the icon off at the midpoint of the layover. That guarantees a
- * single plane per journey at any instant. Non-flight parts are skipped. */
-function planeWindows(parts: PlanPart[]): Map<number, { start: number; end: number }> {
-  const out = new Map<number, { start: number; end: number }>();
-  const groups = new Map<number, PlanPart[]>();
-  for (const p of parts) {
-    if (p.type !== 'flight') continue;
-    const g = groups.get(p.plan_id) ?? [];
-    g.push(p);
-    groups.set(p.plan_id, g);
-  }
-  for (const legs of groups.values()) {
-    const wins = legs
-      .map((p) => ({ id: p.id, dep: flightDeparture(p), arr: flightArrival(p) }))
-      .filter((w): w is { id: number; dep: number; arr: number | null } => w.dep != null)
-      .sort((a, b) => a.dep - b.dep)
-      .map((w) => ({
-        id: w.id,
-        dep: w.dep,
-        arr: w.arr ?? w.dep,
-        start: w.dep - PLANE_WINDOW_MS,
-        end: (w.arr ?? w.dep) + PLANE_WINDOW_MS,
-      }));
-    // Clamp overlapping consecutive legs to a single handoff at the layover's
-    // midpoint, so the previous leg's icon hides exactly as the next appears.
-    for (let i = 0; i + 1 < wins.length; i++) {
-      const a = wins[i];
-      const b = wins[i + 1];
-      if (a.end > b.start) {
-        const mid = (a.arr + b.dep) / 2;
-        a.end = mid;
-        b.start = mid;
-      }
-    }
-    for (const w of wins) out.set(w.id, { start: w.start, end: w.end });
-  }
-  return out;
-}
-
 /** A north-pointing plane glyph in `color` (the owner's person colour, else the
  * flight type colour); the marker is rotated to the heading and dimmed by the
  * caller when the position is estimated. */
@@ -652,21 +724,6 @@ function legsFC(parts: PlanPart[], selectedId: number | null): GeoJSON.FeatureCo
     });
   }
   return { type: 'FeatureCollection', features };
-}
-
-function trackFC(selected: PlanPart | null): GeoJSON.FeatureCollection {
-  const track = selected?.flight?.track ?? [];
-  if (track.length < 2) return emptyFC();
-  return {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'LineString', coordinates: track.map((t) => [t.lon, t.lat]) },
-      },
-    ],
-  };
 }
 
 function emptyFC(): GeoJSON.FeatureCollection {
