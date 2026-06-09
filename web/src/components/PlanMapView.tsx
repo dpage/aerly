@@ -596,8 +596,15 @@ function TimeSlider({
         borderColor: 'divider',
       }}
     >
-      <Stack direction="row" spacing={2} alignItems="center">
-        <Box sx={{ minWidth: 132, flex: 'none' }}>
+      {/* Status + time on their own row, the slider full-width below. Keeping
+          the slider on a separate row of constant width means dragging off the
+          live edge (chip → caption, reset button appearing) can't resize it —
+          which otherwise made the thumb jump/flash — and the slider's ends can
+          never overlap the LIVE label. */}
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ minHeight: 24, mb: 0.25 }}>
+        {/* Fixed-width status cell so the time doesn't shift as the badge
+            (LIVE) swaps for the "Positions at" caption. */}
+        <Box sx={{ width: 92, flex: 'none', display: 'flex', alignItems: 'center' }}>
           {liveEdge ? (
             <Chip
               label="● LIVE"
@@ -607,34 +614,34 @@ function TimeSlider({
               sx={{ height: 18, fontSize: 11, fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }}
             />
           ) : (
-            <Typography variant="caption" color="text.secondary" display="block">
+            <Typography variant="caption" color="text.secondary">
               Positions at
             </Typography>
           )}
-          <Typography
-            variant="body2"
-            data-testid="time-slider-time"
-            sx={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.3 }}
-          >
-            {fmtScrubTime(value)}
-          </Typography>
         </Box>
-        <Slider
-          size="small"
-          min={start}
-          max={end}
-          step={SCRUB_STEP_MS}
-          value={value}
-          onChange={(_, v) => onScrub(v as number)}
-          aria-label="Scrub flight positions back in time"
-          sx={{ flexGrow: 1 }}
-        />
+        <Typography
+          variant="body2"
+          data-testid="time-slider-time"
+          sx={{ fontVariantNumeric: 'tabular-nums' }}
+        >
+          {fmtScrubTime(value)}
+        </Typography>
         {!liveEdge && (
-          <Button size="small" onClick={onReset} sx={{ flex: 'none' }}>
+          <Button size="small" onClick={onReset} sx={{ ml: 'auto', flex: 'none' }}>
             {inProgress ? 'Live' : 'Latest'}
           </Button>
         )}
       </Stack>
+      <Slider
+        size="small"
+        min={start}
+        max={end}
+        step={SCRUB_STEP_MS}
+        value={value}
+        onChange={(_, v) => onScrub(v as number)}
+        aria-label="Scrub flight positions back in time"
+        sx={{ display: 'block', width: '100%', py: 0.5 }}
+      />
     </Box>
   );
 }
