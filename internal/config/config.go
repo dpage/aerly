@@ -40,16 +40,17 @@ type Config struct {
 	// Email ingest (optional). All EmailIngest* fields are zero when
 	// EmailIngestEnabled is false. When enabled, the rest are populated
 	// from env vars with the defaults documented in README.
-	EmailIngestEnabled      bool
-	EmailIngestMaildir      string
-	EmailIngestAddress      string
-	EmailIngestPollInterval time.Duration
-	EmailIngestRequireDKIM  bool
-	EmailIngestMaxBodyBytes int
-	EmailIngestSendmail     string
-	LLMProvider             string
-	LLMModel                string
-	LLMAPIKey               string
+	EmailIngestEnabled        bool
+	EmailIngestMaildir        string
+	EmailIngestAddress        string
+	EmailIngestPollInterval   time.Duration
+	EmailIngestRequireDKIM    bool
+	EmailIngestDKIMAuthServID string
+	EmailIngestMaxBodyBytes   int
+	EmailIngestSendmail       string
+	LLMProvider               string
+	LLMModel                  string
+	LLMAPIKey                 string
 }
 
 func Load() (*Config, error) {
@@ -133,6 +134,14 @@ func Load() (*Config, error) {
 		}
 		cfg.EmailIngestPollInterval = pi
 		cfg.EmailIngestRequireDKIM = getenv("EMAIL_INGEST_REQUIRE_DKIM", "1") == "1"
+		cfg.EmailIngestDKIMAuthServID = strings.TrimSpace(os.Getenv("EMAIL_INGEST_DKIM_AUTHSERV_ID"))
+		// DKIM enforcement is meaningless unless we know which authserv-id our
+		// own MTA stamps: otherwise any Authentication-Results header the sender
+		// injected would be trusted. Fail closed at startup rather than ship a
+		// spoofable trust check.
+		if cfg.EmailIngestRequireDKIM && cfg.EmailIngestDKIMAuthServID == "" {
+			return nil, fmt.Errorf("EMAIL_INGEST_REQUIRE_DKIM=1 requires EMAIL_INGEST_DKIM_AUTHSERV_ID (the authserv-id your boundary MTA stamps on Authentication-Results)")
+		}
 		cfg.EmailIngestMaxBodyBytes = 1 << 20
 		if v := os.Getenv("EMAIL_INGEST_MAX_BODY_BYTES"); v != "" {
 			n, err := strconv.Atoi(v)

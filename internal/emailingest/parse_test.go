@@ -36,8 +36,8 @@ func TestParse_PlainText(t *testing.T) {
 	if p.HTMLBody != "" {
 		t.Errorf("HTMLBody should be empty, got %q", p.HTMLBody)
 	}
-	if !strings.Contains(p.AuthenticationResults, "dkim=pass") {
-		t.Errorf("AuthenticationResults missing dkim=pass: %q", p.AuthenticationResults)
+	if !strings.Contains(strings.Join(p.AuthResults, "\n"), "dkim=pass") {
+		t.Errorf("AuthResults missing dkim=pass: %q", p.AuthResults)
 	}
 }
 

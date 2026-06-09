@@ -50,7 +50,7 @@ func TestBuildReply_HTMLEscapesUserContent(t *testing.T) {
 		FromAddr: "x", ToAddr: "y", PublicURL: "https://flights.example",
 		Failed: []ReplyFailure{{
 			Label:  "AA<script>",
-			Detail:   "2026-06-13",
+			Detail: "2026-06-13",
 			Reason: "no schedule <b>oops</b>",
 		}},
 	})

@@ -26,7 +26,7 @@ func TestBuildVerifyEmail_HeadersAndBody(t *testing.T) {
 	mustContain(t, got, "24 hours")
 	// HTML part: brand mark, header, button.
 	mustContain(t, got, "<!doctype html>")
-	mustContain(t, got, "Aerly") // wordmark in shell
+	mustContain(t, got, "Aerly")          // wordmark in shell
 	mustContain(t, got, "#1f5fa8")        // brand colour
 	mustContain(t, got, ">Verify email<") // button label
 }

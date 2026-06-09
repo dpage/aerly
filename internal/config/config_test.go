@@ -213,6 +213,7 @@ func emailIngestBase(t *testing.T) {
 	t.Setenv("EMAIL_INGEST_ENABLED", "1")
 	t.Setenv("EMAIL_INGEST_MAILDIR", "/var/spool/aerly/Maildir")
 	t.Setenv("EMAIL_INGEST_ADDRESS", "flights@flights.example")
+	t.Setenv("EMAIL_INGEST_DKIM_AUTHSERV_ID", "mx.flights.example")
 	t.Setenv("LLM_API_KEY", "sk-test")
 }
 
@@ -250,6 +251,23 @@ func TestLoadEmailIngestEnabledDefaults(t *testing.T) {
 	}
 	if cfg.LLMProvider != "anthropic" || cfg.LLMModel != "claude-haiku-4-5" {
 		t.Errorf("default llm = %s/%s", cfg.LLMProvider, cfg.LLMModel)
+	}
+}
+
+func TestLoadEmailIngestRequireDKIMNeedsAuthServID(t *testing.T) {
+	emailIngestBase(t)
+	t.Setenv("EMAIL_INGEST_DKIM_AUTHSERV_ID", "") // RequireDKIM defaults on
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "EMAIL_INGEST_DKIM_AUTHSERV_ID") {
+		t.Errorf("expected authserv-id required error when RequireDKIM on, got %v", err)
+	}
+}
+
+func TestLoadEmailIngestRequireDKIMOffSkipsAuthServID(t *testing.T) {
+	emailIngestBase(t)
+	t.Setenv("EMAIL_INGEST_DKIM_AUTHSERV_ID", "")
+	t.Setenv("EMAIL_INGEST_REQUIRE_DKIM", "0")
+	if _, err := Load(); err != nil {
+		t.Errorf("authserv-id should be optional when RequireDKIM off: %v", err)
 	}
 }
 

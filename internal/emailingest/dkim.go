@@ -2,20 +2,50 @@ package emailingest
 
 import "strings"
 
-// DKIMPass reports whether any line of the (possibly multi-line)
-// Authentication-Results header value says `dkim=pass` for `domain`.
-// Match is exact (case-insensitive) on header.d=, no subdomain allowance.
-func DKIMPass(authResults, domain string) bool {
-	if authResults == "" || domain == "" {
+// DKIMPass reports whether a TRUSTED Authentication-Results header asserts
+// `dkim=pass` for `domain` (exact, case-insensitive header.d= match; no
+// subdomain allowance).
+//
+// headers is the list of raw Authentication-Results header values from the
+// message, in order. Only headers whose authserv-id (the leading token before
+// the first ';' or whitespace, RFC 8601) equals trustedAuthServID are
+// considered — i.e. the ones stamped by our own boundary MTA. Any
+// Authentication-Results header a sender injected into the message carries a
+// different (or absent) authserv-id and is ignored. Without this, a spoofer
+// could forge `From: victim@…` plus their own
+// `Authentication-Results: x; dkim=pass header.d=…` to vouch for the victim's
+// domain and have their bookings written into the victim's account.
+//
+// An empty trustedAuthServID trusts no header (fail closed): the caller must
+// configure the local authserv-id for DKIM enforcement to mean anything.
+func DKIMPass(headers []string, trustedAuthServID, domain string) bool {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	want := strings.ToLower(strings.TrimSpace(trustedAuthServID))
+	if domain == "" || want == "" {
 		return false
 	}
-	domain = strings.ToLower(domain)
-	for _, line := range strings.Split(authResults, "\n") {
-		if dkimLineMatches(line, domain) {
-			return true
+	for _, header := range headers {
+		if !authServMatches(header, want) {
+			continue
+		}
+		for _, line := range strings.Split(header, "\n") {
+			if dkimLineMatches(line, domain) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// authServMatches reports whether the Authentication-Results header value was
+// stamped by want — i.e. its authserv-id (the first token, terminated by the
+// first ';' or whitespace) matches, case-insensitively.
+func authServMatches(header, want string) bool {
+	h := strings.TrimSpace(header)
+	if end := strings.IndexAny(h, "; \t\r\n"); end >= 0 {
+		h = h[:end]
+	}
+	return strings.ToLower(h) == want
 }
 
 func dkimLineMatches(line, domain string) bool {

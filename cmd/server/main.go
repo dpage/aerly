@@ -161,13 +161,14 @@ func run() error {
 		}
 		svc := &emailingest.Service{
 			Cfg: emailingest.Config{
-				MaildirPath:   cfg.EmailIngestMaildir,
-				PollInterval:  cfg.EmailIngestPollInterval,
-				RequireDKIM:   cfg.EmailIngestRequireDKIM,
-				MaxBodyBytes:  cfg.EmailIngestMaxBodyBytes,
-				IngestAddress: cfg.EmailIngestAddress,
-				SendmailPath:  cfg.EmailIngestSendmail,
-				PublicURL:     cfg.PublicURL,
+				MaildirPath:    cfg.EmailIngestMaildir,
+				PollInterval:   cfg.EmailIngestPollInterval,
+				RequireDKIM:    cfg.EmailIngestRequireDKIM,
+				DKIMAuthServID: cfg.EmailIngestDKIMAuthServID,
+				MaxBodyBytes:   cfg.EmailIngestMaxBodyBytes,
+				IngestAddress:  cfg.EmailIngestAddress,
+				SendmailPath:   cfg.EmailIngestSendmail,
+				PublicURL:      cfg.PublicURL,
 			},
 			Store:     s,
 			Extractor: extractor,

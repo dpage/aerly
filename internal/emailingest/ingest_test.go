@@ -113,13 +113,14 @@ func newHarness(t *testing.T, llmResp string, resolverErr error, requireDKIM boo
 	extractor := emailingest.NewExtractor(&fakeLLM{resp: llmResp}, "test")
 	svc := &emailingest.Service{
 		Cfg: emailingest.Config{
-			MaildirPath:   maildir,
-			PollInterval:  50 * time.Millisecond,
-			RequireDKIM:   requireDKIM,
-			MaxBodyBytes:  1 << 20,
-			IngestAddress: "flights@flights.example",
-			SendmailPath:  buildTestSendmail(t),
-			PublicURL:     "https://flights.example",
+			MaildirPath:    maildir,
+			PollInterval:   50 * time.Millisecond,
+			RequireDKIM:    requireDKIM,
+			DKIMAuthServID: "ml", // matches the goodMessage Authentication-Results authserv-id
+			MaxBodyBytes:   1 << 20,
+			IngestAddress:  "flights@flights.example",
+			SendmailPath:   buildTestSendmail(t),
+			PublicURL:      "https://flights.example",
 		},
 		Store:     s,
 		Extractor: extractor,

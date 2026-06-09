@@ -21,13 +21,18 @@ import (
 
 // Config controls the ingest service. All fields are required.
 type Config struct {
-	MaildirPath   string
-	PollInterval  time.Duration
-	RequireDKIM   bool
-	MaxBodyBytes  int
-	IngestAddress string // e.g. "flights@flights.example" — also the reply From
-	SendmailPath  string
-	PublicURL     string
+	MaildirPath  string
+	PollInterval time.Duration
+	RequireDKIM  bool
+	// DKIMAuthServID is the authserv-id our boundary MTA stamps onto the
+	// Authentication-Results header it adds (e.g. the mail host). Only headers
+	// bearing this id are trusted for DKIM evaluation; sender-injected ones are
+	// ignored. Empty means trust no header (DKIM never passes).
+	DKIMAuthServID string
+	MaxBodyBytes   int
+	IngestAddress  string // e.g. "flights@flights.example" — also the reply From
+	SendmailPath   string
+	PublicURL      string
 }
 
 // Service is the long-running ingest goroutine.
@@ -157,7 +162,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 		return outcome{kind: outcomePoison}
 	}
 
-	dkimOK := DKIMPass(parsed.AuthenticationResults, FromDomain(parsed.From))
+	dkimOK := DKIMPass(parsed.AuthResults, s.Cfg.DKIMAuthServID, FromDomain(parsed.From))
 	if s.Cfg.RequireDKIM && !dkimOK {
 		slog.Info("emailingest: DKIM not pass, poison", "from", parsed.From)
 		s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, nil, "dkim_failed", 0, 0, "")

@@ -15,13 +15,17 @@ import (
 
 // Parsed is the result of breaking an RFC822 message into the parts we care about.
 type Parsed struct {
-	From                  string
-	MessageID             string
-	Subject               string
-	AuthenticationResults string
-	TextBody              string
-	HTMLBody              string
-	PDFs                  [][]byte
+	From      string
+	MessageID string
+	Subject   string
+	// AuthResults holds each Authentication-Results header value separately
+	// (one per header instance), in received order, so DKIMPass can validate
+	// the authserv-id of each rather than trusting a flattened blob that a
+	// sender could have salted with their own forged header.
+	AuthResults []string
+	TextBody    string
+	HTMLBody    string
+	PDFs        [][]byte
 }
 
 // Parse reads an RFC822 message. Returns an error only if the headers can't
@@ -38,8 +42,9 @@ func Parse(raw []byte) (*Parsed, error) {
 	}
 	out.MessageID = strings.TrimSpace(msg.Header.Get("Message-ID"))
 	out.Subject = decodeRFC2047(msg.Header.Get("Subject"))
-	// Concatenate every Authentication-Results header value, one per line.
-	out.AuthenticationResults = strings.Join(msg.Header["Authentication-Results"], "\n")
+	// Keep every Authentication-Results header value separately so DKIMPass can
+	// check each one's authserv-id and ignore any the sender injected.
+	out.AuthResults = msg.Header["Authentication-Results"]
 
 	ct := msg.Header.Get("Content-Type")
 	if ct == "" {
