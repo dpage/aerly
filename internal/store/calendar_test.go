@@ -202,6 +202,7 @@ func TestCalendarEventsVisibility(t *testing.T) {
 	stranger := mkUser(t, s)
 	trip := mkTrip(t, s, owner)
 	addMember(t, s, trip, member, "viewer")
+	befriendStore(t, s, owner, member) // friend gate: a trip member must be an accepted friend (spec §4)
 
 	start := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	end := start.Add(2 * time.Hour)

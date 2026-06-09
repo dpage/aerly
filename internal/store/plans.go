@@ -1549,10 +1549,11 @@ func (s *Store) SetPlanVisibility(ctx context.Context, planID int64, mode string
 
 // ----- Visibility predicate (implemented now — spec §4) -----
 
-// canViewPlanPredicate is the SQL fragment of the two-tier, friend-gated
-// plan-visibility rule, parameterised on $1 = planID, $2 = viewerID. It is
-// shared by CanViewPlan and VisiblePlanUserIDs (and mirrored by
-// ListVisiblePlanParts) so the rule lives in one place.
+// planVisibleExpr is the single source of truth for the two-tier, friend-gated
+// plan-visibility rule (spec §4). It returns a SQL boolean for a query that
+// already has the plan row aliased as `plan` and its trip row as `trip` in
+// scope, with `viewer` the SQL token (a placeholder like `$2`, or a column like
+// `u.id`) identifying the viewing user.
 //
 // The trip owner always sees their plans. Every other viewer V must be an
 // ACCEPTED friend of the owner for any grant to be live (pending shares stay
@@ -1562,43 +1563,54 @@ func (s *Store) SetPlanVisibility(ctx context.Context, planID int64, mode string
 // V see ONLY that plan; a trip-level grant (V is a trip_member, or the trip is
 // share_all_friends_role) lets V see every non-restricted plan (not the ones an
 // only_visible_to excludes them from, nor a hidden_from naming them).
-const canViewPlanPredicate = `
+//
+// Routing every call site (CanViewPlan, ListVisiblePlanParts, VisiblePlanUserIDs,
+// and the tracker/calendar feeds) through this one builder is deliberate: the
+// rule previously lived as five hand-copied SQL fragments that drifted apart,
+// leaving the tracker and calendar feeds gating on a stale trip-member-only rule.
+func planVisibleExpr(plan, trip, viewer string) string {
+	return strings.NewReplacer("{P}", plan, "{T}", trip, "{V}", viewer).Replace(`(
+	       {T}.created_by = {V}
+	    OR (
+	         EXISTS (SELECT 1 FROM friendships f
+	                 WHERE f.status = 'accepted'
+	                   AND f.user_low = LEAST({T}.created_by, {V})
+	                   AND f.user_high = GREATEST({T}.created_by, {V}))
+	         AND (
+	              {P}.created_by = {V}
+	           OR EXISTS (SELECT 1 FROM plan_passengers pp
+	                      WHERE pp.plan_id = {P}.id AND pp.user_id = {V})
+	           OR {P}.share_all_friends
+	           OR EXISTS (SELECT 1 FROM plan_visibility pv
+	                      JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
+	                      WHERE pv.plan_id = {P}.id
+	                        AND pv.mode = 'only_visible_to'
+	                        AND m.user_id = {V})
+	           OR (
+	                ( EXISTS (SELECT 1 FROM trip_members tm
+	                          WHERE tm.trip_id = {P}.trip_id AND tm.user_id = {V})
+	                  OR {T}.share_all_friends_role IS NOT NULL )
+	                AND (
+	                     NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = {P}.id)
+	                  OR EXISTS (SELECT 1 FROM plan_visibility pv
+	                             WHERE pv.plan_id = {P}.id AND pv.mode = 'hidden_from'
+	                               AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
+	                                               WHERE m.plan_id = {P}.id AND m.user_id = {V}))
+	                    )
+	              )
+	         )
+	       )
+	)`)
+}
+
+// canViewPlanPredicate is planVisibleExpr wrapped as an EXISTS keyed on
+// $1 = planID, $2 = viewerID, so a missing plan returns false.
+var canViewPlanPredicate = `
 	EXISTS (
 		SELECT 1 FROM plans p
 		JOIN trips t ON t.id = p.trip_id
 		WHERE p.id = $1
-		  AND (
-		       t.created_by = $2
-		    OR (
-		         EXISTS (SELECT 1 FROM friendships f
-		                 WHERE f.status = 'accepted'
-		                   AND f.user_low = LEAST(t.created_by, $2)
-		                   AND f.user_high = GREATEST(t.created_by, $2))
-		         AND (
-		              p.created_by = $2
-		           OR EXISTS (SELECT 1 FROM plan_passengers pp
-		                      WHERE pp.plan_id = p.id AND pp.user_id = $2)
-		           OR p.share_all_friends
-		           OR EXISTS (SELECT 1 FROM plan_visibility pv
-		                      JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
-		                      WHERE pv.plan_id = p.id
-		                        AND pv.mode = 'only_visible_to'
-		                        AND m.user_id = $2)
-		           OR (
-		                ( EXISTS (SELECT 1 FROM trip_members tm
-		                          WHERE tm.trip_id = p.trip_id AND tm.user_id = $2)
-		                  OR t.share_all_friends_role IS NOT NULL )
-		                AND (
-		                     NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = p.id)
-		                  OR EXISTS (SELECT 1 FROM plan_visibility pv
-		                             WHERE pv.plan_id = p.id AND pv.mode = 'hidden_from'
-		                               AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
-		                                               WHERE m.plan_id = p.id AND m.user_id = $2))
-		                    )
-		              )
-		         )
-		       )
-		  )
+		  AND ` + planVisibleExpr("p", "t", "$2") + `
 	)`
 
 // CanViewPlan reports whether viewerID may see planID under the spec §4
@@ -1641,40 +1653,8 @@ type ListVisiblePlanPartsOpts struct {
 func (s *Store) ListVisiblePlanParts(ctx context.Context, viewerID int64, opts ListVisiblePlanPartsOpts) ([]*PlanPart, error) {
 	conds := []string{}
 	args := []any{viewerID}
-	// The predicate keys on $1=planID, $2=viewerID; here viewerID is $1 and we
-	// correlate planID to the outer row, so we inline an adapted form rather
-	// than reuse canViewPlanPredicate verbatim.
-	visible := `(
-		t.created_by = $1
-	 OR (
-		  EXISTS (SELECT 1 FROM friendships f
-		          WHERE f.status = 'accepted'
-		            AND f.user_low = LEAST(t.created_by, $1)
-		            AND f.user_high = GREATEST(t.created_by, $1))
-		  AND (
-		       pl.created_by = $1
-		    OR EXISTS (SELECT 1 FROM plan_passengers pp
-		               WHERE pp.plan_id = pl.id AND pp.user_id = $1)
-		    OR pl.share_all_friends
-		    OR EXISTS (SELECT 1 FROM plan_visibility pv
-		               JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
-		               WHERE pv.plan_id = pl.id AND pv.mode = 'only_visible_to'
-		                 AND m.user_id = $1)
-		    OR (
-		         ( EXISTS (SELECT 1 FROM trip_members tm
-		                   WHERE tm.trip_id = pl.trip_id AND tm.user_id = $1)
-		           OR t.share_all_friends_role IS NOT NULL )
-		         AND (
-		              NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = pl.id)
-		           OR EXISTS (SELECT 1 FROM plan_visibility pv
-		                      WHERE pv.plan_id = pl.id AND pv.mode = 'hidden_from'
-		                        AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
-		                                        WHERE m.plan_id = pl.id AND m.user_id = $1))
-		             )
-		       )
-		  )
-		)
-	)`
+	// viewerID is $1; correlate to the outer pl/t rows via the shared builder.
+	visible := planVisibleExpr("pl", "t", "$1")
 	if !opts.ShowAllForSuperuser {
 		conds = append(conds, visible)
 	}
@@ -1739,33 +1719,7 @@ func (s *Store) VisiblePlanUserIDs(ctx context.Context, planID int64) ([]int64, 
 		SELECT u.id FROM users u
 		JOIN plans p ON p.id = $1
 		JOIN trips t ON t.id = p.trip_id
-		WHERE
-		     u.id = t.created_by
-		  OR (
-		       EXISTS (SELECT 1 FROM friendships f
-		               WHERE f.status = 'accepted'
-		                 AND f.user_low = LEAST(t.created_by, u.id)
-		                 AND f.user_high = GREATEST(t.created_by, u.id))
-		       AND (
-		            u.id = p.created_by
-		         OR EXISTS (SELECT 1 FROM plan_passengers pp WHERE pp.plan_id = p.id AND pp.user_id = u.id)
-		         OR p.share_all_friends
-		         OR EXISTS (SELECT 1 FROM plan_visibility pv
-		                    JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
-		                    WHERE pv.plan_id = p.id AND pv.mode = 'only_visible_to' AND m.user_id = u.id)
-		         OR (
-		              ( EXISTS (SELECT 1 FROM trip_members tm WHERE tm.trip_id = p.trip_id AND tm.user_id = u.id)
-		                OR t.share_all_friends_role IS NOT NULL )
-		              AND (
-		                   NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = p.id)
-		                OR EXISTS (SELECT 1 FROM plan_visibility pv
-		                           WHERE pv.plan_id = p.id AND pv.mode = 'hidden_from'
-		                             AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
-		                                             WHERE m.plan_id = p.id AND m.user_id = u.id))
-		                  )
-		            )
-		       )
-		     )`, planID)
+		WHERE `+planVisibleExpr("p", "t", "u.id"), planID)
 	if err != nil {
 		return nil, err
 	}

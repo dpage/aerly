@@ -185,12 +185,12 @@ type CalendarEvent struct {
 }
 
 // calendarEventSelect is the shared projection + visibility-gated FROM/WHERE
-// for the three feed scopes. $1 is always the viewer (token owner). The
-// predicate mirrors spec §4 exactly: the viewer must be on the trip (or own
-// it), and the plan must not be hidden from them — so a plan hidden from the
-// token owner is absent from every feed, and another user's token (a different
-// $1) can never surface the owner's private plans.
-const calendarEventSelect = `
+// for the three feed scopes. $1 is always the viewer (token owner). The gate is
+// built from planVisibleExpr (the single source of truth in plans.go) so the
+// calendar feed can never drift from the canonical spec §4 rule again — a plan
+// hidden from the token owner is absent from every feed, and another user's
+// token (a different $1) can never surface the owner's private plans.
+var calendarEventSelect = `
 	SELECT part.id, part.plan_id, pl.type, pl.title, pl.confirmation_ref,
 	       pl.notes, part.starts_at, part.ends_at, part.start_tz, part.end_tz,
 	       part.start_label, part.end_label, part.status, part.updated_at
@@ -198,27 +198,7 @@ const calendarEventSelect = `
 	  JOIN plans pl ON pl.id = part.plan_id
 	  JOIN trips t ON t.id = pl.trip_id
 	 WHERE part.dismissed_at IS NULL
-	   AND (
-	        t.created_by = $1
-	     OR (
-	          EXISTS (SELECT 1 FROM trip_members tm
-	                  WHERE tm.trip_id = pl.trip_id AND tm.user_id = $1)
-	          AND (
-	               pl.created_by = $1
-	            OR EXISTS (SELECT 1 FROM plan_passengers pp
-	                       WHERE pp.plan_id = pl.id AND pp.user_id = $1)
-	            OR NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = pl.id)
-	            OR EXISTS (SELECT 1 FROM plan_visibility pv
-	                       WHERE pv.plan_id = pl.id AND pv.mode = 'hidden_from'
-	                         AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
-	                                         WHERE m.plan_id = pl.id AND m.user_id = $1))
-	            OR EXISTS (SELECT 1 FROM plan_visibility pv
-	                       JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
-	                       WHERE pv.plan_id = pl.id AND pv.mode = 'only_visible_to'
-	                         AND m.user_id = $1)
-	          )
-	        )
-	   )`
+	   AND ` + planVisibleExpr("pl", "t", "$1")
 
 func scanCalendarEvents(rows pgx.Rows) ([]*CalendarEvent, error) {
 	defer rows.Close()

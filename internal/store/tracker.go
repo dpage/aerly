@@ -412,30 +412,14 @@ type TrackerPart struct {
 	LastPolledAt *time.Time
 }
 
-// trackerVisible is the spec §4 plan-visibility predicate, inlined for the
-// tracker queries. $1 = viewerID; it correlates pl/t to the outer row, matching
-// the form used by ListVisiblePlanParts so the gate stays identical.
-const trackerVisible = `(
-	t.created_by = $1
- OR (
-	  EXISTS (SELECT 1 FROM trip_members tm
-	          WHERE tm.trip_id = pl.trip_id AND tm.user_id = $1)
-	  AND (
-	       pl.created_by = $1
-	    OR EXISTS (SELECT 1 FROM plan_passengers pp
-	               WHERE pp.plan_id = pl.id AND pp.user_id = $1)
-	    OR NOT EXISTS (SELECT 1 FROM plan_visibility pv WHERE pv.plan_id = pl.id)
-	    OR EXISTS (SELECT 1 FROM plan_visibility pv
-	               WHERE pv.plan_id = pl.id AND pv.mode = 'hidden_from'
-	                 AND NOT EXISTS (SELECT 1 FROM plan_visibility_members m
-	                                 WHERE m.plan_id = pl.id AND m.user_id = $1))
-	    OR EXISTS (SELECT 1 FROM plan_visibility pv
-	               JOIN plan_visibility_members m ON m.plan_id = pv.plan_id
-	               WHERE pv.plan_id = pl.id AND pv.mode = 'only_visible_to'
-	                 AND m.user_id = $1)
-	  )
-	)
-)`
+// trackerVisible is the spec §4 plan-visibility predicate for the tracker
+// queries. $1 = viewerID; it correlates pl/t to the outer row. It is built from
+// planVisibleExpr (the single source of truth in plans.go) so the tracker gate
+// can never drift from the canonical rule again — previously this was a
+// hand-copied fragment that had fallen behind, gating on a stale
+// trip-member-only rule that omitted the friend check and the passenger /
+// share_all_friends grants.
+var trackerVisible = planVisibleExpr("pl", "t", "$1")
 
 // effectiveArrival is the SQL for a flight part's effective arrival, mirroring
 // FlightDetail.EffectiveIn / flights.go's COALESCE(actual, estimated, scheduled).

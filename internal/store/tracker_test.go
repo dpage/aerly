@@ -251,6 +251,7 @@ func TestConvergenceWindowAndVisibility(t *testing.T) {
 	stranger := mkUser(t, s)
 	trip := mkTrip(t, s, owner)
 	addMember(t, s, trip, member, "viewer")
+	befriendStore(t, s, owner, member) // friend gate: a trip member must be an accepted friend (spec §4)
 
 	in := mkFlightPartInTrip(t, s, trip, owner, "VIS1",
 		now.Add(-time.Hour), now.Add(2*time.Hour), "Enroute", 51.47, -0.46, 40.64, -73.78)
