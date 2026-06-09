@@ -202,7 +202,7 @@ func stateCookie(h *Handler, expired bool) (*http.Cookie, string) {
 	if expired {
 		exp = time.Now().Add(-time.Minute)
 	}
-	val := SignSession(h.SessionKey, 0, exp) + ":" + state
+	val := SignState(h.SessionKey, state, exp)
 	return &http.Cookie{Name: StateCookie, Value: val}, state
 }
 
@@ -253,7 +253,7 @@ func TestCallbackStateExpired(t *testing.T) {
 	h, _ := newTestHandler(t)
 	c, state := stateCookie(h, true)
 	w := callback(h, "github", url.Values{"code": {"c"}, "state": {state}}, c)
-	if !strings.Contains(w.Body.String(), "state expired") {
+	if !strings.Contains(w.Body.String(), "expired") {
 		t.Errorf("unexpected: %s", w.Body.String())
 	}
 }
@@ -324,9 +324,9 @@ func TestCallbackOpenSignupCreatesUser(t *testing.T) {
 	// And the new row landed in DB as a regular user — not silently
 	// promoted to superuser via the bootstrap path despite CountUsers > 0.
 	var (
-		octocatRows  int
-		isSuperuser  bool
-		isActive     bool
+		octocatRows int
+		isSuperuser bool
+		isActive    bool
 	)
 	if err := pool.QueryRow(context.Background(),
 		`SELECT COUNT(*) FROM users WHERE lower(username) = 'octocat'`,

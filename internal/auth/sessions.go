@@ -53,6 +53,41 @@ func VerifySession(key []byte, raw string) (int64, error) {
 	return uid, nil
 }
 
+// SignState returns a signed OAuth-state cookie value of the form
+// <nonce>.<expUnix>.<sig>. Unlike a bare double-submit token, the signature
+// covers BOTH the random anti-CSRF nonce and the expiry, so the cookie is
+// tamper-proof and the nonce can't be substituted. nonce must be dot-free
+// (randomToken uses base64url, which is).
+func SignState(key []byte, nonce string, expires time.Time) string {
+	body := fmt.Sprintf("%s.%d", nonce, expires.Unix())
+	return body + "." + sign(key, body)
+}
+
+// VerifyState validates an OAuth-state cookie value against the nonce echoed
+// back from the provider. It checks the signature and the nonce match in
+// constant time and that the state has not expired. Returns nil when valid.
+func VerifyState(key []byte, raw, gotNonce string) error {
+	parts := strings.SplitN(raw, ".", 3)
+	if len(parts) != 3 {
+		return ErrInvalidSession
+	}
+	nonce, expStr, sig := parts[0], parts[1], parts[2]
+	if !hmac.Equal([]byte(sig), []byte(sign(key, nonce+"."+expStr))) {
+		return ErrInvalidSession
+	}
+	if !hmac.Equal([]byte(nonce), []byte(gotNonce)) {
+		return ErrInvalidSession
+	}
+	expUnix, err := strconv.ParseInt(expStr, 10, 64)
+	if err != nil {
+		return ErrInvalidSession
+	}
+	if time.Now().Unix() > expUnix {
+		return ErrInvalidSession
+	}
+	return nil
+}
+
 // SetSessionCookie writes a session cookie that expires in SessionTTL.
 func SetSessionCookie(w http.ResponseWriter, key []byte, userID int64, secure bool) {
 	expires := time.Now().Add(SessionTTL)

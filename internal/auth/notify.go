@@ -132,4 +132,3 @@ func buildIdentityLinkedEmail(in identityLinkedInput) string {
 	return mailer.AssembleRFC822(in.FromAddr, in.ToAddr, subject,
 		plain, mailer.HTMLShell(subject, htmlBody, in.PublicURL))
 }
-

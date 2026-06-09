@@ -139,12 +139,13 @@ func (h *Handler) listProviders(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request, p *Provider) {
-	state := randomToken(24)
+	nonce := randomToken(24)
 	expires := time.Now().Add(StateTTL)
-	stateVal := SignSession(h.SessionKey, 0, expires) + ":" + state
+	// The cookie carries the nonce bound into a signature (SignState); the
+	// provider only ever sees the bare nonce as the `state` query param.
 	http.SetCookie(w, &http.Cookie{
 		Name:     StateCookie,
-		Value:    stateVal,
+		Value:    SignState(h.SessionKey, nonce, expires),
 		Path:     p.routeRoot(),
 		Expires:  expires,
 		HttpOnly: true,
@@ -156,7 +157,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request, p *Provider) {
 	q.Set("client_id", p.ClientID)
 	q.Set("redirect_uri", h.redirectURL(p))
 	q.Set("scope", p.Scopes)
-	q.Set("state", state)
+	q.Set("state", nonce)
 	// Google needs response_type=code explicitly; harmless for GitHub.
 	q.Set("response_type", "code")
 	http.Redirect(w, r, p.AuthURL+"?"+q.Encode(), http.StatusFound)
@@ -184,13 +185,10 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 		HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode,
 	})
 
-	parts := strings.SplitN(c.Value, ":", 2)
-	if len(parts) != 2 || parts[1] != state {
-		renderLoginError(w, "state mismatch")
-		return
-	}
-	if _, err := VerifySession(h.SessionKey, parts[0]); err != nil {
-		renderLoginError(w, "state expired — try signing in again")
+	// Constant-time check that the cookie's signed, nonce-bound state matches
+	// the nonce echoed back as the `state` query param and has not expired.
+	if err := VerifyState(h.SessionKey, c.Value, state); err != nil {
+		renderLoginError(w, "state mismatch or expired — try signing in again")
 		return
 	}
 

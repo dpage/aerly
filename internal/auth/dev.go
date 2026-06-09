@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"hash/fnv"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,12 +28,34 @@ func (h *Handler) RegisterDevLogin(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/dev-info", h.devInfo)
 }
 
-func (h *Handler) devInfo(w http.ResponseWriter, _ *http.Request) {
+// fromLoopback reports whether the request originated from the loopback
+// interface, judged solely from the raw TCP peer (RemoteAddr) — never from
+// forwarded headers, which a client can spoof. This is the request-time guard
+// that keeps the dev-bypass endpoints from being reachable through a proxy even
+// if DEV_AUTH_BYPASS is ever (mis)enabled in a non-local deployment.
+func fromLoopback(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func (h *Handler) devInfo(w http.ResponseWriter, r *http.Request) {
+	if !fromLoopback(r) {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"enabled": true})
 }
 
 func (h *Handler) devLogin(w http.ResponseWriter, r *http.Request) {
+	if !fromLoopback(r) {
+		http.NotFound(w, r)
+		return
+	}
 	login := strings.TrimSpace(r.URL.Query().Get("login"))
 	if login == "" {
 		http.Error(w, "missing ?login=<username>", http.StatusBadRequest)
@@ -48,12 +71,14 @@ func (h *Handler) devLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	count, err := h.Store.CountUsers(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("dev-login: count users", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	user, _, err := h.Store.LinkLogin(r.Context(), profile, count == 0)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		slog.Error("dev-login: link login", "err", err)
+		http.Error(w, "could not sign in", http.StatusForbidden)
 		return
 	}
 	SetSessionCookie(w, h.SessionKey, user.ID, h.Secure)

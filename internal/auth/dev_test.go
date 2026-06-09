@@ -9,6 +9,14 @@ import (
 	"github.com/dpage/aerly/internal/testsupport"
 )
 
+// devReq builds a dev-endpoint request that appears to come from loopback, as
+// the request-time guard requires.
+func devReq(target string) *http.Request {
+	r := httptest.NewRequest("GET", target, nil)
+	r.RemoteAddr = "127.0.0.1:54321"
+	return r
+}
+
 func TestDevSyntheticIDStable(t *testing.T) {
 	a := devSyntheticID("Alice")
 	b := devSyntheticID("alice") // case-insensitive
@@ -29,7 +37,7 @@ func TestRegisterDevLoginRoute(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterDevLogin(mux)
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest("GET", "/auth/dev-login?login=alice", nil))
+	mux.ServeHTTP(w, devReq("/auth/dev-login?login=alice"))
 	if w.Code != http.StatusFound {
 		t.Errorf("dev-login code = %d, want 302", w.Code)
 	}
@@ -40,7 +48,7 @@ func TestDevInfoRoute(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterDevLogin(mux)
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, httptest.NewRequest("GET", "/auth/dev-info", nil))
+	mux.ServeHTTP(w, devReq("/auth/dev-info"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("dev-info code = %d, want 200", w.Code)
 	}
@@ -52,10 +60,27 @@ func TestDevInfoRoute(t *testing.T) {
 	}
 }
 
+func TestDevEndpointsRejectNonLoopback(t *testing.T) {
+	h, _ := newTestHandler(t)
+	for _, target := range []string{"/auth/dev-login?login=alice", "/auth/dev-info"} {
+		r := httptest.NewRequest("GET", target, nil)
+		r.RemoteAddr = "203.0.113.7:443" // a non-loopback (public) peer
+		w := httptest.NewRecorder()
+		if strings.HasPrefix(target, "/auth/dev-login") {
+			h.devLogin(w, r)
+		} else {
+			h.devInfo(w, r)
+		}
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s from non-loopback: code = %d, want 404", target, w.Code)
+		}
+	}
+}
+
 func TestDevLoginMissingLogin(t *testing.T) {
 	h, _ := newTestHandler(t)
 	w := httptest.NewRecorder()
-	h.devLogin(w, httptest.NewRequest("GET", "/auth/dev-login", nil))
+	h.devLogin(w, devReq("/auth/dev-login"))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("code = %d, want 400", w.Code)
 	}
@@ -64,7 +89,7 @@ func TestDevLoginMissingLogin(t *testing.T) {
 func TestDevLoginBootstrapsAndSetsSession(t *testing.T) {
 	h, _ := newTestHandler(t)
 	w := httptest.NewRecorder()
-	h.devLogin(w, httptest.NewRequest("GET", "/auth/dev-login?login=firstuser", nil))
+	h.devLogin(w, devReq("/auth/dev-login?login=firstuser"))
 	res := w.Result()
 	if res.StatusCode != http.StatusFound || res.Header.Get("Location") != "/" {
 		t.Fatalf("expected redirect to /, got %d", res.StatusCode)
@@ -85,7 +110,7 @@ func TestDevLoginOpenSignup(t *testing.T) {
 	// Seed a user so the new sign-in isn't the bootstrap-superuser path.
 	testsupport.InsertUser(t, pool, "existing", false, true)
 	w := httptest.NewRecorder()
-	h.devLogin(w, httptest.NewRequest("GET", "/auth/dev-login?login=stranger", nil))
+	h.devLogin(w, devReq("/auth/dev-login?login=stranger"))
 	// Open signups: the unknown login should be accepted and a session
 	// cookie issued, just like a normal first-time OAuth sign-in.
 	if w.Code != http.StatusFound {
