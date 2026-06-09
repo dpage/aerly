@@ -21,6 +21,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 import type { PlanPart } from '../api/types';
 import { unlocatedCount } from '../lib/geo';
@@ -188,8 +189,13 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       style: STYLE,
       center: [5, 50],
       zoom: 3,
+      // Re-home the OSM attribution to the top: the time slider owns the bottom
+      // edge, where the default bottom-right attribution (its ⓘ + credit) would
+      // otherwise poke out from under the slider.
+      attributionControl: false,
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
     mapRef.current = map;
     map.once('load', () => {
       for (const id of [LEGS, TRACK]) {
@@ -569,7 +575,10 @@ function TimeSlider({
         zIndex: 2,
         px: 2,
         py: 0.75,
-        bgcolor: 'rgba(255,255,255,0.92)',
+        // Theme-aware translucent panel so the time stays legible in dark mode
+        // too (a hardcoded white panel left light text invisible).
+        bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92),
+        color: 'text.primary',
         borderTop: 1,
         borderColor: 'divider',
       }}

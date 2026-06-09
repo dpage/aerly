@@ -159,6 +159,10 @@ export class FakePopup {
 
 export class FakeNavigationControl {}
 
+export class FakeAttributionControl {
+  constructor(public opts?: unknown) {}
+}
+
 export function resetMaplibreMock(): void {
   FakeMap.instances = [];
   FakeMarker.instances = [];
@@ -170,6 +174,7 @@ const maplibregl = {
   Marker: FakeMarker,
   Popup: FakePopup,
   NavigationControl: FakeNavigationControl,
+  AttributionControl: FakeAttributionControl,
 };
 
 export default maplibregl;
