@@ -47,6 +47,8 @@ type Config struct {
 	EmailIngestRequireDKIM    bool
 	EmailIngestDKIMAuthServID string
 	EmailIngestMaxBodyBytes   int
+	EmailIngestMaxAttachments int
+	EmailIngestMaxAttachBytes int64
 	EmailIngestSendmail       string
 	LLMProvider               string
 	LLMModel                  string
@@ -149,6 +151,22 @@ func Load() (*Config, error) {
 				return nil, fmt.Errorf("EMAIL_INGEST_MAX_BODY_BYTES must be a positive integer")
 			}
 			cfg.EmailIngestMaxBodyBytes = n
+		}
+		cfg.EmailIngestMaxAttachments = 5
+		if v := os.Getenv("EMAIL_INGEST_MAX_ATTACHMENTS"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n <= 0 {
+				return nil, fmt.Errorf("EMAIL_INGEST_MAX_ATTACHMENTS must be a positive integer")
+			}
+			cfg.EmailIngestMaxAttachments = n
+		}
+		cfg.EmailIngestMaxAttachBytes = 10 << 20
+		if v := os.Getenv("EMAIL_INGEST_MAX_ATTACH_BYTES"); v != "" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n <= 0 {
+				return nil, fmt.Errorf("EMAIL_INGEST_MAX_ATTACH_BYTES must be a positive integer")
+			}
+			cfg.EmailIngestMaxAttachBytes = n
 		}
 		cfg.EmailIngestSendmail = getenv("EMAIL_INGEST_SENDMAIL", cfg.SendmailPath)
 		if !cfg.LLMConfigured() {

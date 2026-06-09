@@ -166,6 +166,8 @@ func run() error {
 				RequireDKIM:    cfg.EmailIngestRequireDKIM,
 				DKIMAuthServID: cfg.EmailIngestDKIMAuthServID,
 				MaxBodyBytes:   cfg.EmailIngestMaxBodyBytes,
+				MaxAttachments: cfg.EmailIngestMaxAttachments,
+				MaxAttachBytes: cfg.EmailIngestMaxAttachBytes,
 				IngestAddress:  cfg.EmailIngestAddress,
 				SendmailPath:   cfg.EmailIngestSendmail,
 				PublicURL:      cfg.PublicURL,

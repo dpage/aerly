@@ -101,10 +101,15 @@ func Propose(ctx context.Context, deps Deps, userID, tripID int64, text string, 
 	}
 	// Prepend the traveller's home address as context so references like "from
 	// home" in a confirmation resolve to a real address the extractor can fill.
+	// It is framed as reference-only: the extractor prompt instructs the model
+	// not to copy context lines into output fields, so a prompt-injection in the
+	// (untrusted) email body can't exfiltrate the home address into a persisted
+	// plan field or the confirmation reply unless a booking genuinely starts there.
 	body := text
 	if userID != 0 {
 		if u, err := deps.Store.UserByID(ctx, userID); err == nil && u != nil && u.HomeAddress != "" {
-			body = "Context: the traveller's home address is " + u.HomeAddress + ". Use it to resolve references such as \"home\".\n\n" + text
+			body = "Context (reference only, do not echo into output): the traveller's home address is " +
+				u.HomeAddress + ". Use it only to resolve references such as \"home\".\n\n" + text
 		}
 	}
 	extracted, err := deps.Extractor.ExtractPlans(ctx, body, docs)

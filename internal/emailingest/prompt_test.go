@@ -7,7 +7,7 @@ import (
 
 func TestBuildPrompt_TextAndHTML(t *testing.T) {
 	p := &Parsed{TextBody: "hello world", HTMLBody: "<p>hi</p>"}
-	body, docs := buildPrompt(p, 0)
+	body, docs := buildPrompt(p, 0, 0, 0)
 	if !strings.Contains(body, "hello world") || !strings.Contains(body, "<p>hi</p>") {
 		t.Errorf("body missing parts: %q", body)
 	}
@@ -21,7 +21,7 @@ func TestBuildPrompt_TextAndHTML(t *testing.T) {
 
 func TestBuildPrompt_TextTruncated(t *testing.T) {
 	p := &Parsed{TextBody: strings.Repeat("a", 1024)}
-	body, _ := buildPrompt(p, 64)
+	body, _ := buildPrompt(p, 64, 0, 0)
 	if len(body) != 64 {
 		t.Errorf("body len = %d, want 64", len(body))
 	}
@@ -29,7 +29,7 @@ func TestBuildPrompt_TextTruncated(t *testing.T) {
 
 func TestBuildPrompt_PDFsToDocs(t *testing.T) {
 	p := &Parsed{PDFs: [][]byte{[]byte("%PDF-1.4 one"), []byte("%PDF-1.4 two")}}
-	_, docs := buildPrompt(p, 0)
+	_, docs := buildPrompt(p, 0, 0, 0)
 	if len(docs) != 2 {
 		t.Fatalf("len(docs) = %d, want 2", len(docs))
 	}
@@ -47,12 +47,29 @@ func TestBuildPrompt_DropsOversizedPDFs(t *testing.T) {
 	big := make([]byte, maxDocBytes+1)
 	small := []byte("%PDF-1.4 small")
 	p := &Parsed{PDFs: [][]byte{big, small, big}}
-	_, docs := buildPrompt(p, 0)
+	_, docs := buildPrompt(p, 0, 0, 0)
 	if len(docs) != 1 {
 		t.Fatalf("len(docs) = %d, want 1 (only the small PDF should survive)", len(docs))
 	}
 	if string(docs[0].Data) != "%PDF-1.4 small" {
 		t.Errorf("kept the wrong doc: %q", docs[0].Data)
+	}
+}
+
+func TestBuildPrompt_AttachmentCountCap(t *testing.T) {
+	p := &Parsed{PDFs: [][]byte{[]byte("%PDF a"), []byte("%PDF b"), []byte("%PDF c")}}
+	_, docs := buildPrompt(p, 0, 2, 0) // cap to 2 attachments
+	if len(docs) != 2 {
+		t.Fatalf("len(docs) = %d, want 2 (count cap)", len(docs))
+	}
+}
+
+func TestBuildPrompt_AttachmentByteCap(t *testing.T) {
+	// Two 100-byte PDFs with a 150-byte cumulative cap → only the first fits.
+	p := &Parsed{PDFs: [][]byte{make([]byte, 100), make([]byte, 100)}}
+	_, docs := buildPrompt(p, 0, 0, 150)
+	if len(docs) != 1 {
+		t.Fatalf("len(docs) = %d, want 1 (cumulative byte cap)", len(docs))
 	}
 }
 
@@ -76,7 +93,7 @@ func TestBuildPrompt_StyleNoiseDoesntTruncateReservation(t *testing.T) {
 	// cap if not stripped; sanitizing keeps the reservation text in the prompt.
 	big := "<style>" + strings.Repeat("x", 8000) + "</style>"
 	p := &Parsed{HTMLBody: big + "<p>RESERVATION DETAIL HERE</p>"}
-	body, _ := buildPrompt(p, 2000)
+	body, _ := buildPrompt(p, 2000, 0, 0)
 	if !strings.Contains(body, "RESERVATION DETAIL HERE") {
 		t.Errorf("reservation truncated away by style noise: %q", body)
 	}

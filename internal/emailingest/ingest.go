@@ -30,6 +30,10 @@ type Config struct {
 	// ignored. Empty means trust no header (DKIM never passes).
 	DKIMAuthServID string
 	MaxBodyBytes   int
+	// MaxAttachments and MaxAttachBytes bound the PDF attachments forwarded to
+	// the LLM per message (count and cumulative bytes). 0 means unlimited.
+	MaxAttachments int
+	MaxAttachBytes int64
 	IngestAddress  string // e.g. "flights@flights.example" — also the reply From
 	SendmailPath   string
 	PublicURL      string
@@ -180,7 +184,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 		return outcome{kind: outcomeTransient}
 	}
 
-	body, docs := buildPrompt(parsed, s.Cfg.MaxBodyBytes)
+	body, docs := buildPrompt(parsed, s.Cfg.MaxBodyBytes, s.Cfg.MaxAttachments, s.Cfg.MaxAttachBytes)
 
 	// All extracted bookings — flights included — now flow through planops:
 	// each proposal becomes a plan-with-parts attached to a trip chosen by
@@ -235,9 +239,11 @@ const maxDocBytes = 25 * 1024 * 1024
 // passed natively as Document blocks rather than text-extracted. PDFs
 // larger than maxDocBytes are dropped with a warning.
 //
-// max truncates only the text portion; documents within the per-doc cap
-// are passed in full.
-func buildPrompt(p *Parsed, max int) (string, []Document) {
+// maxBody truncates only the text portion. Attachments are bounded by both a
+// count cap (maxAttachments) and a cumulative-byte cap (maxAttachBytes) so a
+// sender can't drive unbounded paid-LLM spend with many/large PDFs; each is
+// also individually capped at maxDocBytes. A cap of 0 means unlimited.
+func buildPrompt(p *Parsed, maxBody, maxAttachments int, maxAttachBytes int64) (string, []Document) {
 	var sb strings.Builder
 	if p.TextBody != "" {
 		sb.WriteString("--- text/plain ---\n")
@@ -253,16 +259,28 @@ func buildPrompt(p *Parsed, max int) (string, []Document) {
 		sb.WriteString("\n")
 	}
 	body := sb.String()
-	if max > 0 && len(body) > max {
-		body = body[:max]
+	if maxBody > 0 && len(body) > maxBody {
+		body = body[:maxBody]
 	}
 	docs := make([]Document, 0, len(p.PDFs))
+	var totalBytes int64
 	for i, pdfBytes := range p.PDFs {
+		if maxAttachments > 0 && len(docs) >= maxAttachments {
+			slog.Warn("emailingest: attachment count cap reached; dropping remaining PDFs",
+				"cap", maxAttachments, "attachments", len(p.PDFs))
+			break
+		}
 		if len(pdfBytes) > maxDocBytes {
 			slog.Warn("emailingest: dropping oversized PDF attachment",
 				"index", i+1, "bytes", len(pdfBytes), "cap", maxDocBytes)
 			continue
 		}
+		if maxAttachBytes > 0 && totalBytes+int64(len(pdfBytes)) > maxAttachBytes {
+			slog.Warn("emailingest: cumulative attachment byte cap reached; dropping remaining PDFs",
+				"cap", maxAttachBytes)
+			break
+		}
+		totalBytes += int64(len(pdfBytes))
 		docs = append(docs, Document{
 			Data:      pdfBytes,
 			MediaType: "application/pdf",
