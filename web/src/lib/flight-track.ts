@@ -179,27 +179,51 @@ export function planeWindows(parts: PlanPart[]): Map<number, { start: number; en
 export function trackFC(selected: PlanPart | null, until: number | null): GeoJSON.FeatureCollection {
   const track = selected?.flight?.track ?? [];
   if (track.length < 2) return emptyFC();
-  let coords: [number, number][];
-  if (until == null) {
-    coords = track.map((t) => [t.lon, t.lat]);
-  } else {
-    coords = [];
-    for (const t of track) {
-      const ms = parseMs(t.ts);
-      if (ms != null && ms > until) break;
-      coords.push([t.lon, t.lat]);
-    }
-    const tip = positionAt(track, until);
-    const lastCoord = coords[coords.length - 1];
-    if (tip && (!lastCoord || lastCoord[0] !== tip.lon || lastCoord[1] !== tip.lat)) {
-      coords.push([tip.lon, tip.lat]);
-    }
-  }
+  const coords = clipTrackCoords(track, until);
   if (coords.length < 2) return emptyFC();
   return {
     type: 'FeatureCollection',
     features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }],
   };
+}
+
+/** The flown trails of *every* given flight part, each clipped to `until` (an
+ * epoch ms) with an interpolated tip — used when scrubbing so replaying the
+ * past shows where each active plane had been, not just the selected one. Parts
+ * with fewer than two resulting points are skipped. */
+export function tracksFC(parts: PlanPart[], until: number): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const p of parts) {
+    const track = p.flight?.track ?? [];
+    if (track.length < 2) continue;
+    const coords = clipTrackCoords(track, until);
+    if (coords.length < 2) continue;
+    features.push({
+      type: 'Feature',
+      properties: { partId: p.id },
+      geometry: { type: 'LineString', coordinates: coords },
+    });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+/** The track's [lon, lat] coordinates, optionally clipped to instant `until`
+ * (epoch ms) with an interpolated tip so the trail ends under the scrubbed
+ * plane. `until == null` returns the full track. */
+function clipTrackCoords(track: Position[], until: number | null): [number, number][] {
+  if (until == null) return track.map((t) => [t.lon, t.lat]);
+  const coords: [number, number][] = [];
+  for (const t of track) {
+    const ms = parseMs(t.ts);
+    if (ms != null && ms > until) break;
+    coords.push([t.lon, t.lat]);
+  }
+  const tip = positionAt(track, until);
+  const lastCoord = coords[coords.length - 1];
+  if (tip && (!lastCoord || lastCoord[0] !== tip.lon || lastCoord[1] !== tip.lat)) {
+    coords.push([tip.lon, tip.lat]);
+  }
+  return coords;
 }
 
 /** The scrubbed instant in the viewer's local time, e.g. "Mon 12 Oct, 11:30".
