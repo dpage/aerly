@@ -14,7 +14,7 @@ import maplibreMock, {
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
 import PlanMapView from './PlanMapView';
-import { fmtScrubTime, planePlacementAt, positionAt, trackFC } from '../lib/flight-track';
+import { fmtScrubTime, planePlacementAt, positionAt, trackFC, tracksFC } from '../lib/flight-track';
 
 function user(over: Partial<User> = {}): User {
   return {
@@ -451,6 +451,31 @@ describe('PlanMapView', () => {
       expect(screen.queryByTestId('time-slider-live')).toBeNull();
       expect(screen.getByText('Positions at')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Live' })).toBeInTheDocument();
+    });
+
+    it('draws the trail of an active flight while scrubbing, even with nothing selected', () => {
+      clockAt('2026-10-12T11:30:00Z');
+      const second = enroute({
+        id: 2,
+        plan_id: 2,
+        flight: {
+          ...enroute().flight!,
+          track: [
+            pos('2026-10-12T10:00:00Z', 60, 5),
+            pos('2026-10-12T11:00:00Z', 58, 10),
+            pos('2026-10-12T11:30:00Z', 57, 12),
+          ],
+        },
+      });
+      render(<PlanMapView parts={[enroute(), second]} />); // no selection
+      // Live: only the selected flight's trail is ever drawn — here that's none.
+      const track = FakeMap.instances[0].getSource('pmv-track')!;
+      let fc = track.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
+      expect(fc.features).toHaveLength(0);
+      // Scrub back: both active flights' trails appear, keyed by part id.
+      scrubTo('2026-10-12T10:30:00Z');
+      fc = track.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
+      expect(fc.features.map((f) => f.properties?.partId).sort()).toEqual([1, 2]);
     });
 
     it('re-locks to live when dragged back to the right edge', () => {
@@ -934,6 +959,39 @@ describe('trackFC', () => {
 
   it('returns nothing when scrubbed before the first fix', () => {
     expect(trackFC(flight(), t('2026-10-12T09:00:00Z')).features).toHaveLength(0);
+  });
+});
+
+describe('tracksFC', () => {
+  const t = (iso: string) => new Date(iso).getTime();
+
+  it('clips every flight part to the scrubbed instant, tagging each with its part id', () => {
+    const a = flight({ id: 1 });
+    const b = flight({
+      id: 2,
+      flight: {
+        ...flight().flight!,
+        track: [pos('2026-10-12T10:00:00Z', 40, 0), pos('2026-10-12T11:00:00Z', 42, 5)],
+      },
+    });
+    const fc = tracksFC([a, b], t('2026-10-12T10:30:00Z'));
+    expect(fc.features).toHaveLength(2);
+    expect(fc.features.map((f) => f.properties?.partId)).toEqual([1, 2]);
+    // Each trail is clipped to 10:30 with an interpolated tip.
+    expect((fc.features[0].geometry as GeoJSON.LineString).coordinates).toEqual([
+      [-10, 50],
+      [-20, 49],
+    ]);
+    expect((fc.features[1].geometry as GeoJSON.LineString).coordinates).toEqual([
+      [0, 40],
+      [2.5, 41],
+    ]);
+  });
+
+  it('skips parts with a sparse track or none clipped before the instant', () => {
+    const sparse = flight({ id: 3, flight: { ...flight().flight!, track: [pos('2026-10-12T10:00:00Z', 50, -10)] } });
+    const future = flight({ id: 4 }); // track starts at 10:00
+    expect(tracksFC([sparse, future], t('2026-10-12T09:00:00Z')).features).toHaveLength(0);
   });
 });
 

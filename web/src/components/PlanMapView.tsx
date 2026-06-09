@@ -32,6 +32,7 @@ import {
   planePlacementAt,
   planeWindows,
   trackFC,
+  tracksFC,
 } from '../lib/flight-track';
 import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
@@ -260,9 +261,25 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     const trackSrc = map.getSource(TRACK) as maplibregl.GeoJSONSource | undefined;
     if (!legsSrc || !trackSrc) return;
     legsSrc.setData(legsFC(ordered, selectedId));
-    // Scrubbed back: clip the flown trail to the scrubbed instant; live: the
-    // full trail.
-    trackSrc.setData(trackFC(selected, scrubbing ? valueMs : null));
+
+    // The instant to render at: the scrubbed time, else the real "now" (so the
+    // live path is byte-for-byte the original behaviour).
+    const at = scrubbing ? valueMs : Date.now();
+    const windows = planeWindows(ordered);
+
+    // Flown trails. Live: only the selected flight's full trail (as before).
+    // Scrubbed back: the trail (clipped to the scrubbed instant) under *every*
+    // flight active at that moment, so replaying the past shows where each
+    // plane had been — not just the one selected in the list.
+    if (scrubbing) {
+      const active = ordered.filter((p) => {
+        const win = windows.get(p.id);
+        return win != null && at >= win.start && at < win.end;
+      });
+      trackSrc.setData(tracksFC(active, at));
+    } else {
+      trackSrc.setData(trackFC(selected, null));
+    }
 
     // Sync the teardrop pins (one per geocoded endpoint). Reuse existing
     // markers, drop stale ones, and dim the unselected when something's picked.
@@ -318,10 +335,6 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     // Only flights inside their visibility window get an icon, and a booking's
     // connecting legs hand the single icon off between them (planeWindows), so
     // only one plane is ever shown per journey.
-    // The instant to render at: the scrubbed time, else the real "now" (so the
-    // live path is byte-for-byte the original behaviour).
-    const at = scrubbing ? valueMs : Date.now();
-    const windows = planeWindows(ordered);
     const livePlanes = new Set<number>();
     for (const p of ordered) {
       const win = windows.get(p.id);
