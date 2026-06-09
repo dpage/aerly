@@ -229,6 +229,13 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, uid := range in.PassengerIDs {
+		// A passenger becomes a trip viewer (via the read-time friend gate), so
+		// each must be an accepted/invited friend of the actor — the same check
+		// the dedicated addPlanPassenger endpoint enforces. Without this, an
+		// editor could expose the trip to an arbitrary user id at create time.
+		if err := a.requireFriendTarget(r.Context(), me, uid, w); err != nil {
+			return
+		}
 		if err := a.Store.AddPlanPassenger(r.Context(), plan.ID, uid); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

@@ -281,6 +281,12 @@ type notifySharesReq struct {
 // user_id gets an in-app notification (plus SSE badge) and an email; each bare
 // email (a pre-shared address) gets an email. Failures are per-recipient and
 // best-effort so a single bad recipient never blocks the rest.
+//
+// Recipients are validated before notifying: a user_id must actually be able to
+// see the shared resource, and an email must be one the actor has a pending
+// friend invite to. Without this, a trip/plan editor could use the endpoint to
+// spam in-app notifications to arbitrary user ids and "X shared … with you"
+// emails (attributed to themselves) to arbitrary addresses.
 func (a *API) notifyShares(ctx context.Context, actor *store.User, in notifySharesReq, tripID, planID int64, itemName, path string) {
 	var tp, pp *int64
 	if tripID != 0 {
@@ -292,6 +298,17 @@ func (a *API) notifyShares(ctx context.Context, actor *store.User, in notifyShar
 	aid := actor.ID
 	label := actorLabel(actor)
 	for _, uid := range in.UserIDs {
+		ok, err := a.canSeeShared(ctx, uid, tripID, planID)
+		if err != nil {
+			slog.Error("notifyShares: visibility check", "err", err, "to", uid)
+			continue
+		}
+		if !ok {
+			// Not actually a sharee of this resource — refuse to notify so the
+			// endpoint can't be used to push notifications to arbitrary users.
+			slog.Warn("notifyShares: skipping non-sharee user", "actor", aid, "to", uid)
+			continue
+		}
 		msg := fmt.Sprintf("%s shared %q with you", label, itemName)
 		if _, err := a.Store.InsertNotification(ctx, store.Notification{
 			UserID: uid, Kind: "share", ActorID: &aid, TripID: tp, PlanID: pp, Message: msg,
@@ -302,9 +319,36 @@ func (a *API) notifyShares(ctx context.Context, actor *store.User, in notifyShar
 		a.publishNotifications(ctx, uid)
 		a.emailUser(ctx, uid, label, itemName, path)
 	}
+	if len(in.Emails) == 0 {
+		return
+	}
+	invited, err := a.Store.ListOutgoingPendingInvites(ctx, actor.ID)
+	if err != nil {
+		slog.Error("notifyShares: list pending invites", "err", err, "actor", aid)
+		return
+	}
+	allowed := make(map[string]bool, len(invited))
+	for _, p := range invited {
+		allowed[p.EmailLower] = true
+	}
 	for _, addr := range in.Emails {
+		if !allowed[strings.ToLower(strings.TrimSpace(addr))] {
+			// Only addresses the actor has a pending invite to are legitimate
+			// pre-shared recipients; anything else is an arbitrary address.
+			slog.Warn("notifyShares: skipping unsolicited email recipient", "actor", aid)
+			continue
+		}
 		a.sendShareEmailTo(ctx, addr, label, itemName, path)
 	}
+}
+
+// canSeeShared reports whether uid is a genuine sharee of the resource being
+// announced: visible on the plan for a plan share, or on the trip otherwise.
+func (a *API) canSeeShared(ctx context.Context, uid, tripID, planID int64) (bool, error) {
+	if planID != 0 {
+		return a.Store.CanViewPlan(ctx, planID, uid, false)
+	}
+	return a.Store.CanViewTrip(ctx, tripID, uid)
 }
 
 func (a *API) notifyTripShares(w http.ResponseWriter, r *http.Request) {

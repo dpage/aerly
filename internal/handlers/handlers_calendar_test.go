@@ -177,6 +177,7 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 
 	trip := seedTrip(t, e, owner)
 	seedMember(t, e, trip, member)
+	e.befriend(t, owner, member) // friend gate: a trip member must be an accepted friend (spec §4)
 	pub := seedPlan(t, e, trip, owner, "Public Flight")
 	seedPart(t, e, pub)
 	hid := seedPlan(t, e, trip, owner, "Hidden Flight")

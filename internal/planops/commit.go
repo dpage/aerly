@@ -103,6 +103,24 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 				return nil, fmt.Errorf("superseded part %d does not belong to trip %d", *in.SupersedesPartID, tripID)
 			}
 		}
+		// Friend-gate every passenger before writing anything. A passenger
+		// becomes a trip viewer (via the read-time friend gate), so an editor
+		// must not be able to expose the trip to an arbitrary user id by naming
+		// them here — the PassengerIDs are client/LLM-controlled (the HTTP
+		// confirm body and the email pipeline both flow through Commit). Mirrors
+		// the dedicated addPlanPassenger endpoint's requireFriendTarget check.
+		for _, uid := range in.PassengerIDs {
+			if uid == createdBy {
+				continue
+			}
+			ok, err := deps.Store.AnyFriendshipEdge(ctx, createdBy, uid)
+			if err != nil {
+				return nil, fmt.Errorf("check passenger friendship: %w", err)
+			}
+			if !ok {
+				return nil, fmt.Errorf("passenger %d must be a friend (or invited) of the trip editor", uid)
+			}
+		}
 		source := in.Source
 		if source == "" {
 			source = "paste"
@@ -163,29 +181,52 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 		if err != nil {
 			return nil, fmt.Errorf("create plan %q: %w", in.Title, err)
 		}
-		for _, uid := range in.PassengerIDs {
-			if err := deps.Store.AddPlanPassenger(ctx, plan.ID, uid); err != nil {
-				return nil, fmt.Errorf("add passenger: %w", err)
+		// CreatePlan is atomic, but the passenger/visibility/supersede writes
+		// below are separate transactions. If any fails the plan is already
+		// persisted; since the email pipeline treats a nil error as "processed"
+		// and never retries, a half-configured plan would be a silent orphan.
+		// Compensate by deleting the just-created plan (cascades to its parts /
+		// passengers / visibility) so each plan commits all-or-nothing. The
+		// supersession cancel is applied last, so a failure here never leaves the
+		// old part cancelled without its replacement.
+		if err := commitPlanExtras(ctx, deps, plan.ID, in); err != nil {
+			if delErr := deps.Store.DeletePlan(ctx, plan.ID); delErr != nil {
+				return nil, fmt.Errorf("%w (and rollback of plan %d failed: %v)", err, plan.ID, delErr)
 			}
-		}
-		if in.Visibility != nil {
-			mode := in.Visibility.Mode
-			if mode == "everyone" {
-				mode = ""
-			}
-			if err := deps.Store.SetPlanVisibility(ctx, plan.ID, mode, in.Visibility.UserIDs); err != nil {
-				return nil, fmt.Errorf("set visibility: %w", err)
-			}
-		}
-		// Apply the supersession: cancel the old part so the FE greys it.
-		if in.SupersedesPartID != nil {
-			if err := cancelSuperseded(ctx, deps, *in.SupersedesPartID); err != nil {
-				return nil, fmt.Errorf("cancel superseded part %d: %w", *in.SupersedesPartID, err)
-			}
+			return nil, err
 		}
 		out = append(out, plan)
 	}
 	return out, nil
+}
+
+// commitPlanExtras applies the per-plan writes that follow CreatePlan:
+// passengers, the optional visibility override, and any rebooking supersession
+// (applied last so it is never left half-done). The caller compensates by
+// deleting the plan if this returns an error, giving each plan all-or-nothing
+// commit semantics across these separate store transactions.
+func commitPlanExtras(ctx context.Context, deps Deps, planID int64, in ConfirmPlanInput) error {
+	for _, uid := range in.PassengerIDs {
+		if err := deps.Store.AddPlanPassenger(ctx, planID, uid); err != nil {
+			return fmt.Errorf("add passenger: %w", err)
+		}
+	}
+	if in.Visibility != nil {
+		mode := in.Visibility.Mode
+		if mode == "everyone" {
+			mode = ""
+		}
+		if err := deps.Store.SetPlanVisibility(ctx, planID, mode, in.Visibility.UserIDs); err != nil {
+			return fmt.Errorf("set visibility: %w", err)
+		}
+	}
+	// Apply the supersession: cancel the old part so the FE greys it.
+	if in.SupersedesPartID != nil {
+		if err := cancelSuperseded(ctx, deps, *in.SupersedesPartID); err != nil {
+			return fmt.Errorf("cancel superseded part %d: %w", *in.SupersedesPartID, err)
+		}
+	}
+	return nil
 }
 
 // cancelSuperseded stamps the old part status='cancelled'. It stays on the
