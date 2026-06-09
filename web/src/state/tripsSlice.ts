@@ -45,121 +45,132 @@ export interface TripsSlice {
   notifyTripShares: (tripId: number, input: NotifySharesInput) => Promise<void>;
 }
 
-export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (set, get) => ({
-  trips: [],
-  currentTrip: null,
-  tripsLoading: false,
-  tagSuggestions: [],
+export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (set, get) => {
+  // Monotonic token guarding loadTrip against out-of-order responses: each call
+  // claims the next token, and only the most recent one (or a clear, which bumps
+  // it) is allowed to write currentTrip. Without this, navigating A→B — or an
+  // SSE-driven reload racing a navigation — could let A's slower response
+  // clobber B.
+  let loadSeq = 0;
+  return {
+    trips: [],
+    currentTrip: null,
+    tripsLoading: false,
+    tagSuggestions: [],
 
-  async listTrips() {
-    set({ tripsLoading: true });
-    try {
-      const trips = await api.listTrips();
-      set({ trips, tripsLoading: false });
-    } catch (err) {
-      set({ error: errorMessage(err), tripsLoading: false });
-    }
-  },
-
-  async loadTrip(id) {
-    try {
-      const currentTrip = await api.getTrip(id);
-      set({ currentTrip });
-    } catch (err) {
-      // A 404 means the trip is gone — typically because it was just deleted
-      // and a live event (or this navigation) raced the deletion. Clear it
-      // silently rather than alarming the user with a "not found".
-      if (err instanceof ApiError && err.status === 404) {
-        set((s) => (s.currentTrip?.id === id ? { currentTrip: null } : {}));
-        return;
+    async listTrips() {
+      set({ tripsLoading: true });
+      try {
+        const trips = await api.listTrips();
+        set({ trips, tripsLoading: false });
+      } catch (err) {
+        set({ error: errorMessage(err), tripsLoading: false });
       }
-      set({ error: errorMessage(err) });
-    }
-  },
+    },
 
-  clearCurrentTrip() {
-    set({ currentTrip: null });
-  },
+    async loadTrip(id) {
+      const seq = ++loadSeq;
+      try {
+        const currentTrip = await api.getTrip(id);
+        if (seq !== loadSeq) return; // a newer load (or a clear) superseded this one
+        set({ currentTrip });
+      } catch (err) {
+        if (seq !== loadSeq) return;
+        // A 404 means the trip is gone — typically because it was just deleted
+        // and a live event (or this navigation) raced the deletion. Clear it
+        // silently rather than alarming the user with a "not found".
+        if (err instanceof ApiError && err.status === 404) {
+          set((s) => (s.currentTrip?.id === id ? { currentTrip: null } : {}));
+          return;
+        }
+        set({ error: errorMessage(err) });
+      }
+    },
 
-  async createTrip(input) {
-    try {
-      const trip = await api.createTrip(input);
-      set((s) => ({ trips: [...s.trips, trip] }));
-      return trip;
-    } catch (err) {
-      set({ error: errorMessage(err) });
-      return undefined;
-    }
-  },
+    clearCurrentTrip() {
+      loadSeq++; // invalidate any in-flight loadTrip so it can't repopulate after clear
+      set({ currentTrip: null });
+    },
 
-  async updateTrip(id, patch) {
-    const updated = await api.updateTrip(id, patch);
-    set((s) => ({
-      trips: s.trips.map((t) => (t.id === id ? updated : t)),
-      currentTrip:
-        s.currentTrip?.id === id ? { ...updated, plans: s.currentTrip.plans } : s.currentTrip,
-    }));
-  },
+    async createTrip(input) {
+      try {
+        const trip = await api.createTrip(input);
+        set((s) => ({ trips: [...s.trips, trip] }));
+        return trip;
+      } catch (err) {
+        set({ error: errorMessage(err) });
+        return undefined;
+      }
+    },
 
-  async deleteTrip(id) {
-    await api.deleteTrip(id);
-    set((s) => ({
-      trips: s.trips.filter((t) => t.id !== id),
-      currentTrip: s.currentTrip?.id === id ? null : s.currentTrip,
-    }));
-  },
+    async updateTrip(id, patch) {
+      const updated = await api.updateTrip(id, patch);
+      set((s) => ({
+        trips: s.trips.map((t) => (t.id === id ? updated : t)),
+        currentTrip:
+          s.currentTrip?.id === id ? { ...updated, plans: s.currentTrip.plans } : s.currentTrip,
+      }));
+    },
 
-  async addTripMember(tripId, input) {
-    const updated = await api.addTripMember(tripId, input);
-    set((s) => ({ trips: s.trips.map((t) => (t.id === tripId ? updated : t)) }));
-  },
+    async deleteTrip(id) {
+      await api.deleteTrip(id);
+      set((s) => ({
+        trips: s.trips.filter((t) => t.id !== id),
+        currentTrip: s.currentTrip?.id === id ? null : s.currentTrip,
+      }));
+    },
 
-  async removeTripMember(tripId, userId) {
-    await api.removeTripMember(tripId, userId);
-    // TODO(1F): reconcile membership in-place; for now refetch the trip.
-    await get().loadTrip(tripId);
-  },
+    async addTripMember(tripId, input) {
+      const updated = await api.addTripMember(tripId, input);
+      set((s) => ({ trips: s.trips.map((t) => (t.id === tripId ? updated : t)) }));
+    },
 
-  async addTripPassenger(tripId, userId) {
-    await api.addTripPassenger(tripId, userId);
-    // The passenger joins every plan + the membership; refetch so the open
-    // trip's members, passenger list, and per-plan passengers all reflect it.
-    await get().loadTrip(tripId);
-  },
+    async removeTripMember(tripId, userId) {
+      await api.removeTripMember(tripId, userId);
+      // TODO(1F): reconcile membership in-place; for now refetch the trip.
+      await get().loadTrip(tripId);
+    },
 
-  async removeTripPassenger(tripId, userId) {
-    await api.removeTripPassenger(tripId, userId);
-    await get().loadTrip(tripId);
-  },
+    async addTripPassenger(tripId, userId) {
+      await api.addTripPassenger(tripId, userId);
+      // The passenger joins every plan + the membership; refetch so the open
+      // trip's members, passenger list, and per-plan passengers all reflect it.
+      await get().loadTrip(tripId);
+    },
 
-  async setTripTags(tripId, labels) {
-    const updated = await api.setTripTags(tripId, labels);
-    set((s) => ({ trips: s.trips.map((t) => (t.id === tripId ? updated : t)) }));
-  },
+    async removeTripPassenger(tripId, userId) {
+      await api.removeTripPassenger(tripId, userId);
+      await get().loadTrip(tripId);
+    },
 
-  async suggestTags(q) {
-    try {
-      const tagSuggestions = await api.suggestTags(q);
-      set({ tagSuggestions });
-    } catch {
-      // Non-fatal: autocomplete is best-effort.
-    }
-  },
+    async setTripTags(tripId, labels) {
+      const updated = await api.setTripTags(tripId, labels);
+      set((s) => ({ trips: s.trips.map((t) => (t.id === tripId ? updated : t)) }));
+    },
 
-  async setTripShareAllFriends(tripId, role) {
-    const updated = await api.setTripShareAllFriends(tripId, role);
-    set((s) => ({ trips: s.trips.map((t) => (t.id === tripId ? updated : t)) }));
-  },
+    async suggestTags(q) {
+      try {
+        const tagSuggestions = await api.suggestTags(q);
+        set({ tagSuggestions });
+      } catch {
+        // Non-fatal: autocomplete is best-effort.
+      }
+    },
 
-  async shareTripByEmail(tripId, input) {
-    await api.shareTripByEmail(tripId, input);
-    // The share may have matched an existing user (added as a member), so
-    // refetch the open trip to reflect any new member/passenger.
-    await get().loadTrip(tripId);
-  },
+    async setTripShareAllFriends(tripId, role) {
+      const updated = await api.setTripShareAllFriends(tripId, role);
+      set((s) => ({ trips: s.trips.map((t) => (t.id === tripId ? updated : t)) }));
+    },
 
-  async notifyTripShares(tripId, input) {
-    await api.notifyTripShares(tripId, input);
-  },
-});
+    async shareTripByEmail(tripId, input) {
+      await api.shareTripByEmail(tripId, input);
+      // The share may have matched an existing user (added as a member), so
+      // refetch the open trip to reflect any new member/passenger.
+      await get().loadTrip(tripId);
+    },
 
+    async notifyTripShares(tripId, input) {
+      await api.notifyTripShares(tripId, input);
+    },
+  };
+};

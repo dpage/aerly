@@ -33,6 +33,7 @@ export function connectSSE(handlers: SSEHandlers, opts: SSEOptions = {}): () => 
   let es: EventSource | null = null;
   let stopped = false;
   let retry = 1000;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   const url = opts.showAll ? '/api/events?show_all=1' : '/api/events';
 
   function open() {
@@ -89,13 +90,17 @@ export function connectSSE(handlers: SSEHandlers, opts: SSEOptions = {}): () => 
       if (stopped) return;
       const delay = Math.min(retry, 30_000);
       retry = Math.min(retry * 2, 30_000);
-      setTimeout(open, delay);
+      reconnectTimer = setTimeout(open, delay);
     });
   }
 
   open();
   return () => {
     stopped = true;
+    // Clear any pending reconnect so a teardown during the backoff window
+    // doesn't leave a timer that fires after unmount (and so rapid
+    // re-subscribes can't stack timers / race connections).
+    if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
     es?.close();
   };
 }
