@@ -4,7 +4,12 @@ import userEvent from '@testing-library/user-event';
 
 import type { PlanPart, Position, User } from '../api/types';
 import { initialBearing } from '../lib/great-circle';
-import maplibreMock, { FakeMap, FakeMarker, resetMaplibreMock } from '../test/maplibre-mock';
+import maplibreMock, {
+  FakeAttributionControl,
+  FakeMap,
+  FakeMarker,
+  resetMaplibreMock,
+} from '../test/maplibre-mock';
 
 vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
@@ -95,6 +100,17 @@ beforeEach(() => {
 });
 
 describe('PlanMapView', () => {
+  it('re-homes the OSM attribution off the bottom edge (clear of the time slider)', () => {
+    render(<PlanMapView parts={[flight()]} />);
+    const map = FakeMap.instances[0];
+    // The default bottom-right attribution is disabled and a compact one added
+    // at the top, so its ⓘ + credit don't poke out from under the slider.
+    expect(map.opts).toMatchObject({ attributionControl: false });
+    const attribution = map.controls.find((c) => c instanceof FakeAttributionControl);
+    expect(attribution).toBeDefined();
+    expect((attribution as FakeAttributionControl).opts).toMatchObject({ compact: true });
+  });
+
   it('lists mappable parts in time order with type + time', () => {
     render(<PlanMapView parts={[hotel(), flight()]} />);
     const rows = screen.getAllByTestId(/^plan-row-/);
