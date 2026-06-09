@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -216,20 +217,28 @@ type OAuthProfile struct {
 }
 
 // upsertEmailTx upserts a verified email row for userID inside the given
-// transaction. No-op when address is empty (e.g. user hides their email).
-func upsertEmailTx(ctx context.Context, tx pgx.Tx, userID int64, address string) error {
+// transaction. It reports whether the email is now owned by userID (claimed).
+// A no-op (claimed=false) happens when the address is empty, or — crucially —
+// when the address is already a verified email of a DIFFERENT user: the
+// ON CONFLICT update is guarded to the same user_id, so a foreign address
+// affects no rows rather than being silently re-pointed. The caller can then
+// surface that instead of proceeding blind.
+func upsertEmailTx(ctx context.Context, tx pgx.Tx, userID int64, address string) (claimed bool, err error) {
 	addr := strings.TrimSpace(address)
 	if addr == "" {
-		return nil
+		return false, nil
 	}
-	_, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO user_emails (user_id, address, verified, verified_at)
 		VALUES ($1, $2, TRUE, NOW())
 		ON CONFLICT (lower(address)) DO UPDATE
 		SET verified = TRUE, verified_at = NOW(), verify_token = NULL
 		WHERE user_emails.user_id = EXCLUDED.user_id`,
 		userID, addr)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // linkIdentityTx writes (or refreshes last_used_at on) the identity row that
@@ -364,8 +373,18 @@ func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperu
 			return nil, 0, err
 		}
 	}
-	if err := upsertEmailTx(ctx, tx, u.ID, p.Email); err != nil {
+	claimed, err := upsertEmailTx(ctx, tx, u.ID, p.Email)
+	if err != nil {
 		return nil, 0, err
+	}
+	if !claimed && strings.TrimSpace(p.Email) != "" {
+		// The provider-asserted verified email is already owned by another
+		// account, so it wasn't linked here. Sign-in still proceeds (the
+		// identity is linked), but surface the condition — silently dropping it
+		// is how cross-account email confusion goes unnoticed. The address is a
+		// PII value and a known duplicate, so it is intentionally not logged.
+		slog.Warn("LinkLogin: provider email already owned by another account; not linked",
+			"user_id", u.ID, "provider", p.Provider)
 	}
 	// Convert any pending friend invites addressed to this user's verified
 	// emails into accepted friendships. Runs after upsertEmailTx so the
