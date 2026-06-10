@@ -23,6 +23,9 @@ export function userInitial(u: User): string {
 // convention airlines and schedule sources actually use).
 export function fmtDateTime(iso: string, tz?: string): string {
   const d = new Date(iso);
+  // Guard malformed input (matches the trip-format helpers) so we render an
+  // empty string rather than the literal "Invalid Date".
+  if (Number.isNaN(d.getTime())) return '';
   const base = d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',

@@ -870,7 +870,7 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
                         part.ends_at ? ` · Check out ${fmtIsoDate(part.ends_at)}` : ''
                       }`
                     : part.starts_at
-                      ? ` · ${fmtIso(part.starts_at)}`
+                      ? ` · ${fmtIso(part.starts_at, part.start_tz)}`
                       : ''}
                 </Typography>
               </Box>
@@ -910,15 +910,21 @@ function defaultStart(): Date {
   return d;
 }
 
-function fmtIso(iso: string): string {
+function fmtIso(iso: string, tz?: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
+  // Render in the part's zone (airport-local), falling back to UTC with a
+  // suffix — matching how times display elsewhere, rather than the reviewer's
+  // browser-local zone which could be hours off from the confirmed result.
+  const base = d.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
+    timeZone: tz || 'UTC',
   });
+  return tz ? base : `${base} UTC`;
 }
 
 // Date only (no time) — used for hotel check-in/out, which are days not instants.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../state/helpers';
 import {
   Alert,
@@ -188,11 +188,14 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(timer.current), []);
   const onCopy = () => {
     void navigator.clipboard?.writeText(value).then(
       () => {
         setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), 1500);
       },
       () => {
         // Clipboard unavailable (insecure context / denied) — ignore.

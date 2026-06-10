@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box,
   Button,
@@ -56,6 +56,8 @@ export default function CalendarSubscribeDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   // Find the token already issued for this exact (scope, resource), if any.
   // Tokens are keyed per (scope, resource_id): the `me` feed has resource_id 0,
@@ -126,7 +128,8 @@ export default function CalendarSubscribeDialog({
     try {
       await navigator.clipboard.writeText(token.url);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard blocked (insecure context / permissions); the field is
       // still selectable for a manual copy.

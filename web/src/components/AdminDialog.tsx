@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { errorMessage } from '../state/helpers';
 import {
   Avatar,
@@ -41,7 +41,15 @@ export default function AdminDialog({ open, onClose }: Props) {
   const inviteUser = useStore((s) => s.inviteUser);
   const updateUser = useStore((s) => s.updateUser);
   const deleteUser = useStore((s) => s.deleteUser);
+  const refreshUsers = useStore((s) => s.refreshUsers);
   const setError = useStore((s) => s.setError);
+
+  // The store's user cache is loaded at app init / on notifications; refresh on
+  // open so a superuser sees an up-to-date roster (e.g. a user invited in
+  // another tab) rather than stale data.
+  useEffect(() => {
+    if (open) void refreshUsers().catch((err) => setError(errorMessage(err)));
+  }, [open, refreshUsers, setError]);
 
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));

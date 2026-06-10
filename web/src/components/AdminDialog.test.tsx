@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
     inviteUser: vi.fn(),
     updateUser: vi.fn(),
     deleteUser: vi.fn(),
+    refreshUsers: vi.fn().mockResolvedValue(undefined),
     setError: vi.fn(),
   },
 }));
