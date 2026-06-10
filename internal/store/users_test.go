@@ -106,6 +106,24 @@ func TestUpdateUser(t *testing.T) {
 	}
 }
 
+func TestBumpSessionVersion(t *testing.T) {
+	s := newStore(t)
+	u, _ := s.InviteUser(ctx, InvitePayload{Username: "rotate", Name: "R"})
+	if u.SessionVersion != 0 {
+		t.Fatalf("new user session_version = %d, want 0", u.SessionVersion)
+	}
+	if err := s.BumpSessionVersion(ctx, u.ID); err != nil {
+		t.Fatalf("BumpSessionVersion: %v", err)
+	}
+	got, _ := s.UserByID(ctx, u.ID)
+	if got.SessionVersion != 1 {
+		t.Errorf("after bump session_version = %d, want 1", got.SessionVersion)
+	}
+	if err := s.BumpSessionVersion(ctx, 99999); !errors.Is(err, ErrNotFound) {
+		t.Errorf("bump missing user → ErrNotFound, got %v", err)
+	}
+}
+
 func TestDeleteUser(t *testing.T) {
 	s := newStore(t)
 	u, _ := s.InviteUser(ctx, InvitePayload{Username: "del"})

@@ -192,6 +192,11 @@ export const api = {
   logout: () =>
     fetch('/auth/logout', { method: 'POST', credentials: 'include' }).then(() => undefined),
 
+  // Sign out of every session (this device and all others) by bumping the
+  // server-side session epoch, then clear the local cookie.
+  logoutAll: () =>
+    fetch('/auth/logout-all', { method: 'POST', credentials: 'include' }).then(() => undefined),
+
   // -------------------------------------------------------------------------
   // Trips (spec §5.2). The list returns my trips plus those shared with me.
   // -------------------------------------------------------------------------

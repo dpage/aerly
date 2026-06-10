@@ -118,6 +118,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/providers", h.listProviders)
 	mux.HandleFunc("GET /auth/verify-email", h.VerifyEmail)
 	mux.HandleFunc("POST /auth/logout", h.Logout)
+	// "Sign out everywhere": needs the authenticated user, so it runs behind
+	// Require (the other auth routes are public/pre-session).
+	mux.Handle("POST /auth/logout-all", h.Require(http.HandlerFunc(h.LogoutAll)))
 }
 
 func (h *Handler) redirectURL(p *Provider) string {
@@ -253,11 +256,29 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 		h.notifyIdentityLinked(r.Context(), user, p, profile.Email)
 	}
 
-	SetSessionCookie(w, h.SessionKey, user.ID, h.Secure)
+	SetSessionCookie(w, h.SessionKey, user.ID, user.SessionVersion, h.Secure)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, _ *http.Request) {
+	ClearSessionCookie(w, h.Secure)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// LogoutAll signs the user out of every session by bumping their session epoch
+// (so all previously-issued cookies fail verification), then clears the
+// caller's own cookie. Stateless — no per-session record to purge.
+func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
+	u := UserFrom(r.Context())
+	if u == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := h.Store.BumpSessionVersion(r.Context(), u.ID); err != nil {
+		slog.Error("logout-all: bump session version", "err", err, "user_id", u.ID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	ClearSessionCookie(w, h.Secure)
 	w.WriteHeader(http.StatusNoContent)
 }

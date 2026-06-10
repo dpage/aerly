@@ -16,6 +16,22 @@ type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
 const SHOW_ALL_KEY = 'ft.show_all';
 
+/** The signed-out state the store resets to after any logout flow. */
+function anonymousReset(): Partial<StoreState> {
+  return {
+    me: null,
+    auth: 'anonymous',
+    users: [],
+    capabilities: {
+      resolver_available: false,
+      poll_interval_sec: 60,
+      email_ingest_enabled: false,
+    },
+    notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
+    notice: null,
+  };
+}
+
 /** The core slice: auth/me/capabilities, the user + friendship caches, and the
  * notification badge. The trip-planning slices (trips, plans, tracker, …) own
  * the redesigned domain state; this slice holds the cross-cutting session
@@ -46,6 +62,8 @@ export interface CoreSlice {
 
   setHomeAddress: (address: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Sign out of every session (this device and all others). */
+  logoutAll: () => Promise<void>;
   setShowAll: (v: boolean) => Promise<void>;
   setError: (msg: string | null) => void;
   refreshNotifications: () => Promise<void>;
@@ -144,18 +162,12 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
 
   async logout() {
     await api.logout();
-    set({
-      me: null,
-      auth: 'anonymous',
-      users: [],
-      capabilities: {
-        resolver_available: false,
-        poll_interval_sec: 60,
-        email_ingest_enabled: false,
-      },
-      notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
-      notice: null,
-    });
+    set(anonymousReset());
+  },
+
+  async logoutAll() {
+    await api.logoutAll();
+    set(anonymousReset());
   },
 
   async setShowAll(v) {

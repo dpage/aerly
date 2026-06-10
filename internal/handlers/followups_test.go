@@ -299,7 +299,7 @@ func TestMultipartIngestReachesExtractor(t *testing.T) {
 	r.Header.Set("Content-Type", mw.FormDataContentType())
 	r.AddCookie(&http.Cookie{
 		Name:  auth.SessionCookie,
-		Value: auth.SignSession(sessKey, owner, time.Now().Add(time.Hour)),
+		Value: auth.SignSession(sessKey, owner, 0, time.Now().Add(time.Hour)),
 	})
 	rec := httptest.NewRecorder()
 	e.mux.ServeHTTP(rec, r)

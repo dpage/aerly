@@ -22,31 +22,69 @@ const (
 
 var ErrInvalidSession = errors.New("invalid session")
 
-// SignSession returns a cookie value of the form v1.<uid>.<expUnix>.<sig>.
-func SignSession(key []byte, userID int64, expires time.Time) string {
-	body := fmt.Sprintf("v1.%d.%d", userID, expires.Unix())
+// SignSession returns a cookie value of the form
+// v2.<uid>.<sessionVersion>.<expUnix>.<sig>. The session version is the user's
+// session epoch at issue time; VerifySession returns it so the caller can
+// reject a cookie whose version is stale (the user bumped it via a
+// forced-logout / "sign out everywhere").
+func SignSession(key []byte, userID int64, version int, expires time.Time) string {
+	body := fmt.Sprintf("v2.%d.%d.%d", userID, version, expires.Unix())
 	return body + "." + sign(key, body)
 }
 
-// VerifySession parses a cookie value and returns the user ID if the signature
-// is valid and the expiry is in the future.
-func VerifySession(key []byte, raw string) (int64, error) {
+// VerifySession parses a cookie value and returns the user ID and the session
+// version embedded in it, if the signature is valid and the expiry is in the
+// future. It accepts both the current v2 format and the legacy v1 format
+// (which had no version field) — a v1 cookie is treated as version 0, matching
+// the session_version column's default, so sessions issued before the upgrade
+// remain valid until the user's epoch is bumped.
+func VerifySession(key []byte, raw string) (uid int64, version int, err error) {
 	parts := strings.Split(raw, ".")
-	if len(parts) != 4 || parts[0] != "v1" {
-		return 0, ErrInvalidSession
+	if len(parts) == 0 {
+		return 0, 0, ErrInvalidSession
 	}
-	body := strings.Join(parts[:3], ".")
-	if !hmac.Equal([]byte(parts[3]), []byte(sign(key, body))) {
-		return 0, ErrInvalidSession
+	switch parts[0] {
+	case "v2":
+		if len(parts) != 5 {
+			return 0, 0, ErrInvalidSession
+		}
+		body := strings.Join(parts[:4], ".")
+		if !hmac.Equal([]byte(parts[4]), []byte(sign(key, body))) {
+			return 0, 0, ErrInvalidSession
+		}
+		v, verr := strconv.Atoi(parts[2])
+		if verr != nil {
+			return 0, 0, ErrInvalidSession
+		}
+		uid, err = parseSessionUIDExp(parts[1], parts[3])
+		return uid, v, err
+	case "v1":
+		// Legacy: v1.<uid>.<expUnix>.<sig>, no version field → version 0.
+		if len(parts) != 4 {
+			return 0, 0, ErrInvalidSession
+		}
+		body := strings.Join(parts[:3], ".")
+		if !hmac.Equal([]byte(parts[3]), []byte(sign(key, body))) {
+			return 0, 0, ErrInvalidSession
+		}
+		uid, err = parseSessionUIDExp(parts[1], parts[2])
+		return uid, 0, err
+	default:
+		return 0, 0, ErrInvalidSession
 	}
-	expUnix, err := strconv.ParseInt(parts[2], 10, 64)
+}
+
+// parseSessionUIDExp parses the uid and expiry fields shared by both formats,
+// enforcing that the session has not expired.
+func parseSessionUIDExp(uidStr, expStr string) (int64, error) {
+	expUnix, err := strconv.ParseInt(expStr, 10, 64)
 	if err != nil {
 		return 0, ErrInvalidSession
 	}
 	if time.Now().Unix() > expUnix {
 		return 0, ErrInvalidSession
 	}
-	uid, err := strconv.ParseInt(parts[1], 10, 64)
+	uid, err := strconv.ParseInt(uidStr, 10, 64)
 	if err != nil {
 		return 0, ErrInvalidSession
 	}
@@ -88,12 +126,13 @@ func VerifyState(key []byte, raw, gotNonce string) error {
 	return nil
 }
 
-// SetSessionCookie writes a session cookie that expires in SessionTTL.
-func SetSessionCookie(w http.ResponseWriter, key []byte, userID int64, secure bool) {
+// SetSessionCookie writes a session cookie that expires in SessionTTL, stamped
+// with the user's current session version (epoch).
+func SetSessionCookie(w http.ResponseWriter, key []byte, userID int64, version int, secure bool) {
 	expires := time.Now().Add(SessionTTL)
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookie,
-		Value:    SignSession(key, userID, expires),
+		Value:    SignSession(key, userID, version, expires),
 		Path:     "/",
 		Expires:  expires,
 		MaxAge:   int(SessionTTL.Seconds()),

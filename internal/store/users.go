@@ -29,13 +29,14 @@ var (
 )
 
 const userColumns = `id, username, name, avatar_url,
-	is_superuser, is_active, last_login_at, created_at, updated_at, home_address`
+	is_superuser, is_active, last_login_at, created_at, updated_at, home_address, session_version`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	if err := row.Scan(
 		&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
+		&u.SessionVersion,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -159,6 +160,23 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, in UpdateUserPayload) 
 
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// BumpSessionVersion increments the user's session epoch, invalidating every
+// session cookie previously issued for them (each carries the version it was
+// minted at; the auth middleware rejects a mismatch). This is the stateless
+// "sign out of all sessions" / forced-logout primitive — no server-side session
+// store to share across instances. Returns ErrNotFound for an unknown user.
+func (s *Store) BumpSessionVersion(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users SET session_version = session_version + 1, updated_at = NOW() WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}
@@ -357,7 +375,7 @@ func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperu
 			RETURNING `+userColumns,
 			u.ID, p.Name, p.AvatarURL,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress)
+			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -446,7 +464,7 @@ func insertNewUserTx(ctx context.Context, tx pgx.Tx, p OAuthProfile, bootstrapAs
 			RETURNING `+userColumns,
 			candidate, p.Name, p.AvatarURL, bootstrapAsSuperuser,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress)
+			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
 		if err == nil {
 			if _, e := tx.Exec(ctx, `RELEASE SAVEPOINT user_insert`); e != nil {
 				return nil, e
@@ -477,7 +495,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 		WHERE i.provider = $1 AND i.provider_user_id = $2`,
 		p.Provider, p.ProviderUserID,
 	).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress)
+		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
 	if err == nil {
 		return u, findStepIdentityMatch, nil
 	}
@@ -496,7 +514,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 			LIMIT 1`,
 			p.Email,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress)
+			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
 		if err == nil {
 			return u, findStepEmailMatch, nil
 		}
@@ -517,7 +535,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 			  AND NOT EXISTS (SELECT 1 FROM user_identities WHERE user_id = users.id)`,
 			p.Username,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress)
+			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
 		if err == nil {
 			return u, findStepInviteeMatch, nil
 		}

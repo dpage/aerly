@@ -62,6 +62,7 @@ import HomeAddressDialog from './HomeAddressDialog';
 export default function Layout() {
   const me = useStore((s) => s.me);
   const logout = useStore((s) => s.logout);
+  const logoutAll = useStore((s) => s.logoutAll);
   const capabilities = useStore((s) => s.capabilities);
   const openHelp = useStore((s) => s.openHelp);
   const pendingRequests = useStore((s) => s.notifications.friend_requests_pending);
@@ -359,6 +360,17 @@ export default function Layout() {
                 <LogoutIcon fontSize="small" />
               </ListItemIcon>
               Sign out
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                void logoutAll();
+              }}
+            >
+              <ListItemIcon>
+                <LogoutIcon fontSize="small" />
+              </ListItemIcon>
+              Sign out everywhere
             </MenuItem>
           </Menu>
         </Toolbar>

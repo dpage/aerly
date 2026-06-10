@@ -57,12 +57,17 @@ func (h *Handler) userFromRequest(r *http.Request) *store.User {
 	if err != nil {
 		return nil
 	}
-	uid, err := VerifySession(h.SessionKey, c.Value)
+	uid, version, err := VerifySession(h.SessionKey, c.Value)
 	if err != nil {
 		return nil
 	}
 	u, err := h.Store.UserByID(r.Context(), uid)
 	if err != nil || !u.IsActive {
+		return nil
+	}
+	// Reject a cookie minted before the user's current session epoch — this is
+	// how a forced logout / "sign out everywhere" revokes a stateless session.
+	if version != u.SessionVersion {
 		return nil
 	}
 	return u

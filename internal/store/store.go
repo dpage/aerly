@@ -31,6 +31,11 @@ type User struct {
 	LastLoginAt *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	// SessionVersion is the user's session epoch. It is embedded in every
+	// session cookie issued for them; bumping it (BumpSessionVersion) makes all
+	// previously-issued sessions fail verification — stateless "log out
+	// everywhere" with no server-side session store.
+	SessionVersion int
 }
 
 // UserIdentity links a user to one external OAuth identity. A user may have

@@ -81,7 +81,7 @@ func (h *Handler) devLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not sign in", http.StatusForbidden)
 		return
 	}
-	SetSessionCookie(w, h.SessionKey, user.ID, h.Secure)
+	SetSessionCookie(w, h.SessionKey, user.ID, user.SessionVersion, h.Secure)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

@@ -80,7 +80,7 @@ func (e *testEnv) req(t *testing.T, method, path string, body any, asUser int64)
 	if asUser != 0 {
 		r.AddCookie(&http.Cookie{
 			Name:  auth.SessionCookie,
-			Value: auth.SignSession(sessKey, asUser, time.Now().Add(time.Hour)),
+			Value: auth.SignSession(sessKey, asUser, 0, time.Now().Add(time.Hour)),
 		})
 	}
 	w := httptest.NewRecorder()
