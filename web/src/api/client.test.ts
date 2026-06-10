@@ -187,9 +187,7 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(r).toBeUndefined();
     expect(last()[0]).toBe('/api/friends/invite');
     expect(last()[1]?.method).toBe('POST');
-    expect(last()[1]?.body).toBe(
-      JSON.stringify({ email: 'bob@example.com', message: 'hi' }),
-    );
+    expect(last()[1]?.body).toBe(JSON.stringify({ email: 'bob@example.com', message: 'hi' }));
   });
 
   it('acceptFriend', async () => {
@@ -204,9 +202,7 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
   });
 
   it('logout posts to /auth/logout and resolves undefined', async () => {
-    const s = mockFetch(
-      () => Promise.resolve({ status: 200, ok: true } as unknown as Response),
-    );
+    const s = mockFetch(() => Promise.resolve({ status: 200, ok: true } as unknown as Response));
     const r = await api.logout();
     expect(r).toBeUndefined();
     expect(s.mock.calls[0][0]).toBe('/auth/logout');
@@ -338,7 +334,9 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
   });
 
   it('createPlan', async () => {
-    await api.createPlan(8, { type: 'flight', title: 'Out' } as Parameters<typeof api.createPlan>[1]);
+    await api.createPlan(8, { type: 'flight', title: 'Out' } as Parameters<
+      typeof api.createPlan
+    >[1]);
     expect(last()[0]).toBe('/api/trips/8/plans');
     expect(last()[1]?.method).toBe('POST');
   });
@@ -440,7 +438,10 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     const spy = mockFetch(() => jsonResponse(undefined, 204));
     await api.setTripReminder(7, 12);
     expect(spy.mock.calls[0][0]).toBe('/api/trips/7/reminder');
-    expect(spy.mock.calls[0][1]).toMatchObject({ method: 'PUT', body: JSON.stringify({ lead_hours: 12 }) });
+    expect(spy.mock.calls[0][1]).toMatchObject({
+      method: 'PUT',
+      body: JSON.stringify({ lead_hours: 12 }),
+    });
   });
 
   it('clearTripReminder DELETEs the trip reminder', async () => {
@@ -613,7 +614,10 @@ describe('notifications', () => {
     );
     const n = await api.getNotifications();
     expect(n.friend_requests_pending).toBe(3);
-    expect(fetchSpy).toHaveBeenCalledWith('/api/notifications', expect.objectContaining({ method: 'GET' }));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/notifications',
+      expect.objectContaining({ method: 'GET' }),
+    );
   });
 
   it('POST /api/friends/accept-token sends the token in the body', async () => {

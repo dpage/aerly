@@ -79,7 +79,7 @@ beforeEach(() => {
 });
 
 describe('TripMap', () => {
-  it('forwards the trip\'s flattened parts to PlanMapView', () => {
+  it("forwards the trip's flattened parts to PlanMapView", () => {
     state.currentTrip = tripWith([plan([part({ id: 1 }), part({ id: 2 })])]);
     render(<TripMap />);
     expect(planMapSpy).toHaveBeenCalled();

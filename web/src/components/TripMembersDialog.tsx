@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Avatar,
   Box,
@@ -126,8 +127,7 @@ export default function TripMembersDialog({
     [friendCandidates, memberIds],
   );
 
-  const reportError = (err: unknown) =>
-    setError(err instanceof Error ? err.message : String(err));
+  const reportError = (err: unknown) => setError(errorMessage(err));
 
   const memberLabel = (id: number): string => {
     const u = userIndex.get(id);

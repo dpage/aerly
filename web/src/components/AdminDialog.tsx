@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Avatar,
   Box,
@@ -59,22 +60,20 @@ export default function AdminDialog({ open, onClose }: Props) {
       setName('');
       setMakeAdmin(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
   };
 
   const onToggleSuperuser = (u: User, value: boolean) =>
-    void updateUser(u.id, { is_superuser: value }).catch((err) =>
-      setError(err instanceof Error ? err.message : String(err)),
-    );
+    void updateUser(u.id, { is_superuser: value }).catch((err) => setError(errorMessage(err)));
   const onToggleActive = (u: User, value: boolean) =>
-    void updateUser(u.id, { is_active: value }).catch((err) =>
-      setError(err instanceof Error ? err.message : String(err)),
-    );
+    void updateUser(u.id, { is_active: value }).catch((err) => setError(errorMessage(err)));
   const onDelete = (u: User) => {
-    if (confirm(`Delete ${u.username}?`)) void deleteUser(u.id);
+    if (confirm(`Delete ${u.username}?`)) {
+      void deleteUser(u.id).catch((err) => setError(errorMessage(err)));
+    }
   };
 
   return (
@@ -254,8 +253,7 @@ function UserCard({ user, isMe, onToggleSuperuser, onToggleActive, onDelete }: U
             </Typography>
           )}
           <Typography variant="caption" color="text.secondary" display="block">
-            Last sign-in:{' '}
-            {user.last_login_at ? formatShortDateTime(user.last_login_at) : '—'}
+            Last sign-in: {user.last_login_at ? formatShortDateTime(user.last_login_at) : '—'}
           </Typography>
           <Stack direction="row" spacing={1.5} sx={{ mt: 0.5 }}>
             <FormControlLabel

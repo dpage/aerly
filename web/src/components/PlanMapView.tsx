@@ -38,12 +38,7 @@ import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
 import { personColor } from '../lib/person-color';
-import {
-  fmtPartPlaces,
-  fmtPartTimeRange,
-  isTransferType,
-  planTypeLabel,
-} from '../lib/trip-format';
+import { fmtPartPlaces, fmtPartTimeRange, isTransferType, planTypeLabel } from '../lib/trip-format';
 import FlightDetailCard from './FlightDetailCard';
 import PartDetailBlock from './PartDetailBlock';
 
@@ -103,9 +98,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     return parts
       .filter((p) => !p.dismissed_at && hasCoord(p))
       .slice()
-      .sort((a, b) =>
-        (a.effective_at ?? a.starts_at).localeCompare(b.effective_at ?? b.starts_at),
-      );
+      .sort((a, b) => (a.effective_at ?? a.starts_at).localeCompare(b.effective_at ?? b.starts_at));
   }, [parts]);
 
   const strandedCount = useMemo(() => unlocatedCount(parts), [parts]);
@@ -294,9 +287,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
           const el = buildPinEl(p.type, personColor(p.trip_owner_id));
           el.dataset.partId = String(p.id);
           el.dataset.role = ep.role;
-          el.addEventListener('click', () =>
-            setSelectedId((cur) => (cur === p.id ? null : p.id)),
-          );
+          el.addEventListener('click', () => setSelectedId((cur) => (cur === p.id ? null : p.id)));
           marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
             .setLngLat([ep.lon, ep.lat])
             .setPopup(
@@ -435,9 +426,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
             onScrub={(ms) =>
               // Snapping to the right edge of a running trip re-locks the live
               // view (null); anywhere else is a fixed past instant.
-              setScrubMs(
-                timeDomain.inProgress && ms >= timeDomain.end - SCRUB_STEP_MS ? null : ms,
-              )
+              setScrubMs(timeDomain.inProgress && ms >= timeDomain.end - SCRUB_STEP_MS ? null : ms)
             }
             onReset={() => setScrubMs(null)}
           />
@@ -456,8 +445,8 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
         {strandedCount > 0 && (
           <Box sx={{ px: 2, pt: 1 }}>
             <Alert severity="warning" sx={{ py: 0 }}>
-              {strandedCount} location{strandedCount === 1 ? '' : 's'} couldn&apos;t
-              be placed on the map — open the item to fix its address.
+              {strandedCount} location{strandedCount === 1 ? '' : 's'} couldn&apos;t be placed on
+              the map — open the item to fix its address.
             </Alert>
           </Box>
         )}
@@ -669,9 +658,7 @@ function partCoords(p: PlanPart): [number, number][] {
 }
 
 function hasBothEnds(p: PlanPart): boolean {
-  return (
-    p.start_lat != null && p.start_lon != null && p.end_lat != null && p.end_lon != null
-  );
+  return p.start_lat != null && p.start_lon != null && p.end_lat != null && p.end_lon != null;
 }
 
 /** A geocoded endpoint of a part, for plotting a pin + its tooltip. */

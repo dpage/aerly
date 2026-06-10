@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import { MenuItem, Stack, TextField } from '@mui/material';
 
 import { useStore } from '../state/store';
@@ -41,7 +42,7 @@ export default function PlanReminderOverride({ plan }: Props) {
       else await setPlanReminder(plan.id, next === 'on', leadHours);
     } catch (err) {
       setMode(prevMode);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }

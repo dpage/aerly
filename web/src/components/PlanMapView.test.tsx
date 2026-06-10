@@ -149,7 +149,12 @@ describe('PlanMapView', () => {
             flight: {
               ...flight().flight!,
               flight_status: 'Enroute',
-              latest_position: { ts: '2026-10-12T11:31:00Z', lat: 47, lon: -35, is_estimated: false },
+              latest_position: {
+                ts: '2026-10-12T11:31:00Z',
+                lat: 47,
+                lon: -35,
+                is_estimated: false,
+              },
               track: [
                 ...flight().flight!.track!,
                 { ts: '2026-10-12T11:31:00Z', lat: 47, lon: -35, is_estimated: false },
@@ -214,7 +219,9 @@ describe('PlanMapView', () => {
   // Find the plane-icon marker for a given flight part.
   const planeFor = (partId: number) =>
     FakeMarker.instances.find(
-      (m) => m.getElement()?.dataset.role === 'plane' && m.getElement()?.dataset.partId === String(partId),
+      (m) =>
+        m.getElement()?.dataset.role === 'plane' &&
+        m.getElement()?.dataset.partId === String(partId),
     );
 
   // The default flight departs 09:00, arrives 13:00 (2026-10-12). The plane icon
@@ -250,7 +257,13 @@ describe('PlanMapView', () => {
               flight: {
                 ...flight().flight!,
                 flight_status: 'Enroute',
-                latest_position: { ts: '2026-10-12T11:30:00Z', lat: 48, lon: -30, heading_deg: 270, is_estimated: true },
+                latest_position: {
+                  ts: '2026-10-12T11:30:00Z',
+                  lat: 48,
+                  lon: -30,
+                  heading_deg: 270,
+                  is_estimated: true,
+                },
               },
             }),
           ]}
@@ -281,7 +294,12 @@ describe('PlanMapView', () => {
               flight: {
                 ...flight().flight!,
                 flight_status: 'Enroute',
-                latest_position: { ts: '2026-10-12T11:30:00Z', lat: 48, lon: -30, is_estimated: false },
+                latest_position: {
+                  ts: '2026-10-12T11:30:00Z',
+                  lat: 48,
+                  lon: -30,
+                  is_estimated: false,
+                },
               },
             }),
           ]}
@@ -504,7 +522,13 @@ describe('PlanMapView', () => {
       // A different dataset (new start instant) → the scrub resets to the live edge.
       rerender(
         <PlanMapView
-          parts={[enroute({ id: 9, starts_at: '2026-10-12T08:00:00Z', effective_at: '2026-10-12T08:00:00Z' })]}
+          parts={[
+            enroute({
+              id: 9,
+              starts_at: '2026-10-12T08:00:00Z',
+              effective_at: '2026-10-12T08:00:00Z',
+            }),
+          ]}
         />,
       );
       expect(screen.getByTestId('time-slider-live')).toBeInTheDocument();
@@ -528,7 +552,18 @@ describe('PlanMapView', () => {
     it('parks the plane at the origin when scrubbed before departure', () => {
       clockAt('2026-10-12T11:30:00Z');
       // A hotel from 08:00 widens the window so we can scrub before the 09:00 push-back.
-      render(<PlanMapView parts={[enroute(), hotel({ id: 3, starts_at: '2026-10-12T08:00:00Z', effective_at: '2026-10-12T08:00:00Z' })]} />);
+      render(
+        <PlanMapView
+          parts={[
+            enroute(),
+            hotel({
+              id: 3,
+              starts_at: '2026-10-12T08:00:00Z',
+              effective_at: '2026-10-12T08:00:00Z',
+            }),
+          ]}
+        />,
+      );
       scrubTo('2026-10-12T08:30:00Z'); // before departure → parked at LHR
       expect(planeFor(1)!.lngLat).toEqual([-0.45, 51.47]);
     });
@@ -536,7 +571,9 @@ describe('PlanMapView', () => {
 
   it('clicking a pin highlights its list row (bidirectional)', async () => {
     render(<PlanMapView parts={[flight(), hotel()]} />);
-    pinFor(2).getElement().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    pinFor(2)
+      .getElement()
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(await screen.findByTestId('part-detail-block')).toBeInTheDocument();
     expect(screen.getByTestId('plan-row-2')).toHaveClass('Mui-selected');
   });
@@ -654,9 +691,7 @@ describe('PlanMapView', () => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(await screen.findByTestId('plan-row-2')).toHaveClass('Mui-selected');
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await waitFor(() =>
-      expect(screen.getByTestId('plan-row-2')).not.toHaveClass('Mui-selected'),
-    );
+    await waitFor(() => expect(screen.getByTestId('plan-row-2')).not.toHaveClass('Mui-selected'));
   });
 
   it('ignores a leg click whose feature has no numeric partId', () => {
@@ -811,7 +846,10 @@ const pos = (iso: string, lat: number, lon: number, extra: Partial<Position> = {
 });
 
 describe('positionAt', () => {
-  const track: Position[] = [pos('2026-10-12T10:00:00Z', 50, -10), pos('2026-10-12T11:00:00Z', 48, -30)];
+  const track: Position[] = [
+    pos('2026-10-12T10:00:00Z', 50, -10),
+    pos('2026-10-12T11:00:00Z', 48, -30),
+  ];
   const t = (iso: string) => new Date(iso).getTime();
 
   it('returns null for an empty track or an instant before the first fix', () => {
@@ -828,15 +866,25 @@ describe('positionAt', () => {
   });
 
   it('selects the right bracket within a multi-segment track', () => {
-    const three = [pos('2026-10-12T10:00:00Z', 50, -10), ...track.slice(1), pos('2026-10-12T12:00:00Z', 44, -50)];
+    const three = [
+      pos('2026-10-12T10:00:00Z', 50, -10),
+      ...track.slice(1),
+      pos('2026-10-12T12:00:00Z', 44, -50),
+    ];
     // 11:30 sits in the 11:00→12:00 segment (lat 48→44, lon -30→-50).
     expect(positionAt(three, t('2026-10-12T11:30:00Z'))).toMatchObject({ lat: 46, lon: -40 });
   });
 
   it('derives heading from the later fix, the earlier one, then the bearing', () => {
-    const withB = [pos('2026-10-12T10:00:00Z', 50, -10), pos('2026-10-12T11:00:00Z', 48, -30, { heading_deg: 270 })];
+    const withB = [
+      pos('2026-10-12T10:00:00Z', 50, -10),
+      pos('2026-10-12T11:00:00Z', 48, -30, { heading_deg: 270 }),
+    ];
     expect(positionAt(withB, t('2026-10-12T10:30:00Z'))!.heading).toBe(270);
-    const withA = [pos('2026-10-12T10:00:00Z', 50, -10, { heading_deg: 99 }), pos('2026-10-12T11:00:00Z', 48, -30)];
+    const withA = [
+      pos('2026-10-12T10:00:00Z', 50, -10, { heading_deg: 99 }),
+      pos('2026-10-12T11:00:00Z', 48, -30),
+    ];
     expect(positionAt(withA, t('2026-10-12T10:30:00Z'))!.heading).toBe(99);
     expect(positionAt(track, t('2026-10-12T10:30:00Z'))!.heading).toBeCloseTo(
       initialBearing(50, -10, 48, -30),
@@ -845,11 +893,18 @@ describe('positionAt', () => {
   });
 
   it('flags the interpolated point estimated when either end is, and copes with equal timestamps', () => {
-    const est = [pos('2026-10-12T10:00:00Z', 50, -10, { is_estimated: true }), pos('2026-10-12T11:00:00Z', 48, -30)];
+    const est = [
+      pos('2026-10-12T10:00:00Z', 50, -10, { is_estimated: true }),
+      pos('2026-10-12T11:00:00Z', 48, -30),
+    ];
     expect(positionAt(est, t('2026-10-12T10:30:00Z'))!.estimated).toBe(true);
     // Equal-instant leading samples are skipped without dividing by zero — the
     // bracket advances to the later of the duplicates.
-    const dup = [pos('2026-10-12T10:00:00Z', 50, -10), pos('2026-10-12T10:00:00Z', 60, 5), pos('2026-10-12T11:00:00Z', 48, -30)];
+    const dup = [
+      pos('2026-10-12T10:00:00Z', 50, -10),
+      pos('2026-10-12T10:00:00Z', 60, 5),
+      pos('2026-10-12T11:00:00Z', 48, -30),
+    ];
     expect(positionAt(dup, t('2026-10-12T10:00:00Z'))).toMatchObject({ lat: 60, lon: 5 });
   });
 });
@@ -857,7 +912,10 @@ describe('positionAt', () => {
 describe('planePlacementAt', () => {
   const t = (iso: string) => new Date(iso).getTime();
   const routeHeading = initialBearing(51.47, -0.45, 38.95, -77.46);
-  const track: Position[] = [pos('2026-10-12T10:00:00Z', 50, -10), pos('2026-10-12T11:00:00Z', 48, -30)];
+  const track: Position[] = [
+    pos('2026-10-12T10:00:00Z', 50, -10),
+    pos('2026-10-12T11:00:00Z', 48, -30),
+  ];
 
   it('returns null for a non-flight part', () => {
     expect(planePlacementAt(hotel(), t('2026-10-12T10:30:00Z'))).toBeNull();
@@ -874,12 +932,18 @@ describe('planePlacementAt', () => {
 
   it('parks an origin-less flight at its destination before departure', () => {
     const endOnly = flight({ start_lat: undefined, start_lon: undefined });
-    expect(planePlacementAt(endOnly, t('2026-10-12T08:00:00Z'))).toMatchObject({ lon: -77.46, lat: 38.95 });
+    expect(planePlacementAt(endOnly, t('2026-10-12T08:00:00Z'))).toMatchObject({
+      lon: -77.46,
+      lat: 38.95,
+    });
   });
 
   it('parks at the destination once it has landed', () => {
     const arrived = flight({ flight: { ...flight().flight!, flight_status: 'Arrived' } });
-    expect(planePlacementAt(arrived, t('2026-10-12T14:00:00Z'))).toMatchObject({ lon: -77.46, lat: 38.95 });
+    expect(planePlacementAt(arrived, t('2026-10-12T14:00:00Z'))).toMatchObject({
+      lon: -77.46,
+      lat: 38.95,
+    });
   });
 
   it('falls back to the origin for a landed flight with no destination coordinate', () => {
@@ -888,26 +952,41 @@ describe('planePlacementAt', () => {
       end_lon: undefined,
       flight: { ...flight().flight!, flight_status: 'Arrived' },
     });
-    expect(planePlacementAt(arrivedNoEnd, t('2026-10-12T14:00:00Z'))).toMatchObject({ lon: -0.45, lat: 51.47 });
+    expect(planePlacementAt(arrivedNoEnd, t('2026-10-12T14:00:00Z'))).toMatchObject({
+      lon: -0.45,
+      lat: 51.47,
+    });
   });
 
   it('interpolates along the flown track while airborne', () => {
     const enroute = flight({ flight: { ...flight().flight!, flight_status: 'Enroute', track } });
-    expect(planePlacementAt(enroute, t('2026-10-12T10:30:00Z'))).toMatchObject({ lon: -20, lat: 49 });
+    expect(planePlacementAt(enroute, t('2026-10-12T10:30:00Z'))).toMatchObject({
+      lon: -20,
+      lat: 49,
+    });
   });
 
   it('orients along the route when the last fix carries no heading', () => {
     // Enroute past the final fix (which has no heading) but not flagged Arrived.
     const enroute = flight({ flight: { ...flight().flight!, flight_status: 'Enroute', track } });
-    expect(planePlacementAt(enroute, t('2026-10-12T12:30:00Z'))!.heading).toBeCloseTo(routeHeading, 5);
+    expect(planePlacementAt(enroute, t('2026-10-12T12:30:00Z'))!.heading).toBeCloseTo(
+      routeHeading,
+      5,
+    );
   });
 
   it('falls back by phase when there is no usable track sample', () => {
     const noTrack = flight({ flight: { ...flight().flight!, track: [] } });
     // Mid-flight, no track → parked at the origin.
-    expect(planePlacementAt(noTrack, t('2026-10-12T11:00:00Z'))).toMatchObject({ lon: -0.45, lat: 51.47 });
+    expect(planePlacementAt(noTrack, t('2026-10-12T11:00:00Z'))).toMatchObject({
+      lon: -0.45,
+      lat: 51.47,
+    });
     // Past the (scheduled) arrival, not flagged Arrived, no track → the destination.
-    expect(planePlacementAt(noTrack, t('2026-10-12T14:00:00Z'))).toMatchObject({ lon: -77.46, lat: 38.95 });
+    expect(planePlacementAt(noTrack, t('2026-10-12T14:00:00Z'))).toMatchObject({
+      lon: -77.46,
+      lat: 38.95,
+    });
   });
 
   it('handles a flight with no resolvable departure time', () => {
@@ -922,7 +1001,10 @@ describe('planePlacementAt', () => {
         track: [],
       },
     });
-    expect(planePlacementAt(noDep, t('2026-10-12T10:00:00Z'))).toMatchObject({ lon: -0.45, lat: 51.47 });
+    expect(planePlacementAt(noDep, t('2026-10-12T10:00:00Z'))).toMatchObject({
+      lon: -0.45,
+      lat: 51.47,
+    });
   });
 });
 
@@ -933,7 +1015,12 @@ describe('trackFC', () => {
 
   it('returns an empty collection without a selection or with a sparse track', () => {
     expect(trackFC(null, null).features).toHaveLength(0);
-    expect(trackFC(flight({ flight: { ...flight().flight!, track: [pos('2026-10-12T10:00:00Z', 50, -10)] } }), null).features).toHaveLength(0);
+    expect(
+      trackFC(
+        flight({ flight: { ...flight().flight!, track: [pos('2026-10-12T10:00:00Z', 50, -10)] } }),
+        null,
+      ).features,
+    ).toHaveLength(0);
   });
 
   it('draws the full trail when not scrubbing', () => {
@@ -989,7 +1076,10 @@ describe('tracksFC', () => {
   });
 
   it('skips parts with a sparse track or none clipped before the instant', () => {
-    const sparse = flight({ id: 3, flight: { ...flight().flight!, track: [pos('2026-10-12T10:00:00Z', 50, -10)] } });
+    const sparse = flight({
+      id: 3,
+      flight: { ...flight().flight!, track: [pos('2026-10-12T10:00:00Z', 50, -10)] },
+    });
     const future = flight({ id: 4 }); // track starts at 10:00
     expect(tracksFC([sparse, future], t('2026-10-12T09:00:00Z')).features).toHaveLength(0);
   });

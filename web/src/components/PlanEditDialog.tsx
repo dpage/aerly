@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Alert,
   Box,
@@ -247,7 +248,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     [trips, plan.trip_id],
   );
 
-  const reportError = (err: unknown) => setError(err instanceof Error ? err.message : String(err));
+  const reportError = (err: unknown) => setError(errorMessage(err));
 
   const patchEnd = (
     partId: number,
@@ -320,8 +321,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
       for (const part of editableParts) {
         const patch = buildPatch(part, forms[part.id], initial[part.id]);
         if (!patch) continue;
-        const addrChanged =
-          patch.start_address !== undefined || patch.end_address !== undefined;
+        const addrChanged = patch.start_address !== undefined || patch.end_address !== undefined;
         const updated = await updatePlanPart(part.id, patch);
         if (addrChanged && isUnlocated(updated)) {
           stranded.push(patch.start_address || patch.end_address || '');

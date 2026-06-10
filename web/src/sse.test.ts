@@ -199,7 +199,9 @@ describe('alert.created events', () => {
     const onAlert = vi.fn();
     const teardown = connectSSE({ ...noopHandlers(), onAlert });
     const es = FakeEventSource.instances[0];
-    es.emit('alert.created', { data: JSON.stringify({ alert: { id: 7, message: 'BA286 cancelled' } }) });
+    es.emit('alert.created', {
+      data: JSON.stringify({ alert: { id: 7, message: 'BA286 cancelled' } }),
+    });
     expect(onAlert).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }));
     teardown();
   });

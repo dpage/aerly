@@ -175,9 +175,7 @@ describe('TripList', () => {
 
   it('fetches all trips via the API when the superuser enables "All trips"', async () => {
     state.me = user({ id: 1, is_superuser: true });
-    mockApiListTrips.mockResolvedValue([
-      trip({ id: 50, name: 'StrangerTrip', my_role: 'viewer' }),
-    ]);
+    mockApiListTrips.mockResolvedValue([trip({ id: 50, name: 'StrangerTrip', my_role: 'viewer' })]);
     renderList('friends');
     await userEvent.click(screen.getByLabelText(/All trips/i));
     await waitFor(() => expect(mockApiListTrips).toHaveBeenCalledWith('all'));
@@ -255,7 +253,7 @@ describe('TripList', () => {
     expect(screen.queryByText('C')).not.toBeInTheDocument();
   });
 
-  it('shows no avatar on the viewer\'s own trip', () => {
+  it("shows no avatar on the viewer's own trip", () => {
     state.me = user({ id: 1, username: 'me' });
     state.users = [user({ id: 1, username: 'me' }), user({ id: 2, username: 'amy' })];
     state.trips = [
@@ -289,9 +287,7 @@ describe('TripList', () => {
     const dialog = screen.getByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText(/name/i), 'Brand New');
     await userEvent.click(within(dialog).getByRole('button', { name: /create/i }));
-    expect(createTrip).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Brand New' }),
-    );
+    expect(createTrip).toHaveBeenCalledWith(expect.objectContaining({ name: 'Brand New' }));
     expect(navigate).toHaveBeenCalledWith('/trips/99');
   });
 
@@ -351,7 +347,9 @@ describe('TripList', () => {
     renderList();
     await userEvent.click(screen.getByRole('button', { name: /new trip/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /cancel/i }));
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: /cancel/i }),
+    );
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
@@ -373,10 +371,16 @@ describe('TripList', () => {
   });
 
   it('imports a .ics: uploads, refreshes the list, and opens the new trip', async () => {
-    mockImportTrip.mockResolvedValue({ trip: trip({ id: 77, name: 'Imported' }), added: 7, skipped: 0 });
+    mockImportTrip.mockResolvedValue({
+      trip: trip({ id: 77, name: 'Imported' }),
+      added: 7,
+      skipped: 0,
+    });
     const { container } = renderList('mine');
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const file = new File(['BEGIN:VCALENDAR\nEND:VCALENDAR'], 'trip.ics', { type: 'text/calendar' });
+    const file = new File(['BEGIN:VCALENDAR\nEND:VCALENDAR'], 'trip.ics', {
+      type: 'text/calendar',
+    });
     await userEvent.upload(input, file);
     expect(mockImportTrip).toHaveBeenCalledWith(file);
     expect(listTrips).toHaveBeenCalled();

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Alert,
   Box,
@@ -49,7 +50,7 @@ export default function StatsDialog({ open, onClose }: Props) {
         if (!cancelled) setFlights(rows);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setError(errorMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -93,11 +94,7 @@ export default function StatsDialog({ open, onClose }: Props) {
             </Typography>
             <HighlightTiles stats={stats} />
             {stats.excluded > 0 && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'block', mt: 3 }}
-              >
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3 }}>
                 {stats.excluded} cancelled/diverted flight{stats.excluded === 1 ? '' : 's'} not
                 counted.
               </Typography>

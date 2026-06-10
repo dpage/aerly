@@ -9,7 +9,11 @@ const h = vi.hoisted(() => ({
     listFlights: vi.fn(),
   },
   setError: vi.fn(),
-  me: { id: 1, username: 'alice', is_superuser: false } as { id: number; username: string; is_superuser: boolean },
+  me: { id: 1, username: 'alice', is_superuser: false } as {
+    id: number;
+    username: string;
+    is_superuser: boolean;
+  },
 }));
 
 vi.mock('../api/client', () => ({ api: h.api }));
@@ -104,7 +108,14 @@ describe('StatsDialog', () => {
   it('renders highlights from flown flights', async () => {
     h.api.listFlights.mockResolvedValue([
       flight({ id: 1, ident: 'BA286' }),
-      flight({ id: 2, ident: 'BA999', origin_iata: 'LHR', dest_iata: 'JFK', dest_lat: 40.6413, dest_lon: -73.7781 }),
+      flight({
+        id: 2,
+        ident: 'BA999',
+        origin_iata: 'LHR',
+        dest_iata: 'JFK',
+        dest_lat: 40.6413,
+        dest_lon: -73.7781,
+      }),
     ]);
     render(<StatsDialog open onClose={() => {}} />);
     expect(await screen.findByText('Longest flight')).toBeInTheDocument();

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Avatar,
   Box,
@@ -106,10 +107,7 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
 
   // The scope picker chooses among trip members (excluding the viewer's own
   // owner row isn't necessary — the server resolves owner/passenger access).
-  const memberOptions = useMemo(
-    () => members.map((m) => m.user_id),
-    [members],
-  );
+  const memberOptions = useMemo(() => members.map((m) => m.user_id), [members]);
 
   // Passengers are picked from friends (accepted + pending, so you can
   // pre-share to an invited person) not already aboard.
@@ -118,8 +116,7 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
     [friendCandidates, plan.passenger_ids],
   );
 
-  const reportError = (err: unknown) =>
-    setError(err instanceof Error ? err.message : String(err));
+  const reportError = (err: unknown) => setError(errorMessage(err));
 
   const handleSave = async () => {
     setBusy(true);
@@ -227,11 +224,7 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
               value={mode}
               onChange={(e) => setMode(e.target.value as PlanVisibilityMode)}
             >
-              <FormControlLabel
-                value="everyone"
-                control={<Radio />}
-                label="Everyone on the trip"
-              />
+              <FormControlLabel value="everyone" control={<Radio />} label="Everyone on the trip" />
               <FormControlLabel value="hidden_from" control={<Radio />} label="Hidden from…" />
               <FormControlLabel
                 value="only_visible_to"

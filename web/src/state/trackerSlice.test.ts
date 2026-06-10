@@ -325,9 +325,11 @@ describe('applyPlanPartUpdate', () => {
       { ts: '2024-01-01T12:01:00Z', lat: 52, lon: -2, is_estimated: false },
     ];
     useStore.setState({ trackerParts: [part()] });
-    useStore.getState().applyPlanPartUpdate(
-      trackerPart({ status: 'Enroute', last_polled_at: '2024-01-01T12:01:30Z', track }),
-    );
+    useStore
+      .getState()
+      .applyPlanPartUpdate(
+        trackerPart({ status: 'Enroute', last_polled_at: '2024-01-01T12:01:30Z', track }),
+      );
     const row = useStore.getState().trackerParts[0];
     expect(row.flight?.track).toEqual(track);
     expect(row.flight?.last_polled_at).toBe('2024-01-01T12:01:30Z');
@@ -347,9 +349,9 @@ describe('applyPlanPartUpdate', () => {
       lon: -1,
       is_estimated: false,
     };
-    useStore.getState().applyPlanPartUpdate(
-      trackerPart({ status: 'Enroute', latest_position: pos }),
-    );
+    useStore
+      .getState()
+      .applyPlanPartUpdate(trackerPart({ status: 'Enroute', latest_position: pos }));
     const updated = useStore.getState().currentTrip!.plans[0].parts[0];
     expect(updated.status).toBe('Enroute');
     expect(updated.flight?.flight_status).toBe('Enroute');

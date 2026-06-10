@@ -72,7 +72,12 @@ describe('tripSpan', () => {
     const plans = [
       plan([
         part({ id: 1, starts_at: '2026-10-12T09:00:00Z', effective_at: '2026-10-12T09:00:00Z' }),
-        part({ id: 2, starts_at: '2026-10-18T09:00:00Z', effective_at: '2026-10-18T09:00:00Z', ends_at: '2026-10-18T11:00:00Z' }),
+        part({
+          id: 2,
+          starts_at: '2026-10-18T09:00:00Z',
+          effective_at: '2026-10-18T09:00:00Z',
+          ends_at: '2026-10-18T11:00:00Z',
+        }),
       ]),
     ];
     const span = tripSpan(trip(), plans);
@@ -156,25 +161,43 @@ describe('fmtTripDates', () => {
 });
 
 describe('plansOutsideTripDates', () => {
-  const within = part({ id: 1, starts_at: '2026-10-13T09:00:00Z', effective_at: '2026-10-13T09:00:00Z' });
+  const within = part({
+    id: 1,
+    starts_at: '2026-10-13T09:00:00Z',
+    effective_at: '2026-10-13T09:00:00Z',
+  });
   it('false when no explicit trip dates', () => {
     expect(plansOutsideTripDates(trip(), [plan([within])])).toBe(false);
   });
   it('false when all parts are within the dates', () => {
     expect(
-      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([within])]),
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [
+        plan([within]),
+      ]),
     ).toBe(false);
   });
   it('true when a part starts before the trip', () => {
-    const early = part({ id: 2, starts_at: '2026-10-01T09:00:00Z', effective_at: '2026-10-01T09:00:00Z' });
+    const early = part({
+      id: 2,
+      starts_at: '2026-10-01T09:00:00Z',
+      effective_at: '2026-10-01T09:00:00Z',
+    });
     expect(
-      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([early])]),
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [
+        plan([early]),
+      ]),
     ).toBe(true);
   });
   it('true when a part ends after the trip', () => {
-    const late = part({ id: 3, starts_at: '2026-10-25T09:00:00Z', effective_at: '2026-10-25T09:00:00Z' });
+    const late = part({
+      id: 3,
+      starts_at: '2026-10-25T09:00:00Z',
+      effective_at: '2026-10-25T09:00:00Z',
+    });
     expect(
-      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([late])]),
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [
+        plan([late]),
+      ]),
     ).toBe(true);
   });
 });
@@ -192,9 +215,7 @@ describe('buildTimeline', () => {
   });
 
   it('drops dismissed parts', () => {
-    const plans = [
-      plan([part({ id: 1, dismissed_at: '2026-09-01T00:00:00Z' })]),
-    ];
+    const plans = [plan([part({ id: 1, dismissed_at: '2026-09-01T00:00:00Z' })])];
     expect(buildTimeline(plans)).toHaveLength(0);
   });
 
@@ -222,14 +243,17 @@ describe('buildTimeline', () => {
     expect(days[1].parts[0].edge).toBe('check-out');
   });
 
-  it("orders a hotel check-in by its smart effective_at, after a same-day flight", () => {
+  it('orders a hotel check-in by its smart effective_at, after a same-day flight', () => {
     // A flight arriving 18:00, and a hotel whose raw check-in is 15:00 but whose
     // smart effective_at (after arrival) is 19:00. The check-in tile must sort
     // after the flight, not ahead of it, while still bucketing on the booked day.
     const plans = [
-      plan([part({ id: 1, starts_at: '2026-10-12T15:30:00Z', effective_at: '2026-10-12T15:30:00Z' })], {
-        id: 1,
-      }),
+      plan(
+        [part({ id: 1, starts_at: '2026-10-12T15:30:00Z', effective_at: '2026-10-12T15:30:00Z' })],
+        {
+          id: 1,
+        },
+      ),
       plan(
         [
           part({
@@ -312,7 +336,9 @@ describe('fmtPartTimeRange', () => {
 
   it('falls back to a UTC suffix when the tz is unknown', () => {
     expect(
-      fmtPartTimeRange(part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, start_tz: '' })),
+      fmtPartTimeRange(
+        part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, start_tz: '' }),
+      ),
     ).toBe('09:00 UTC');
   });
   it('renders a range with each end in its own tz + abbreviation', () => {
@@ -342,9 +368,7 @@ describe('tzAbbrev', () => {
 describe('fmtLocalDateTime', () => {
   it('renders date + local time + tz abbreviation', () => {
     // 14:00Z → 10:00 EDT on the same day.
-    expect(fmtLocalDateTime('2026-07-01T14:00:00Z', 'America/New_York')).toMatch(
-      /Jul.*10:00 EDT$/,
-    );
+    expect(fmtLocalDateTime('2026-07-01T14:00:00Z', 'America/New_York')).toMatch(/Jul.*10:00 EDT$/);
   });
 });
 
@@ -411,7 +435,16 @@ describe('branch edge cases', () => {
     expect(span.end).toBe(new Date('2026-10-19T00:00:00Z').getTime());
   });
   it('tripSpan: uses a part with no effective_at (falls back to starts_at)', () => {
-    const plans = [plan([part({ id: 1, effective_at: undefined, starts_at: '2026-10-12T09:00:00Z', ends_at: undefined })])];
+    const plans = [
+      plan([
+        part({
+          id: 1,
+          effective_at: undefined,
+          starts_at: '2026-10-12T09:00:00Z',
+          ends_at: undefined,
+        }),
+      ]),
+    ];
     const span = tripSpan(trip(), plans);
     expect(span.start).toBe(new Date('2026-10-12T09:00:00Z').getTime());
   });
@@ -426,23 +459,46 @@ describe('branch edge cases', () => {
   });
 
   it('plansOutsideTripDates: skips dismissed parts', () => {
-    const early = part({ id: 2, starts_at: '2026-10-01T09:00:00Z', effective_at: '2026-10-01T09:00:00Z', dismissed_at: '2026-09-01T00:00:00Z' });
+    const early = part({
+      id: 2,
+      starts_at: '2026-10-01T09:00:00Z',
+      effective_at: '2026-10-01T09:00:00Z',
+      dismissed_at: '2026-09-01T00:00:00Z',
+    });
     expect(
-      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([early])]),
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [
+        plan([early]),
+      ]),
     ).toBe(false);
   });
   it('plansOutsideTripDates: end-only trip flags a late part', () => {
-    const late = part({ id: 3, starts_at: '2026-10-25T09:00:00Z', effective_at: '2026-10-25T09:00:00Z' });
+    const late = part({
+      id: 3,
+      starts_at: '2026-10-25T09:00:00Z',
+      effective_at: '2026-10-25T09:00:00Z',
+    });
     expect(plansOutsideTripDates(trip({ ends_on: '2026-10-18' }), [plan([late])])).toBe(true);
   });
   it('plansOutsideTripDates: start-only trip flags an early part', () => {
-    const early = part({ id: 4, starts_at: '2026-10-01T09:00:00Z', effective_at: '2026-10-01T09:00:00Z' });
+    const early = part({
+      id: 4,
+      starts_at: '2026-10-01T09:00:00Z',
+      effective_at: '2026-10-01T09:00:00Z',
+    });
     expect(plansOutsideTripDates(trip({ starts_on: '2026-10-12' }), [plan([early])])).toBe(true);
   });
   it('plansOutsideTripDates: a part with no end uses its start for the end check', () => {
-    const within = part({ id: 5, starts_at: '2026-10-13T09:00:00Z', effective_at: '2026-10-13T09:00:00Z', ends_at: undefined, end_tz: '' });
+    const within = part({
+      id: 5,
+      starts_at: '2026-10-13T09:00:00Z',
+      effective_at: '2026-10-13T09:00:00Z',
+      ends_at: undefined,
+      end_tz: '',
+    });
     expect(
-      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [plan([within])]),
+      plansOutsideTripDates(trip({ starts_on: '2026-10-12', ends_on: '2026-10-18' }), [
+        plan([within]),
+      ]),
     ).toBe(false);
   });
 
@@ -477,7 +533,9 @@ describe('branch edge cases', () => {
   });
   it('hotelNights: 0 when there is no end or an unparseable instant', () => {
     expect(hotelNights(part({ type: 'hotel', ends_at: undefined }))).toBe(0);
-    expect(hotelNights(part({ type: 'hotel', starts_at: 'nope', ends_at: '2026-10-15T10:00:00Z' }))).toBe(0);
+    expect(
+      hotelNights(part({ type: 'hotel', starts_at: 'nope', ends_at: '2026-10-15T10:00:00Z' })),
+    ).toBe(0);
   });
 
   it('fmtPartPlaces: end-only transfer still renders the arrow form', () => {
@@ -497,7 +555,9 @@ describe('branch edge cases', () => {
 
   it('buildTimeline: an unparseable instant falls back to the raw iso for its day key/label', () => {
     const plans = [
-      plan([part({ id: 1, starts_at: 'not-a-date', effective_at: 'not-a-date', ends_at: undefined })]),
+      plan([
+        part({ id: 1, starts_at: 'not-a-date', effective_at: 'not-a-date', ends_at: undefined }),
+      ]),
     ];
     const days = buildTimeline(plans);
     expect(days).toHaveLength(1);

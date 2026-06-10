@@ -35,7 +35,6 @@ export interface PlansSlice {
   notifyPlanShares: (planId: number, input: NotifySharesInput) => Promise<void>;
 }
 
-
 export const createPlansSlice: StateCreator<StoreState, [], [], PlansSlice> = (_set, get) => ({
   async createPlan(tripId, input) {
     await api.createPlan(tripId, input);

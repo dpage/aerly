@@ -179,9 +179,7 @@ export default function TripDetail() {
           <Button size="small" onClick={() => navigate('/')}>
             ← Trips
           </Button>
-          <Box
-            sx={{ flexGrow: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1.5 }}
-          >
+          <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
             <Typography variant="h5" noWrap>
               {title}
             </Typography>

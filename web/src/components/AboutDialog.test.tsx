@@ -127,7 +127,11 @@ describe('AboutDialog', () => {
   it('labels anonymous OpenSky and a single sign-in provider', async () => {
     h.api.getAdminInfo.mockResolvedValue(
       info({
-        config: { tracker_authed: false, auth_github: true, auth_google: false } as AdminInfo['config'],
+        config: {
+          tracker_authed: false,
+          auth_github: true,
+          auth_google: false,
+        } as AdminInfo['config'],
       }),
     );
     render(<AboutDialog open onClose={() => {}} />);
@@ -138,7 +142,10 @@ describe('AboutDialog', () => {
   it('shows "enabled" for email ingest with no address', async () => {
     h.api.getAdminInfo.mockResolvedValue(
       info({
-        config: { email_ingest_enabled: true, email_ingest_address: undefined } as AdminInfo['config'],
+        config: {
+          email_ingest_enabled: true,
+          email_ingest_address: undefined,
+        } as AdminInfo['config'],
       }),
     );
     render(<AboutDialog open onClose={() => {}} />);

@@ -191,4 +191,3 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
 function byLogin(a: User, b: User) {
   return a.username.toLowerCase().localeCompare(b.username.toLowerCase());
 }
-

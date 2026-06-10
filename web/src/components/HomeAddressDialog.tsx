@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Button,
   Dialog,
@@ -14,7 +15,13 @@ import { useStore } from '../state/store';
 /** Set the signed-in user's home address. It's used as context when adding
  * plans from text (so "taxi from home to LHR" resolves "home"), and is only
  * ever visible to the user. */
-export default function HomeAddressDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function HomeAddressDialog({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const me = useStore((s) => s.me);
   const setHomeAddress = useStore((s) => s.setHomeAddress);
   const setError = useStore((s) => s.setError);
@@ -31,7 +38,7 @@ export default function HomeAddressDialog({ open, onClose }: { open: boolean; on
       await setHomeAddress(value.trim());
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }

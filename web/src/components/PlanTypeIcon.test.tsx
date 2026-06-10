@@ -14,9 +14,7 @@ describe('PlanTypeIcon', () => {
   });
 
   it('renders the fallback Place icon for an unknown type', () => {
-    const { container } = render(
-      <PlanTypeIcon type={'mystery' as PlanType} data-testid="icon" />,
-    );
+    const { container } = render(<PlanTypeIcon type={'mystery' as PlanType} data-testid="icon" />);
     expect(container.querySelector('svg')).not.toBeNull();
   });
 

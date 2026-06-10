@@ -51,9 +51,7 @@ beforeEach(() => {
   // show their name instead of "User #N"). Default the mock to echo back
   // whatever the test put in state.users — tests that want a stale-cache
   // scenario can override.
-  h.api.listUsers.mockImplementation(() =>
-    Promise.resolve(useStore.getState().users),
-  );
+  h.api.listUsers.mockImplementation(() => Promise.resolve(useStore.getState().users));
   useStore.setState({
     friendships: [],
     users: [user({ id: 2, username: 'bob', name: 'Bob' })],
@@ -221,7 +219,7 @@ describe('FriendsDialog', () => {
     expect(screen.queryByText('User #12')).not.toBeInTheDocument();
   });
 
-  it("trims an empty invite email instead of calling the server", async () => {
+  it('trims an empty invite email instead of calling the server', async () => {
     h.api.listFriends.mockResolvedValue([]);
     render(<FriendsDialog open onClose={() => {}} />);
     // Whitespace-only email keeps the button disabled, so we can't click

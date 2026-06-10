@@ -5,6 +5,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
 
 import { useStore } from './state/store';
+import { errorMessage } from './state/helpers';
 import { connectSSE } from './sse';
 import { api } from './api/client';
 import { createAppTheme, useThemeMode } from './theme';
@@ -137,7 +138,7 @@ export default function App() {
         }
         void refreshNotifications();
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errorMessage(err));
       } finally {
         params.delete('friend_accept');
         const qs = params.toString();

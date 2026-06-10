@@ -21,6 +21,9 @@ import PlanMapView from '../components/PlanMapView';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ymd = (d: Date): string => format(d, 'yyyy-MM-dd');
 const toDate = (s?: string): Date | null => (s ? parseISO(s) : null);
+/** True for a real, finite Date. MUI's DatePicker emits an `Invalid Date`
+ *  (truthy) while the user is mid-edit, and date-fns `format` throws on it. */
+const isValidDate = (d: Date | null): d is Date => d != null && !Number.isNaN(d.getTime());
 
 /** Global tracker (PRD §6.5): the unified map+list view over every mappable part
  * in a date window, optionally scoped to a tag. Identical to the trip Map tab
@@ -121,13 +124,13 @@ export default function Tracker() {
           <DatePicker
             label="From"
             value={toDate(win.from)}
-            onChange={(d) => d && setTrackerWindow({ from: ymd(d) })}
+            onChange={(d) => isValidDate(d) && setTrackerWindow({ from: ymd(d) })}
             slotProps={{ textField: { size: 'small' } }}
           />
           <DatePicker
             label="To"
             value={toDate(win.to)}
-            onChange={(d) => d && setTrackerWindow({ to: ymd(d) })}
+            onChange={(d) => isValidDate(d) && setTrackerWindow({ to: ymd(d) })}
             slotProps={{ textField: { size: 'small' } }}
           />
         </Stack>

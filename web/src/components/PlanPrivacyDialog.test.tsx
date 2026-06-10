@@ -40,9 +40,8 @@ vi.mock('../state/store', () => ({
 // useFriendCandidates derives from the mocked store state (users + friendships);
 // re-export the real implementation so the passenger/share pickers see friends.
 vi.mock('../state/friendUsers', async () => {
-  const actual = await vi.importActual<typeof import('../state/friendUsers')>(
-    '../state/friendUsers',
-  );
+  const actual =
+    await vi.importActual<typeof import('../state/friendUsers')>('../state/friendUsers');
   return actual;
 });
 
@@ -160,9 +159,7 @@ describe('PlanPrivacyDialog', () => {
 
   it('shows the passenger auto-grant copy', () => {
     render_();
-    expect(
-      screen.getByText(/grants them viewer access to the whole trip/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/grants them viewer access to the whole trip/i)).toBeInTheDocument();
   });
 
   it('adds a passenger', async () => {
@@ -218,7 +215,12 @@ describe('PlanPrivacyDialog', () => {
     // A passenger-add (or live SSE) refetch hands down a fresh plan object with
     // the same id and same visibility but a new passenger_ids array reference.
     rerender(
-      <PlanPrivacyDialog open plan={plan({ passenger_ids: [3] })} members={members} onClose={() => {}} />,
+      <PlanPrivacyDialog
+        open
+        plan={plan({ passenger_ids: [3] })}
+        members={members}
+        onClose={() => {}}
+      />,
     );
 
     // The in-progress, unsaved selection must survive — not snap back to "everyone".

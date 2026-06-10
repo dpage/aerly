@@ -222,12 +222,20 @@ const GROUP_ORDER: Array<{ bucket: TripBucket; label: string }> = [
 
 function groupTrips(trips: Trip[]): Record<TripBucket, Trip[]> {
   const now = Date.now();
+  // Compute each trip's span once (tripSpan scans the trip's parts), then reuse
+  // it for both classification and sorting rather than recomputing per compare.
+  const spans = new Map<number, ReturnType<typeof tripSpan>>();
+  for (const trip of trips) spans.set(trip.id, tripSpan(trip));
+
   const out: Record<TripBucket, Trip[]> = { upcoming: [], now: [], past: [] };
   for (const trip of trips) {
-    out[classifyTrip(tripSpan(trip), now)].push(trip);
+    out[classifyTrip(spans.get(trip.id)!, now)].push(trip);
   }
   // Soonest-first within Upcoming/Now; most-recent-first for Past.
-  const key = (t: Trip) => tripSpan(t).start ?? tripSpan(t).end ?? Infinity;
+  const key = (t: Trip) => {
+    const sp = spans.get(t.id)!;
+    return sp.start ?? sp.end ?? Infinity;
+  };
   out.now.sort((a, b) => key(a) - key(b));
   out.upcoming.sort((a, b) => key(a) - key(b));
   out.past.sort((a, b) => key(b) - key(a));
@@ -259,9 +267,7 @@ function TripCard({ trip }: { trip: Trip }) {
   // (No avatar on the viewer's own trips; editors/viewers aren't shown here.)
   const ownerMember = trip.members.find((m) => m.role === 'owner');
   const owner =
-    ownerMember && ownerMember.user_id !== me?.id
-      ? usersById.get(ownerMember.user_id)
-      : undefined;
+    ownerMember && ownerMember.user_id !== me?.id ? usersById.get(ownerMember.user_id) : undefined;
 
   // Badge trips the viewer is travelling on but doesn't own, so owned and
   // passenger trips are distinguishable at a glance under "My trips" (#19).
@@ -306,7 +312,12 @@ function TripCard({ trip }: { trip: Trip }) {
               {trip.name}
             </Typography>
             {trip.destination && (
-              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'text.secondary' }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={0.5}
+                sx={{ color: 'text.secondary' }}
+              >
                 <PlaceIcon fontSize="inherit" />
                 <Typography variant="body2" color="text.secondary" noWrap>
                   {trip.destination}

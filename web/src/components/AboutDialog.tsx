@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Alert,
   Box,
@@ -50,7 +51,7 @@ export default function AboutDialog({ open, onClose }: Props) {
         if (!cancelled) setInfo(data);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setError(errorMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

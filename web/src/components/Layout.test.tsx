@@ -459,12 +459,21 @@ describe('Layout (alerts)', () => {
     // A flight alert and a share notification sharing the same numeric id.
     h.state.alerts = [
       {
-        id: 7, kind: 'gate', trip_id: 1, plan_id: 1, plan_part_id: 2,
-        message: 'Flight gate change', created_at: '2026-06-01T00:00:00Z',
+        id: 7,
+        kind: 'gate',
+        trip_id: 1,
+        plan_id: 1,
+        plan_part_id: 2,
+        message: 'Flight gate change',
+        created_at: '2026-06-01T00:00:00Z',
       },
       {
-        id: 7, kind: 'share', trip_id: 2, plan_id: 2,
-        message: 'Alice shared Rome 2026', created_at: '2026-06-01T00:00:01Z',
+        id: 7,
+        kind: 'share',
+        trip_id: 2,
+        plan_id: 2,
+        message: 'Alice shared Rome 2026',
+        created_at: '2026-06-01T00:00:01Z',
       },
     ];
     renderLayout();

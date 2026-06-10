@@ -57,7 +57,9 @@ beforeEach(() => {
 describe('PlanReminderOverride', () => {
   it('defaults to "Use trip setting" and hides the lead field', () => {
     render(<PlanReminderOverride plan={plan()} />);
-    expect(screen.getByRole('combobox', { name: /reminder/i })).toHaveTextContent(/use trip setting/i);
+    expect(screen.getByRole('combobox', { name: /reminder/i })).toHaveTextContent(
+      /use trip setting/i,
+    );
     expect(screen.queryByLabelText(/reminder lead time in hours/i)).toBeNull();
   });
 
@@ -75,13 +77,17 @@ describe('PlanReminderOverride', () => {
   });
 
   it('clears the override when switching back to "Use trip setting"', async () => {
-    render(<PlanReminderOverride plan={plan({ reminder_override: 'on', reminder_lead_hours: 6 })} />);
+    render(
+      <PlanReminderOverride plan={plan({ reminder_override: 'on', reminder_lead_hours: 6 })} />,
+    );
     await chooseMode('Use trip setting');
     await waitFor(() => expect(h.clearPlanReminder).toHaveBeenCalledWith(5));
   });
 
   it('saves a changed lead on blur when on', async () => {
-    render(<PlanReminderOverride plan={plan({ reminder_override: 'on', reminder_lead_hours: 24 })} />);
+    render(
+      <PlanReminderOverride plan={plan({ reminder_override: 'on', reminder_lead_hours: 24 })} />,
+    );
     const field = screen.getByLabelText(/reminder lead time in hours/i);
     await userEvent.clear(field);
     await userEvent.type(field, '3');
@@ -102,11 +108,15 @@ describe('PlanReminderOverride', () => {
     await chooseMode('Use trip setting');
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('boom'));
     // The optimistic switch to "inherit" failed — revert to the prior "off".
-    expect(screen.getByRole('combobox', { name: /reminder/i })).toHaveTextContent(/don't remind me/i);
+    expect(screen.getByRole('combobox', { name: /reminder/i })).toHaveTextContent(
+      /don't remind me/i,
+    );
   });
 
   it('falls back to a 24h lead when the field is non-positive', async () => {
-    render(<PlanReminderOverride plan={plan({ reminder_override: 'on', reminder_lead_hours: 24 })} />);
+    render(
+      <PlanReminderOverride plan={plan({ reminder_override: 'on', reminder_lead_hours: 24 })} />,
+    );
     const field = screen.getByLabelText(/reminder lead time in hours/i);
     await userEvent.clear(field);
     await userEvent.type(field, '0');

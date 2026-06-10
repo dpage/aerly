@@ -30,11 +30,21 @@ export function parseMs(iso?: string | null): number | null {
  * scheduled, falling back to the part's own start/end), or null when unknown. */
 function flightDeparture(p: PlanPart): number | null {
   const f = p.flight;
-  return parseMs(f?.actual_out) ?? parseMs(f?.estimated_out) ?? parseMs(f?.scheduled_out) ?? parseMs(p.starts_at);
+  return (
+    parseMs(f?.actual_out) ??
+    parseMs(f?.estimated_out) ??
+    parseMs(f?.scheduled_out) ??
+    parseMs(p.starts_at)
+  );
 }
 function flightArrival(p: PlanPart): number | null {
   const f = p.flight;
-  return parseMs(f?.actual_in) ?? parseMs(f?.estimated_in) ?? parseMs(f?.scheduled_in) ?? parseMs(p.ends_at);
+  return (
+    parseMs(f?.actual_in) ??
+    parseMs(f?.estimated_in) ??
+    parseMs(f?.scheduled_in) ??
+    parseMs(p.ends_at)
+  );
 }
 
 /** The live plane placement (latest reported fix). Landed: park at the
@@ -65,7 +75,8 @@ export function planePlacement(p: PlanPart): PlanePlacement | null {
     };
   }
   // Not departed yet: park at the origin, oriented along the route.
-  if (hasStart) return { lon: p.start_lon!, lat: p.start_lat!, heading: routeHeading, estimated: false };
+  if (hasStart)
+    return { lon: p.start_lon!, lat: p.start_lat!, heading: routeHeading, estimated: false };
   if (hasEnd) return { lon: p.end_lon!, lat: p.end_lat!, heading: routeHeading, estimated: false };
   return null;
 }
@@ -81,7 +92,9 @@ export function planePlacementAt(p: PlanPart, t: number): PlanePlacement | null 
   const routeHeading =
     hasStart && hasEnd ? initialBearing(p.start_lat!, p.start_lon!, p.end_lat!, p.end_lon!) : 0;
   const origin = (): PlanePlacement | null =>
-    hasStart ? { lon: p.start_lon!, lat: p.start_lat!, heading: routeHeading, estimated: false } : null;
+    hasStart
+      ? { lon: p.start_lon!, lat: p.start_lat!, heading: routeHeading, estimated: false }
+      : null;
   const dest = (): PlanePlacement | null =>
     hasEnd ? { lon: p.end_lon!, lat: p.end_lat!, heading: routeHeading, estimated: false } : null;
   const dep = flightDeparture(p);
@@ -94,7 +107,12 @@ export function planePlacementAt(p: PlanPart, t: number): PlanePlacement | null 
   // Airborne: interpolate along the flown track.
   const pos = positionAt(p.flight?.track ?? [], t);
   if (pos) {
-    return { lon: pos.lon, lat: pos.lat, heading: pos.heading ?? routeHeading, estimated: pos.estimated };
+    return {
+      lon: pos.lon,
+      lat: pos.lat,
+      heading: pos.heading ?? routeHeading,
+      estimated: pos.estimated,
+    };
   }
   // No track sample covers `t` (departed but pre-coverage, or no track at all):
   // fall back by phase.
@@ -113,7 +131,12 @@ export function positionAt(
   if (t < Date.parse(track[0].ts)) return null;
   const lastPt = track[track.length - 1];
   if (t >= Date.parse(lastPt.ts)) {
-    return { lat: lastPt.lat, lon: lastPt.lon, heading: lastPt.heading_deg, estimated: lastPt.is_estimated };
+    return {
+      lat: lastPt.lat,
+      lon: lastPt.lon,
+      heading: lastPt.heading_deg,
+      estimated: lastPt.is_estimated,
+    };
   }
   // `t` sits strictly inside the track: find the bracketing pair and lerp.
   let i = 0;
@@ -176,14 +199,19 @@ export function planeWindows(parts: PlanPart[]): Map<number, { start: number; en
 /** The selected flight's flown-track polyline. When scrubbing (`until` is an
  * epoch ms) it's clipped to the samples up to that instant plus an interpolated
  * tip, so the orange trail ends exactly under the scrubbed plane. */
-export function trackFC(selected: PlanPart | null, until: number | null): GeoJSON.FeatureCollection {
+export function trackFC(
+  selected: PlanPart | null,
+  until: number | null,
+): GeoJSON.FeatureCollection {
   const track = selected?.flight?.track ?? [];
   if (track.length < 2) return emptyFC();
   const coords = clipTrackCoords(track, until);
   if (coords.length < 2) return emptyFC();
   return {
     type: 'FeatureCollection',
-    features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }],
+    features: [
+      { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } },
+    ],
   };
 }
 

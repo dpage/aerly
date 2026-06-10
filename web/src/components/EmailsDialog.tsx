@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Box,
   Button,
@@ -36,12 +37,25 @@ export default function EmailsDialog({ open, onClose }: Props) {
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const reportError = (err: unknown) =>
-    setError(err instanceof Error ? err.message : String(err));
+  const reportError = (err: unknown) => setError(errorMessage(err));
 
   useEffect(() => {
     if (!open) return;
-    void api.listMyEmails().then(setEmails).catch(reportError);
+    // Clear last session's rows so a reopen doesn't flash stale data, and guard
+    // against a late response landing after the dialog has closed.
+    setEmails([]);
+    let cancelled = false;
+    void api
+      .listMyEmails()
+      .then((rows) => {
+        if (!cancelled) setEmails(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) reportError(err);
+      });
+    return () => {
+      cancelled = true;
+    };
     // reportError closes over setError, which is stable; intentional dep list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);

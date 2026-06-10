@@ -41,8 +41,8 @@ describe('unlocated predicates', () => {
   });
   it('unlocatedCount counts only unlocated, non-dismissed parts', () => {
     const parts = [
-      part({ id: 1, start_address: 'A' }),                              // unlocated
-      part({ id: 2, start_address: 'B', start_lat: 1, start_lon: 2 }),  // located
+      part({ id: 1, start_address: 'A' }), // unlocated
+      part({ id: 2, start_address: 'B', start_lat: 1, start_lon: 2 }), // located
       part({ id: 3, start_address: 'C', dismissed_at: '2026-01-01T00:00:00Z' }), // dismissed
     ];
     expect(unlocatedCount(parts)).toBe(1);

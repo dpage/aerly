@@ -151,7 +151,9 @@ describe('TripEditDialog', () => {
   it('writes tags via setTripTags when they change', async () => {
     h.updateTrip.mockResolvedValue(undefined);
     h.setTripTags.mockResolvedValue(undefined);
-    render(<TripEditDialog open trip={trip({ tags: ['a'] })} onClose={() => {}} onDeleted={() => {}} />);
+    render(
+      <TripEditDialog open trip={trip({ tags: ['a'] })} onClose={() => {}} onDeleted={() => {}} />,
+    );
     await userEvent.click(screen.getByRole('button', { name: 'add-tag' }));
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.setTripTags).toHaveBeenCalledWith(1, ['a', 'added']));
@@ -216,7 +218,12 @@ describe('TripEditDialog', () => {
 
   it('hides Delete for non-owners (editor)', () => {
     render(
-      <TripEditDialog open trip={trip({ my_role: 'editor' })} onClose={() => {}} onDeleted={() => {}} />,
+      <TripEditDialog
+        open
+        trip={trip({ my_role: 'editor' })}
+        onClose={() => {}}
+        onDeleted={() => {}}
+      />,
     );
     expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
   });

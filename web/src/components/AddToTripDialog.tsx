@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Alert,
   Box,
@@ -111,7 +112,7 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
       await createPlan(tripId, input);
       handleClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -123,7 +124,7 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
       await confirmIngest(tripId, plans);
       handleClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -655,6 +656,14 @@ function toDraft(p: ProposedPlan): DraftPlan {
 
 function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps) {
   const [drafts, setDrafts] = useState<DraftPlan[]>(() => proposals.map(toDraft));
+
+  // Re-seed the editable drafts when a fresh set of proposals arrives. The
+  // useState initializer only runs on first mount, and ConfirmStep stays
+  // mounted across the confirm phase; `proposals` is stable store state whose
+  // identity changes only on a new ingest, so this resets exactly then.
+  useEffect(() => {
+    setDrafts(proposals.map(toDraft));
+  }, [proposals]);
 
   const update = (idx: number, patch: Partial<DraftPlan>) => {
     setDrafts((ds) => ds.map((d, i) => (i === idx ? { ...d, ...patch } : d)));

@@ -209,9 +209,7 @@ describe('computeStats', () => {
   });
 
   it('computes highlights from flown only — upcoming flights do not contribute', () => {
-    const flights = [
-      f({ id: 1, status: 'Scheduled', ident: 'AA999', origin_iata: 'LHR' }),
-    ];
+    const flights = [f({ id: 1, status: 'Scheduled', ident: 'AA999', origin_iata: 'LHR' })];
     const s = computeStats(flights, ME);
     expect(s.highlight.longest).toBeNull();
     expect(s.highlight.mostVisited).toBeNull();

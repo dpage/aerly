@@ -569,7 +569,13 @@ describe('PlanEditDialog', () => {
       plan({
         type: 'hotel',
         parts: [
-          part({ type: 'hotel', start_label: 'Lake', start_lat: 48.21, start_lon: 4.08, end_label: '' }),
+          part({
+            type: 'hotel',
+            start_label: 'Lake',
+            start_lat: 48.21,
+            start_lon: 4.08,
+            end_label: '',
+          }),
         ],
       }),
     );
@@ -636,7 +642,9 @@ describe('PlanEditDialog', () => {
     );
     await userEvent.type(screen.getByLabelText(/coordinates/i), 'FWJ9+PP');
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() => expect(h.setError).toHaveBeenCalledWith(expect.stringContaining('lat, lng')));
+    await waitFor(() =>
+      expect(h.setError).toHaveBeenCalledWith(expect.stringContaining('lat, lng')),
+    );
     expect(h.updatePlanPart).not.toHaveBeenCalled();
   });
 
@@ -741,9 +749,7 @@ describe('PlanEditDialog', () => {
   it('sends no flight patch when an unresolved flight is saved unchanged', async () => {
     // Forces a non-flight change so Save writes, but the untouched flight fields
     // must not produce a flight patch (covers the "nothing changed" branch).
-    render_(
-      plan({ title: 'BA123', parts: [flightPart({ resolved: false })] }),
-    );
+    render_(plan({ title: 'BA123', parts: [flightPart({ resolved: false })] }));
     const title = screen.getByRole('textbox', { name: /title/i });
     await userEvent.clear(title);
     await userEvent.type(title, 'BA124');

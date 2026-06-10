@@ -237,7 +237,9 @@ describe('removeTripPassenger', () => {
 describe('setTripTags', () => {
   it('replaces the matching trip with the tagged one', async () => {
     useStore.setState({ trips: [trip({ id: 1 })] });
-    mockApi.setTripTags.mockResolvedValue(trip({ id: 1, tags: [{ id: 1, label: 'beach' }] as never }));
+    mockApi.setTripTags.mockResolvedValue(
+      trip({ id: 1, tags: [{ id: 1, label: 'beach' }] as never }),
+    );
     await useStore.getState().setTripTags(1, ['beach']);
     expect(useStore.getState().trips[0].tags).toHaveLength(1);
   });

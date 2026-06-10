@@ -56,7 +56,9 @@ function stubDialog(testid: string) {
 }
 vi.mock('../components/TripEditDialog', () => ({ default: stubDialog('edit-dialog') }));
 vi.mock('../components/TripMembersDialog', () => ({ default: stubDialog('members-dialog') }));
-vi.mock('../components/CalendarSubscribeDialog', () => ({ default: stubDialog('subscribe-dialog') }));
+vi.mock('../components/CalendarSubscribeDialog', () => ({
+  default: stubDialog('subscribe-dialog'),
+}));
 vi.mock('../components/AddToTripDialog', () => ({ default: stubDialog('add-plan-dialog') }));
 
 import TripDetail from './TripDetail';

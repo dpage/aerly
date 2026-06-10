@@ -29,10 +29,7 @@ describe('useFriendUsers', () => {
     useStore.setState({
       me: user(1) as never,
       users: [user(1), user(2), user(3), user(4)],
-      friendships: [
-        friendship(2, 'accepted'),
-        friendship(3, 'pending'),
-      ],
+      friendships: [friendship(2, 'accepted'), friendship(3, 'pending')],
     });
   });
 
@@ -49,10 +46,7 @@ describe('useFriendUsers', () => {
 
   it('returns all accepted friends, in users-array order', () => {
     useStore.setState({
-      friendships: [
-        friendship(4, 'accepted'),
-        friendship(2, 'accepted'),
-      ],
+      friendships: [friendship(4, 'accepted'), friendship(2, 'accepted')],
     });
     const { result } = renderHook(() => useFriendUsers());
     // Order follows the users array (1, 2, 3, 4) not the friendships array,

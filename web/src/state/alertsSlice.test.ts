@@ -140,8 +140,15 @@ describe('reminder opt-in actions', () => {
 });
 
 const mk = (id: number, msg: string): FlightAlert => ({
-  id, plan_part_id: 1, plan_id: 1, trip_id: 1, ident: 'BA286',
-  kind: 'gate', status: 'Scheduled', message: msg, created_at: '2026-06-01T00:00:00Z',
+  id,
+  plan_part_id: 1,
+  plan_id: 1,
+  trip_id: 1,
+  ident: 'BA286',
+  kind: 'gate',
+  status: 'Scheduled',
+  message: msg,
+  created_at: '2026-06-01T00:00:00Z',
 });
 
 describe('alertsSlice inbox', () => {
@@ -264,7 +271,11 @@ describe('alertsSlice inbox', () => {
     useStore.setState({
       alerts: [
         {
-          id: 5, kind: 'share', trip_id: 1, plan_id: 1, message: 'Alice shared Rome',
+          id: 5,
+          kind: 'share',
+          trip_id: 1,
+          plan_id: 1,
+          message: 'Alice shared Rome',
           created_at: '2026-06-01T00:00:00Z',
         },
       ],

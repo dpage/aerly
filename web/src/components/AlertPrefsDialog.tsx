@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Box,
   Button,
@@ -48,8 +49,7 @@ export default function AlertPrefsDialog({ open, onClose }: Props) {
     setMinDelay(String(alertPrefs.min_delay_min));
   }, [alertPrefs]);
 
-  const reportError = (err: unknown) =>
-    setError(err instanceof Error ? err.message : String(err));
+  const reportError = (err: unknown) => setError(errorMessage(err));
 
   const handleSave = async () => {
     const parsed = Number.parseInt(minDelay, 10);
@@ -76,15 +76,11 @@ export default function AlertPrefsDialog({ open, onClose }: Props) {
             </Typography>
             <FormGroup>
               <FormControlLabel
-                control={
-                  <Switch checked={inApp} onChange={(e) => setInApp(e.target.checked)} />
-                }
+                control={<Switch checked={inApp} onChange={(e) => setInApp(e.target.checked)} />}
                 label="In-app"
               />
               <FormControlLabel
-                control={
-                  <Switch checked={email} onChange={(e) => setEmail(e.target.checked)} />
-                }
+                control={<Switch checked={email} onChange={(e) => setEmail(e.target.checked)} />}
                 label="Email"
               />
             </FormGroup>

@@ -203,9 +203,9 @@ describe('AdminDialog narrow (UserCard) layout', () => {
     expect(h.state.updateUser).toHaveBeenCalledWith(2, { is_active: false });
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const delBtn = screen.getAllByRole('button').find((b) =>
-      b.querySelector('[data-testid="DeleteOutlineIcon"]'),
-    )!;
+    const delBtn = screen
+      .getAllByRole('button')
+      .find((b) => b.querySelector('[data-testid="DeleteOutlineIcon"]'))!;
     await userEvent.click(delBtn);
     expect(h.state.deleteUser).toHaveBeenCalledWith(2);
     confirmSpy.mockRestore();

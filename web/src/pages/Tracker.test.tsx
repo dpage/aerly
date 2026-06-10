@@ -9,13 +9,7 @@ import type { PlanPart, Trip } from '../api/types';
 // and these tests only need a labelled control, not real date parsing. The stub
 // forwards a real Date to onChange on input so the page's window handlers run.
 vi.mock('@mui/x-date-pickers/DatePicker', () => ({
-  DatePicker: ({
-    label,
-    onChange,
-  }: {
-    label: string;
-    onChange?: (d: Date | null) => void;
-  }) => (
+  DatePicker: ({ label, onChange }: { label: string; onChange?: (d: Date | null) => void }) => (
     <input
       aria-label={label}
       onChange={(e) => onChange?.(e.target.value ? new Date(e.target.value) : null)}

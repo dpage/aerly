@@ -52,9 +52,7 @@ describe('EmailsDialog', () => {
 
   it('adds an email and appends the row', async () => {
     h.api.listMyEmails.mockResolvedValue([]);
-    h.api.addMyEmail.mockResolvedValue(
-      row({ id: 9, address: 'new@example.com', verified: false }),
-    );
+    h.api.addMyEmail.mockResolvedValue(row({ id: 9, address: 'new@example.com', verified: false }));
     render(<EmailsDialog open onClose={() => {}} />);
     await waitFor(() => expect(h.api.listMyEmails).toHaveBeenCalled());
 

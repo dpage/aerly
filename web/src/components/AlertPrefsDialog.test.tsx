@@ -96,9 +96,7 @@ describe('AlertPrefsDialog', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: /in-app/i }));
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() =>
-      expect(h.updateAlertPrefs).toHaveBeenCalledWith(
-        expect.objectContaining({ in_app: false }),
-      ),
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith(expect.objectContaining({ in_app: false })),
     );
   });
 

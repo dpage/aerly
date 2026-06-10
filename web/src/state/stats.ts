@@ -38,12 +38,7 @@ function emptyBucket(): Bucket {
 }
 
 function flightMiles(f: Flight): number {
-  if (
-    f.origin_lat == null ||
-    f.origin_lon == null ||
-    f.dest_lat == null ||
-    f.dest_lon == null
-  ) {
+  if (f.origin_lat == null || f.origin_lon == null || f.dest_lat == null || f.dest_lon == null) {
     return 0;
   }
   return greatCircleMiles(f.origin_lat, f.origin_lon, f.dest_lat, f.dest_lon);
@@ -140,11 +135,7 @@ function mostVisitedAirport(flown: Flight[]): Highlight['mostVisited'] {
   }
   let winner: { iata: string; count: number } | null = null;
   for (const [iata, count] of counts) {
-    if (
-      winner === null ||
-      count > winner.count ||
-      (count === winner.count && iata < winner.iata)
-    ) {
+    if (winner === null || count > winner.count || (count === winner.count && iata < winner.iata)) {
       winner = { iata, count };
     }
   }

@@ -91,9 +91,7 @@ export default function TagInput({
       }}
       filterOptions={(opts) => opts}
       renderTags={(tags, getTagProps) =>
-        tags.map((t, i) => (
-          <Chip {...getTagProps({ index: i })} key={t} label={t} size="small" />
-        ))
+        tags.map((t, i) => <Chip {...getTagProps({ index: i })} key={t} label={t} size="small" />)
       }
       renderInput={(params) => (
         <TextField

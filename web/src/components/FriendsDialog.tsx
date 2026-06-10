@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Alert,
   Avatar,
@@ -63,10 +64,7 @@ export default function FriendsDialog({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
 
-  const reportError = useCallback(
-    (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
-    [setError],
-  );
+  const reportError = useCallback((err: unknown) => setError(errorMessage(err)), [setError]);
 
   useEffect(() => {
     if (!open) return;
@@ -112,11 +110,7 @@ export default function FriendsDialog({ open, onClose }: Props) {
     }
   };
 
-  const handleRemove = async (
-    other: number,
-    label: string,
-    kind: 'unfriend' | 'decline',
-  ) => {
+  const handleRemove = async (other: number, label: string, kind: 'unfriend' | 'decline') => {
     const prompt =
       kind === 'unfriend'
         ? `Unfriend ${label}?\n\nYou will also lose access to each other's flights — passenger or share grants on flights either of you created will be revoked. Your own flights and your role on flights you both joined elsewhere are not affected.`
@@ -251,10 +245,7 @@ export default function FriendsDialog({ open, onClose }: Props) {
                     <TableRow key={rowKey(f)} hover>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Avatar
-                            src={user?.avatar_url}
-                            sx={{ width: 24, height: 24 }}
-                          >
+                          <Avatar src={user?.avatar_url} sx={{ width: 24, height: 24 }}>
                             {label.charAt(0).toUpperCase()}
                           </Avatar>
                           <span>{label}</span>
@@ -290,9 +281,7 @@ export default function FriendsDialog({ open, onClose }: Props) {
                               <IconButton
                                 size="small"
                                 aria-label={`Decline ${label}`}
-                                onClick={() =>
-                                  void handleRemove(friendId, label, 'decline')
-                                }
+                                onClick={() => void handleRemove(friendId, label, 'decline')}
                               >
                                 <CloseIcon fontSize="small" />
                               </IconButton>
@@ -303,9 +292,7 @@ export default function FriendsDialog({ open, onClose }: Props) {
                               <IconButton
                                 size="small"
                                 aria-label={`Remove ${label}`}
-                                onClick={() =>
-                                  void handleRemove(friendId, label, 'unfriend')
-                                }
+                                onClick={() => void handleRemove(friendId, label, 'unfriend')}
                               >
                                 <DeleteOutlineIcon fontSize="small" />
                               </IconButton>

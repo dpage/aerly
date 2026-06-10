@@ -17,9 +17,7 @@ describe('Login', () => {
   beforeEach(() => {
     h.api.getAuthProviders.mockReset();
     h.api.getDevAuthBypassEnabled.mockReset();
-    h.api.getAuthProviders.mockResolvedValue([
-      { name: 'github', label: 'GitHub' },
-    ]);
+    h.api.getAuthProviders.mockResolvedValue([{ name: 'github', label: 'GitHub' }]);
   });
 
   it('renders the heading and a GitHub sign-in link', async () => {
@@ -48,9 +46,7 @@ describe('Login', () => {
     h.api.getDevAuthBypassEnabled.mockResolvedValue(false);
     render(<Login />);
     await waitFor(() => expect(h.api.getDevAuthBypassEnabled).toHaveBeenCalled());
-    expect(
-      screen.queryByRole('button', { name: /sign in as dev user/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sign in as dev user/i })).not.toBeInTheDocument();
   });
 
   it('renders the dev-login form when DEV_AUTH_BYPASS is enabled', async () => {
@@ -159,12 +155,8 @@ describe('Login', () => {
     h.api.getDevAuthBypassEnabled.mockResolvedValue(false);
     render(<Login />);
     // Loading placeholder is present, but no provider links yet.
-    expect(
-      screen.getByRole('button', { name: /loading sign-in options/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: /sign in with/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /loading sign-in options/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /sign in with/i })).not.toBeInTheDocument();
     // Resolve and confirm the placeholder is replaced by the real buttons.
     resolveProviders([{ name: 'github', label: 'GitHub' }]);
     const link = await screen.findByRole('link', { name: /sign in with github/i });

@@ -243,8 +243,7 @@ export const api = {
   linkPlans: (primaryId: number, input: LinkPlansInput) =>
     request<Plan>('POST', `/api/plans/${primaryId}/link`, input),
   // Split one leg out of a multi-part booking into its own plan (#12).
-  splitPlanPart: (partId: number) =>
-    request<Plan>('POST', `/api/plan-parts/${partId}/split`),
+  splitPlanPart: (partId: number) => request<Plan>('POST', `/api/plan-parts/${partId}/split`),
   updatePlanPart: (partId: number, patch: UpdatePlanPartInput) =>
     request<PlanPart>('PATCH', `/api/plan-parts/${partId}`, patch),
   // Tidy away a superseded part; stamps dismissed_at so the timeline omits it.

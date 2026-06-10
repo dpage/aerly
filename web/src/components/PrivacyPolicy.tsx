@@ -17,7 +17,9 @@ export default function PrivacyPolicy() {
         <Stack spacing={3}>
           <Stack spacing={1} alignItems="center" textAlign="center">
             <FlightTakeoffIcon color="primary" sx={{ fontSize: 56 }} />
-            <Typography variant="h4" component="h1">Privacy Policy</Typography>
+            <Typography variant="h4" component="h1">
+              Privacy Policy
+            </Typography>
             <Typography variant="body2" color="text.secondary">
               Aerly
             </Typography>
@@ -27,9 +29,9 @@ export default function PrivacyPolicy() {
 
           <PolicySection title="What we collect">
             When you sign in via GitHub or Google we receive your name and email address from that
-            provider. If you sign in via email link we store your email address. We also store flight
-            records that you or other users create, including any flights on which you are listed as
-            a passenger.
+            provider. If you sign in via email link we store your email address. We also store
+            flight records that you or other users create, including any flights on which you are
+            listed as a passenger.
           </PolicySection>
 
           <PolicySection title="What we don't do">

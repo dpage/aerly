@@ -1,4 +1,5 @@
 import { type MouseEvent, useMemo, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Box,
   Button,
@@ -144,7 +145,7 @@ export default function TripTimeline() {
       await linkPlans(primary, absorb);
       cancelLink();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setLinking(false);
     }
@@ -320,7 +321,7 @@ function PartCard({
     try {
       await deletePlan(plan.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }

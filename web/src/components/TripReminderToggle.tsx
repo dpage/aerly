@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import { FormControlLabel, Stack, Switch, TextField } from '@mui/material';
 
 import { useStore } from '../state/store';
@@ -41,7 +42,7 @@ export default function TripReminderToggle({ trip }: Props) {
       else await clearTripReminder(trip.id);
     } catch (err) {
       setOn(prevOn);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }

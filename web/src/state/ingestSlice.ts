@@ -57,4 +57,3 @@ export const createIngestSlice: StateCreator<StoreState, [], [], IngestSlice> = 
     set({ ingestProposals: [], ingestTripId: null });
   },
 });
-

@@ -26,11 +26,19 @@ for (const method of ['toLocaleDateString', 'toLocaleTimeString', 'toLocaleStrin
 const _localStorageStore = new Map<string, string>();
 vi.stubGlobal('localStorage', {
   getItem: (key: string) => _localStorageStore.get(key) ?? null,
-  setItem: (key: string, value: string) => { _localStorageStore.set(key, String(value)); },
-  removeItem: (key: string) => { _localStorageStore.delete(key); },
-  clear: () => { _localStorageStore.clear(); },
+  setItem: (key: string, value: string) => {
+    _localStorageStore.set(key, String(value));
+  },
+  removeItem: (key: string) => {
+    _localStorageStore.delete(key);
+  },
+  clear: () => {
+    _localStorageStore.clear();
+  },
   key: (index: number) => [..._localStorageStore.keys()][index] ?? null,
-  get length() { return _localStorageStore.size; },
+  get length() {
+    return _localStorageStore.size;
+  },
 });
 
 // Mutable module-level flag for matchMedia.matches — flip it for narrow/wide

@@ -62,7 +62,9 @@ describe('CalendarSubscribeDialog', () => {
   it('passes the id for trip scope when issuing', async () => {
     const user = userEvent.setup();
     h.api.listCalendarTokens.mockResolvedValue([]);
-    h.api.issueCalendarToken.mockResolvedValue(token({ scope: 'trip', resource_id: 42, url: 'https://x/trip.ics' }));
+    h.api.issueCalendarToken.mockResolvedValue(
+      token({ scope: 'trip', resource_id: 42, url: 'https://x/trip.ics' }),
+    );
     render(<CalendarSubscribeDialog open scope="trip" id={42} onClose={vi.fn()} />);
     await user.click(await screen.findByRole('button', { name: /create feed link/i }));
     expect(h.api.issueCalendarToken).toHaveBeenCalledWith('trip', 42);
@@ -104,15 +106,15 @@ describe('CalendarSubscribeDialog', () => {
     const user = userEvent.setup();
     h.api.listCalendarTokens.mockResolvedValue([token()]);
     h.api.revokeCalendarToken.mockResolvedValue(undefined);
-    h.api.issueCalendarToken.mockResolvedValue(token({ token: 'tok-new', url: 'https://x/new.ics' }));
+    h.api.issueCalendarToken.mockResolvedValue(
+      token({ token: 'tok-new', url: 'https://x/new.ics' }),
+    );
     render(<CalendarSubscribeDialog open scope="me" onClose={vi.fn()} />);
     await screen.findByLabelText('Feed URL');
     await user.click(screen.getByRole('button', { name: /regenerate link/i }));
     await waitFor(() => expect(h.api.revokeCalendarToken).toHaveBeenCalledWith('tok-abc'));
     expect(h.api.issueCalendarToken).toHaveBeenCalledWith('me', undefined);
-    await waitFor(() =>
-      expect(screen.getByLabelText('Feed URL')).toHaveValue('https://x/new.ics'),
-    );
+    await waitFor(() => expect(screen.getByLabelText('Feed URL')).toHaveValue('https://x/new.ics'));
   });
 
   it('surfaces an error when listing fails', async () => {

@@ -166,10 +166,14 @@ describe('TripMembersDialog', () => {
     h.removeTripPassenger.mockResolvedValue(undefined);
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     // Bob is a viewer member who is also a trip passenger.
-    render_([
-      { user_id: 100, role: 'owner' },
-      { user_id: 2, role: 'viewer' },
-    ], 'owner', [2]);
+    render_(
+      [
+        { user_id: 100, role: 'owner' },
+        { user_id: 2, role: 'viewer' },
+      ],
+      'owner',
+      [2],
+    );
 
     // Displayed as a passenger, not a plain viewer.
     expect(screen.getByText('passenger')).toBeInTheDocument();

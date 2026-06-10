@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import { FormControlLabel, Switch } from '@mui/material';
 
 import { useStore } from '../state/store';
@@ -40,7 +41,7 @@ export default function PlanAlertToggle({ plan, onChange }: Props) {
       onChange?.(next);
     } catch (err) {
       setOn(!next);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }

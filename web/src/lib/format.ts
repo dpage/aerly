@@ -55,7 +55,10 @@ export function formatCost(amount?: number | null, currency?: string): string | 
       // Well-formed but not a currency Intl knows — fall through to the plain form.
     }
   }
-  const n = amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const n = amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
   return code ? `${n} ${code}` : n;
 }
 

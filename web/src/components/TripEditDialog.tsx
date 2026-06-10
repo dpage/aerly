@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../state/helpers';
 import {
   Button,
   Dialog,
@@ -48,8 +49,7 @@ export default function TripEditDialog({ open, trip, onClose, onDeleted }: Props
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only on (re)open
   }, [open, trip.id]);
 
-  const reportError = (err: unknown) =>
-    setError(err instanceof Error ? err.message : String(err));
+  const reportError = (err: unknown) => setError(errorMessage(err));
 
   const datesValid = !startsOn || !endsOn || startsOn <= endsOn;
 

@@ -141,4 +141,3 @@ function foldUpdate(pp: PlanPart, u: TrackerPart): PlanPart {
       : pp.flight,
   };
 }
-
