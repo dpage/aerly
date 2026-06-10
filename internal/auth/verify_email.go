@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 
@@ -43,5 +44,5 @@ func renderVerifyEmailError(w http.ResponseWriter, msg string) {
 	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>Email verification failed</title>
 <body style="font-family:system-ui;max-width:36rem;margin:4rem auto;padding:0 1rem">
 <h1>Email verification failed</h1><p>%s</p>
-<p><a href="/">Back to home</a></p></body>`, htmlEscape(msg))
+<p><a href="/">Back to home</a></p></body>`, html.EscapeString(msg))
 }

@@ -496,14 +496,6 @@ func TestFetchProfileSuccess(t *testing.T) {
 	}
 }
 
-func TestHTMLEscape(t *testing.T) {
-	got := htmlEscape(`<script>"&'`)
-	want := "&lt;script&gt;&quot;&amp;&#39;"
-	if got != want {
-		t.Errorf("htmlEscape = %q, want %q", got, want)
-	}
-}
-
 func TestRandomTokenUnique(t *testing.T) {
 	a, err := randomToken(24)
 	if err != nil {

@@ -280,13 +280,14 @@ func (s *Store) AcceptFriendship(ctx context.Context, viewerID, otherID int64) (
 func (s *Store) RemoveFriendship(ctx context.Context, viewerID, otherID int64) error {
 	low, high := pairOrder(viewerID, otherID)
 
+	// (low, high) already identify the exact pair, and pairOrder guarantees
+	// viewerID is one of them, so no extra membership clause is needed.
 	var status string
 	err := s.pool.QueryRow(ctx, `
 		DELETE FROM friendships
 		WHERE user_low = $1 AND user_high = $2
-		  AND $3 IN (user_low, user_high)
 		RETURNING status`,
-		low, high, viewerID).Scan(&status)
+		low, high).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}

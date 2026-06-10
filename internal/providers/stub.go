@@ -42,11 +42,10 @@ func (Stub) Track(_ context.Context, f *store.Flight, now time.Time) (*store.Pos
 	heading := geo.Bearing(lat, lon, *f.DestLat, *f.DestLon)
 	alt := cruiseAltitude(frac)
 	nm := geo.HaversineNM(*f.OriginLat, *f.OriginLon, *f.DestLat, *f.DestLon)
+	// total > 0 is guaranteed above, so hours > 0 — the average groundspeed is
+	// always well-defined here.
 	hours := time.Duration(total * float64(time.Second)).Hours()
-	gs := 450.0
-	if hours > 0 {
-		gs = nm / hours
-	}
+	gs := nm / hours
 
 	altI := int32(alt)
 	gsI := int32(gs)

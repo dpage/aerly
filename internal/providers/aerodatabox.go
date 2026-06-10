@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/time/rate"
 )
@@ -305,6 +306,11 @@ func parseRetryAfter(h string, now time.Time) time.Duration {
 func truncate(b []byte, n int) string {
 	if len(b) <= n {
 		return string(b)
+	}
+	// Back up to a rune boundary so we never emit a replacement char by
+	// splitting a multi-byte sequence mid-way.
+	for n > 0 && !utf8.RuneStart(b[n]) {
+		n--
 	}
 	return string(b[:n]) + "…"
 }

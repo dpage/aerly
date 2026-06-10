@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -155,6 +156,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request, p *Provider) {
 		Value:    SignState(h.SessionKey, nonce, expires),
 		Path:     p.routeRoot(),
 		Expires:  expires,
+		MaxAge:   int(StateTTL.Seconds()),
 		HttpOnly: true,
 		Secure:   h.Secure,
 		SameSite: http.SameSiteLaxMode,
@@ -318,10 +320,5 @@ func renderLoginError(w http.ResponseWriter, status int, msg string) {
 	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>Sign-in failed</title>
 <body style="font-family:system-ui;max-width:36rem;margin:4rem auto;padding:0 1rem">
 <h1>Sign-in failed</h1><p>%s</p><p><a href="/">Back to home</a></p></body>`,
-		htmlEscape(msg))
-}
-
-func htmlEscape(s string) string {
-	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
-	return r.Replace(s)
+		html.EscapeString(msg))
 }

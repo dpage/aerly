@@ -134,8 +134,13 @@ func readEncoded(r io.Reader, encoding string) ([]byte, error) {
 			}
 			return r
 		}, raw)
+		// Some clients omit the trailing padding; fall back to the unpadded
+		// (raw) alphabet so a valid-but-unpadded part isn't dropped as poison.
 		decoded, err := base64.StdEncoding.DecodeString(string(clean))
 		if err != nil {
+			if raw, rerr := base64.RawStdEncoding.DecodeString(strings.TrimRight(string(clean), "=")); rerr == nil {
+				return raw, nil
+			}
 			return nil, fmt.Errorf("base64 decode: %w", err)
 		}
 		return decoded, nil

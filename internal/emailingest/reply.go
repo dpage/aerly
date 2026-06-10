@@ -166,7 +166,7 @@ func replyHTMLBody(in ReplyInput, link string) string {
 
 	safeLink := htmlEscape(link + "/")
 	manual := fmt.Sprintf(
-		`<p style="margin:0;font-size:14px;color:#555;">Please <a href="%s" style="%s">add the failed flight(s) manually</a>.</p>`,
+		`<p style="margin:0;font-size:14px;color:#555;">Please <a href="%s" style="%s">add the failed booking(s) manually</a>.</p>`,
 		safeLink, brandLinkStyle)
 
 	switch {

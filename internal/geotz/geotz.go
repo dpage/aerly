@@ -5,6 +5,7 @@
 package geotz
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/ringsaturn/tzf"
@@ -24,6 +25,11 @@ var (
 func Lookup(lat, lon float64) (string, bool) {
 	once.Do(func() {
 		finder, initEr = tzf.NewDefaultFinder()
+		if initEr != nil {
+			// Logged once (guarded by once.Do): otherwise every Lookup silently
+			// returns ("", false) forever and timezone anchoring just never works.
+			slog.Error("geotz: timezone finder init failed; tz lookups disabled", "err", initEr)
+		}
 	})
 	if initEr != nil || finder == nil {
 		return "", false

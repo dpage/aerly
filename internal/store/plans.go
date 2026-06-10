@@ -1004,15 +1004,16 @@ type FlightRouteUpdate struct {
 }
 
 // coordOp folds a (lat, lon, clear) triple into the CASE selector the SQL uses:
-// 0 = leave, 1 = set to the supplied value, 2 = set NULL.
-func coordOp(lat, lon *float64, clear bool) (op int, v float64) {
+// 0 = leave, 1 = set to the supplied value, 2 = set NULL. The actual value is
+// passed separately (via derefF) at the call site.
+func coordOp(lat, lon *float64, clear bool) int {
 	switch {
 	case clear:
-		return 2, 0
+		return 2
 	case lat != nil && lon != nil:
-		return 1, 0 // value supplied per-column below
+		return 1
 	default:
-		return 0, 0
+		return 0
 	}
 }
 
@@ -1058,8 +1059,8 @@ func (s *Store) UpdateFlightPartRoute(ctx context.Context, partID int64, in Flig
 		return ErrNotFound
 	}
 
-	startOp, _ := coordOp(in.StartLat, in.StartLon, in.ClearStartCoords)
-	endOp, _ := coordOp(in.EndLat, in.EndLon, in.ClearEndCoords)
+	startOp := coordOp(in.StartLat, in.StartLon, in.ClearStartCoords)
+	endOp := coordOp(in.EndLat, in.EndLon, in.ClearEndCoords)
 	if _, err := tx.Exec(ctx, `
 		UPDATE plan_parts SET
 			start_label = COALESCE($2, start_label),
