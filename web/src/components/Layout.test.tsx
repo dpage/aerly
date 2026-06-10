@@ -8,6 +8,7 @@ import { setMatchMedia } from '../test/setup';
 
 const h = vi.hoisted(() => ({
   logout: vi.fn(),
+  logoutAll: vi.fn(),
   setPreference: vi.fn(),
   openHelp: vi.fn(),
   markAlertsRead: vi.fn().mockResolvedValue(undefined),
@@ -36,6 +37,7 @@ vi.mock('../state/store', () => ({
     sel({
       me: h.state.me,
       logout: h.logout,
+      logoutAll: h.logoutAll,
       capabilities: h.state.capabilities,
       notifications: h.state.notifications,
       alerts: h.state.alerts,
@@ -259,6 +261,13 @@ describe('Layout', () => {
     await openMenu();
     await userEvent.click(screen.getByText('Sign out'));
     expect(h.logout).toHaveBeenCalled();
+  });
+
+  it('signs out everywhere', async () => {
+    renderLayout();
+    await openMenu();
+    await userEvent.click(screen.getByText('Sign out everywhere'));
+    expect(h.logoutAll).toHaveBeenCalled();
   });
 
   it('marks Tracker active on the tracker route', () => {

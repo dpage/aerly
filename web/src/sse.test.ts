@@ -122,6 +122,28 @@ describe('connectSSE', () => {
     teardown();
   });
 
+  it('bad JSON payload on trip.updated is caught and logged', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onTrip = vi.fn();
+    const teardown = connectSSE({ ...noopHandlers(), onTrip });
+    FakeEventSource.instances[0].emit('trip.updated', { data: '{not json' });
+    expect(onTrip).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalledWith('bad SSE payload', expect.anything());
+    teardown();
+  });
+
+  it('bad JSON payload on plan.updated/plan.deleted is caught and logged', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onPlan = vi.fn();
+    const teardown = connectSSE({ ...noopHandlers(), onPlan });
+    const es = FakeEventSource.instances[0];
+    es.emit('plan.updated', { data: '{not json' });
+    es.emit('plan.deleted', { data: '{not json' });
+    expect(onPlan).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalledWith('bad SSE payload', expect.anything());
+    teardown();
+  });
+
   it('trip.updated / plan.updated are safe no-ops when no handler is supplied', () => {
     // The backend does not emit these yet; subscribing without onTrip/onPlan
     // must not throw if a stray event ever arrives.
