@@ -82,4 +82,10 @@ func TestSuggestTagsVisibilityGated(t *testing.T) {
 	if sug, _ := s.SuggestTags(ctx, owner, "  "); len(sug) != 0 {
 		t.Errorf("empty query suggest = %v, want none", sug)
 	}
+
+	// A LIKE wildcard in the query is matched literally, not as a wildcard:
+	// "%" must not match every tag.
+	if sug, _ := s.SuggestTags(ctx, owner, "%"); len(sug) != 0 {
+		t.Errorf("wildcard query suggest = %v, want none (literal match)", sug)
+	}
 }

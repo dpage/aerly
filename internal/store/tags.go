@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+// likeEscape escapes the LIKE metacharacters (backslash, %, _) in a literal
+// string so it can be used as a prefix in `col LIKE escaped || '%' ESCAPE '\'`
+// without the user's % or _ being treated as wildcards.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func likeEscape(s string) string { return likeEscaper.Replace(s) }
+
 // Tag is one trip_tags row: a normalized matching key plus the display label
 // as first typed. Tags group trips but never grant visibility.
 type Tag struct {
@@ -76,16 +83,19 @@ func (s *Store) SuggestTags(ctx context.Context, viewerID int64, q string) ([]st
 	if norm == "" {
 		return nil, nil
 	}
+	// Escape LIKE metacharacters so a query containing % or _ is matched
+	// literally as a prefix rather than as a wildcard pattern.
+	likePrefix := likeEscape(norm)
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT ON (tt.label_norm) tt.label_display
 		FROM trip_tags tt
 		JOIN trips t ON t.id = tt.trip_id
-		WHERE tt.label_norm LIKE $2 || '%'
+		WHERE tt.label_norm LIKE $2 || '%' ESCAPE '\'
 		  AND (t.created_by = $1
 		    OR EXISTS (SELECT 1 FROM trip_members tm
 		               WHERE tm.trip_id = t.id AND tm.user_id = $1))
 		ORDER BY tt.label_norm
-		LIMIT 20`, viewerID, norm)
+		LIMIT 20`, viewerID, likePrefix)
 	if err != nil {
 		return nil, err
 	}
