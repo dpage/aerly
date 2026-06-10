@@ -590,7 +590,7 @@ function TimeSlider({
           live edge (chip → caption, reset button appearing) can't resize it —
           which otherwise made the thumb jump/flash — and the slider's ends can
           never overlap the LIVE label. */}
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ minHeight: 24, mb: 0.25 }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ height: 24, mb: 0.25 }}>
         {/* Fixed-width status cell so the time doesn't shift as the badge
             (LIVE) swaps for the "Positions at" caption. */}
         <Box sx={{ width: 92, flex: 'none', display: 'flex', alignItems: 'center' }}>
@@ -616,7 +616,14 @@ function TimeSlider({
           {fmtScrubTime(value)}
         </Typography>
         {!liveEdge && (
-          <Button size="small" onClick={onReset} sx={{ ml: 'auto', flex: 'none' }}>
+          <Button
+            size="small"
+            onClick={onReset}
+            // Trim vertical padding so the button fits the fixed 24px status
+            // row; otherwise its intrinsic ~30px height grows the panel when it
+            // appears on scrubbing off the live edge.
+            sx={{ ml: 'auto', flex: 'none', minHeight: 0, py: 0 }}
+          >
             {inProgress ? 'Live' : 'Latest'}
           </Button>
         )}
