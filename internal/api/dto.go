@@ -51,6 +51,22 @@ func ToSelfUserDTO(u *store.User) UserDTO {
 	return dto
 }
 
+// ToDirectoryUserDTO projects only the identity fields any authenticated user
+// may see for the friend/passenger pickers. It OMITS the admin/activity
+// metadata (is_superuser, is_active, has_logged_in, last_login_at) that
+// ToUserDTO carries: those are only needed by the superuser AdminDialog, and
+// exposing them to every user leaks who the privileged accounts are and their
+// login activity. Callers serving the directory to a non-superuser should use
+// this; superuser admin views use ToUserDTO.
+func ToDirectoryUserDTO(u *store.User) UserDTO {
+	return UserDTO{
+		ID:        u.ID,
+		Username:  u.Username,
+		Name:      u.Name,
+		AvatarURL: u.AvatarURL,
+	}
+}
+
 // FriendshipDTO describes one row in /api/friends, oriented from the
 // viewer's perspective. Direction is "outgoing" when the viewer initiated
 // a pending request, "incoming" when the viewer needs to act on someone
@@ -382,14 +398,14 @@ type PlanDTO struct {
 	// ReminderOverride is the viewer's per-plan reminder override (issue #11):
 	// "inherit" (use the trip setting), "on", or "off". ReminderLeadHours is the
 	// override's lead in hours when "on" (else the default 24).
-	ReminderOverride  string        `json:"reminder_override"`
-	ReminderLeadHours int           `json:"reminder_lead_hours"`
+	ReminderOverride  string `json:"reminder_override"`
+	ReminderLeadHours int    `json:"reminder_lead_hours"`
 	// ShareAllFriends grants every accepted friend of the trip view access to
 	// this plan when true (per-plan all-friends share).
 	ShareAllFriends bool          `json:"share_all_friends"`
 	Parts           []PlanPartDTO `json:"parts"`
-	CreatedAt         time.Time     `json:"created_at"`
-	UpdatedAt         time.Time     `json:"updated_at"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
 }
 
 // ProposedPlanDTO is a plan the ingest pipeline proposes, awaiting
@@ -620,13 +636,13 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 		tags = []string{}
 	}
 	dto := TripDTO{
-		ID:          t.ID,
-		Name:        t.Name,
-		Destination: t.Destination,
-		CreatedBy:   t.CreatedBy,
-		MyRole:      myRole,
-		Members:     members,
-		Tags:        tags,
+		ID:                  t.ID,
+		Name:                t.Name,
+		Destination:         t.Destination,
+		CreatedBy:           t.CreatedBy,
+		MyRole:              myRole,
+		Members:             members,
+		Tags:                tags,
 		CountryCode:         t.CountryCode,
 		CreatedAt:           t.CreatedAt,
 		UpdatedAt:           t.UpdatedAt,

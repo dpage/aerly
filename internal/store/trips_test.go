@@ -147,6 +147,26 @@ func TestTripMembersAndRoles(t *testing.T) {
 	}
 }
 
+func TestRemoveTripMemberRefusesLastOwner(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner) // seeds the owner's trip_members row (role 'owner')
+
+	// Removing the sole owner would lock out management → refused.
+	if err := s.RemoveTripMember(ctx, trip, owner); !errors.Is(err, ErrLastOwner) {
+		t.Errorf("removing sole owner = %v, want ErrLastOwner", err)
+	}
+	// With a second owner, removing the first is allowed.
+	other := mkUser(t, s)
+	addMember(t, s, trip, other, "owner")
+	if err := s.RemoveTripMember(ctx, trip, owner); err != nil {
+		t.Errorf("removing one of two owners: %v", err)
+	}
+}
+
 func TestTripQueryErrorPaths(t *testing.T) {
 	s := newStore(t)
 	cc := canceled()

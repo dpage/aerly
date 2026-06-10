@@ -221,6 +221,8 @@ func handleStoreErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, store.ErrLastOwner):
+		writeError(w, http.StatusConflict, "cannot remove the last owner of the trip")
 	default:
 		// Never echo the raw store/SQL error to the client — it can expose
 		// schema, column and constraint names. Log it server-side and return

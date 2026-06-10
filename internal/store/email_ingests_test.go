@@ -56,7 +56,3 @@ func TestInsertEmailIngest_FullFields(t *testing.T) {
 		t.Errorf("added/failed = %d/%d, want 2/1", gotAdded, gotFailed)
 	}
 }
-
-
-
-

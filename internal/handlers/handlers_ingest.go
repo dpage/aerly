@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strings"
@@ -89,7 +90,10 @@ func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 	deps := planops.Deps{Store: a.Store, Extractor: a.Extractor, Resolver: a.Resolver}
 	proposals, err := planops.Propose(r.Context(), deps, me.ID, tripID, text, docs)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		// The error can wrap raw LLM/provider detail; log it and return a
+		// generic message rather than echoing it to the client.
+		slog.Error("ingest: propose failed", "err", err, "trip", tripID)
+		writeError(w, http.StatusBadGateway, "could not read that booking right now")
 		return
 	}
 	out := api.IngestResultDTO{Proposals: make([]api.ProposedPlanDTO, 0, len(proposals))}
@@ -276,7 +280,11 @@ func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 	deps := planops.Deps{Store: a.Store, Extractor: a.Extractor, Resolver: a.Resolver}
 	created, err := planops.Commit(r.Context(), deps, tripID, me.ID, plans)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		// Commit wraps store/DB detail in its errors; log the specifics and
+		// return a generic message. The FE already validates the inputs it
+		// sends, so a failure here is not normally user-actionable.
+		slog.Error("ingest: commit failed", "err", err, "trip", tripID)
+		writeError(w, http.StatusBadRequest, "could not save those bookings")
 		return
 	}
 	out := make([]api.PlanDTO, 0, len(created))

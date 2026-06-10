@@ -20,6 +20,9 @@ var (
 	ErrAddressTaken    = errors.New("address already registered")
 	ErrAlreadyVerified = errors.New("address already verified")
 	ErrUsernameTaken   = errors.New("username already registered")
+	// ErrLastOwner is returned when removing a trip member would leave the trip
+	// with no owner, locking out non-superuser management of it.
+	ErrLastOwner = errors.New("cannot remove the last owner of the trip")
 	// ErrNotImplemented is returned by store methods whose bodies are stubbed
 	// out in the Wave 0a foundation and filled in by later feature waves.
 	ErrNotImplemented = errors.New("not implemented")

@@ -35,9 +35,9 @@ type Plan struct {
 	// ShareAllFriends, when true, grants every accepted friend of the trip
 	// owner a plan-scoped view of this plan (computed at read time).
 	ShareAllFriends bool
-	CreatedBy    *int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	CreatedBy       *int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // PlanPart is the spine: one timeline entry — a time range with a start and

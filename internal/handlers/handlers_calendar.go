@@ -178,6 +178,32 @@ func (a *API) issueCalendarToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "id required for trip/plan scope")
 		return
 	}
+	// Don't mint a token for a resource the caller can't actually see. The feed
+	// renderer already scopes events to the token owner, but issuing tokens for
+	// arbitrary ids is confusing and a needless defense-in-depth gap; 404 like
+	// the resource doesn't exist for them.
+	switch scope {
+	case "trip":
+		ok, err := a.Store.CanViewTrip(r.Context(), in.ID, u.ID)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+	case "plan":
+		ok, err := a.Store.CanViewPlan(r.Context(), in.ID, u.ID, u.IsSuperuser)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+	}
 	// Issue (regenerate), revoking any prior token for this exact resource only.
 	tok, err := a.Store.RegenerateCalendarToken(r.Context(), u.ID, scope, in.ID)
 	if err != nil {

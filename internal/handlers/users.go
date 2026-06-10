@@ -15,9 +15,18 @@ func (a *API) listUsers(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	// Only superusers (the AdminDialog) get the full record; every other
+	// authenticated caller gets the identity-only directory projection so the
+	// admin/activity metadata isn't leaked to the whole user base.
+	me := auth.UserFrom(r.Context())
+	full := me != nil && me.IsSuperuser
 	out := make([]api.UserDTO, 0, len(users))
 	for _, u := range users {
-		out = append(out, api.ToUserDTO(u))
+		if full {
+			out = append(out, api.ToUserDTO(u))
+		} else {
+			out = append(out, api.ToDirectoryUserDTO(u))
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

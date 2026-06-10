@@ -207,8 +207,8 @@ func TestDeriveTripCountryFromParts(t *testing.T) {
 // derivation must weight by dwell time — the week-long hotel stay wins.
 func TestDeriveTripCountryByDwellTime(t *testing.T) {
 	e := setup(t, nil, nil)
-	const homeLat, homeLon = 51.5, -0.5    // GB
-	const lhrLat, lhrLon = 51.4700, -0.4543 // GB
+	const homeLat, homeLon = 51.5, -0.5         // GB
+	const lhrLat, lhrLon = 51.4700, -0.4543     // GB
 	const hotelLat, hotelLon = 59.4370, 24.7536 // EE (Tallinn)
 	// country:"ee" stands in for geocoding the destination "Tallinn, Estonia".
 	// byCoord drives the reverse lookups: four GB endpoints (cab out + back) vs a

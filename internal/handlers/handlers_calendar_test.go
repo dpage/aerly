@@ -113,25 +113,33 @@ func TestCalendarTokenManagementEndpoints(t *testing.T) {
 		t.Error("token missing created_at")
 	}
 
-	// Issue a "trip" token with an id → url carries that id.
-	w = e.req(t, "POST", "/api/calendar/tokens", map[string]any{"scope": "trip", "id": 42}, uid)
+	// Issue a "trip" token with an id → url carries that id. The trip must be
+	// one the caller can see, so seed a couple owned by uid.
+	tripA := seedTrip(t, e, uid)
+	tripB := seedTrip(t, e, uid)
+	w = e.req(t, "POST", "/api/calendar/tokens", map[string]any{"scope": "trip", "id": tripA}, uid)
 	if w.Code != http.StatusOK {
 		t.Fatalf("issue trip = %d %s", w.Code, w.Body.String())
 	}
 	tripTok := decodeBody[map[string]any](t, w)
-	if u, _ := tripTok["url"].(string); !strings.Contains(u, "/api/calendar/trip/42.ics?token=") {
-		t.Errorf("trip url = %q, want trip/42.ics", u)
+	if u, _ := tripTok["url"].(string); !strings.Contains(u, "/api/calendar/trip/"+itoa(tripA)+".ics?token=") {
+		t.Errorf("trip url = %q, want trip/%d.ics", u, tripA)
 	}
-	if rid, _ := tripTok["resource_id"].(float64); rid != 42 {
-		t.Errorf("trip token resource_id = %v, want 42", tripTok["resource_id"])
+	if rid, _ := tripTok["resource_id"].(float64); int64(rid) != tripA {
+		t.Errorf("trip token resource_id = %v, want %d", tripTok["resource_id"], tripA)
 	}
 
 	// A second trip (different id) gets its own distinct token — per-resource
 	// granularity, so regenerating one trip's feed never revokes another's.
-	w = e.req(t, "POST", "/api/calendar/tokens", map[string]any{"scope": "trip", "id": 43}, uid)
+	w = e.req(t, "POST", "/api/calendar/tokens", map[string]any{"scope": "trip", "id": tripB}, uid)
 	trip43 := decodeBody[map[string]any](t, w)
 	if trip43["token"] == tripTok["token"] {
 		t.Error("distinct trip ids shared a token")
+	}
+
+	// A trip the caller can't see → 404 (no token minted for arbitrary ids).
+	if w := e.req(t, "POST", "/api/calendar/tokens", map[string]any{"scope": "trip", "id": tripB + 999}, uid); w.Code != http.StatusNotFound {
+		t.Errorf("token for unseen trip = %d, want 404", w.Code)
 	}
 
 	// trip/plan scope without id → 400.

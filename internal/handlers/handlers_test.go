@@ -97,6 +97,7 @@ func (e *testEnv) user(t *testing.T, username string, super bool) int64 {
 	}
 	return u.ID
 }
+
 // befriend establishes an accepted friendship between a and b, so one may be
 // added as the other's trip member / plan passenger (the handlers enforce this,
 // matching the FE picker).

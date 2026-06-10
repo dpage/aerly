@@ -317,7 +317,38 @@ func (s *Store) AddTripMember(ctx context.Context, tripID, userID int64, role st
 
 // RemoveTripMember drops a (trip, user) membership.
 func (s *Store) RemoveTripMember(ctx context.Context, tripID, userID int64) error {
-	tag, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Lock the trip so the owner-count check and delete are atomic against a
+	// concurrent role change / member removal that could also drop an owner.
+	if err := lockTripTx(ctx, tx, tripID); err != nil {
+		return err
+	}
+	// Refuse to remove the trip's last owner — that would leave no non-superuser
+	// able to manage it (a self-inflicted lockout).
+	var removingOwner bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM trip_members
+		                 WHERE trip_id = $1 AND user_id = $2 AND role = 'owner')`,
+		tripID, userID).Scan(&removingOwner); err != nil {
+		return err
+	}
+	if removingOwner {
+		var owners int
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM trip_members WHERE trip_id = $1 AND role = 'owner'`,
+			tripID).Scan(&owners); err != nil {
+			return err
+		}
+		if owners <= 1 {
+			return ErrLastOwner
+		}
+	}
+	tag, err := tx.Exec(ctx,
 		`DELETE FROM trip_members WHERE trip_id = $1 AND user_id = $2`, tripID, userID)
 	if err != nil {
 		return err
@@ -325,7 +356,7 @@ func (s *Store) RemoveTripMember(ctx context.Context, tripID, userID int64) erro
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // lockTripTx serializes trip-passenger materialisation against concurrent plan

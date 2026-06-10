@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/providers"
 )
 
 type resolveReq struct {
@@ -50,7 +53,20 @@ func (a *API) resolveFlight(w http.ResponseWriter, r *http.Request) {
 	}
 	rf, err := a.Resolver.Resolve(r.Context(), in.Ident, date)
 	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		// Surface only the curated, user-facing sentinels; anything else may
+		// carry provider URLs/quota detail, so log it and return a generic
+		// message rather than echoing the raw error to the client.
+		switch {
+		case errors.Is(err, providers.ErrFlightNotFound):
+			writeError(w, http.StatusUnprocessableEntity, "flight not found for that date")
+		case errors.Is(err, providers.ErrFlightUnscheduled):
+			writeError(w, http.StatusUnprocessableEntity, "no published schedule for that flight/date yet")
+		default:
+			// Keep the 422 the client contract uses, but don't echo the raw
+			// error — it can carry provider URLs/quota detail; log it instead.
+			slog.Error("resolveFlight: resolver error", "err", err, "ident", in.Ident)
+			writeError(w, http.StatusUnprocessableEntity, "could not resolve that flight")
+		}
 		return
 	}
 	originTZ, _ := airports.LookupTZ(rf.OriginIATA)
