@@ -160,6 +160,15 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 		return outcome{kind: outcomePoison}
 	}
 
+	// An absent/unparseable/multiple From can't be tied to a verified user and
+	// is a spoofing signal — reject it explicitly rather than letting it fall
+	// through to a misleading "no verified user" outcome.
+	if parsed.From == "" {
+		slog.Info("emailingest: missing/unparseable From, poison")
+		s.logIngest(ctx, parsed.MessageID, "", parsed.Subject, false, nil, "no_from", 0, 0, "")
+		return outcome{kind: outcomePoison}
+	}
+
 	// Refuse mail addressed from our own ingest address — prevents reply loops.
 	if strings.EqualFold(parsed.From, s.Cfg.IngestAddress) {
 		slog.Info("emailingest: refusing self-addressed mail", "from", parsed.From)

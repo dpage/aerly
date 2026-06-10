@@ -90,6 +90,12 @@ func SelectTrip(ctx context.Context, deps Deps, userID int64, planStart, planEnd
 	if err != nil {
 		return 0, false, err
 	}
+	// One batched query for every trip's part-derived span, instead of a
+	// PlansByTrip + PartsByPlan fan-out per trip.
+	spans, err := deps.Store.TripPartSpans(ctx, userID)
+	if err != nil {
+		return 0, false, err
+	}
 	plan := dateSpan{start: planStart, end: planEnd}
 	planSpan := planEnd.Sub(planStart)
 
@@ -97,10 +103,7 @@ func SelectTrip(ctx context.Context, deps Deps, userID int64, planStart, planEnd
 	bestOverlap := time.Duration(-1)
 	bestGap := time.Duration(1<<62 - 1)
 	for _, t := range trips {
-		span, err := tripSpan(ctx, deps, t)
-		if err != nil {
-			return 0, false, err
-		}
+		span := tripSpan(spans, t)
 		if span.empty() {
 			continue // date-less trips never auto-match
 		}
@@ -140,46 +143,22 @@ func SelectTrip(ctx context.Context, deps Deps, userID int64, planStart, planEnd
 	return bestID, true, nil
 }
 
-// tripSpan computes a trip's effective date span: min(starts_at)…max(ends_at)
-// over its plan_parts, falling back to trips.starts_on/ends_on.
-func tripSpan(ctx context.Context, deps Deps, t *store.Trip) (dateSpan, error) {
-	plans, err := deps.Store.PlansByTrip(ctx, t.ID)
-	if err != nil {
-		return dateSpan{}, err
+// tripSpan returns a trip's effective date span from the precomputed
+// part-derived spans, falling back to trips.starts_on/ends_on when the trip has
+// no dated parts.
+func tripSpan(spans map[int64]store.TripSpan, t *store.Trip) dateSpan {
+	if sp, ok := spans[t.ID]; ok && !sp.Start.IsZero() {
+		return dateSpan{start: sp.Start, end: sp.End}
 	}
 	var ds dateSpan
-	for _, pl := range plans {
-		parts, err := deps.Store.PartsByPlan(ctx, pl.ID)
-		if err != nil {
-			return dateSpan{}, err
-		}
-		for _, p := range parts {
-			if p.DismissedAt != nil {
-				continue
-			}
-			s := p.StartsAt
-			e := s
-			if p.EndsAt != nil {
-				e = *p.EndsAt
-			}
-			if ds.start.IsZero() || s.Before(ds.start) {
-				ds.start = s
-			}
-			if ds.end.IsZero() || e.After(ds.end) {
-				ds.end = e
-			}
+	if t.StartsOn != nil {
+		ds.start = *t.StartsOn
+		ds.end = *t.StartsOn
+		if t.EndsOn != nil {
+			ds.end = *t.EndsOn
 		}
 	}
-	if ds.empty() {
-		if t.StartsOn != nil {
-			ds.start = *t.StartsOn
-			ds.end = *t.StartsOn
-			if t.EndsOn != nil {
-				ds.end = *t.EndsOn
-			}
-		}
-	}
-	return ds, nil
+	return ds
 }
 
 // overlapAndGap returns the overlap duration (>0 when the intervals intersect)

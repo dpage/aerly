@@ -37,8 +37,13 @@ func Parse(raw []byte) (*Parsed, error) {
 	}
 	out := &Parsed{}
 
-	if addr, err := mail.ParseAddress(msg.Header.Get("From")); err == nil {
-		out.From = addr.Address
+	// Only trust a single, well-formed From. A message with multiple From
+	// headers is malformed/spoofy, and an unparseable one leaves From empty so
+	// the caller rejects it explicitly rather than proceeding with "".
+	if froms := msg.Header["From"]; len(froms) == 1 {
+		if addr, err := mail.ParseAddress(froms[0]); err == nil {
+			out.From = addr.Address
+		}
 	}
 	out.MessageID = strings.TrimSpace(msg.Header.Get("Message-ID"))
 	out.Subject = decodeRFC2047(msg.Header.Get("Subject"))

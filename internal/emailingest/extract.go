@@ -154,7 +154,21 @@ const (
 	maxPlansPerMessage = 50
 	maxPartsPerPlan    = 50
 	maxErrorBlobBytes  = 2048
+	// maxFieldLen bounds each free-text field persisted from the model so an
+	// injection-steered or runaway response can't store arbitrarily long blobs
+	// (which also get echoed into the confirmation reply).
+	maxFieldLen = 512
 )
+
+// clip trims surrounding whitespace and bounds a free-text field to maxFieldLen
+// runes (rune-safe so it never splits a multi-byte character).
+func clip(s string) string {
+	s = strings.TrimSpace(s)
+	if len([]rune(s)) <= maxFieldLen {
+		return s
+	}
+	return string([]rune(s)[:maxFieldLen])
+}
 
 // truncateForError bounds an LLM output blob before it goes into a wrapped
 // error (and thence the logs), so a multi-megabyte response can't bloat them.
@@ -333,13 +347,13 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 		planType := strings.ToLower(strings.TrimSpace(pl.Type))
 		ep := planops.ExtractedPlan{
 			Type:            planType,
-			Title:           pl.Title,
-			ConfirmationRef: pl.ConfirmationRef,
-			TicketNumber:    strings.TrimSpace(pl.TicketNumber),
-			SupplierName:    strings.TrimSpace(pl.SupplierName),
-			ContactEmail:    strings.TrimSpace(pl.ContactEmail),
-			ContactPhone:    strings.TrimSpace(pl.ContactPhone),
-			Website:         strings.TrimSpace(pl.Website),
+			Title:           clip(pl.Title),
+			ConfirmationRef: clip(pl.ConfirmationRef),
+			TicketNumber:    clip(pl.TicketNumber),
+			SupplierName:    clip(pl.SupplierName),
+			ContactEmail:    clip(pl.ContactEmail),
+			ContactPhone:    clip(pl.ContactPhone),
+			Website:         clip(pl.Website),
 		}
 		// Carry a cost whenever the model gave a non-negative amount (0 is a
 		// valid "free" total); an ISO 4217 code is exactly three letters, so
@@ -367,10 +381,10 @@ func (x *Extractor) ExtractPlans(ctx context.Context, body string, docs []planop
 				Confidence:   p.Confidence,
 				StartDate:    p.StartDate,
 				EndDate:      p.EndDate,
-				StartLabel:   strings.TrimSpace(p.StartLabel),
-				EndLabel:     strings.TrimSpace(p.EndLabel),
-				StartAddress: strings.TrimSpace(p.StartAddress),
-				EndAddress:   strings.TrimSpace(p.EndAddress),
+				StartLabel:   clip(p.StartLabel),
+				EndLabel:     clip(p.EndLabel),
+				StartAddress: clip(p.StartAddress),
+				EndAddress:   clip(p.EndAddress),
 			}
 			if timeRe.MatchString(p.StartTime) {
 				part.StartTime = p.StartTime

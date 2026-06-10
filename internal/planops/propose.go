@@ -379,6 +379,20 @@ func flightFromLeg(leg FlightFields, storedIdent string) *store.FlightDetail {
 	} else {
 		fd.ScheduledIn = fd.ScheduledOut
 	}
+	// Guard against an inverted/zero duration: a stated arrival that lands at or
+	// before departure is almost always an overnight flight whose arrival date
+	// was omitted (e.g. depart 23:10, arrive 06:30). Roll the arrival forward a
+	// day at a time until it's after departure (capped), so downstream span /
+	// long-haul / transfer-timing logic never sees ScheduledIn < ScheduledOut.
+	if leg.ArriveTimeLocal != "" && leg.ArriveDate == "" {
+		for i := 0; i < 2 && !fd.ScheduledIn.After(fd.ScheduledOut); i++ {
+			fd.ScheduledIn = fd.ScheduledIn.Add(24 * time.Hour)
+		}
+	}
+	// Last resort: never leave arrival strictly before departure.
+	if fd.ScheduledIn.Before(fd.ScheduledOut) {
+		fd.ScheduledIn = fd.ScheduledOut
+	}
 	return fd
 }
 

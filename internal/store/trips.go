@@ -359,6 +359,44 @@ func (s *Store) RemoveTripMember(ctx context.Context, tripID, userID int64) erro
 	return tx.Commit(ctx)
 }
 
+// TripSpan is the effective date span of a trip computed from its non-dismissed
+// plan parts: Start = min(starts_at), End = max(coalesce(ends_at, starts_at)).
+type TripSpan struct {
+	Start time.Time
+	End   time.Time
+}
+
+// TripPartSpans returns, in one query, the part-derived span for every trip the
+// user owns or is a member of that has at least one non-dismissed dated part.
+// Trips with no dated parts are simply absent from the map (callers fall back to
+// trips.starts_on/ends_on). This replaces a per-trip PlansByTrip+PartsByPlan
+// fan-out when auto-selecting a trip for an ingested booking.
+func (s *Store) TripPartSpans(ctx context.Context, userID int64) (map[int64]TripSpan, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT pl.trip_id,
+		       min(part.starts_at)                              AS span_start,
+		       max(COALESCE(part.ends_at, part.starts_at))      AS span_end
+		  FROM plans pl
+		  JOIN plan_parts part ON part.plan_id = pl.id AND part.dismissed_at IS NULL
+		 WHERE EXISTS (SELECT 1 FROM trip_members tm
+		                WHERE tm.trip_id = pl.trip_id AND tm.user_id = $1)
+		 GROUP BY pl.trip_id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]TripSpan{}
+	for rows.Next() {
+		var tripID int64
+		var sp TripSpan
+		if err := rows.Scan(&tripID, &sp.Start, &sp.End); err != nil {
+			return nil, err
+		}
+		out[tripID] = sp
+	}
+	return out, rows.Err()
+}
+
 // lockTripTx serializes trip-passenger materialisation against concurrent plan
 // creation / visibility changes for the same trip (so a new plan and a new
 // passenger can't cross and miss each other). All paths that reconcile a trip's
