@@ -265,7 +265,7 @@ func (p *Poller) dispatchAlert(
 			continue
 		}
 		if r.InApp {
-			p.publishAlert(r.UserID, tp, cur.Ident, kind, msg)
+			p.publishAlert(ctx, r.UserID, tp, cur.Ident, kind, msg)
 		}
 		if r.Email && r.EmailAddr != "" {
 			p.sendAlertEmail(ctx, r.EmailAddr, cur.Ident, kind, detail)
@@ -279,8 +279,8 @@ func (p *Poller) dispatchAlert(
 // field set, so clients reading only friend_requests_pending ignore it safely.
 // Persistence is best-effort: a failed insert is logged and we skip the push for
 // that recipient (no orphan SSE without a backing row).
-func (p *Poller) publishAlert(userID int64, tp *store.TrackerPart, ident, kind, msg string) {
-	stored, err := p.Store.InsertFlightAlert(context.Background(), store.FlightAlert{
+func (p *Poller) publishAlert(ctx context.Context, userID int64, tp *store.TrackerPart, ident, kind, msg string) {
+	stored, err := p.Store.InsertFlightAlert(ctx, store.FlightAlert{
 		UserID:     userID,
 		PlanPartID: tp.PlanPartID,
 		PlanID:     tp.PlanID,

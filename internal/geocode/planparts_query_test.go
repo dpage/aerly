@@ -74,7 +74,7 @@ func TestCountryFromAddress(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Quinta das Palmeiras, Porches, Portugal", "Portugal"},
 		{"Honeysuckle Cottage\n1 Example Lane\nAB12 3CD\nUnited Kingdom", "United Kingdom"},
-		{"Nowhere Addr", ""},   // single segment → no country tail
+		{"Nowhere Addr", ""}, // single segment → no country tail
 		{"", ""},
 	}
 	for _, c := range cases {

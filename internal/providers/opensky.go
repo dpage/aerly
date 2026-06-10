@@ -105,12 +105,30 @@ func (o *OpenSky) Track(ctx context.Context, f *store.Flight, _ time.Time) (*sto
 	if len(out.States) == 0 {
 		return nil, nil //nolint:nilnil // ADS-B silence — caller may dead-reckon
 	}
-	state := out.States[0]
-	lat, latOK := stateFloat(state, 6)
-	lon, lonOK := stateFloat(state, 5)
-	if !latOK || !lonOK {
-		return nil, nil //nolint:nilnil // partial state, no usable fix
+	// We filtered by icao24, but don't blindly trust states[0]: verify the
+	// returned state vector is actually for the requested airframe (index 0 is
+	// the icao24), and pick the first matching one that carries a usable fix —
+	// guarding against an icao24 collision or a partial leading state.
+	var state []any
+	for _, st := range out.States {
+		id, _ := stateStr(st, 0)
+		if !strings.EqualFold(strings.TrimSpace(id), icao) {
+			continue
+		}
+		if _, ok := stateFloat(st, 6); !ok {
+			continue
+		}
+		if _, ok := stateFloat(st, 5); !ok {
+			continue
+		}
+		state = st
+		break
 	}
+	if state == nil {
+		return nil, nil //nolint:nilnil // no matching state with a usable fix
+	}
+	lat, _ := stateFloat(state, 6)
+	lon, _ := stateFloat(state, 5)
 	ts := time.Unix(out.Time, 0).UTC()
 	if tp, ok := stateInt(state, 3); ok {
 		ts = time.Unix(tp, 0).UTC()
@@ -153,4 +171,12 @@ func stateInt(state []interface{}, i int) (int64, bool) {
 		return int64(v), true
 	}
 	return 0, false
+}
+
+func stateStr(state []interface{}, i int) (string, bool) {
+	if i >= len(state) || state[i] == nil {
+		return "", false
+	}
+	v, ok := state[i].(string)
+	return v, ok
 }

@@ -2,6 +2,7 @@ package geocode
 
 import (
 	"context"
+	"golang.org/x/time/rate"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,7 +22,7 @@ func TestNominatimGeocodeCountry(t *testing.T) {
 
 	n := NewNominatim("aerly-test")
 	n.BaseURL = srv.URL
-	n.minGap = 0
+	n.limiter = rate.NewLimiter(rate.Inf, 1) // don't throttle the test
 
 	code, ok, err := n.GeocodeCountry(context.Background(), "Benidorm")
 	if err != nil || !ok {
@@ -47,7 +48,7 @@ func TestNominatimGeocodeCountry_NoResult(t *testing.T) {
 
 	n := NewNominatim("aerly-test")
 	n.BaseURL = srv.URL
-	n.minGap = 0
+	n.limiter = rate.NewLimiter(rate.Inf, 1) // don't throttle the test
 
 	code, ok, err := n.GeocodeCountry(context.Background(), "Nowhere-at-all")
 	if err != nil {
@@ -72,7 +73,7 @@ func TestNominatimReverseCountry(t *testing.T) {
 
 	n := NewNominatim("aerly-test")
 	n.BaseURL = srv.URL
-	n.minGap = 0
+	n.limiter = rate.NewLimiter(rate.Inf, 1) // don't throttle the test
 
 	code, ok, err := n.ReverseCountry(context.Background(), 50.95194, 1.85635)
 	if err != nil || !ok {
@@ -99,7 +100,7 @@ func TestNominatimReverseCountry_NoResult(t *testing.T) {
 
 	n := NewNominatim("aerly-test")
 	n.BaseURL = srv.URL
-	n.minGap = 0
+	n.limiter = rate.NewLimiter(rate.Inf, 1) // don't throttle the test
 
 	code, ok, err := n.ReverseCountry(context.Background(), 0, 0)
 	if err != nil {

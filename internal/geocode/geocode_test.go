@@ -2,6 +2,7 @@ package geocode
 
 import (
 	"context"
+	"golang.org/x/time/rate"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -21,7 +22,7 @@ func TestNominatimGeocodeAndCache(t *testing.T) {
 
 	n := NewNominatim("aerly-test")
 	n.BaseURL = srv.URL
-	n.minGap = 0 // don't slow the test
+	n.limiter = rate.NewLimiter(rate.Inf, 1) // don't throttle the test
 
 	lat, lon, ok, err := n.Geocode(context.Background(), "Heathrow Terminal 5")
 	if err != nil || !ok {
@@ -54,7 +55,7 @@ func TestNominatimNoMatch(t *testing.T) {
 	defer srv.Close()
 	n := NewNominatim("aerly-test")
 	n.BaseURL = srv.URL
-	n.minGap = 0
+	n.limiter = rate.NewLimiter(rate.Inf, 1) // don't throttle the test
 	_, _, ok, err := n.Geocode(context.Background(), "nowhere at all")
 	if err != nil || ok {
 		t.Errorf("no-match: ok=%v err=%v", ok, err)

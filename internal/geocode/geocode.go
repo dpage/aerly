@@ -6,13 +6,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
+
+// maxResponseBytes caps how much of a Nominatim response we read before
+// decoding, so a misbehaving/compromised endpoint can't stream an unbounded
+// body into memory. Real search/reverse responses are a few KiB.
+const maxResponseBytes = 1 << 20
+
+// maxCacheEntries bounds each in-memory cache. Geocode keys derive from
+// user-supplied free text / coordinates, so without a bound a user could grow
+// the maps for the process lifetime. When the cap is hit the cache is cleared
+// (a coarse but simple eviction for a best-effort cache).
+const maxCacheEntries = 8192
 
 // Geocoder turns a free-text address into coordinates, and a place into its
 // ISO country. ok is false when the query simply couldn't be located (not an
@@ -37,9 +51,7 @@ type Nominatim struct {
 	UserAgent string
 	HTTP      *http.Client
 
-	rateMu sync.Mutex
-	last   time.Time
-	minGap time.Duration
+	limiter *rate.Limiter
 
 	cacheMu sync.RWMutex
 	cache   map[string]cached
@@ -57,10 +69,12 @@ type cached struct {
 // userAgent must identify the application (policy requirement).
 func NewNominatim(userAgent string) *Nominatim {
 	return &Nominatim{
-		BaseURL:      "https://nominatim.openstreetmap.org",
-		UserAgent:    userAgent,
-		HTTP:         &http.Client{Timeout: 10 * time.Second},
-		minGap:       time.Second,
+		BaseURL:   "https://nominatim.openstreetmap.org",
+		UserAgent: userAgent,
+		HTTP:      &http.Client{Timeout: 10 * time.Second},
+		// One request/second (policy), burst 1. Wait(ctx) respects cancellation
+		// and, unlike a mutex+sleep, never serialises callers behind a held lock.
+		limiter:      rate.NewLimiter(rate.Every(time.Second), 1),
 		cache:        map[string]cached{},
 		countryCache: map[string]string{},
 	}
@@ -75,7 +89,9 @@ func (n *Nominatim) Geocode(ctx context.Context, query string) (float64, float64
 		return c.lat, c.lon, c.ok, nil
 	}
 
-	n.throttle()
+	if err := n.throttle(ctx); err != nil {
+		return 0, 0, false, err
+	}
 
 	endpoint := n.BaseURL + "/search?" + url.Values{
 		"q": {query}, "format": {"json"}, "limit": {"1"},
@@ -97,7 +113,7 @@ func (n *Nominatim) Geocode(ctx context.Context, query string) (float64, float64
 		Lat string `json:"lat"`
 		Lon string `json:"lon"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&results); err != nil {
 		return 0, 0, false, err
 	}
 	var c cached
@@ -124,7 +140,9 @@ func (n *Nominatim) GeocodeCountry(ctx context.Context, query string) (string, b
 		return c, c != "", nil
 	}
 
-	n.throttle()
+	if err := n.throttle(ctx); err != nil {
+		return "", false, err
+	}
 
 	endpoint := n.BaseURL + "/search?" + url.Values{
 		"q": {query}, "format": {"json"}, "limit": {"1"}, "addressdetails": {"1"},
@@ -147,16 +165,14 @@ func (n *Nominatim) GeocodeCountry(ctx context.Context, query string) (string, b
 			CountryCode string `json:"country_code"`
 		} `json:"address"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&results); err != nil {
 		return "", false, err
 	}
 	code := ""
 	if len(results) > 0 {
 		code = strings.ToLower(strings.TrimSpace(results[0].Address.CountryCode))
 	}
-	n.countryMu.Lock()
-	n.countryCache[query] = code
-	n.countryMu.Unlock()
+	n.storeCountry(query, code)
 	return code, code != "", nil
 }
 
@@ -172,7 +188,9 @@ func (n *Nominatim) ReverseCountry(ctx context.Context, lat, lon float64) (strin
 		return c, c != "", nil
 	}
 
-	n.throttle()
+	if err := n.throttle(ctx); err != nil {
+		return "", false, err
+	}
 
 	endpoint := n.BaseURL + "/reverse?" + url.Values{
 		"lat":            {strconv.FormatFloat(lat, 'f', -1, 64)},
@@ -200,13 +218,11 @@ func (n *Nominatim) ReverseCountry(ctx context.Context, lat, lon float64) (strin
 			CountryCode string `json:"country_code"`
 		} `json:"address"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&result); err != nil {
 		return "", false, err
 	}
 	code := strings.ToLower(strings.TrimSpace(result.Address.CountryCode))
-	n.countryMu.Lock()
-	n.countryCache[key] = code
-	n.countryMu.Unlock()
+	n.storeCountry(key, code)
 	return code, code != "", nil
 }
 
@@ -219,17 +235,24 @@ func (n *Nominatim) cached(q string) (cached, bool) {
 
 func (n *Nominatim) store(q string, c cached) {
 	n.cacheMu.Lock()
+	if len(n.cache) >= maxCacheEntries {
+		n.cache = map[string]cached{}
+	}
 	n.cache[q] = c
 	n.cacheMu.Unlock()
 }
 
-// throttle blocks until at least minGap has elapsed since the last request,
-// keeping us within the one-request-per-second policy under concurrency.
-func (n *Nominatim) throttle() {
-	n.rateMu.Lock()
-	defer n.rateMu.Unlock()
-	if gap := time.Since(n.last); gap < n.minGap {
-		time.Sleep(n.minGap - gap)
+func (n *Nominatim) storeCountry(key, code string) {
+	n.countryMu.Lock()
+	if len(n.countryCache) >= maxCacheEntries {
+		n.countryCache = map[string]string{}
 	}
-	n.last = time.Now()
+	n.countryCache[key] = code
+	n.countryMu.Unlock()
+}
+
+// throttle waits for the rate limiter (one request/second policy), respecting
+// context cancellation. It does not hold any lock while waiting.
+func (n *Nominatim) throttle(ctx context.Context) error {
+	return n.limiter.Wait(ctx)
 }
