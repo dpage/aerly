@@ -139,7 +139,14 @@ func (h *Handler) listProviders(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request, p *Provider) {
-	nonce := randomToken(24)
+	nonce, err := randomToken(24)
+	if err != nil {
+		// crypto/rand failure is rare, but turn it into a clean 500 rather than
+		// a panic in the request path.
+		slog.Error("oauth: random state token", "err", err)
+		renderLoginError(w, http.StatusInternalServerError, "could not start sign-in")
+		return
+	}
 	expires := time.Now().Add(StateTTL)
 	// The cookie carries the nonce bound into a signature (SignState); the
 	// provider only ever sees the bare nonce as the `state` query param.
@@ -165,18 +172,24 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request, p *Provider) {
 
 func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) {
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
-		renderLoginError(w, p.Label+" returned: "+errParam)
+		// The user declining consent isn't an error — send them home rather than
+		// showing a scary 403 page.
+		if errParam == "access_denied" {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+		renderLoginError(w, http.StatusBadRequest, p.Label+" returned: "+errParam)
 		return
 	}
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 	if code == "" || state == "" {
-		renderLoginError(w, "missing code or state")
+		renderLoginError(w, http.StatusBadRequest, "missing code or state")
 		return
 	}
 	c, err := r.Cookie(StateCookie)
 	if err != nil {
-		renderLoginError(w, "state cookie missing — try signing in again")
+		renderLoginError(w, http.StatusBadRequest, "state cookie missing — try signing in again")
 		return
 	}
 	// Clear the state cookie regardless of outcome.
@@ -188,20 +201,20 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 	// Constant-time check that the cookie's signed, nonce-bound state matches
 	// the nonce echoed back as the `state` query param and has not expired.
 	if err := VerifyState(h.SessionKey, c.Value, state); err != nil {
-		renderLoginError(w, "state mismatch or expired — try signing in again")
+		renderLoginError(w, http.StatusBadRequest, "state mismatch or expired — try signing in again")
 		return
 	}
 
 	token, err := h.exchangeCode(r.Context(), p, code)
 	if err != nil {
 		slog.Error("oauth token exchange failed", "provider", p.Name, "err", err)
-		renderLoginError(w, "could not complete sign-in")
+		renderLoginError(w, http.StatusBadGateway, "could not complete sign-in")
 		return
 	}
 	profile, err := p.FetchProfile(r.Context(), h.HTTP, token)
 	if err != nil {
 		slog.Error("oauth profile fetch failed", "provider", p.Name, "err", err)
-		renderLoginError(w, "could not fetch "+p.Label+" profile")
+		renderLoginError(w, http.StatusBadGateway, "could not fetch "+p.Label+" profile")
 		return
 	}
 	// Defensive: providers must set this, but if a buggy impl leaves it
@@ -213,20 +226,21 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 	count, err := h.Store.CountUsers(r.Context())
 	if err != nil {
 		slog.Error("count users failed", "err", err)
-		renderLoginError(w, "database error")
+		renderLoginError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 	user, outcome, err := h.Store.LinkLogin(r.Context(), profile, count == 0)
 	if errors.Is(err, store.ErrNotFound) {
 		// LinkLogin returns ErrNotFound only when the matched account is
-		// deactivated; open signups create a fresh user otherwise.
-		renderLoginError(w, "this account has been deactivated. "+
+		// deactivated; open signups create a fresh user otherwise. This is a
+		// genuine authorization denial — 403.
+		renderLoginError(w, http.StatusForbidden, "this account has been deactivated. "+
 			"Ask an administrator to re-enable it.")
 		return
 	}
 	if err != nil {
 		slog.Error("link login failed", "err", err)
-		renderLoginError(w, "database error")
+		renderLoginError(w, http.StatusInternalServerError, "database error")
 		return
 	}
 
@@ -290,17 +304,17 @@ func (h *Handler) exchangeCode(ctx context.Context, p *Provider, code string) (s
 	return out.AccessToken, nil
 }
 
-func randomToken(n int) string {
+func randomToken(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		return "", err
 	}
-	return base64.RawURLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-func renderLoginError(w http.ResponseWriter, msg string) {
+func renderLoginError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusForbidden)
+	w.WriteHeader(status)
 	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>Sign-in failed</title>
 <body style="font-family:system-ui;max-width:36rem;margin:4rem auto;padding:0 1rem">
 <h1>Sign-in failed</h1><p>%s</p><p><a href="/">Back to home</a></p></body>`,

@@ -218,16 +218,26 @@ func callback(h *Handler, providerName string, q url.Values, cookie *http.Cookie
 
 func TestCallbackErrorParam(t *testing.T) {
 	h, _ := newTestHandler(t)
+	// A non-cancel provider error renders the (escaped) error page with 400.
+	w := callback(h, "github", url.Values{"error": {"server_error"}}, nil)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "server_error") {
+		t.Errorf("expected escaped error page (400), code=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestCallbackUserCancelRedirectsHome(t *testing.T) {
+	h, _ := newTestHandler(t)
+	// The user declining consent isn't an error — redirect home, not 403.
 	w := callback(h, "github", url.Values{"error": {"access_denied"}}, nil)
-	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "access_denied") {
-		t.Errorf("expected escaped error page, code=%d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/" {
+		t.Errorf("access_denied: code=%d loc=%q, want 302 → /", w.Code, w.Header().Get("Location"))
 	}
 }
 
 func TestCallbackMissingCodeOrState(t *testing.T) {
 	h, _ := newTestHandler(t)
 	w := callback(h, "github", url.Values{"code": {""}, "state": {""}}, nil)
-	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "missing code or state") {
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "missing code or state") {
 		t.Errorf("unexpected: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -495,7 +505,14 @@ func TestHTMLEscape(t *testing.T) {
 }
 
 func TestRandomTokenUnique(t *testing.T) {
-	a, b := randomToken(24), randomToken(24)
+	a, err := randomToken(24)
+	if err != nil {
+		t.Fatalf("randomToken: %v", err)
+	}
+	b, err := randomToken(24)
+	if err != nil {
+		t.Fatalf("randomToken: %v", err)
+	}
 	if a == b || a == "" {
 		t.Errorf("tokens not unique/non-empty: %q %q", a, b)
 	}
