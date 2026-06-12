@@ -103,8 +103,6 @@ describe('BottomSheet', () => {
     expect(screen.queryByTestId('sheet-above')).not.toBeInTheDocument();
   });
 
-  // --- new tests for review fixes ---
-
   it('a drag far past full still lands on full', () => {
     const { onSnapChange } = renderSheet('peek');
     const handle = screen.getByTestId('sheet-handle');
