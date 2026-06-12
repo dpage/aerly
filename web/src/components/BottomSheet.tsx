@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components --
    sheetHeightPx is a pure utility exported for use by the parent layout and
    by tests; it belongs here alongside the snap-type definitions. */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Box, Paper } from '@mui/material';
 
 export type SheetSnap = 'peek' | 'half' | 'full';
@@ -61,12 +61,26 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
   const dragRef = useRef<{ pointerId: number; startY: number; startPx: number } | null>(null);
 
   // Track the container height across orientation/viewport changes so the
-  // snap points stay proportional.
-  useEffect(() => {
+  // snap points stay proportional. useLayoutEffect avoids a flash when the
+  // sheet is first mounted at half/full (containerH would start at 0 otherwise).
+  useLayoutEffect(() => {
     const measure = () => setContainerH(rootRef.current?.parentElement?.clientHeight ?? 0);
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+
+    // Also observe the parent element directly so pane-height changes that do
+    // not trigger a window resize (e.g. split-pane adjustments) re-measure.
+    let ro: ResizeObserver | null = null;
+    const parent = rootRef.current?.parentElement;
+    if (typeof ResizeObserver !== 'undefined' && parent) {
+      ro = new ResizeObserver(measure);
+      ro.observe(parent);
+    }
+
+    return () => {
+      window.removeEventListener('resize', measure);
+      ro?.disconnect();
+    };
   }, []);
 
   const heightPx = dragPx ?? sheetHeightPx(snap, containerH);
@@ -77,7 +91,14 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
   const aboveHidden = snap === 'full' && dragPx == null;
 
   const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
-    dragRef.current = { pointerId: e.pointerId, startY: e.clientY, startPx: heightPx };
+    // Ignore a second simultaneous pointerdown (e.g. two fingers).
+    if (dragRef.current) return;
+    // Seed from the rendered height so grabbing during a transition doesn't
+    // cause the sheet to jump. Fall back to the computed heightPx when
+    // getBoundingClientRect is unavailable (jsdom) or returns 0.
+    const renderedH = rootRef.current?.getBoundingClientRect().height;
+    const startPx = renderedH && renderedH > 0 ? renderedH : heightPx;
+    dragRef.current = { pointerId: e.pointerId, startY: e.clientY, startPx };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent<HTMLElement>) => {
@@ -96,8 +117,22 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
       if (snap === 'peek') onSnapChange('half');
       return;
     }
-    const target = nearestSnap(d.startPx + travelled, containerH);
+    // Clamp before finding nearest so the logic is obviously correct even for
+    // drags that travel far past the extremes.
+    const clampedPx = Math.max(
+      PEEK_PX,
+      Math.min(d.startPx + travelled, sheetHeightPx('full', containerH)),
+    );
+    const target = nearestSnap(clampedPx, containerH);
     if (target !== snap) onSnapChange(target);
+  };
+  const onPointerCancel = (e: React.PointerEvent<HTMLElement>) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    // The OS cancelled the gesture (e.g. incoming call, system swipe). Clear
+    // the drag state so the sheet animates back to its snapped position.
+    dragRef.current = null;
+    setDragPx(null);
   };
   const onKeyDown = (e: React.KeyboardEvent) => {
     const i = SNAP_ORDER.indexOf(snap);
@@ -116,6 +151,12 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
         <Box
           data-testid="sheet-above"
           data-hidden={aboveHidden ? '1' : '0'}
+          style={{
+            bottom: height,
+            transition,
+            opacity: aboveHidden ? 0 : 1,
+            pointerEvents: aboveHidden ? 'none' : 'auto',
+          }}
           sx={{
             // A zero-height anchor line at the sheet's top edge: the scrubber
             // inside is absolutely positioned with bottom: 0, so it grows
@@ -124,11 +165,7 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
             left: 0,
             right: 0,
             height: 0,
-            bottom: height,
             zIndex: 2,
-            transition,
-            opacity: aboveHidden ? 0 : 1,
-            pointerEvents: aboveHidden ? 'none' : 'auto',
           }}
         >
           {above}
@@ -140,14 +177,13 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
         square
         data-testid="bottom-sheet"
         data-snap={snap}
+        style={{ height, transition }}
         sx={{
           position: 'absolute',
           left: 0,
           right: 0,
           bottom: 0,
           zIndex: 3,
-          height,
-          transition,
           borderTopLeftRadius: 12,
           borderTopRightRadius: 12,
           display: 'flex',
@@ -158,12 +194,18 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
       >
         <Box
           data-testid="sheet-handle"
-          role="button"
+          role="slider"
           tabIndex={0}
-          aria-label="Plan list. Drag, or use the arrow keys, to resize"
+          aria-orientation="vertical"
+          aria-valuemin={0}
+          aria-valuemax={2}
+          aria-valuenow={SNAP_ORDER.indexOf(snap)}
+          aria-valuetext={snap}
+          aria-label="Plan list height. Drag, or use the arrow keys, to resize"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onPointerCancel={onPointerCancel}
           onKeyDown={onKeyDown}
           sx={{ flex: 'none', cursor: 'grab', touchAction: 'none', pt: 0.75 }}
         >

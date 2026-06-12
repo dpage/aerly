@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function renderSheet(snap: SheetSnap, onSnapChange = vi.fn(), above?: React.ReactNode) {
-  render(
+  const result = render(
     <div style={{ position: 'relative', height: 800 }}>
       <BottomSheet
         snap={snap}
@@ -29,7 +29,7 @@ function renderSheet(snap: SheetSnap, onSnapChange = vi.fn(), above?: React.Reac
       </BottomSheet>
     </div>,
   );
-  return onSnapChange;
+  return { onSnapChange, rerender: result.rerender };
 }
 
 describe('BottomSheet', () => {
@@ -47,7 +47,7 @@ describe('BottomSheet', () => {
   });
 
   it('a tap on the handle (no movement) raises peek to half', () => {
-    const onSnapChange = renderSheet('peek');
+    const { onSnapChange } = renderSheet('peek');
     const handle = screen.getByTestId('sheet-handle');
     fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700 });
     fireEvent.pointerUp(handle, { pointerId: 1, clientY: 700 });
@@ -55,7 +55,7 @@ describe('BottomSheet', () => {
   });
 
   it('dragging snaps to the nearest resting point on release', () => {
-    const onSnapChange = renderSheet('peek');
+    const { onSnapChange } = renderSheet('peek');
     const handle = screen.getByTestId('sheet-handle');
     // Start at peek (64px); drag up 300px → 364px, nearest snap is half (360).
     fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700 });
@@ -65,7 +65,7 @@ describe('BottomSheet', () => {
   });
 
   it('a long drag from peek can land on full', () => {
-    const onSnapChange = renderSheet('peek');
+    const { onSnapChange } = renderSheet('peek');
     const handle = screen.getByTestId('sheet-handle');
     // 64 + 600 = 664px, nearest snap is full (720).
     fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700 });
@@ -75,13 +75,13 @@ describe('BottomSheet', () => {
   });
 
   it('arrow keys step between snap points from the handle', () => {
-    const up = renderSheet('half');
+    const { onSnapChange: up } = renderSheet('half');
     fireEvent.keyDown(screen.getByTestId('sheet-handle'), { key: 'ArrowUp' });
     expect(up).toHaveBeenCalledWith('full');
   });
 
   it('ArrowDown lowers the sheet and stops at peek', () => {
-    const down = renderSheet('half');
+    const { onSnapChange: down } = renderSheet('half');
     const handle = screen.getByTestId('sheet-handle');
     fireEvent.keyDown(handle, { key: 'ArrowDown' });
     expect(down).toHaveBeenCalledWith('peek');
@@ -101,5 +101,60 @@ describe('BottomSheet', () => {
   it('omits the above strip entirely when no above content is given', () => {
     renderSheet('half');
     expect(screen.queryByTestId('sheet-above')).not.toBeInTheDocument();
+  });
+
+  // --- new tests for review fixes ---
+
+  it('a drag far past full still lands on full', () => {
+    const { onSnapChange } = renderSheet('peek');
+    const handle = screen.getByTestId('sheet-handle');
+    // Drag up 2000px, far beyond full (720px) — should still snap to full.
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: -1300 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: -1300 });
+    expect(onSnapChange).toHaveBeenCalledWith('full');
+  });
+
+  it('a drag far below peek still lands on peek', () => {
+    const { onSnapChange } = renderSheet('half');
+    const handle = screen.getByTestId('sheet-handle');
+    // Drag down 2000px, far below peek — should still snap to peek.
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 2400 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 2400 });
+    expect(onSnapChange).toHaveBeenCalledWith('peek');
+  });
+
+  it('a sub-slop release at half does not call onSnapChange', () => {
+    const { onSnapChange } = renderSheet('half');
+    const handle = screen.getByTestId('sheet-handle');
+    // Move only 4px — below the 8px tap slop; at half there is no tap-raise.
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 396 });
+    expect(onSnapChange).not.toHaveBeenCalled();
+  });
+
+  it('pointercancel mid-drag leaves sheet at its snap and does not call onSnapChange', () => {
+    const { onSnapChange } = renderSheet('half');
+    const handle = screen.getByTestId('sheet-handle');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 400 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 200 });
+    fireEvent.pointerCancel(handle, { pointerId: 1 });
+    expect(screen.getByTestId('bottom-sheet')).toHaveAttribute('data-snap', 'half');
+    expect(onSnapChange).not.toHaveBeenCalled();
+  });
+
+  it('re-rendering with a new snap prop updates data-snap', () => {
+    const onSnapChange = vi.fn();
+    const { rerender } = renderSheet('peek', onSnapChange);
+    expect(screen.getByTestId('bottom-sheet')).toHaveAttribute('data-snap', 'peek');
+    rerender(
+      <div style={{ position: 'relative', height: 800 }}>
+        <BottomSheet snap="full" onSnapChange={onSnapChange} header={<div>peek header</div>}>
+          <div>body content</div>
+        </BottomSheet>
+      </div>,
+    );
+    expect(screen.getByTestId('bottom-sheet')).toHaveAttribute('data-snap', 'full');
   });
 });
