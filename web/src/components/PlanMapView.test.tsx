@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { setMatchMedia } from '../test/setup';
 
 import type { PlanPart, Position, User } from '../api/types';
 import { initialBearing } from '../lib/great-circle';
@@ -834,6 +835,75 @@ describe('PlanMapView', () => {
     await user.click(screen.getByTestId('plan-row-5'));
     const lastCall = track!.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
     expect(lastCall.features).toHaveLength(0);
+  });
+
+  describe('mobile bottom-sheet layout', () => {
+    beforeEach(() => {
+      setMatchMedia(true);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('puts the list in a bottom sheet at peek, with a plan-count summary', () => {
+      render(<PlanMapView parts={[flight(), hotel()]} />);
+      expect(screen.getByTestId('bottom-sheet')).toHaveAttribute('data-snap', 'peek');
+      expect(screen.getByTestId('sheet-peek')).toHaveTextContent('2 plans');
+      // The list itself still renders (inside the sheet) for when it's raised.
+      expect(screen.getByTestId('plan-row-1')).toBeInTheDocument();
+    });
+
+    it('shows the selected plan one-liner in the peek bar', () => {
+      render(<PlanMapView parts={[flight(), hotel()]} initialSelectedPartId={1} />);
+      const peek = screen.getByTestId('sheet-peek');
+      expect(peek).toHaveTextContent('BA217');
+      expect(peek).toHaveTextContent('Flight');
+    });
+
+    it('shows a loading peek before the parts arrive', () => {
+      render(<PlanMapView parts={[]} loading />);
+      expect(screen.getByTestId('sheet-peek')).toHaveTextContent('Loading…');
+    });
+
+    it('shows "No plans" in the peek bar when nothing is mappable', () => {
+      render(<PlanMapView parts={[]} />);
+      expect(screen.getByTestId('sheet-peek')).toHaveTextContent('No plans');
+    });
+
+    it('tapping the peek bar raises the sheet to half', () => {
+      render(<PlanMapView parts={[flight()]} />);
+      const handle = screen.getByTestId('sheet-handle');
+      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 500 });
+      fireEvent.pointerUp(handle, { pointerId: 1, clientY: 500 });
+      expect(screen.getByTestId('bottom-sheet')).toHaveAttribute('data-snap', 'half');
+    });
+
+    it('rides the time scrubber above the sheet and hides it at full', () => {
+      // The scrubber only shows once there's a past to look back over: pin the
+      // clock mid-flight, as the existing "time slider" describe block does.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-12T11:30:00Z'));
+      render(<PlanMapView parts={[flight()]} />);
+      const strip = screen.getByTestId('sheet-above');
+      expect(within(strip).getByTestId('time-slider')).toBeInTheDocument();
+      expect(strip).toHaveAttribute('data-hidden', '0');
+      const handle = screen.getByTestId('sheet-handle');
+      fireEvent.keyDown(handle, { key: 'ArrowUp' }); // peek → half
+      fireEvent.keyDown(handle, { key: 'ArrowUp' }); // half → full
+      expect(strip).toHaveAttribute('data-hidden', '1');
+    });
+
+    it('expands a selected row to its detail inside the sheet', async () => {
+      render(<PlanMapView parts={[flight(), hotel()]} />);
+      await userEvent.click(screen.getByTestId('plan-row-2'));
+      expect(screen.getByText('8028 Leesburg Pike')).toBeInTheDocument();
+    });
+
+    it('renders no bottom sheet on the desktop layout', () => {
+      setMatchMedia(false);
+      render(<PlanMapView parts={[flight()]} />);
+      expect(screen.queryByTestId('bottom-sheet')).not.toBeInTheDocument();
+    });
   });
 });
 

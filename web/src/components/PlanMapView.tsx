@@ -20,8 +20,9 @@ import {
   Stack,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 
 import type { PlanPart } from '../api/types';
 import { unlocatedCount } from '../lib/geo';
@@ -41,6 +42,7 @@ import { personColor } from '../lib/person-color';
 import { fmtPartPlaces, fmtPartTimeRange, isTransferType, planTypeLabel } from '../lib/trip-format';
 import FlightDetailCard from './FlightDetailCard';
 import PartDetailBlock from './PartDetailBlock';
+import BottomSheet, { sheetHeightPx, type SheetSnap } from './BottomSheet';
 
 const STYLE: StyleSpecification = {
   version: 8,
@@ -82,6 +84,17 @@ interface Props {
 export default function PlanMapView({ parts, loading, controls, initialSelectedPartId }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(initialSelectedPartId ?? null);
   const containerRef = useRef<HTMLElement | null>(null);
+
+  const theme = useTheme();
+  // Below md the list moves into a bottom sheet over a full-bleed map; at md+
+  // the side-by-side desktop layout is untouched.
+  const mobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [snap, setSnap] = useState<SheetSnap>('peek');
+  // The sheet's current height, read by the fit effect (a ref so a snap change
+  // alone never re-runs a fit — fitKeyRef already gates on intent).
+  const sheetPxRef = useRef(0);
+  sheetPxRef.current = mobile ? sheetHeightPx(snap, containerRef.current?.clientHeight ?? 0) : 0;
+
   const mapRef = useRef<MlMap | null>(null);
   const readyRef = useRef(false);
   // One teardrop pin per geocoded endpoint, keyed by part + role + coordinate.
@@ -377,6 +390,14 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     const map = mapRef.current;
     if (!map) return;
     const run = () => {
+      // On mobile the bottom sheet covers the lower part of the map: pad fits
+      // so the focus lands in the visible strip above it (clamped to half the
+      // pane so fitBounds always has room).
+      const paneH = containerRef.current?.clientHeight ?? 0;
+      const sheetPad = Math.min(sheetPxRef.current, Math.round(paneH * 0.5));
+      const boundsPad = sheetPad > 0 ? { top: 80, left: 80, right: 80, bottom: 80 + sheetPad } : 80;
+      const flyPad =
+        sheetPad > 0 ? { padding: { top: 0, left: 0, right: 0, bottom: sheetPad } } : {};
       if (selected) {
         // Re-fit only when the selection changes, not when the selected part's
         // own data refreshes (which would otherwise reset a manual zoom).
@@ -385,10 +406,10 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
         fitKeyRef.current = key;
         const pts = partCoords(selected);
         if (pts.length === 1) {
-          map.flyTo({ center: pts[0], zoom: 11, duration: 600 });
+          map.flyTo({ center: pts[0], zoom: 11, duration: 600, ...flyPad });
         } else if (pts.length > 1) {
           const b = boundsOf(pts);
-          if (b) map.fitBounds(b, { padding: 80, maxZoom: 9, duration: 600 });
+          if (b) map.fitBounds(b, { padding: boundsPad, maxZoom: 9, duration: 600 });
         }
         return;
       }
@@ -398,77 +419,94 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       if (key === fitKeyRef.current) return;
       fitKeyRef.current = key;
       const b = boundsOf(all);
-      if (all.length === 1) map.flyTo({ center: all[0], zoom: 9, duration: 600 });
-      else if (b) map.fitBounds(b, { padding: 80, maxZoom: 9, duration: 600 });
+      if (all.length === 1) map.flyTo({ center: all[0], zoom: 9, duration: 600, ...flyPad });
+      else if (b) map.fitBounds(b, { padding: boundsPad, maxZoom: 9, duration: 600 });
     };
     if (map.isStyleLoaded() && readyRef.current) run();
     else map.once('idle', run);
   }, [ordered, selected, selectedId]);
 
+  const timeSlider = timeDomain.show ? (
+    <TimeSlider
+      start={timeDomain.start}
+      end={timeDomain.end}
+      value={valueMs}
+      liveEdge={liveEdge}
+      inProgress={timeDomain.inProgress}
+      onScrub={(ms) =>
+        // Snapping to the right edge of a running trip re-locks the live
+        // view (null); anywhere else is a fixed past instant.
+        setScrubMs(timeDomain.inProgress && ms >= timeDomain.end - SCRUB_STEP_MS ? null : ms)
+      }
+      onReset={() => setScrubMs(null)}
+    />
+  ) : null;
+
+  const listContent = (
+    <>
+      {controls && <Box sx={{ p: 2, pb: 1 }}>{controls}</Box>}
+      {strandedCount > 0 && (
+        <Box sx={{ px: 2, pt: 1 }}>
+          <Alert severity="warning" sx={{ py: 0 }}>
+            {strandedCount} location{strandedCount === 1 ? '' : 's'} couldn&apos;t be placed on the
+            map — open the item to fix its address.
+          </Alert>
+        </Box>
+      )}
+      {ordered.length === 0 ? (
+        <Box sx={{ p: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            {loading ? 'Loading…' : 'No mappable plans in view.'}
+          </Typography>
+        </Box>
+      ) : (
+        <List dense disablePadding>
+          {ordered.map((p) => (
+            <PartRow
+              key={p.id}
+              part={p}
+              selected={p.id === selectedId}
+              onToggle={() => setSelectedId((cur) => (cur === p.id ? null : p.id))}
+            />
+          ))}
+        </List>
+      )}
+    </>
+  );
+
   return (
-    <Box
-      sx={{
-        position: 'absolute',
-        inset: 0,
-        display: 'flex',
-        flexDirection: { xs: 'column', md: 'row' },
-      }}
-    >
-      <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 240 }}>
+    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'row' }}>
+      {/* The map pane is the first child in both layouts so React keeps the
+          element (and the MapLibre instance bound to it) across a breakpoint
+          flip; only the sibling sidebar / overlay sheet comes and goes. */}
+      <Box sx={{ position: 'relative', flexGrow: 1, minWidth: 0, minHeight: 240 }}>
         <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} data-testid="plan-map" />
-        {timeDomain.show && (
-          <TimeSlider
-            start={timeDomain.start}
-            end={timeDomain.end}
-            value={valueMs}
-            liveEdge={liveEdge}
-            inProgress={timeDomain.inProgress}
-            onScrub={(ms) =>
-              // Snapping to the right edge of a running trip re-locks the live
-              // view (null); anywhere else is a fixed past instant.
-              setScrubMs(timeDomain.inProgress && ms >= timeDomain.end - SCRUB_STEP_MS ? null : ms)
+        {!mobile && timeSlider}
+        {mobile && (
+          <BottomSheet
+            snap={snap}
+            onSnapChange={setSnap}
+            above={timeSlider}
+            header={
+              <SheetPeekHeader selected={selected} count={ordered.length} loading={loading} />
             }
-            onReset={() => setScrubMs(null)}
-          />
+          >
+            {listContent}
+          </BottomSheet>
         )}
       </Box>
-      <Box
-        sx={{
-          width: { xs: '100%', md: 320 },
-          borderLeft: { md: 1 },
-          borderTop: { xs: 1, md: 0 },
-          borderColor: 'divider',
-          overflowY: 'auto',
-        }}
-      >
-        {controls && <Box sx={{ p: 2, pb: 1 }}>{controls}</Box>}
-        {strandedCount > 0 && (
-          <Box sx={{ px: 2, pt: 1 }}>
-            <Alert severity="warning" sx={{ py: 0 }}>
-              {strandedCount} location{strandedCount === 1 ? '' : 's'} couldn&apos;t be placed on
-              the map — open the item to fix its address.
-            </Alert>
-          </Box>
-        )}
-        {ordered.length === 0 ? (
-          <Box sx={{ p: 2 }}>
-            <Typography variant="body2" color="text.secondary">
-              {loading ? 'Loading…' : 'No mappable plans in view.'}
-            </Typography>
-          </Box>
-        ) : (
-          <List dense disablePadding>
-            {ordered.map((p) => (
-              <PartRow
-                key={p.id}
-                part={p}
-                selected={p.id === selectedId}
-                onToggle={() => setSelectedId((cur) => (cur === p.id ? null : p.id))}
-              />
-            ))}
-          </List>
-        )}
-      </Box>
+      {!mobile && (
+        <Box
+          sx={{
+            width: 320,
+            borderLeft: 1,
+            borderColor: 'divider',
+            overflowY: 'auto',
+          }}
+        >
+          {listContent}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -537,6 +575,43 @@ function PartRow({
           )}
         </Box>
       </Collapse>
+    </Box>
+  );
+}
+
+/** The bottom sheet's always-visible summary row: the selected plan's
+ * one-liner, else how many plans the sheet holds. */
+function SheetPeekHeader({
+  selected,
+  count,
+  loading,
+}: {
+  selected: PlanPart | null;
+  count: number;
+  loading?: boolean;
+}) {
+  return (
+    <Box sx={{ px: 2, pb: 1 }} data-testid="sheet-peek">
+      {selected ? (
+        <>
+          <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>
+            {partTitle(selected)}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" noWrap component="div">
+            {[planTypeLabel(selected.type), selected.supplier_name, fmtPartTimeRange(selected)]
+              .filter(Boolean)
+              .join(' · ')}
+          </Typography>
+        </>
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          {loading && count === 0
+            ? 'Loading…'
+            : count === 0
+              ? 'No plans'
+              : `${count} plan${count === 1 ? '' : 's'}`}
+        </Typography>
+      )}
     </Box>
   );
 }
