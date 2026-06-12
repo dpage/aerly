@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { setMatchMedia } from '../test/setup';
 
 import type { PlanPart, Trip } from '../api/types';
 
@@ -221,5 +222,48 @@ describe('Tracker page', () => {
     const call = loadTracker.mock.calls.find((c) => c[0]?.tag === '');
     expect(call).toBeTruthy();
     expect(call![0].window).toEqual({ from: '2026-05-01', to: '2026-05-10' });
+  });
+});
+
+describe('Tracker page (mobile)', () => {
+  beforeEach(() => {
+    setMatchMedia(true);
+  });
+
+  it('hides the heading and controls row, floating a filter pill over the map', () => {
+    state.trackerTag = 'family';
+    state.trackerWindow = { from: '2026-06-05', to: '2026-07-12' };
+    renderTracker();
+    expect(screen.queryByRole('heading', { name: 'Tracker' })).not.toBeInTheDocument();
+    const pill = screen.getByTestId('tracker-filter-pill');
+    expect(pill).toHaveTextContent('family');
+    expect(pill).toHaveTextContent('5 Jun – 12 Jul');
+  });
+
+  it('labels the pill "Everyone" with no tag selected', () => {
+    renderTracker();
+    expect(screen.getByTestId('tracker-filter-pill')).toHaveTextContent('Everyone');
+  });
+
+  it('opens the controls in a popover and changes the tag from it', async () => {
+    state.trips = [trip({ id: 1, tags: ['family'] }), trip({ id: 2, tags: ['work'] })];
+    renderTracker();
+    await userEvent.click(screen.getByTestId('tracker-filter-pill'));
+    // The popover hosts the same Tag select + From/To pickers as desktop.
+    expect(screen.getByLabelText('From')).toBeInTheDocument();
+    expect(screen.getByLabelText('To')).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText('Tag'));
+    const listbox = await screen.findByRole('listbox');
+    await userEvent.click(within(listbox).getByText('work'));
+    await waitFor(() =>
+      expect(loadTracker).toHaveBeenLastCalledWith(expect.objectContaining({ tag: 'work' })),
+    );
+  });
+
+  it('keeps the desktop header (no pill) on wide screens', () => {
+    setMatchMedia(false);
+    renderTracker();
+    expect(screen.getByRole('heading', { name: 'Tracker' })).toBeInTheDocument();
+    expect(screen.queryByTestId('tracker-filter-pill')).not.toBeInTheDocument();
   });
 });

@@ -1,15 +1,19 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Box,
+  Button,
   Divider,
   FormControl,
   InputLabel,
   MenuItem,
+  Popover,
   Select,
   Stack,
   Typography,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
+import { useMediaQuery } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { format, parseISO } from 'date-fns';
 
@@ -24,6 +28,12 @@ const toDate = (s?: string): Date | null => (s ? parseISO(s) : null);
 /** True for a real, finite Date. MUI's DatePicker emits an `Invalid Date`
  *  (truthy) while the user is mid-edit, and date-fns `format` throws on it. */
 const isValidDate = (d: Date | null): d is Date => d != null && !Number.isNaN(d.getTime());
+
+/** A short day label for the pill ("5 Jun"), or null for an unset/invalid bound. */
+const fmtWinDay = (s?: string): string | null => {
+  const d = toDate(s);
+  return isValidDate(d) ? format(d, 'd MMM') : null;
+};
 
 /** Global tracker (PRD §6.5): the unified map+list view over every mappable part
  * in a date window, optionally scoped to a tag. Identical to the trip Map tab
@@ -46,6 +56,11 @@ export default function Tracker() {
   const loading = useStore((s) => s.trackerLoading);
   const trips = useStore((s) => s.trips);
   const listTrips = useStore((s) => s.listTrips);
+
+  const theme = useTheme();
+  // Below md the heading/controls row goes; a pill floats over the map instead.
+  const mobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [pillAnchor, setPillAnchor] = useState<HTMLElement | null>(null);
 
   // Initial load: default the window to now−7d … now+30d when none is persisted.
   useEffect(() => {
@@ -96,51 +111,140 @@ export default function Tracker() {
     void loadTracker({ tag: label, window: tagWindow(label) ?? win });
   };
 
+  const windowLabel = [fmtWinDay(win.from), fmtWinDay(win.to)].filter(Boolean).join(' – ');
+  const pillLabel = [tag || 'Everyone', windowLabel].filter(Boolean).join(' · ');
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ px: 3, pt: 2, pb: 1 }}>
-        <Typography variant="h5" sx={{ mb: 1.5 }}>
-          Tracker
-        </Typography>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel id="tracker-tag-label">Tag</InputLabel>
-            <Select
-              labelId="tracker-tag-label"
-              label="Tag"
-              value={tag}
-              onChange={(e) => onTagChange(e.target.value)}
-            >
-              <MenuItem value="">
-                <em>Everyone (untagged view)</em>
-              </MenuItem>
-              {tagOptions.map((label) => (
-                <MenuItem key={label} value={label}>
-                  {label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <DatePicker
-            label="From"
-            value={toDate(win.from)}
-            onChange={(d) => isValidDate(d) && setTrackerWindow({ from: ymd(d) })}
-            slotProps={{ textField: { size: 'small' } }}
-          />
-          <DatePicker
-            label="To"
-            value={toDate(win.to)}
-            onChange={(d) => isValidDate(d) && setTrackerWindow({ to: ymd(d) })}
-            slotProps={{ textField: { size: 'small' } }}
-          />
-        </Stack>
-      </Box>
-
-      <Divider />
+      {!mobile && (
+        <>
+          <Box sx={{ px: 3, pt: 2, pb: 1 }}>
+            <Typography variant="h5" sx={{ mb: 1.5 }}>
+              Tracker
+            </Typography>
+            <TrackerControls
+              direction="row"
+              tag={tag}
+              tagOptions={tagOptions}
+              onTagChange={onTagChange}
+              win={win}
+              setTrackerWindow={setTrackerWindow}
+            />
+          </Box>
+          <Divider />
+        </>
+      )}
 
       <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0 }}>
         <PlanMapView parts={parts} loading={loading} initialSelectedPartId={focusedPartId} />
+        {mobile && (
+          <>
+            <Button
+              data-testid="tracker-filter-pill"
+              onClick={(e) => setPillAnchor(e.currentTarget)}
+              sx={{
+                // Floats clear of the map's top-left attribution ⓘ and
+                // top-right zoom controls; the bottom sheet (zIndex 3) may
+                // ride over it at full height.
+                position: 'absolute',
+                top: 8,
+                left: 48,
+                right: 48,
+                zIndex: 2,
+                minHeight: 36,
+                px: 2,
+                borderRadius: 99,
+                bgcolor: 'background.paper',
+                color: 'text.primary',
+                boxShadow: 3,
+                textTransform: 'none',
+                justifyContent: 'flex-start',
+                overflow: 'hidden',
+                '&:hover': { bgcolor: 'background.paper' },
+              }}
+            >
+              <Typography variant="body2" noWrap>
+                {pillLabel}
+              </Typography>
+            </Button>
+            <Popover
+              open={pillAnchor != null}
+              anchorEl={pillAnchor}
+              onClose={() => setPillAnchor(null)}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'center' }}
+            >
+              <Box sx={{ p: 2, pt: 2.5, width: 280 }}>
+                <TrackerControls
+                  direction="column"
+                  tag={tag}
+                  tagOptions={tagOptions}
+                  onTagChange={onTagChange}
+                  win={win}
+                  setTrackerWindow={setTrackerWindow}
+                />
+              </Box>
+            </Popover>
+          </>
+        )}
       </Box>
     </Box>
+  );
+}
+
+/** The Tag + From/To window controls, laid out as the desktop header row or
+ * stacked in the mobile pill's popover. */
+function TrackerControls({
+  direction,
+  tag,
+  tagOptions,
+  onTagChange,
+  win,
+  setTrackerWindow,
+}: {
+  direction: 'row' | 'column';
+  tag: string;
+  tagOptions: string[];
+  onTagChange: (label: string) => void;
+  win: TrackerWindow;
+  setTrackerWindow: (w: Partial<TrackerWindow>) => void;
+}) {
+  return (
+    <Stack
+      direction={direction}
+      spacing={2}
+      alignItems={direction === 'row' ? 'center' : 'stretch'}
+    >
+      <FormControl size="small" sx={{ minWidth: 200 }}>
+        <InputLabel id="tracker-tag-label">Tag</InputLabel>
+        <Select
+          labelId="tracker-tag-label"
+          label="Tag"
+          value={tag}
+          onChange={(e) => onTagChange(e.target.value)}
+        >
+          <MenuItem value="">
+            <em>Everyone (untagged view)</em>
+          </MenuItem>
+          {tagOptions.map((label) => (
+            <MenuItem key={label} value={label}>
+              {label}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <DatePicker
+        label="From"
+        value={toDate(win.from)}
+        onChange={(d) => isValidDate(d) && setTrackerWindow({ from: ymd(d) })}
+        slotProps={{ textField: { size: 'small' } }}
+      />
+      <DatePicker
+        label="To"
+        value={toDate(win.to)}
+        onChange={(d) => isValidDate(d) && setTrackerWindow({ to: ymd(d) })}
+        slotProps={{ textField: { size: 'small' } }}
+      />
+    </Stack>
   );
 }
