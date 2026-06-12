@@ -840,9 +840,16 @@ describe('PlanMapView', () => {
   describe('mobile bottom-sheet layout', () => {
     beforeEach(() => {
       setMatchMedia(true);
+      // jsdom's clientHeight is always 0; shim it to a realistic value so
+      // sheetPad is non-zero and the offset/padding branches under test are reached.
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+        configurable: true,
+        value: 800,
+      });
     });
     afterEach(() => {
       vi.useRealTimers();
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
     });
 
     it('puts the list in a bottom sheet at peek, with a plan-count summary', () => {
@@ -903,6 +910,26 @@ describe('PlanMapView', () => {
       setMatchMedia(false);
       render(<PlanMapView parts={[flight()]} />);
       expect(screen.queryByTestId('bottom-sheet')).not.toBeInTheDocument();
+    });
+
+    it('uses per-animation offset (not persistent padding) when flying to a single-point selection on mobile', async () => {
+      // peek snap: sheetPad = min(sheetHeightPx('peek', 800), round(800 * 0.5))
+      //           = min(64, 400) = 64 → flyOffset = { offset: [0, -32] }
+      render(<PlanMapView parts={[hotel()]} initialSelectedPartId={2} />);
+      const map = FakeMap.instances[0];
+      expect(map.flyTo).toHaveBeenCalled();
+      const call = map.flyTo.mock.calls[0][0] as Record<string, unknown>;
+      expect(call).toMatchObject({ offset: [0, -32] });
+      expect(call).not.toHaveProperty('padding');
+    });
+
+    it('passes per-call padding to fitBounds for a multi-point selection on mobile', async () => {
+      // peek snap: sheetPad = 64, so boundsPad bottom = 80 + 64 = 144
+      render(<PlanMapView parts={[flight()]} initialSelectedPartId={1} />);
+      const map = FakeMap.instances[0];
+      expect(map.fitBounds).toHaveBeenCalled();
+      const call = map.fitBounds.mock.calls[0][1] as Record<string, unknown>;
+      expect(call).toMatchObject({ padding: { top: 80, left: 80, right: 80, bottom: 144 } });
     });
   });
 });

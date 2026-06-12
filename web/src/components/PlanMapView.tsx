@@ -90,10 +90,13 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
   // the side-by-side desktop layout is untouched.
   const mobile = useMediaQuery(theme.breakpoints.down('md'));
   const [snap, setSnap] = useState<SheetSnap>('peek');
-  // The sheet's current height, read by the fit effect (a ref so a snap change
-  // alone never re-runs a fit — fitKeyRef already gates on intent).
-  const sheetPxRef = useRef(0);
-  sheetPxRef.current = mobile ? sheetHeightPx(snap, containerRef.current?.clientHeight ?? 0) : 0;
+  // Inputs for the fit padding, in a ref so a snap change alone never re-runs
+  // the fit effect (fitKeyRef gates on intent).
+  const sheetSnapRef = useRef<{ mobile: boolean; snap: SheetSnap }>({
+    mobile: false,
+    snap: 'peek',
+  });
+  sheetSnapRef.current = { mobile, snap };
 
   const mapRef = useRef<MlMap | null>(null);
   const readyRef = useRef(false);
@@ -392,12 +395,21 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     const run = () => {
       // On mobile the bottom sheet covers the lower part of the map: pad fits
       // so the focus lands in the visible strip above it (clamped to half the
-      // pane so fitBounds always has room).
+      // pane so fitBounds always has room; at the full snap the sheet covers
+      // most of the pane anyway, so the clamp deliberately favours a sane fit
+      // over exact visibility — the user is reading the list at that point).
       const paneH = containerRef.current?.clientHeight ?? 0;
-      const sheetPad = Math.min(sheetPxRef.current, Math.round(paneH * 0.5));
+      const { mobile: isMobile, snap: curSnap } = sheetSnapRef.current;
+      const sheetPad = isMobile
+        ? Math.min(sheetHeightPx(curSnap, paneH), Math.round(paneH * 0.5))
+        : 0;
       const boundsPad = sheetPad > 0 ? { top: 80, left: 80, right: 80, bottom: 80 + sheetPad } : 80;
-      const flyPad =
-        sheetPad > 0 ? { padding: { top: 0, left: 0, right: 0, bottom: sheetPad } } : {};
+      // flyTo/easeTo `padding` would persist on the camera and skew or break every
+      // later fitBounds (which adds persistent padding on top of its own); `offset`
+      // is per-animation only, so the camera stays stateless. Shifting the target
+      // up by half the sheet height centres it in the visible strip above the sheet.
+      const flyOffset =
+        sheetPad > 0 ? { offset: [0, -Math.round(sheetPad / 2)] as [number, number] } : {};
       if (selected) {
         // Re-fit only when the selection changes, not when the selected part's
         // own data refreshes (which would otherwise reset a manual zoom).
@@ -406,7 +418,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
         fitKeyRef.current = key;
         const pts = partCoords(selected);
         if (pts.length === 1) {
-          map.flyTo({ center: pts[0], zoom: 11, duration: 600, ...flyPad });
+          map.flyTo({ center: pts[0], zoom: 11, duration: 600, ...flyOffset });
         } else if (pts.length > 1) {
           const b = boundsOf(pts);
           if (b) map.fitBounds(b, { padding: boundsPad, maxZoom: 9, duration: 600 });
@@ -419,7 +431,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       if (key === fitKeyRef.current) return;
       fitKeyRef.current = key;
       const b = boundsOf(all);
-      if (all.length === 1) map.flyTo({ center: all[0], zoom: 9, duration: 600, ...flyPad });
+      if (all.length === 1) map.flyTo({ center: all[0], zoom: 9, duration: 600, ...flyOffset });
       else if (b) map.fitBounds(b, { padding: boundsPad, maxZoom: 9, duration: 600 });
     };
     if (map.isStyleLoaded() && readyRef.current) run();
@@ -542,12 +554,7 @@ function PartRow({
         />
         <ListItemText
           primary={partTitle(part)}
-          secondary={[
-            planTypeLabel(part.type),
-            part.supplier_name,
-            fmtPartTimeRange(part),
-            part.owner ? `Added by ${userName(part.owner)}` : '',
-          ]
+          secondary={[partSummary(part), part.owner ? `Added by ${userName(part.owner)}` : '']
             .filter(Boolean)
             .join(' · ')}
         />
@@ -598,9 +605,7 @@ function SheetPeekHeader({
             {partTitle(selected)}
           </Typography>
           <Typography variant="caption" color="text.secondary" noWrap component="div">
-            {[planTypeLabel(selected.type), selected.supplier_name, fmtPartTimeRange(selected)]
-              .filter(Boolean)
-              .join(' · ')}
+            {partSummary(selected)}
           </Typography>
         </>
       ) : (
@@ -723,6 +728,13 @@ function TimeSlider({
 function partTitle(part: PlanPart): string {
   if (part.type === 'flight' && part.flight?.ident) return part.flight.ident;
   return fmtPartPlaces(part.type, part.start_label, part.end_label) || planTypeLabel(part.type);
+}
+
+/** The '·'-joined secondary line for a part: type · supplier · time range. */
+function partSummary(part: PlanPart): string {
+  return [planTypeLabel(part.type), part.supplier_name, fmtPartTimeRange(part)]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function hasCoord(p: PlanPart): boolean {
