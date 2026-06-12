@@ -96,8 +96,17 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
     // Seed from the rendered height so grabbing during a transition doesn't
     // cause the sheet to jump. Fall back to the computed heightPx when
     // getBoundingClientRect is unavailable (jsdom) or returns 0.
-    const renderedH = rootRef.current?.getBoundingClientRect().height;
-    const startPx = renderedH && renderedH > 0 ? renderedH : heightPx;
+    // Subtract the element's computed bottom padding before seeding: the
+    // rendered rect height includes env(safe-area-inset-bottom) (added via
+    // pb on the Paper), but all drag maths works in inset-free px, so we
+    // must strip the inset out to avoid an upward jump on first pointer move.
+    const el = rootRef.current;
+    let startPx = heightPx;
+    if (el) {
+      const rectH = el.getBoundingClientRect().height;
+      const inset = parseFloat(getComputedStyle(el).paddingBottom) || 0;
+      if (rectH > 0) startPx = rectH - inset;
+    }
     dragRef.current = { pointerId: e.pointerId, startY: e.clientY, startPx };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
