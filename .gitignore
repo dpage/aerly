@@ -34,3 +34,4 @@ web/coverage/
 .claude/specs/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+.superpowers/
