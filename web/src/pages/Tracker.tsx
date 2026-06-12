@@ -11,9 +11,9 @@ import {
   Select,
   Stack,
   Typography,
+  useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { useMediaQuery } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { format, parseISO } from 'date-fns';
 
@@ -61,6 +61,12 @@ export default function Tracker() {
   // Below md the heading/controls row goes; a pill floats over the map instead.
   const mobile = useMediaQuery(theme.breakpoints.down('md'));
   const [pillAnchor, setPillAnchor] = useState<HTMLElement | null>(null);
+
+  // A breakpoint flip unmounts the pill; drop the anchor so flipping back
+  // doesn't re-open the popover against a detached element.
+  useEffect(() => {
+    if (!mobile) setPillAnchor(null);
+  }, [mobile]);
 
   // Initial load: default the window to now−7d … now+30d when none is persisted.
   useEffect(() => {
@@ -141,6 +147,9 @@ export default function Tracker() {
           <>
             <Button
               data-testid="tracker-filter-pill"
+              aria-label={`Filters: ${pillLabel}`}
+              aria-haspopup="true"
+              aria-expanded={pillAnchor != null}
               onClick={(e) => setPillAnchor(e.currentTarget)}
               sx={{
                 // Floats clear of the map's top-left attribution ⓘ and
@@ -151,7 +160,7 @@ export default function Tracker() {
                 left: 48,
                 right: 48,
                 zIndex: 2,
-                minHeight: 36,
+                minHeight: 44,
                 px: 2,
                 borderRadius: 99,
                 bgcolor: 'background.paper',

@@ -266,4 +266,13 @@ describe('Tracker page (mobile)', () => {
     expect(screen.getByRole('heading', { name: 'Tracker' })).toBeInTheDocument();
     expect(screen.queryByTestId('tracker-filter-pill')).not.toBeInTheDocument();
   });
+
+  it('exposes the pill as a popover trigger to assistive tech', async () => {
+    renderTracker();
+    const pill = screen.getByTestId('tracker-filter-pill');
+    expect(pill).toHaveAttribute('aria-haspopup', 'true');
+    expect(pill).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(pill);
+    expect(pill).toHaveAttribute('aria-expanded', 'true');
+  });
 });
