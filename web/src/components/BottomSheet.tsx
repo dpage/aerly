@@ -108,7 +108,12 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
       if (rectH > 0) startPx = rectH - inset;
     }
     dragRef.current = { pointerId: e.pointerId, startY: e.clientY, startPx };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {
+      // NotFoundError when the pointer is already gone (or the event is
+      // synthetic); the drag still works, just without capture.
+    }
   };
   const onPointerMove = (e: React.PointerEvent<HTMLElement>) => {
     const d = dragRef.current;
