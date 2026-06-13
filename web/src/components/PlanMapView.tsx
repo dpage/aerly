@@ -526,7 +526,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
             ...(mobile && {
               '& .maplibregl-ctrl-bottom-right': {
                 bottom: `calc(${
-                  PEEK_PX + (timeDomain.show ? SCRUBBER_PANEL_PX : 8)
+                  PEEK_PX + (timeDomain.show ? ATTRIB_LIFT_WITH_SCRUBBER_PX : ATTRIB_LIFT_BARE_PX)
                 }px + env(safe-area-inset-bottom))`,
               },
             }),
@@ -664,10 +664,12 @@ function SheetPeekHeader({
  * the live re-lock snap (the right edge) a comfortable target. */
 const SCRUB_STEP_MS = 60_000;
 
-/** Approximate rendered height of the TimeSlider panel (status row + slider +
- * padding). Used on mobile to lift the bottom-right map attribution clear of
- * the scrubber, which rides the peek sheet's top edge. */
-const SCRUBBER_PANEL_PX = 56;
+/** How far above the peek sheet to lift the bottom-right map attribution on
+ * mobile: enough to clear the TimeSlider panel (~49px) that rides the sheet's
+ * top edge, plus headroom, since the panel renders taller under iOS's larger
+ * default text. The smaller value is the clearance when no scrubber is shown. */
+const ATTRIB_LIFT_WITH_SCRUBBER_PX = 72;
+const ATTRIB_LIFT_BARE_PX = 16;
 
 /** The bottom-of-map time scrubber. Drag left to replay where flights were in
  * the past; the right edge is the live view (a running trip) or the trip's end
