@@ -14,6 +14,7 @@ import (
 	"github.com/dpage/aerly/internal/config"
 	"github.com/dpage/aerly/internal/emailingest"
 	"github.com/dpage/aerly/internal/geocode"
+	aerlymaps "github.com/dpage/aerly/internal/maps"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
@@ -36,6 +37,10 @@ type API struct {
 	// be mapped. nil → geocoding is skipped (e.g. in tests).
 	Geocoder geocode.Geocoder
 
+	// Maps resolves pasted Google Maps URLs (incl. short links) to coordinates
+	// for the plan coordinate override. Defaulted in New().
+	Maps *aerlymaps.Resolver
+
 	// SendVerifyEmail dispatches the verification message. Defaulted in
 	// New() to the real sendmail pipe; tests can override.
 	SendVerifyEmail func(ctx context.Context, to, token string) error
@@ -48,6 +53,7 @@ type API struct {
 func New(s *store.Store, a *auth.Handler, hub *sse.Hub, cfg *config.Config, r providers.Resolver) *API {
 	api := &API{Store: s, Auth: a, Hub: hub, Config: cfg, Resolver: r, StartedAt: time.Now()}
 	api.SendVerifyEmail = api.defaultSendVerifyEmail
+	api.Maps = aerlymaps.NewResolver()
 	return api
 }
 
@@ -82,6 +88,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	// model. The stateless resolver lookup survives: it does NOT touch the
 	// dropped flights table and the FE's manual flight-add still uses it.
 	mux.Handle("POST /api/flights/resolve", req(http.HandlerFunc(a.resolveFlight)))
+
+	mux.Handle("POST /api/maps/resolve", req(http.HandlerFunc(a.resolveMapsURL)))
 
 	mux.Handle("GET /api/notifications", req(http.HandlerFunc(a.getNotifications)))
 	mux.Handle("GET /api/alerts", req(http.HandlerFunc(a.listAlerts)))

@@ -10,6 +10,12 @@ import (
 	"github.com/dpage/aerly/internal/store"
 )
 
+// CoordsDTO is a resolved latitude/longitude pair.
+type CoordsDTO struct {
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
+}
+
 type UserDTO struct {
 	ID          int64      `json:"id"`
 	Username    string     `json:"username"`
