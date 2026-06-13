@@ -3,13 +3,16 @@ import { useSearchParams } from 'react-router-dom';
 import {
   Box,
   Button,
+  Chip,
   Divider,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Popover,
   Select,
   Stack,
+  Switch,
   Typography,
   useMediaQuery,
 } from '@mui/material';
@@ -19,7 +22,10 @@ import { format, parseISO } from 'date-fns';
 
 import { useStore } from '../state/store';
 import type { TrackerWindow } from '../state/trackerSlice';
-import { tripSpan } from '../lib/trip-format';
+import type { PlanType } from '../api/types';
+import { filterTrackerParts } from '../lib/tracker-filter';
+import { planTypeColor } from '../lib/plan-marker';
+import { planTypeLabel, tripSpan } from '../lib/trip-format';
 import PlanMapView from '../components/PlanMapView';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -34,6 +40,11 @@ const fmtWinDay = (s?: string): string | null => {
   const d = toDate(s);
   return isValidDate(d) ? format(d, 'd MMM') : null;
 };
+
+/** Plan types offered as Tracker show/hide chips, in display order (transport
+ * grouped first). A new plan type must be added here AND to `KNOWN_TYPES` in
+ * trackerSlice.ts, which validates persisted hidden-type lists. */
+const FILTER_TYPES: PlanType[] = ['flight', 'train', 'ground', 'hotel', 'dining', 'excursion'];
 
 /** Global tracker (PRD §6.5): the unified map+list view over every mappable part
  * in a date window, optionally scoped to a tag. Identical to the trip Map tab
@@ -56,6 +67,11 @@ export default function Tracker() {
   const loading = useStore((s) => s.trackerLoading);
   const trips = useStore((s) => s.trips);
   const listTrips = useStore((s) => s.listTrips);
+  const me = useStore((s) => s.me);
+  const mineOnly = useStore((s) => s.trackerMineOnly);
+  const hiddenTypes = useStore((s) => s.trackerHiddenTypes);
+  const setTrackerMineOnly = useStore((s) => s.setTrackerMineOnly);
+  const toggleTrackerType = useStore((s) => s.toggleTrackerType);
 
   const theme = useTheme();
   // Below md the heading/controls row goes; a pill floats over the map instead.
@@ -120,6 +136,12 @@ export default function Tracker() {
   const windowLabel = [fmtWinDay(win.from), fmtWinDay(win.to)].filter(Boolean).join(' – ');
   const pillLabel = [tag || 'Everyone', windowLabel].filter(Boolean).join(' · ');
 
+  const visibleParts = useMemo(
+    () => filterTrackerParts(parts, { mineOnly, hiddenTypes, meId: me?.id }),
+    [parts, mineOnly, hiddenTypes, me?.id],
+  );
+  const filtersActive = mineOnly || hiddenTypes.length > 0;
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {!mobile && (
@@ -135,6 +157,10 @@ export default function Tracker() {
               onTagChange={onTagChange}
               win={win}
               setTrackerWindow={setTrackerWindow}
+              mineOnly={mineOnly}
+              hiddenTypes={hiddenTypes}
+              onMineOnlyChange={setTrackerMineOnly}
+              onToggleType={toggleTrackerType}
             />
           </Box>
           <Divider />
@@ -142,12 +168,12 @@ export default function Tracker() {
       )}
 
       <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0 }}>
-        <PlanMapView parts={parts} loading={loading} initialSelectedPartId={focusedPartId} />
+        <PlanMapView parts={visibleParts} loading={loading} initialSelectedPartId={focusedPartId} />
         {mobile && (
           <>
             <Button
               data-testid="tracker-filter-pill"
-              aria-label={`Filters: ${pillLabel}`}
+              aria-label={`Filters${filtersActive ? ' (active)' : ''}: ${pillLabel}`}
               aria-haspopup="true"
               aria-expanded={pillAnchor != null}
               onClick={(e) => setPillAnchor(e.currentTarget)}
@@ -175,6 +201,19 @@ export default function Tracker() {
               <Typography variant="body2" noWrap>
                 {pillLabel}
               </Typography>
+              {filtersActive && (
+                <Box
+                  data-testid="tracker-filter-active"
+                  sx={{
+                    ml: 'auto',
+                    flex: 'none',
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    bgcolor: 'primary.main',
+                  }}
+                />
+              )}
             </Button>
             <Popover
               open={pillAnchor != null}
@@ -191,6 +230,10 @@ export default function Tracker() {
                   onTagChange={onTagChange}
                   win={win}
                   setTrackerWindow={setTrackerWindow}
+                  mineOnly={mineOnly}
+                  hiddenTypes={hiddenTypes}
+                  onMineOnlyChange={setTrackerMineOnly}
+                  onToggleType={toggleTrackerType}
                 />
               </Box>
             </Popover>
@@ -210,6 +253,10 @@ function TrackerControls({
   onTagChange,
   win,
   setTrackerWindow,
+  mineOnly,
+  hiddenTypes,
+  onMineOnlyChange,
+  onToggleType,
 }: {
   direction: 'row' | 'column';
   tag: string;
@@ -217,6 +264,10 @@ function TrackerControls({
   onTagChange: (label: string) => void;
   win: TrackerWindow;
   setTrackerWindow: (w: Partial<TrackerWindow>) => void;
+  mineOnly: boolean;
+  hiddenTypes: PlanType[];
+  onMineOnlyChange: (value: boolean) => void;
+  onToggleType: (type: PlanType) => void;
 }) {
   return (
     <Stack
@@ -254,6 +305,45 @@ function TrackerControls({
         onChange={(d) => isValidDate(d) && setTrackerWindow({ to: ymd(d) })}
         slotProps={{ textField: { size: 'small' } }}
       />
+      <FormControlLabel
+        control={
+          <Switch
+            size="small"
+            checked={mineOnly}
+            onChange={(e) => onMineOnlyChange(e.target.checked)}
+          />
+        }
+        label="Mine only"
+        sx={{ ml: 0, whiteSpace: 'nowrap' }}
+      />
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+        {FILTER_TYPES.map((type) => {
+          const hidden = hiddenTypes.includes(type);
+          return (
+            <Chip
+              key={type}
+              size="small"
+              data-testid={`type-toggle-${type}`}
+              label={planTypeLabel(type)}
+              variant={hidden ? 'outlined' : 'filled'}
+              aria-pressed={!hidden}
+              onClick={() => onToggleType(type)}
+              icon={
+                <Box
+                  component="span"
+                  sx={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    bgcolor: planTypeColor(type),
+                    ml: '8px',
+                  }}
+                />
+              }
+            />
+          );
+        })}
+      </Box>
     </Stack>
   );
 }

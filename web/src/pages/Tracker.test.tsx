@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { setMatchMedia } from '../test/setup';
 
-import type { PlanPart, Trip } from '../api/types';
+import type { PlanPart, PlanType, Trip, User } from '../api/types';
 
 // Stub the MUI date picker: its date-fns adapter trips vitest's ESM resolution,
 // and these tests only need a labelled control, not real date parsing. The stub
@@ -22,6 +22,9 @@ const loadTracker = vi.fn();
 const setTrackerWindow = vi.fn().mockResolvedValue(undefined);
 const listTrips = vi.fn();
 
+const setTrackerMineOnly = vi.fn();
+const toggleTrackerType = vi.fn();
+
 const state = {
   loadTracker,
   setTrackerWindow,
@@ -31,6 +34,14 @@ const state = {
   trackerWindow: {} as { from?: string; to?: string },
   trackerLoading: false,
   trips: [] as Trip[],
+  trackerMineOnly: false,
+  trackerHiddenTypes: [] as PlanType[],
+  setTrackerMineOnly,
+  toggleTrackerType,
+  me: {
+    id: 7, username: 'me', name: 'Me', avatar_url: '',
+    is_superuser: false, is_active: true, has_logged_in: true, home_address: '',
+  } as User,
 };
 
 vi.mock('../state/store', () => ({
@@ -62,6 +73,15 @@ function trip(over: Partial<Trip> = {}): Trip {
   };
 }
 
+function planPart(over: Partial<PlanPart> = {}): PlanPart {
+  return {
+    id: 1, plan_id: 1, type: 'flight', seq: 0,
+    starts_at: '2026-01-01T00:00:00Z', start_tz: 'UTC', end_tz: 'UTC',
+    start_label: '', start_address: '', end_label: '', end_address: '',
+    status: 'planned', effective_at: '2026-01-01T00:00:00Z', ...over,
+  };
+}
+
 function renderTracker(initial = '/tracker') {
   return render(
     <MemoryRouter initialEntries={[initial]}>
@@ -77,6 +97,12 @@ beforeEach(() => {
   state.trackerWindow = {};
   state.trackerLoading = false;
   state.trips = [];
+  state.trackerMineOnly = false;
+  state.trackerHiddenTypes = [];
+  state.me = {
+    id: 7, username: 'me', name: 'Me', avatar_url: '',
+    is_superuser: false, is_active: true, has_logged_in: true, home_address: '',
+  } as User;
 });
 
 describe('Tracker page', () => {
@@ -274,5 +300,54 @@ describe('Tracker page (mobile)', () => {
     expect(pill).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(pill);
     expect(pill).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('Tracker filters', () => {
+  const lastParts = (): PlanPart[] => planMapSpy.mock.calls.at(-1)![0].parts;
+
+  it("passes only the current user's parts to the map when 'Mine only' is on", () => {
+    state.trackerMineOnly = true;
+    state.trackerParts = [
+      planPart({ id: 1, passengers: [{ ...state.me }] }),
+      planPart({ id: 2, passengers: [{ ...state.me, id: 9 }] }),
+    ];
+    renderTracker();
+    expect(lastParts().map((p) => p.id)).toEqual([1]);
+  });
+
+  it('hides parts of a switched-off type', () => {
+    state.trackerHiddenTypes = ['excursion'];
+    state.trackerParts = [
+      planPart({ id: 1, type: 'flight' }),
+      planPart({ id: 2, type: 'excursion' }),
+    ];
+    renderTracker();
+    expect(lastParts().map((p) => p.id)).toEqual([1]);
+  });
+
+  it('toggling the Mine only switch calls setTrackerMineOnly', async () => {
+    renderTracker();
+    await userEvent.click(screen.getByRole('checkbox', { name: /mine only/i }));
+    expect(state.setTrackerMineOnly).toHaveBeenCalledWith(true);
+  });
+
+  it('clicking a plan-type chip calls toggleTrackerType', async () => {
+    renderTracker();
+    await userEvent.click(screen.getByTestId('type-toggle-excursion'));
+    expect(state.toggleTrackerType).toHaveBeenCalledWith('excursion');
+  });
+
+  it('shows the filter badge on the pill only when a filter is active', () => {
+    setMatchMedia(true);
+    state.trackerHiddenTypes = ['hotel'];
+    renderTracker();
+    expect(screen.getByTestId('tracker-filter-active')).toBeInTheDocument();
+  });
+
+  it('shows no filter badge with default filters', () => {
+    setMatchMedia(true);
+    renderTracker();
+    expect(screen.queryByTestId('tracker-filter-active')).not.toBeInTheDocument();
   });
 });
