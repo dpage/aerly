@@ -42,7 +42,7 @@ import { personColor } from '../lib/person-color';
 import { fmtPartPlaces, fmtPartTimeRange, isTransferType, planTypeLabel } from '../lib/trip-format';
 import FlightDetailCard from './FlightDetailCard';
 import PartDetailBlock from './PartDetailBlock';
-import BottomSheet, { sheetHeightPx, type SheetSnap } from './BottomSheet';
+import BottomSheet, { PEEK_PX, sheetHeightPx, type SheetSnap } from './BottomSheet';
 
 const STYLE: StyleSpecification = {
   version: 8,
@@ -199,13 +199,11 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       style: STYLE,
       center: [5, 50],
       zoom: 3,
-      // Re-home the OSM attribution to the top: the time slider owns the bottom
-      // edge, where the default bottom-right attribution (its ⓘ + credit) would
-      // otherwise poke out from under the slider.
+      // The attribution is added separately so its corner can track the layout
+      // (a mobile-vs-desktop effect below); the default would pin it bottom-right.
       attributionControl: false,
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
     mapRef.current = map;
     map.once('load', () => {
       for (const id of [LEGS, TRACK]) {
@@ -259,6 +257,28 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
       mapRef.current = null;
     };
   }, []);
+
+  // Park the OSM attribution where the layout leaves room. On desktop the time
+  // slider owns the bottom edge, so it goes top-left; on mobile the floating
+  // filter pill sits top-left instead, so the ⓘ moves to the bottom-right
+  // corner (clear of the pill) where the sheet only briefly covers it.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const ctrl = new maplibregl.AttributionControl({ compact: true });
+    map.addControl(ctrl, mobile ? 'bottom-right' : 'top-left');
+    return () => {
+      // On unmount the map-init effect's cleanup runs first and calls
+      // map.remove(), which already tears down every control; removeControl on
+      // the dead map then throws. A genuine `mobile` flip (map still alive)
+      // removes cleanly. Swallow the post-teardown throw either way.
+      try {
+        map.removeControl(ctrl);
+      } catch {
+        /* map already removed */
+      }
+    };
+  }, [mobile]);
 
   // --- sync sources from parts + selection -----------------------------------
   // Held in a ref so the load handler can run the first sync immediately.
@@ -492,7 +512,26 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
           element (and the MapLibre instance bound to it) across a breakpoint
           flip; only the sibling sidebar / overlay sheet comes and goes. */}
       <Box sx={{ position: 'relative', flexGrow: 1, minWidth: 0, minHeight: 240 }}>
-        <Box ref={containerRef} sx={{ position: 'absolute', inset: 0 }} data-testid="plan-map" />
+        <Box
+          ref={containerRef}
+          data-testid="plan-map"
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            // On mobile the attribution lives bottom-right (the filter pill owns
+            // the top-left); lift it clear of the peek sheet, and of the
+            // scrubber riding the sheet's top edge when one is shown, so the ⓘ
+            // stays visible in the default resting state. Raising the sheet
+            // covers it, which is fine while the list is being browsed.
+            ...(mobile && {
+              '& .maplibregl-ctrl-bottom-right': {
+                bottom: `calc(${
+                  PEEK_PX + (timeDomain.show ? SCRUBBER_PANEL_PX : 8)
+                }px + env(safe-area-inset-bottom))`,
+              },
+            }),
+          }}
+        />
         {!mobile && timeSlider}
         {mobile && (
           <BottomSheet
@@ -624,6 +663,11 @@ function SheetPeekHeader({
 /** Scrubber granularity: one minute is fine enough to track a plane yet keeps
  * the live re-lock snap (the right edge) a comfortable target. */
 const SCRUB_STEP_MS = 60_000;
+
+/** Approximate rendered height of the TimeSlider panel (status row + slider +
+ * padding). Used on mobile to lift the bottom-right map attribution clear of
+ * the scrubber, which rides the peek sheet's top edge. */
+const SCRUBBER_PANEL_PX = 56;
 
 /** The bottom-of-map time scrubber. Drag left to replay where flights were in
  * the past; the right edge is the live view (a running trip) or the trip's end

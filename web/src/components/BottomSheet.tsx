@@ -198,8 +198,8 @@ export default function BottomSheet({ snap, onSnapChange, header, children, abov
           right: 0,
           bottom: 0,
           zIndex: 3,
-          borderTopLeftRadius: 12,
-          borderTopRightRadius: 12,
+          // Square top edge so the sheet joins flush to the scrubber panel
+          // riding above it (rounded corners left triangular gaps there).
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',

@@ -19,9 +19,15 @@ export class FakeMap {
   sources = new Map<string, FakeSource>();
   layers: unknown[] = [];
   controls: unknown[] = [];
+  controlPositions = new Map<unknown, string | undefined>();
   styleLoaded = true;
-  addControl = vi.fn((ctrl: unknown) => {
+  addControl = vi.fn((ctrl: unknown, position?: string) => {
     this.controls.push(ctrl);
+    this.controlPositions.set(ctrl, position);
+  });
+  removeControl = vi.fn((ctrl: unknown) => {
+    this.controls = this.controls.filter((c) => c !== ctrl);
+    this.controlPositions.delete(ctrl);
   });
   fitBounds = vi.fn();
   flyTo = vi.fn();

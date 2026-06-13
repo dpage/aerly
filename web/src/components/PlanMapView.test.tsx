@@ -110,6 +110,16 @@ describe('PlanMapView', () => {
     const attribution = map.controls.find((c) => c instanceof FakeAttributionControl);
     expect(attribution).toBeDefined();
     expect((attribution as FakeAttributionControl).opts).toMatchObject({ compact: true });
+    expect(map.controlPositions.get(attribution)).toBe('top-left');
+  });
+
+  it('moves the OSM attribution to the bottom-right on mobile (clear of the filter pill)', () => {
+    setMatchMedia(true);
+    render(<PlanMapView parts={[flight()]} />);
+    const map = FakeMap.instances[0];
+    const attribution = map.controls.find((c) => c instanceof FakeAttributionControl);
+    expect(attribution).toBeDefined();
+    expect(map.controlPositions.get(attribution)).toBe('bottom-right');
   });
 
   it('lists mappable parts in time order with type + time', () => {
