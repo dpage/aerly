@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
-import type { Plan, PlanPart, TrackerPart } from '../api/types';
+import type { Plan, PlanPart, PlanType, TrackerPart } from '../api/types';
 import { errorMessage } from './helpers';
 import type { StoreState } from './store';
 
@@ -42,6 +42,52 @@ function persistWindow(tag: string, w: TrackerWindow): void {
   }
 }
 
+/** localStorage key for the global Tracker filters (not per-tag). */
+const FILTERS_KEY = 'tracker.filters';
+
+const KNOWN_TYPES: readonly PlanType[] = [
+  'flight',
+  'train',
+  'hotel',
+  'ground',
+  'dining',
+  'excursion',
+];
+
+export interface TrackerFilters {
+  mineOnly: boolean;
+  hiddenTypes: PlanType[];
+}
+
+/** Read the persisted Tracker filters, tolerating SSR, privacy modes, and
+ * malformed/stale JSON. Only an explicit boolean `true` enables mine-only, and
+ * unknown type strings are dropped. */
+export function loadFilters(): TrackerFilters {
+  try {
+    const raw = window.localStorage.getItem(FILTERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<TrackerFilters>;
+      const hiddenTypes = Array.isArray(parsed.hiddenTypes)
+        ? parsed.hiddenTypes.filter((t): t is PlanType =>
+            (KNOWN_TYPES as readonly string[]).includes(t as string),
+          )
+        : [];
+      return { mineOnly: parsed.mineOnly === true, hiddenTypes };
+    }
+  } catch {
+    // SSR / privacy modes / malformed JSON — fall through to defaults.
+  }
+  return { mineOnly: false, hiddenTypes: [] };
+}
+
+function persistFilters(f: TrackerFilters): void {
+  try {
+    window.localStorage.setItem(FILTERS_KEY, JSON.stringify(f));
+  } catch {
+    // ignore — best effort
+  }
+}
+
 /** State + actions for the unified tracker map+list view (spec §7, PRD §6.5).
  * Holds the full mappable parts in the window (any type), the per-tag From/To
  * window persisted to localStorage, and the live SSE merge. */
@@ -51,6 +97,12 @@ export interface TrackerSlice {
   trackerTag: string;
   trackerWindow: TrackerWindow;
   trackerLoading: boolean;
+  /** Show only parts the current user is travelling on / owns. */
+  trackerMineOnly: boolean;
+  /** Plan types switched off in the Tracker (hidden). */
+  trackerHiddenTypes: PlanType[];
+  setTrackerMineOnly: (value: boolean) => void;
+  toggleTrackerType: (type: PlanType) => void;
 
   loadTracker: (opts?: { tag?: string; window?: TrackerWindow }) => Promise<void>;
   setTrackerWindow: (w: Partial<TrackerWindow>) => Promise<void>;
@@ -62,63 +114,80 @@ export interface TrackerSlice {
   applyPlanPartUpdate: (part: TrackerPart) => void;
 }
 
-export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> = (set, get) => ({
-  trackerParts: [],
-  trackerTag: '',
-  trackerWindow: loadWindow(''),
-  trackerLoading: false,
+export const createTrackerSlice: StateCreator<StoreState, [], [], TrackerSlice> = (set, get) => {
+  const filters = loadFilters();
+  return {
+    trackerParts: [],
+    trackerTag: '',
+    trackerWindow: loadWindow(''),
+    trackerLoading: false,
+    trackerMineOnly: filters.mineOnly,
+    trackerHiddenTypes: filters.hiddenTypes,
 
-  async loadTracker(opts) {
-    const tag = opts?.tag ?? get().trackerTag;
-    // An explicit window (seeded from a tag's span on tag change, or set via the
-    // date pickers) is persisted under the *target* tag and used for this load;
-    // otherwise fall back to that tag's saved window.
-    const w = opts?.window ?? loadWindow(tag);
-    if (opts?.window) persistWindow(tag, opts.window);
-    set({ trackerTag: tag, trackerWindow: w, trackerLoading: true });
-    try {
-      const { parts } = await api.getTracker({ from: w.from, to: w.to, tag: tag || undefined });
-      set({ trackerParts: parts, trackerLoading: false });
-    } catch (err) {
-      set({ error: errorMessage(err), trackerLoading: false });
-    }
-  },
+    setTrackerMineOnly(value) {
+      set({ trackerMineOnly: value });
+      persistFilters({ mineOnly: value, hiddenTypes: get().trackerHiddenTypes });
+    },
 
-  async setTrackerWindow(patch) {
-    const tag = get().trackerTag;
-    const next = { ...get().trackerWindow, ...patch };
-    await get().loadTracker({ tag, window: next });
-  },
+    toggleTrackerType(type) {
+      const cur = get().trackerHiddenTypes;
+      const next = cur.includes(type) ? cur.filter((t) => t !== type) : [...cur, type];
+      set({ trackerHiddenTypes: next });
+      persistFilters({ mineOnly: get().trackerMineOnly, hiddenTypes: next });
+    },
 
-  applyPlanPartUpdate(update) {
-    set((s) => {
-      // 1. Tracker list: fold the live fields into the matching full part in
-      //    place. Don't insert a part that isn't already listed — the list is
-      //    window/visibility-scoped server-side.
-      const trackerParts = s.trackerParts.some((p) => p.id === update.plan_part_id)
-        ? s.trackerParts.map((p) => (p.id === update.plan_part_id ? foldUpdate(p, update) : p))
-        : s.trackerParts;
-
-      // 2. Open trip timeline: same merge for the trip currently on screen.
-      let currentTrip = s.currentTrip;
-      if (currentTrip && currentTrip.id === update.trip_id) {
-        let touched = false;
-        const plans: Plan[] = currentTrip.plans.map((plan) => {
-          if (plan.id !== update.plan_id) return plan;
-          const parts = plan.parts.map((pp) => {
-            if (pp.id !== update.plan_part_id) return pp;
-            touched = true;
-            return foldUpdate(pp, update);
-          });
-          return touched ? { ...plan, parts } : plan;
-        });
-        if (touched) currentTrip = { ...currentTrip, plans };
+    async loadTracker(opts) {
+      const tag = opts?.tag ?? get().trackerTag;
+      // An explicit window (seeded from a tag's span on tag change, or set via the
+      // date pickers) is persisted under the *target* tag and used for this load;
+      // otherwise fall back to that tag's saved window.
+      const w = opts?.window ?? loadWindow(tag);
+      if (opts?.window) persistWindow(tag, opts.window);
+      set({ trackerTag: tag, trackerWindow: w, trackerLoading: true });
+      try {
+        const { parts } = await api.getTracker({ from: w.from, to: w.to, tag: tag || undefined });
+        set({ trackerParts: parts, trackerLoading: false });
+      } catch (err) {
+        set({ error: errorMessage(err), trackerLoading: false });
       }
+    },
 
-      return { trackerParts, currentTrip };
-    });
-  },
-});
+    async setTrackerWindow(patch) {
+      const tag = get().trackerTag;
+      const next = { ...get().trackerWindow, ...patch };
+      await get().loadTracker({ tag, window: next });
+    },
+
+    applyPlanPartUpdate(update) {
+      set((s) => {
+        // 1. Tracker list: fold the live fields into the matching full part in
+        //    place. Don't insert a part that isn't already listed — the list is
+        //    window/visibility-scoped server-side.
+        const trackerParts = s.trackerParts.some((p) => p.id === update.plan_part_id)
+          ? s.trackerParts.map((p) => (p.id === update.plan_part_id ? foldUpdate(p, update) : p))
+          : s.trackerParts;
+
+        // 2. Open trip timeline: same merge for the trip currently on screen.
+        let currentTrip = s.currentTrip;
+        if (currentTrip && currentTrip.id === update.trip_id) {
+          let touched = false;
+          const plans: Plan[] = currentTrip.plans.map((plan) => {
+            if (plan.id !== update.plan_id) return plan;
+            const parts = plan.parts.map((pp) => {
+              if (pp.id !== update.plan_part_id) return pp;
+              touched = true;
+              return foldUpdate(pp, update);
+            });
+            return touched ? { ...plan, parts } : plan;
+          });
+          if (touched) currentTrip = { ...currentTrip, plans };
+        }
+
+        return { trackerParts, currentTrip };
+      });
+    },
+  };
+};
 
 /** Fold a thin live update (status / effective_at / latest position) into a full
  * PlanPart, leaving its coordinates + type detail untouched. */

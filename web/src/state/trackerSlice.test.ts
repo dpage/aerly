@@ -9,6 +9,7 @@ vi.mock('../api/client', () => ({
 
 import { api } from '../api/client';
 import { useStore } from './store';
+import { loadFilters } from './trackerSlice';
 
 const mockApi = api as unknown as Record<string, ReturnType<typeof vi.fn>>;
 
@@ -86,7 +87,15 @@ function plan(parts: PlanPart[]): Plan {
 beforeEach(() => {
   vi.clearAllMocks();
   useStore.setState(
-    { trackerParts: [], currentTrip: null, trackerTag: '', trackerWindow: {}, error: null },
+    {
+      trackerParts: [],
+      currentTrip: null,
+      trackerTag: '',
+      trackerWindow: {},
+      error: null,
+      trackerMineOnly: false,
+      trackerHiddenTypes: [],
+    },
     false,
   );
 });
@@ -365,5 +374,67 @@ describe('applyPlanPartUpdate', () => {
     // The open trip is untouched (same object identity, unchanged status).
     expect(useStore.getState().currentTrip).toBe(open);
     expect(useStore.getState().currentTrip!.plans[0].parts[0].status).toBe('planned');
+  });
+});
+
+describe('tracker filters', () => {
+  function stubLocalStorage(seed: Record<string, string> = {}): Record<string, string> {
+    const store = { ...seed };
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k: string) => (k in store ? store[k] : null),
+        setItem: (k: string, v: string) => {
+          store[k] = String(v);
+        },
+        removeItem: (k: string) => {
+          delete store[k];
+        },
+        clear: () => {},
+        key: () => null,
+        length: 0,
+      },
+    });
+    return store;
+  }
+
+  it('toggles "mine only" and persists it', () => {
+    const store = stubLocalStorage();
+    useStore.getState().setTrackerMineOnly(true);
+    expect(useStore.getState().trackerMineOnly).toBe(true);
+    expect(JSON.parse(store['tracker.filters'])).toEqual({ mineOnly: true, hiddenTypes: [] });
+  });
+
+  it('toggles a plan type on and off, persisting each change', () => {
+    const store = stubLocalStorage();
+    useStore.getState().toggleTrackerType('excursion');
+    expect(useStore.getState().trackerHiddenTypes).toEqual(['excursion']);
+    useStore.getState().toggleTrackerType('dining');
+    expect(useStore.getState().trackerHiddenTypes).toEqual(['excursion', 'dining']);
+    useStore.getState().toggleTrackerType('excursion');
+    expect(useStore.getState().trackerHiddenTypes).toEqual(['dining']);
+    expect(JSON.parse(store['tracker.filters'])).toEqual({
+      mineOnly: false,
+      hiddenTypes: ['dining'],
+    });
+  });
+
+  it('loadFilters reads valid persisted filters', () => {
+    stubLocalStorage({
+      'tracker.filters': JSON.stringify({ mineOnly: true, hiddenTypes: ['hotel', 'dining'] }),
+    });
+    expect(loadFilters()).toEqual({ mineOnly: true, hiddenTypes: ['hotel', 'dining'] });
+  });
+
+  it('loadFilters falls back to defaults on malformed JSON', () => {
+    stubLocalStorage({ 'tracker.filters': '{ not json' });
+    expect(loadFilters()).toEqual({ mineOnly: false, hiddenTypes: [] });
+  });
+
+  it('loadFilters drops unknown types and only treats true as mine-only', () => {
+    stubLocalStorage({
+      'tracker.filters': JSON.stringify({ mineOnly: 'yes', hiddenTypes: ['flight', 'bogus'] }),
+    });
+    expect(loadFilters()).toEqual({ mineOnly: false, hiddenTypes: ['flight'] });
   });
 });
