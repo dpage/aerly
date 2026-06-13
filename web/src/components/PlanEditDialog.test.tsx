@@ -29,6 +29,12 @@ vi.mock('../state/store', () => ({
     }),
 }));
 
+const ha = vi.hoisted(() => ({ resolveMapsUrl: vi.fn() }));
+vi.mock('../api/client', () => ({
+  api: { resolveMapsUrl: ha.resolveMapsUrl },
+  ApiError: class extends Error {},
+}));
+
 import type { PlanPart } from '../api/types';
 import PlanEditDialog from './PlanEditDialog';
 
@@ -759,5 +765,91 @@ describe('PlanEditDialog', () => {
       const [, patch] = h.updatePlanPart.mock.calls[0];
       expect(patch.flight).toBeUndefined();
     }
+  });
+
+  // --- Google Maps URL coordinate override ---
+
+  describe('Google Maps URL coordinate override', () => {
+    beforeEach(() => {
+      ha.resolveMapsUrl.mockReset();
+    });
+
+    function openHotelCoords() {
+      // A hotel has a single located endpoint, so exactly one coords field
+      // (the "Until"/check-out block is time-only).
+      render_(
+        plan({
+          type: 'hotel',
+          parts: [part({ type: 'hotel', start_label: 'Hotel', end_label: '' })],
+        }),
+      );
+      return screen.getByLabelText('Coordinates (lat, lng)') as HTMLInputElement;
+    }
+
+    it('extracts coordinates from a pasted full Maps URL on blur (no network)', async () => {
+      const field = openHotelCoords();
+      await userEvent.clear(field);
+      await userEvent.type(field, 'https://www.google.com/maps/@51.5,-0.12,15z');
+      field.blur();
+      await waitFor(() => expect(field.value).toBe('51.5, -0.12'));
+      expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
+    });
+
+    it('resolves a short link via the backend and fills the field', async () => {
+      ha.resolveMapsUrl.mockResolvedValue({ lat: 40.5, lon: -70.25 });
+      const field = openHotelCoords();
+      await userEvent.clear(field);
+      await userEvent.type(field, 'https://maps.app.goo.gl/abc123');
+      field.blur();
+      await waitFor(() => expect(field.value).toBe('40.5, -70.25'));
+      expect(ha.resolveMapsUrl).toHaveBeenCalledWith('https://maps.app.goo.gl/abc123');
+    });
+
+    it('shows an inline error when a short link cannot be resolved', async () => {
+      ha.resolveMapsUrl.mockRejectedValue(new Error('nope'));
+      const field = openHotelCoords();
+      await userEvent.clear(field);
+      await userEvent.type(field, 'https://maps.app.goo.gl/abc123');
+      field.blur();
+      expect(await screen.findByText(/couldn't read a location/i)).toBeInTheDocument();
+    });
+
+    it('leaves a bare lat,lng pair untouched and makes no call', async () => {
+      const field = openHotelCoords();
+      await userEvent.clear(field);
+      await userEvent.type(field, '48.2105, 4.0823');
+      field.blur();
+      await waitFor(() => expect(field.value).toBe('48.2105, 4.0823'));
+      expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
+    });
+
+    it('errors on a full Maps URL with no coordinates without calling the backend', async () => {
+      // A place-only URL on a full Maps host: isMapsUrl is true, but there are
+      // no coordinates to extract and it is not a short link, so we surface the
+      // failure inline rather than hitting the resolver.
+      const field = openHotelCoords();
+      await userEvent.clear(field);
+      await userEvent.type(field, 'https://maps.google.com/maps/place/Somewhere');
+      field.blur();
+      expect(await screen.findByText(/couldn't read a location/i)).toBeInTheDocument();
+      expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
+    });
+
+    it('shows the resolving hint whilst a short link is in flight', async () => {
+      // Hold the resolver open so the busy state is observable.
+      let release: (v: { lat: number; lon: number }) => void = () => {};
+      ha.resolveMapsUrl.mockReturnValue(
+        new Promise((res) => {
+          release = res;
+        }),
+      );
+      const field = openHotelCoords();
+      await userEvent.clear(field);
+      await userEvent.type(field, 'https://maps.app.goo.gl/abc123');
+      field.blur();
+      expect(await screen.findByText(/resolving link/i)).toBeInTheDocument();
+      release({ lat: 1, lon: 2 });
+      await waitFor(() => expect(field.value).toBe('1, 2'));
+    });
   });
 });

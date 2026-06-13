@@ -467,6 +467,19 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(spy.mock.calls[0][0]).toBe('/api/plans/3/reminder');
     expect(spy.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
   });
+
+  it('resolveMapsUrl POSTs the url and returns the coordinates', async () => {
+    const spy = mockFetch(() => jsonResponse({ lat: 51.5, lon: -0.12 }));
+    await expect(api.resolveMapsUrl('https://maps.app.goo.gl/abc123')).resolves.toEqual({
+      lat: 51.5,
+      lon: -0.12,
+    });
+    expect(spy.mock.calls[0][0]).toBe('/api/maps/resolve');
+    expect(spy.mock.calls[0][1]?.method).toBe('POST');
+    expect(spy.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({ url: 'https://maps.app.goo.gl/abc123' }),
+    );
+  });
 });
 
 describe('revokeCalendarToken / issueCalendarToken paths', () => {

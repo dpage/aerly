@@ -307,6 +307,11 @@ export const api = {
     return request<TrackerResponse>('GET', qs ? `/api/tracker?${qs}` : '/api/tracker');
   },
 
+  // Resolve a Google short link (maps.app.goo.gl etc.) to coordinates by
+  // following its redirect server-side; full URLs are decoded client-side.
+  resolveMapsUrl: (url: string) =>
+    request<{ lat: number; lon: number }>('POST', '/api/maps/resolve', { url }),
+
   // -------------------------------------------------------------------------
   // Alerts (spec §5.2 / §9).
   // -------------------------------------------------------------------------

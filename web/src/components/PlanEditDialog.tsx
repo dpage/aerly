@@ -16,8 +16,15 @@ import {
 } from '@mui/material';
 
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
+import { api } from '../api/client';
 import { useStore } from '../state/store';
 import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
+import {
+  coordsFromText,
+  extractLatLonFromMapsUrl,
+  isMapsUrl,
+  isShortMapsUrl,
+} from '../lib/maps-url';
 import {
   isTransferType,
   planTypeLabel,
@@ -127,7 +134,7 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
   // geocoder won't touch it); clearing it unpins, reverting to the address.
   // Invalid input is left for handleSave to reject before we get here.
   if (s.coords !== si.coords) {
-    const c = parseLatLon(s.coords);
+    const c = coordsFromText(s.coords);
     if (c) {
       patch.start_lat = c.lat;
       patch.start_lon = c.lon;
@@ -147,7 +154,7 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
       if (e.tz !== ei.tz || patch.ends_at) patch.end_tz = e.tz;
     }
     if (e.coords !== ei.coords) {
-      const c = parseLatLon(e.coords);
+      const c = coordsFromText(e.coords);
       if (c) {
         patch.end_lat = c.lat;
         patch.end_lon = c.lon;
@@ -262,6 +269,42 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     }));
   };
 
+  // Per-endpoint blur-resolution of a pasted Google Maps URL. A full URL is
+  // decoded client-side; a short link is resolved by the backend (which follows
+  // its redirect). Busy/error are keyed by "partId:which" so each field is
+  // independent.
+  const [coordsBusy, setCoordsBusy] = useState<Record<string, boolean>>({});
+  const [coordsErr, setCoordsErr] = useState<Record<string, string>>({});
+  const coordsKey = (partId: number, which: 'start' | 'end') => `${partId}:${which}`;
+  const COORDS_FAIL = "Couldn't read a location from that link; paste the coordinates instead.";
+
+  const resolveCoords = async (partId: number, which: 'start' | 'end') => {
+    const key = coordsKey(partId, which);
+    // The field only renders once forms[partId] exists, so it's always present
+    // by the time a blur fires; read its current value directly.
+    const value = forms[partId][which].coords.trim();
+    setCoordsErr((p) => ({ ...p, [key]: '' }));
+    if (value === '' || parseLatLon(value) || !isMapsUrl(value)) return;
+    const local = extractLatLonFromMapsUrl(value);
+    if (local) {
+      patchEnd(partId, which, 'coords', `${local.lat}, ${local.lon}`);
+      return;
+    }
+    if (!isShortMapsUrl(value)) {
+      setCoordsErr((p) => ({ ...p, [key]: COORDS_FAIL }));
+      return;
+    }
+    setCoordsBusy((p) => ({ ...p, [key]: true }));
+    try {
+      const c = await api.resolveMapsUrl(value);
+      patchEnd(partId, which, 'coords', `${c.lat}, ${c.lon}`);
+    } catch {
+      setCoordsErr((p) => ({ ...p, [key]: COORDS_FAIL }));
+    } finally {
+      setCoordsBusy((p) => ({ ...p, [key]: false }));
+    }
+  };
+
   const patchFlight = (partId: number, field: keyof FlightForm, value: string) => {
     setForms((prev) => {
       const f = prev[partId].flight;
@@ -275,8 +318,8 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     for (const part of editableParts) {
       const f = forms[part.id];
       for (const end of [f?.start, f?.end]) {
-        if (end && end.coords.trim() !== '' && !parseLatLon(end.coords)) {
-          setError('Enter coordinates as "lat, lng" — e.g. 48.2105, 4.0823');
+        if (end && end.coords.trim() !== '' && !coordsFromText(end.coords)) {
+          setError('Enter coordinates as "lat, lng", or paste a Google Maps link.');
           return;
         }
       }
@@ -477,6 +520,9 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                   form={form.start}
                   onChange={(f, v) => patchEnd(part.id, 'start', f, v)}
                   unlocated={startUnlocated(part)}
+                  onResolveCoords={() => void resolveCoords(part.id, 'start')}
+                  coordsResolving={!!coordsBusy[coordsKey(part.id, 'start')]}
+                  coordsError={coordsErr[coordsKey(part.id, 'start')] ?? ''}
                 />
                 {withEnd && (
                   <Box sx={{ mt: 1.5 }}>
@@ -489,6 +535,9 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                       // Place/Address.
                       timeOnly={!isTransferType(part.type)}
                       unlocated={endUnlocated(part)}
+                      onResolveCoords={() => void resolveCoords(part.id, 'end')}
+                      coordsResolving={!!coordsBusy[coordsKey(part.id, 'end')]}
+                      coordsError={coordsErr[coordsKey(part.id, 'end')] ?? ''}
                     />
                   </Box>
                 )}
@@ -623,12 +672,18 @@ function EndFields({
   onChange,
   timeOnly = false,
   unlocated = false,
+  onResolveCoords,
+  coordsResolving = false,
+  coordsError = '',
 }: {
   heading: string;
   form: EndForm;
   onChange: (field: keyof EndForm, value: string) => void;
   timeOnly?: boolean;
   unlocated?: boolean;
+  onResolveCoords?: () => void;
+  coordsResolving?: boolean;
+  coordsError?: string;
 }) {
   return (
     <Stack spacing={1.5}>
@@ -666,12 +721,24 @@ function EndFields({
           size="small"
           value={form.coords}
           onChange={(e) => onChange('coords', e.target.value)}
-          placeholder="optional — e.g. 48.2105, 4.0823"
-          error={form.coords.trim() !== '' && parseLatLon(form.coords) === null}
+          onBlur={() => onResolveCoords?.()}
+          placeholder="optional — e.g. 48.2105, 4.0823 or a Google Maps link"
+          error={
+            coordsError !== '' ||
+            (form.coords.trim() !== '' &&
+              parseLatLon(form.coords) === null &&
+              !isMapsUrl(form.coords))
+          }
           helperText={
-            form.coords.trim() !== '' && parseLatLon(form.coords) === null
-              ? 'Enter as "lat, lng" — two numbers, e.g. from a Google Maps pin.'
-              : 'Paste a Google Maps pin to override the geocoded location.'
+            coordsResolving
+              ? 'Resolving link…'
+              : coordsError !== ''
+                ? coordsError
+                : form.coords.trim() !== '' &&
+                    parseLatLon(form.coords) === null &&
+                    !isMapsUrl(form.coords)
+                  ? 'Enter as "lat, lng", or paste a Google Maps pin or link.'
+                  : 'Paste a Google Maps pin or link to override the geocoded location.'
           }
           fullWidth
         />
