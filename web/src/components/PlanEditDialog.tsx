@@ -242,6 +242,8 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     for (const p of editableParts) snap[p.id] = partForm(p);
     setForms(snap);
     setInitial(snap);
+    setCoordsErr({});
+    setCoordsBusy({});
     void listTrips();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only on (re)open / plan switch
   }, [open, plan.id]);
