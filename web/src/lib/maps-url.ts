@@ -45,7 +45,7 @@ const NUM = '(-?\\d+(?:\\.\\d+)?)';
 const PLACE_RE = new RegExp(`!3d${NUM}!4d${NUM}`);
 // Explicit query coordinates.
 const QUERY_RE = new RegExp(`[?&](?:q|ll|query|destination|center)=${NUM},${NUM}`);
-// The map viewport centre — a fallback, close to but not always the pin.
+// The map viewport centre: a fallback, close to but not always the pin.
 const AT_RE = new RegExp(`@${NUM},${NUM}`);
 
 /** Pull coordinates out of a full Google Maps URL, in precedence order:
@@ -57,7 +57,7 @@ export function extractLatLonFromMapsUrl(url: string): { lat: number; lon: numbe
   try {
     s = decodeURIComponent(url);
   } catch {
-    // Malformed escape sequence — fall back to the raw string.
+    // Malformed escape sequence; fall back to the raw string.
   }
   for (const re of [PLACE_RE, QUERY_RE, AT_RE]) {
     const m = s.match(re);

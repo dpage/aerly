@@ -45,6 +45,14 @@ describe('extractLatLonFromMapsUrl', () => {
     expect(extractLatLonFromMapsUrl('https://www.google.com/maps/@91,0,5z')).toBeNull();
     expect(extractLatLonFromMapsUrl('https://maps.google.com/?q=0,181')).toBeNull();
   });
+
+  it('falls back to the raw URL when percent-decoding fails', () => {
+    // A lone % makes decodeURIComponent throw; the raw string still has @coords.
+    expect(extractLatLonFromMapsUrl('https://www.google.com/maps/@40.5,-70.25,15z?x=%')).toEqual({
+      lat: 40.5,
+      lon: -70.25,
+    });
+  });
 });
 
 describe('isMapsUrl', () => {
