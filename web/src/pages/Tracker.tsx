@@ -134,7 +134,17 @@ export default function Tracker() {
   };
 
   const windowLabel = [fmtWinDay(win.from), fmtWinDay(win.to)].filter(Boolean).join(' – ');
-  const pillLabel = [tag || 'Everyone', windowLabel].filter(Boolean).join(' · ');
+  // Leading scope word: the tag when one is set, else the people scope; the
+  // mine-only filter narrows either, so reflect it rather than still saying
+  // "Everyone" when only my plans are shown.
+  const scopeLabel = tag
+    ? mineOnly
+      ? `${tag} (mine)`
+      : tag
+    : mineOnly
+      ? 'Mine'
+      : 'Everyone';
+  const pillLabel = [scopeLabel, windowLabel].filter(Boolean).join(' · ');
 
   const visibleParts = useMemo(
     () => filterTrackerParts(parts, { mineOnly, hiddenTypes, meId: me?.id }),

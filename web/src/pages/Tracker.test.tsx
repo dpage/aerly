@@ -271,6 +271,21 @@ describe('Tracker page (mobile)', () => {
     expect(screen.getByTestId('tracker-filter-pill')).toHaveTextContent('Everyone');
   });
 
+  it('labels the pill "Mine" when Mine only is on with no tag', () => {
+    state.trackerMineOnly = true;
+    renderTracker();
+    const pill = screen.getByTestId('tracker-filter-pill');
+    expect(pill).toHaveTextContent('Mine');
+    expect(pill).not.toHaveTextContent('Everyone');
+  });
+
+  it('marks the tag as mine when Mine only is on with a tag selected', () => {
+    state.trackerTag = 'family';
+    state.trackerMineOnly = true;
+    renderTracker();
+    expect(screen.getByTestId('tracker-filter-pill')).toHaveTextContent('family (mine)');
+  });
+
   it('opens the controls in a popover and changes the tag from it', async () => {
     state.trips = [trip({ id: 1, tags: ['family'] }), trip({ id: 2, tags: ['work'] })];
     renderTracker();
