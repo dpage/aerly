@@ -724,7 +724,7 @@ function EndFields({
           value={form.coords}
           onChange={(e) => onChange('coords', e.target.value)}
           onBlur={() => onResolveCoords?.()}
-          placeholder="optional — e.g. 48.2105, 4.0823 or a Google Maps link"
+          placeholder="optional: e.g. 48.2105, 4.0823 or a Google Maps link"
           error={
             coordsError !== '' ||
             (form.coords.trim() !== '' &&
