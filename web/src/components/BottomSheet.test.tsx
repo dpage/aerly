@@ -155,4 +155,56 @@ describe('BottomSheet', () => {
     );
     expect(screen.getByTestId('bottom-sheet')).toHaveAttribute('data-snap', 'full');
   });
+
+  it('tolerates setPointerCapture throwing for an already-released pointer', () => {
+    const onSnapChange = renderSheet('peek').onSnapChange;
+    const handle = screen.getByTestId('sheet-handle');
+    const original = Element.prototype.setPointerCapture;
+    Element.prototype.setPointerCapture = () => {
+      throw new DOMException('no active pointer', 'NotFoundError');
+    };
+    try {
+      expect(() => {
+        fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700 });
+        fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400 });
+        fireEvent.pointerUp(handle, { pointerId: 1, clientY: 400 });
+      }).not.toThrow();
+    } finally {
+      Element.prototype.setPointerCapture = original;
+    }
+    // The drag still resolves to a snap despite the capture failure.
+    expect(onSnapChange).toHaveBeenCalledWith('half');
+  });
+
+  it('seeds the drag from the rendered height when it is measurable', () => {
+    const onSnapChange = renderSheet('peek').onSnapChange;
+    const sheet = screen.getByTestId('bottom-sheet');
+    const handle = screen.getByTestId('sheet-handle');
+    // jsdom returns 0 height by default; simulate a real rendered height so the
+    // pointerdown seeds startPx from the rect (the `rectH > 0` branch).
+    const spy = vi
+      .spyOn(sheet, 'getBoundingClientRect')
+      .mockReturnValue({ height: 200 } as DOMRect);
+    try {
+      // From a 200px start, dragging up 160px → 360px, the nearest snap is half.
+      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700 });
+      fireEvent.pointerMove(handle, { pointerId: 1, clientY: 540 });
+      fireEvent.pointerUp(handle, { pointerId: 1, clientY: 540 });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(onSnapChange).toHaveBeenCalledWith('half');
+  });
+
+  it('ignores a second pointerdown while a drag is in flight', () => {
+    const onSnapChange = renderSheet('peek').onSnapChange;
+    const handle = screen.getByTestId('sheet-handle');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700 });
+    // A second finger lands mid-drag; it must not hijack the active drag.
+    fireEvent.pointerDown(handle, { pointerId: 2, clientY: 700 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 400 });
+    expect(onSnapChange).toHaveBeenCalledTimes(1);
+    expect(onSnapChange).toHaveBeenCalledWith('half');
+  });
 });

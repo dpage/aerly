@@ -437,4 +437,32 @@ describe('tracker filters', () => {
     });
     expect(loadFilters()).toEqual({ mineOnly: false, hiddenTypes: ['flight'] });
   });
+
+  it('loadFilters defaults hiddenTypes to empty when it is not an array', () => {
+    stubLocalStorage({ 'tracker.filters': JSON.stringify({ mineOnly: true }) });
+    expect(loadFilters()).toEqual({ mineOnly: true, hiddenTypes: [] });
+  });
+
+  it('loadFilters returns defaults when nothing is stored', () => {
+    stubLocalStorage();
+    expect(loadFilters()).toEqual({ mineOnly: false, hiddenTypes: [] });
+  });
+
+  it('persists best-effort when localStorage.setItem throws', () => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('quota exceeded');
+        },
+        removeItem: () => {},
+        clear: () => {},
+        key: () => null,
+        length: 0,
+      },
+    });
+    expect(() => useStore.getState().setTrackerMineOnly(true)).not.toThrow();
+    expect(useStore.getState().trackerMineOnly).toBe(true);
+  });
 });
