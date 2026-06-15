@@ -184,9 +184,51 @@ func iataIn(label string) string {
 // isAirportLabel reports whether a place label clearly denotes an airport (so
 // geocoding the bare name is safe). Conservative on purpose — only "airport" /
 // "terminal" — to avoid mis-placing ambiguous names.
+//
+// It additionally requires an identifying place token beyond the generic
+// keyword and a terminal designator: a bare "Terminal 3" (or "T3", "Airport")
+// names no airport, so geocoding it picks an arbitrary global match — that's
+// how a UK transfer once ended up at Jakarta's Soekarno-Hatta Terminal 3.
 func isAirportLabel(label string) bool {
 	l := strings.ToLower(label)
-	return strings.Contains(l, "airport") || strings.Contains(l, "terminal")
+	if !strings.Contains(l, "airport") && !strings.Contains(l, "terminal") {
+		return false
+	}
+	for _, tok := range strings.FieldsFunc(l, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	}) {
+		if !isGenericAirportToken(tok) {
+			return true
+		}
+	}
+	return false
+}
+
+// isGenericAirportToken reports whether tok carries no location signal on its
+// own: the "airport"/"terminal" keywords, or a bare terminal designator such as
+// "3", a single letter ("a"), or a "t"-prefixed number ("t5").
+func isGenericAirportToken(tok string) bool {
+	switch tok {
+	case "", "airport", "terminal":
+		return true
+	}
+	if isAllDigits(tok) || len(tok) == 1 {
+		return true
+	}
+	return tok[0] == 't' && isAllDigits(tok[1:])
+}
+
+// isAllDigits reports whether s is non-empty and every rune is an ASCII digit.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ResolvePartTZ resolves a still-empty start/end tz from the part's coordinates

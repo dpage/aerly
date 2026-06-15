@@ -28,9 +28,10 @@ func TestGeocodeEndpoint(t *testing.T) {
 		"Alicante Airport":                  {38, -0.5},
 		"London Heathrow Terminal 5":        {51, -0.4},
 		"AB12 3CD, United Kingdom":          {51.6, -1.5},
-		"Ukino Palmeiras Village, Portugal": {37.1, -8.38}, // name + country
-		"8400-450 Porches, Portugal":        {37.0, -8.0},  // a resolvable tail
-		"Honeysuckle Cottage":               {9, 9},        // bare name — must NEVER be queried
+		"Ukino Palmeiras Village, Portugal": {37.1, -8.38},   // name + country
+		"8400-450 Porches, Portugal":        {37.0, -8.0},    // a resolvable tail
+		"Honeysuckle Cottage":               {9, 9},          // bare name — must NEVER be queried
+		"Terminal 3":                        {-6.12, 106.66}, // Jakarta CGK T3 — must NEVER be queried bare
 	}}
 	ctx := context.Background()
 	cases := []struct {
@@ -42,6 +43,10 @@ func TestGeocodeEndpoint(t *testing.T) {
 		{"no address, airport label fallback", "ground", "", "Alicante Airport", true, 38},
 		{"address fails, terminal label fallback", "ground", "Nowhere Addr", "London Heathrow Terminal 5", true, 51},
 		{"bare ambiguous label is NEVER geocoded", "ground", "", "Honeysuckle Cottage", false, 0},
+		// A bare terminal reference carries no airport name, so it must not be
+		// geocoded on its own (it once resolved a UK transfer to Jakarta CGK T3).
+		{"bare terminal number is NEVER geocoded", "ground", "", "Terminal 3", false, 0},
+		{"bare terminal designator is NEVER geocoded", "ground", "", "Terminal", false, 0},
 		{"flight never uses label", "flight", "", "LHR", false, 0},
 		{"flight still uses a resolving address", "flight", "1 Main St", "LHR", true, 1},
 		{"airport label that doesn't resolve", "ground", "", "Faro Airport", false, 0},
