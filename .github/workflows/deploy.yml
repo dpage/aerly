@@ -1,0 +1,80 @@
+name: Deploy
+
+# Manual "ship it" button for aerly. Run from the GitHub web UI or the mobile
+# app: Actions -> Deploy -> Run workflow, optionally choosing a ref to deploy.
+#
+# This updates only the running app (rebuild from git + restart). It does NOT
+# apply infrastructure or config changes — those live in the conx-ansible
+# `aerly` role. The server-side work is done by /usr/local/sbin/aerly-deploy
+# on the host, which this workflow invokes over SSH as a dedicated
+# low-privilege account whose sudo is scoped to that one command.
+#
+# Required configuration (Settings -> Secrets and variables -> Actions):
+#   Secrets:
+#     AERLY_DEPLOY_SSH_KEY     - private half of the dedicated deploy keypair
+#     AERLY_DEPLOY_KNOWN_HOSTS - output of: ssh-keyscan -p 8080 <host>
+#     AERLY_DEPLOY_HOST        - deploy host (e.g. kielbasa.conx.page)
+#   Variables (optional, sensible defaults below):
+#     AERLY_DEPLOY_PORT        - SSH port (default 8080)
+#     AERLY_DEPLOY_USER        - deploy account (default aerly-deploy)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (branch, tag, or commit) to deploy"
+        required: false
+        default: main
+
+# Never let two deploys race; queue them instead.
+concurrency:
+  group: aerly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to host
+    runs-on: ubuntu-latest
+    # Optional: define a "production" environment with required reviewers /
+    # protected secrets for an extra approval gate. Harmless if undefined.
+    environment: production
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.AERLY_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.AERLY_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.AERLY_DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.AERLY_DEPLOY_PORT || '8080' }}
+          DEPLOY_USER: ${{ vars.AERLY_DEPLOY_USER || 'aerly-deploy' }}
+          DEPLOY_REF: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          # ssh concatenates the remote argv into a single shell command, so a
+          # ref with shell metacharacters would be an injection vector. Reject
+          # anything that isn't a plain branch/tag/commit name. The server-side
+          # script applies the same check as a second line of defence.
+          if ! [[ "$DEPLOY_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+              echo "Refusing to deploy suspicious ref: '$DEPLOY_REF'" >&2
+              exit 1
+          fi
+          echo "Deploying ref '${DEPLOY_REF}' to ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PORT}"
+          ssh -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o BatchMode=yes \
+              -i ~/.ssh/id_deploy \
+              -p "$DEPLOY_PORT" \
+              "${DEPLOY_USER}@${DEPLOY_HOST}" \
+              "sudo /usr/local/sbin/aerly-deploy '${DEPLOY_REF}'"
+
+      - name: Remove deploy key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
