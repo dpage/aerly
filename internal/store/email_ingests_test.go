@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestInsertEmailIngest_Minimum(t *testing.T) {
 	s := newStore(t)
@@ -54,5 +57,48 @@ func TestInsertEmailIngest_FullFields(t *testing.T) {
 	}
 	if gotAdded != 2 || gotFailed != 1 {
 		t.Errorf("added/failed = %d/%d, want 2/1", gotAdded, gotFailed)
+	}
+}
+
+func TestCountEmailIngestsSince(t *testing.T) {
+	s := newStore(t)
+	alice, _ := s.InviteUser(ctx, InvitePayload{Username: "alice"})
+	bob, _ := s.InviteUser(ctx, InvitePayload{Username: "bob"})
+
+	// Three rows for alice, one for bob, plus one with no user (rejection row).
+	for i := 0; i < 3; i++ {
+		if _, err := s.InsertEmailIngest(ctx, EmailIngestPayload{
+			FromAddress: "alice@example.com", Status: "accepted", UserID: &alice.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.InsertEmailIngest(ctx, EmailIngestPayload{
+		FromAddress: "bob@example.com", Status: "accepted", UserID: &bob.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertEmailIngest(ctx, EmailIngestPayload{
+		FromAddress: "nobody@example.com", Status: "no_user",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	since := time.Now().Add(-24 * time.Hour)
+	n, err := s.CountEmailIngestsSince(ctx, alice.ID, since)
+	if err != nil {
+		t.Fatalf("CountEmailIngestsSince: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("alice count = %d, want 3", n)
+	}
+
+	// A window that starts in the future excludes everything just inserted.
+	n, err = s.CountEmailIngestsSince(ctx, alice.ID, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("CountEmailIngestsSince: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("future-window count = %d, want 0", n)
 	}
 }

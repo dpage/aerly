@@ -554,3 +554,100 @@ func TestIngest_GeocodesAndPublishes(t *testing.T) {
 		t.Errorf("events = %v, want trip.updated + plan.updated", got)
 	}
 }
+
+// goodMessageSPF mirrors goodMessage but its trusted Authentication-Results
+// header also asserts SPF alignment for the From domain.
+const goodMessageSPF = "From: alice@example.com\r\n" +
+	"To: flights@flights.example\r\n" +
+	"Subject: x\r\n" +
+	"Message-ID: <spf@x>\r\n" +
+	"Authentication-Results: ml; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=example.com\r\n" +
+	"Content-Type: text/plain\r\n\r\n" +
+	"body text"
+
+func TestIngest_SPFRequired_FailPoison(t *testing.T) {
+	// goodMessage has dkim=pass but no spf=pass; with SPF required it's rejected
+	// before the LLM even though DKIM is satisfied.
+	h := newHarness(t, `{"plans":[]}`, nil, true)
+	h.svc.Cfg.RequireSPF = true
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	writeMessage(t, h.maildir, "60", goodMessage)
+	if state := h.runUntilProcessed(t, "60", 5*time.Second); state != "failed" {
+		t.Errorf("expected .failed/ (SPF not aligned), got %s", state)
+	}
+}
+
+func TestIngest_SPFRequired_PassAccepted(t *testing.T) {
+	h := newHarness(t,
+		flightPlanResp("TK1980", time.Now().AddDate(0, 1, 0).Format("2006-01-02")),
+		nil, true)
+	h.svc.Cfg.RequireSPF = true
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	writeMessage(t, h.maildir, "61", goodMessageSPF)
+	if state := h.runUntilProcessed(t, "61", 5*time.Second); state != "removed" {
+		t.Errorf("expected removed (SPF aligned), got %s", state)
+	}
+}
+
+func TestIngest_RateLimit_OverCapPoison(t *testing.T) {
+	h := newHarness(t, `{"plans":[]}`, nil, true)
+	h.svc.Cfg.RateLimitPerDay = 3
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	// Seed the cap's worth of prior ingestions in the window.
+	for i := 0; i < 3; i++ {
+		if _, err := h.store.InsertEmailIngest(ctx, store.EmailIngestPayload{
+			FromAddress: "alice@example.com", Status: "accepted", UserID: &u.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMessage(t, h.maildir, "62", goodMessage)
+	if state := h.runUntilProcessed(t, "62", 5*time.Second); state != "failed" {
+		t.Errorf("expected .failed/ (over rate limit), got %s", state)
+	}
+	// The over-limit message is itself recorded (so the audit reflects the abuse
+	// and the count keeps the sender blocked for the window).
+	n, err := h.store.CountEmailIngestsSince(ctx, u.ID, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 4 {
+		t.Errorf("ingest count = %d, want 4 (3 seeded + 1 rate_limited row)", n)
+	}
+}
+
+func TestIngest_RateLimit_UnderCapAccepted(t *testing.T) {
+	h := newHarness(t,
+		flightPlanResp("TK1980", time.Now().AddDate(0, 1, 0).Format("2006-01-02")),
+		nil, true)
+	h.svc.Cfg.RateLimitPerDay = 3
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	// Two prior ingestions — still under the cap of 3.
+	for i := 0; i < 2; i++ {
+		if _, err := h.store.InsertEmailIngest(ctx, store.EmailIngestPayload{
+			FromAddress: "alice@example.com", Status: "accepted", UserID: &u.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMessage(t, h.maildir, "63", goodMessage)
+	if state := h.runUntilProcessed(t, "63", 5*time.Second); state != "removed" {
+		t.Errorf("expected removed (under rate limit), got %s", state)
+	}
+}
