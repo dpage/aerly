@@ -26,6 +26,9 @@ type OpenSky struct {
 	Username string // optional HTTP Basic Auth (free OpenSky account)
 	Password string
 	HTTP     *http.Client
+	// OnRateLimit, when set, is invoked on a 429 from OpenSky so the operator
+	// can be alerted (the DeadReckoner above us hides the error otherwise).
+	OnRateLimit RateLimitReporter
 }
 
 func NewOpenSky(username, password string) *OpenSky {
@@ -90,6 +93,13 @@ func (o *OpenSky) Track(ctx context.Context, f *store.Flight, _ time.Time) (*sto
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
+		if o.OnRateLimit != nil {
+			hint := "anonymous/free-tier rate limit reached; configure OPENSKY_USERNAME/PASSWORD or widen POLL_INTERVAL"
+			if o.Username != "" {
+				hint = "authenticated rate limit reached; widen POLL_INTERVAL or reduce the number of tracked flights"
+			}
+			o.OnRateLimit("OpenSky", hint)
+		}
 		return nil, errors.New("opensky rate limit; consider configuring OPENSKY_USERNAME/PASSWORD")
 	}
 	if resp.StatusCode != http.StatusOK {

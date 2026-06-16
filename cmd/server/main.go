@@ -90,9 +90,11 @@ func run() error {
 	// data on the day of departure to catch swaps, and (b) it has its own
 	// per-flight throttle via last_resolved_at.
 	var resolver, rawResolver providers.Resolver
+	var adb *providers.AeroDataBox // concrete handle for the quota-alert hook
 	if cfg.AeroDataBoxKey != "" {
-		rawResolver = providers.NewAeroDataBox(cfg.AeroDataBoxKey)
-		resolver = providers.NewCachedResolver(rawResolver, 24*time.Hour)
+		adb = providers.NewAeroDataBox(cfg.AeroDataBoxKey)
+		rawResolver = adb
+		resolver = providers.NewCachedResolver(adb, 24*time.Hour)
 		slog.Info("resolver: aerodatabox (cached, ttl=24h; poller uses uncached)")
 	}
 	api := handlers.New(s, authH, hub, cfg, resolver)
@@ -118,10 +120,11 @@ func run() error {
 	// then wrapped with DeadReckoner so coverage gaps (and gate rejections)
 	// fall back to an extrapolation.
 	var inner providers.Tracker
+	var osky *providers.OpenSky // concrete handle for the quota-alert hook
 	switch {
 	case cfg.UseOpenSky():
-		inner = providers.NewSpeedGate(
-			providers.NewOpenSky(cfg.OpenSkyUsername, cfg.OpenSkyPassword), s)
+		osky = providers.NewOpenSky(cfg.OpenSkyUsername, cfg.OpenSkyPassword)
+		inner = providers.NewSpeedGate(osky, s)
 		slog.Info("tracker: opensky",
 			"authed", cfg.OpenSkyUsername != "")
 	default:
@@ -139,6 +142,25 @@ func run() error {
 	p.MailFromAddress = cfg.MailFromAddress
 	p.SendmailPath = cfg.SendmailPath
 	p.PublicURL = cfg.PublicURL
+
+	// Operational quota/rate-limit alerts: when an upstream data provider
+	// returns a 429, email the admins (superusers with a verified address) so
+	// they can raise the plan tier or back off. Wired as the providers'
+	// OnRateLimit hook so it fires even though the tracker layer swallows the
+	// error to dead-reckon. A no-op until MAIL_FROM_ADDRESS is configured.
+	quota := &poller.QuotaNotifier{
+		Store:           s,
+		MailFromAddress: cfg.MailFromAddress,
+		SendmailPath:    cfg.SendmailPath,
+		PublicURL:       cfg.PublicURL,
+	}
+	if osky != nil {
+		osky.OnRateLimit = quota.Notify
+	}
+	if adb != nil {
+		adb.OnRateLimit = quota.Notify
+	}
+
 	go p.Run(rootCtx)
 
 	// A configured LLM enables the paste/upload ingest extractor (the HTTP

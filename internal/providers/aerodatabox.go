@@ -38,6 +38,10 @@ type AeroDataBox struct {
 	// once, used when the upstream's Retry-After header is missing or
 	// zero. Default 2s; tests can shorten it to keep the suite fast.
 	RetryWait time.Duration
+	// OnRateLimit, when set, is invoked once per lookup that exhausts its
+	// retries on a 429 so the operator can be alerted. A transient 429 that
+	// succeeds on the retry does not fire it.
+	OnRateLimit RateLimitReporter
 }
 
 func NewAeroDataBox(apiKey string) *AeroDataBox {
@@ -135,6 +139,10 @@ func (a *AeroDataBox) resolveOne(ctx context.Context, ident, date string) (*Reso
 				case <-time.After(wait):
 				}
 				continue
+			}
+			if a.OnRateLimit != nil {
+				a.OnRateLimit("AeroDataBox", orFallback(msg,
+					"throttled by RapidAPI; consider a higher AeroDataBox plan tier"))
 			}
 			if retryAfter > 0 {
 				return nil, fmt.Errorf("aerodatabox rate limit — %s (retry in %ds)",

@@ -80,6 +80,53 @@ func TestAeroDataBoxRateLimited(t *testing.T) {
 	}
 }
 
+// A lookup that exhausts its retries on 429 fires the OnRateLimit hook once,
+// so the operator gets alerted about the quota problem.
+func TestAeroDataBoxRateLimitFiresHook(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"message":"plan PRO exceeded"}`))
+	})
+	var calls atomic.Int32
+	var gotProvider, gotDetail string
+	a.OnRateLimit = func(provider, detail string) {
+		calls.Add(1)
+		gotProvider, gotDetail = provider, detail
+	}
+	if _, err := a.Resolve(context.Background(), "BA286", time.Now()); err == nil {
+		t.Error("expected rate-limit error")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("hook fired %d times, want exactly 1 (per exhausted lookup)", got)
+	}
+	if gotProvider != "AeroDataBox" || !strings.Contains(gotDetail, "PRO") {
+		t.Errorf("hook got (%q,%q), want AeroDataBox + upstream message", gotProvider, gotDetail)
+	}
+}
+
+// A transient 429 that succeeds on retry must NOT fire the hook — only a true
+// exhaustion is alert-worthy.
+func TestAeroDataBoxTransient429DoesNotFireHook(t *testing.T) {
+	var calls atomic.Int32
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"number":"BA286","codeshareStatus":"IsOperator",
+			"departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-19T08:30Z"}},
+			"arrival":{"airport":{"iata":"SFO"},"scheduledTime":{"utc":"2026-05-19T19:45Z"}}}]`))
+	})
+	hookFired := false
+	a.OnRateLimit = func(string, string) { hookFired = true }
+	if _, err := a.Resolve(context.Background(), "BA286", time.Now()); err != nil {
+		t.Fatalf("Resolve after retry: %v", err)
+	}
+	if hookFired {
+		t.Error("hook fired for a transient 429 that recovered on retry")
+	}
+}
+
 // A 429 followed by a 200 on retry returns the success cleanly — the
 // retry path hides the transient throttle from the caller.
 func TestAeroDataBoxRetryHidesTransient429(t *testing.T) {

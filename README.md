@@ -60,7 +60,7 @@ All configuration is via environment variables (see `.env.example`).
 | `GOOGLE_CLIENT_ID`         | yes¹     |                               | From the Google OAuth app. GitHub and Google are independent providers — configure either or both. |
 | `GOOGLE_CLIENT_SECRET`     | yes¹     |                               | From the Google OAuth app.                                                             |
 | `SESSION_KEY`              | yes      |                               | ≥ 32 random chars. `openssl rand -base64 48`.                                          |
-| `MAIL_FROM_ADDRESS`        |          |                               | Envelope/From for outbound mail (friend invites, account-link notices). When unset, those emails are skipped. |
+| `MAIL_FROM_ADDRESS`        |          |                               | Envelope/From for outbound mail (friend invites, account-link notices, admin quota alerts). When unset, those emails are skipped. |
 | `MAIL_SENDMAIL_PATH`       |          | `/usr/sbin/sendmail`          | Path to a sendmail-compatible binary used to send mail.                                |
 | `POLL_INTERVAL`            |          | `60s`                         | How often the poller refreshes active flights. Non-Enroute flights are throttled to 5×. |
 | `OPENSKY_USERNAME`         |          |                               | OpenSky account for HTTP Basic Auth. Unlocks higher rate limits than anonymous.        |
@@ -186,6 +186,21 @@ The tracker decides where the poller gets a position for each flight; the resolv
 - **Resolver — AeroDataBox**: one RapidAPI call per `POST /api/flights/resolve {ident, date}` returns the full schedule, both airports with coordinates, and the `icao24`. The Add Flight dialog becomes "ident + departure date" and everything else is filled in for you.
 
 Mix and match as you like — e.g. AeroDataBox to autofill + stub for positions during development, then OpenSky once you want real tracking.
+
+### Admin quota alerts
+
+When an upstream data provider rejects a request because we've hit its rate
+limit or quota (HTTP `429`) — OpenSky position polling, or AeroDataBox flight
+lookups — Aerly emails the **admins** so they can raise the plan tier or widen
+`POLL_INTERVAL`. "Admins" are superusers with a verified email address; the
+alert is sent to each of them.
+
+The alert fires at the source (the provider) rather than the poller, because
+the dead-reckoner deliberately hides a tracker error to fall back to an
+extrapolated position. It is self-throttled to at most one email per provider
+per hour, so a sustained throttle doesn't bury the inbox. It is a no-op until
+`MAIL_FROM_ADDRESS` is configured (like Aerly's other outbound-mail flows), and
+needs no extra configuration.
 
 ## Data sources and limitations
 

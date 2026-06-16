@@ -64,6 +64,34 @@ func (s *Store) UserByVerifiedEmail(ctx context.Context, address string) (*User,
 		address))
 }
 
+// SuperuserEmails returns the verified email addresses of every active
+// superuser — the "admins" who receive operational alerts (e.g. an upstream
+// API hitting its rate limit / quota). Addresses are de-duplicated and
+// returned in a stable order; a superuser with no verified address simply
+// doesn't appear. An empty result is not an error (the caller decides whether
+// having nobody to notify is worth a warning).
+func (s *Store) SuperuserEmails(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT e.address
+		FROM users u
+		JOIN user_emails e ON e.user_id = u.id
+		WHERE u.is_superuser AND u.is_active AND e.verified
+		ORDER BY e.address`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var addr string
+		if err := rows.Scan(&addr); err != nil {
+			return nil, err
+		}
+		out = append(out, addr)
+	}
+	return out, rows.Err()
+}
+
 // EmailsByUser returns all email rows for a user, newest first.
 func (s *Store) EmailsByUser(ctx context.Context, userID int64) ([]*UserEmail, error) {
 	rows, err := s.pool.Query(ctx,

@@ -33,6 +33,18 @@ var ErrFlightNotFound = errors.New("flight not found")
 // "scheduled_out required".
 var ErrFlightUnscheduled = errors.New("flight has no published schedule for that date yet")
 
+// RateLimitReporter is an optional hook a provider invokes when an upstream
+// rejects a request for rate-limit / quota reasons (HTTP 429). It exists so
+// the operator can be alerted even though the tracker layer (DeadReckoner)
+// swallows the error to fall back to extrapolation, hiding it from the poller.
+//
+// provider is a short label for the integration ("OpenSky", "AeroDataBox");
+// detail is a human phrase for the alert body — the upstream's own message
+// when we have one, otherwise a remediation hint. Implementations must treat
+// a nil reporter as "no hook configured" and call it at most once per
+// rejection (not once per internal retry).
+type RateLimitReporter func(provider, detail string)
+
 // Tracker fetches (or fabricates) a single positional fix for one flight at
 // the given wall-clock time. Implementations should return:
 //
