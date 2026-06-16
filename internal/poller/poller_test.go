@@ -787,3 +787,27 @@ func TestMetadataRefreshIntervalFor(t *testing.T) {
 		})
 	}
 }
+
+func TestProvisionalRefreshIntervalFor(t *testing.T) {
+	now := time.Now()
+	mk := func(ttd time.Duration) *store.Flight {
+		return &store.Flight{ScheduledOut: now.Add(ttd)}
+	}
+	cases := []struct {
+		name string
+		ttd  time.Duration
+		want time.Duration
+	}{
+		{"ten days out", 10 * 24 * time.Hour, 24 * time.Hour},
+		{"exactly thirty days", 30 * 24 * time.Hour, 24 * time.Hour},
+		{"thirty-one days", 31 * 24 * time.Hour, 7 * 24 * time.Hour},
+		{"sixty days out", 60 * 24 * time.Hour, 7 * 24 * time.Hour},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := provisionalRefreshIntervalFor(mk(c.ttd), now); got != c.want {
+				t.Errorf("ttd=%v: got %v, want %v", c.ttd, got, c.want)
+			}
+		})
+	}
+}

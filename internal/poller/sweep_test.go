@@ -416,6 +416,38 @@ func TestSweep_ProvisionalThrottlesFarFuture(t *testing.T) {
 	}
 }
 
+// A flight the resolver can't find yet stays unconfirmed; the next sweep must
+// skip it via the time-to-departure throttle (it was just attempted) rather
+// than re-resolving and burning quota every 4h.
+func TestSweep_ProvisionalThrottleSkipsAfterMiss(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	resolver := &fakeResolver{err: providers.ErrFlightNotFound}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// 60 days out, on-table (coords filled → coord pass skips it); resolver miss.
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "TK1986", ScheduledOut: now.Add(60 * 24 * time.Hour),
+		ScheduledIn: now.Add(60*24*time.Hour + 3*time.Hour),
+		OriginIATA:  "IST", DestIATA: "LHR",
+	}, uid)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	p.Sweep(ctx) // miss: stays resolved=false, bumps last_resolved_at
+	p.Sweep(ctx) // throttled by the weekly interval (just attempted) → no re-resolve
+
+	if resolver.calls != 1 {
+		t.Errorf("resolver.calls = %d, want 1 (second sweep throttled by the weekly interval)", resolver.calls)
+	}
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.Resolved {
+		t.Errorf("a missed resolve must leave the flight unconfirmed")
+	}
+}
+
 // resolveByIdent is a Resolver double that only returns success for one
 // specific ident. Used by the mixed-batch test.
 type resolveByIdent struct {
