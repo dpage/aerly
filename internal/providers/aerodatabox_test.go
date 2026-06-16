@@ -551,3 +551,43 @@ func TestAeroDataBoxResolveDoesNotRetryHardErrors(t *testing.T) {
 		t.Errorf("server saw %d calls, want exactly 1", got)
 	}
 }
+
+// A lookup for a date outside the provider's ±180-day window must be refused
+// locally without any HTTP request (the API would 400 it on every ident
+// variant otherwise), surfaced as a not-found so callers retry once it drifts
+// into range. An in-window date still reaches the server.
+func TestAeroDataBoxSkipsOutsideWindow(t *testing.T) {
+	var calls atomic.Int32
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	a.Now = func() time.Time { return now }
+
+	for _, tc := range []struct {
+		name string
+		date time.Time
+	}{
+		{"far future", now.AddDate(0, 0, 200)},
+		{"far past", now.AddDate(0, 0, -200)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := a.Resolve(context.Background(), "TK1986", tc.date)
+			if !errors.Is(err, ErrFlightNotFound) {
+				t.Fatalf("want ErrFlightNotFound, got %v", err)
+			}
+		})
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("out-of-window lookups must make no HTTP calls, got %d", got)
+	}
+
+	// A date inside the window still goes to the server.
+	if _, err := a.Resolve(context.Background(), "TK1986", now.AddDate(0, 0, 30)); !errors.Is(err, ErrFlightNotFound) {
+		t.Fatalf("in-window 204 should read as not-found, got %v", err)
+	}
+	if got := calls.Load(); got == 0 {
+		t.Fatal("in-window lookup should reach the server")
+	}
+}

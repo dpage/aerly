@@ -42,7 +42,19 @@ type AeroDataBox struct {
 	// retries on a 429 so the operator can be alerted. A transient 429 that
 	// succeeds on the retry does not fire it.
 	OnRateLimit RateLimitReporter
+	// Now returns the current time; nil means time.Now. Injected by tests and
+	// used to gate lookups to the provider's ±180-day window (see Resolve).
+	Now func() time.Time
 }
+
+// resolvableWindow bounds how far on either side of "now" AeroDataBox will
+// answer a flight-number lookup. Outside it the API rejects the request with a
+// 400 ("Specified date-time ... must not be earlier/later than 180 day(s) ...
+// Please consider upgrading your plan."), so a lookup for a far-past or
+// far-future flight is guaranteed to fail. We refuse it before it leaves the
+// process rather than spend the request — and the per-second rate-limit
+// budget — on a certain rejection.
+const resolvableWindow = 180 * 24 * time.Hour
 
 func NewAeroDataBox(apiKey string) *AeroDataBox {
 	return &AeroDataBox{
@@ -72,6 +84,17 @@ func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time)
 		return nil, fmt.Errorf("ident required")
 	}
 	d := date.UTC().Format("2006-01-02")
+	// Skip dates the provider can't answer (±180 days). Every ident variant
+	// below would otherwise fire its own request, all 400ing, so one out-of-
+	// window flight burns several calls for nothing. It reads as not-found-yet;
+	// once it drifts into the window a later sweep resolves it.
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
+	}
+	if n := now(); date.Before(n.Add(-resolvableWindow)) || date.After(n.Add(resolvableWindow)) {
+		return nil, fmt.Errorf("flight %s on %s is outside the provider's ±180d window: %w", ident, d, ErrFlightNotFound)
+	}
 	variants := identVariants(ident)
 	for _, v := range variants {
 		rf, err := a.resolveOne(ctx, v, d)
