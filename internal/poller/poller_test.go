@@ -676,6 +676,58 @@ func TestLateRefreshStampsEvenOnNotFound(t *testing.T) {
 	}
 }
 
+// A previously-unconfirmed flight (resolved=false) gets resolved=true after a
+// successful resolve, has its provisional schedule corrected to the provider's,
+// and the schedule is then frozen (a second tick does not move it).
+func TestResolveConfirmsAndFreezesSchedule(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	now := time.Now()
+	provOut, provIn := now.Add(6*time.Hour), now.Add(9*time.Hour)
+	realOut, realIn := now.Add(6*time.Hour+30*time.Minute), now.Add(9*time.Hour+30*time.Minute)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "TK1986", OriginIATA: "IST", DestIATA: "LHR", OriginName: "Istanbul",
+		DestName: "Heathrow", ScheduledOut: realOut, ScheduledIn: realIn, ICAO24: "4baa01",
+	}}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	// 6h out: inside the metadata band, so refreshMetadata resolves it.
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "TK1986", ScheduledOut: provOut, ScheduledIn: provIn,
+		OriginIATA: "IST", DestIATA: "LHR",
+	}, uid)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if !got.Resolved {
+		t.Fatalf("flight should be resolved after a successful resolve")
+	}
+	if d := got.ScheduledOut.Sub(realOut); d > time.Second || d < -time.Second {
+		t.Errorf("provisional schedule not corrected: out=%v want≈%v", got.ScheduledOut, realOut)
+	}
+
+	// Freeze: pretend the provider later reports a different scheduled time; a
+	// confirmed flight must not move (its schedule is the delay baseline).
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "TK1986", OriginIATA: "IST", DestIATA: "LHR",
+		ScheduledOut: realOut.Add(2 * time.Hour), ScheduledIn: realIn.Add(2 * time.Hour), ICAO24: "4baa01",
+	}}
+	// Clear the throttle so the resolve actually runs again.
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET last_resolved_at = NULL WHERE plan_part_id = $1`, f.ID); err != nil {
+		t.Fatalf("clear throttle: %v", err)
+	}
+	p.tick(ctx)
+	frozen, _ := s.FlightPartByID(ctx, f.ID)
+	if d := frozen.ScheduledOut.Sub(realOut); d > time.Second || d < -time.Second {
+		t.Errorf("confirmed schedule was overwritten on a later tick: out=%v want≈%v", frozen.ScheduledOut, realOut)
+	}
+}
+
 func TestRunImmediateTickThenStops(t *testing.T) {
 	tr := &mockTracker{pos: &store.Position{Lat: 2, Lon: 2}}
 	p, s, _ := newPoller(t, tr, 20*time.Millisecond)

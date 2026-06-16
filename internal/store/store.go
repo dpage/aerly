@@ -89,6 +89,10 @@ type Flight struct {
 	// Live and updatable like gate (a change to a new non-empty value drives a
 	// belt-change alert). Arrival-only; empty when unknown / not yet resolved.
 	DestBaggageBelt string
+	// Resolved is true once the flight-data provider has confirmed this flight.
+	// When false the poller may still correct the schedule; once true the
+	// schedule is frozen as the delay baseline and will not be overwritten.
+	Resolved bool
 	// IsPublic makes the flight visible to every authenticated user,
 	// independent of the creator / passenger / share-list membership.
 	IsPublic  bool

@@ -44,6 +44,7 @@ func (s *Store) MyFlights(ctx context.Context, viewerID int64) ([]FlightForStats
 			&f.CreatedBy, &f.Notes,
 			&f.OriginGate, &f.DestGate, &f.OriginTerminal, &f.DestTerminal,
 			&f.DestBaggageBelt,
+			&f.Resolved,
 			&f.IsPublic,
 			&f.CreatedAt, &f.UpdatedAt,
 			&pax,

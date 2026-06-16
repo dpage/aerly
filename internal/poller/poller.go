@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
@@ -387,14 +388,35 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 		slog.Error("poller: refresh belt failed", "id", f.ID, "err", err)
 		return nil, err
 	}
-	// Fill the schedule from the resolver when the stored one is degenerate (a
-	// manual add with just a number + date leaves scheduled_in == scheduled_out).
-	// The store guards on scheduled_in <= scheduled_out, so a real user-entered
-	// schedule is never overwritten. Best-effort: a failure here doesn't abort
-	// the airframe/gate work already persisted above.
+	// Correct the schedule from the resolver whilst the flight is still
+	// unconfirmed (RefreshFlightPartSchedule guards on resolved = false, so a
+	// provider-confirmed schedule is frozen and never overwritten). Best-effort:
+	// a failure here doesn't abort the airframe/gate work already persisted above.
 	if !rf.ScheduledOut.IsZero() && rf.ScheduledIn.After(rf.ScheduledOut) {
 		if err := p.Store.RefreshFlightPartSchedule(ctx, f.ID, rf.ScheduledOut, rf.ScheduledIn); err != nil {
 			slog.Error("poller: refresh schedule failed", "id", f.ID, "err", err)
+		}
+	}
+	// First confirmation only: flip resolved (freezing the schedule above as the
+	// delay baseline) and upgrade bare IATA labels to the friendly "Name (CODE)"
+	// form, preserving any hand-edited label. This also lets on-table flights the
+	// coord sweep never resolves become confirmed here. Skipped once already
+	// resolved, so a late-refresh tick on a confirmed flight doesn't needlessly
+	// bump plan_parts.updated_at. Unlike flightcoord.Fill we always trust the
+	// resolver's code: there's no airports-table fast-path here, so this runs
+	// only when the resolver actually returned a record.
+	if !f.Resolved {
+		effOrigin, effDest := f.OriginIATA, f.DestIATA
+		if rf.OriginIATA != "" {
+			effOrigin = rf.OriginIATA
+		}
+		if rf.DestIATA != "" {
+			effDest = rf.DestIATA
+		}
+		if err := p.Store.MarkFlightPartResolved(ctx, f.ID,
+			f.OriginIATA, airports.Label(effOrigin, rf.OriginName),
+			f.DestIATA, airports.Label(effDest, rf.DestName)); err != nil {
+			slog.Error("poller: mark resolved", "id", f.ID, "err", err)
 		}
 	}
 	slog.Info("poller: resolved",

@@ -38,6 +38,7 @@ const flightPartColumns = `part.id, fd.ident, fd.scheduled_out, fd.scheduled_in,
 	COALESCE(fd.origin_gate, ''), COALESCE(fd.dest_gate, ''),
 	COALESCE(fd.origin_terminal, ''), COALESCE(fd.dest_terminal, ''),
 	COALESCE(fd.dest_baggage_belt, ''),
+	fd.resolved,
 	FALSE,
 	part.created_at, part.updated_at`
 
@@ -60,6 +61,7 @@ func scanFlightPart(row pgx.Row) (*Flight, error) {
 		&f.CreatedBy, &f.Notes,
 		&f.OriginGate, &f.DestGate, &f.OriginTerminal, &f.DestTerminal,
 		&f.DestBaggageBelt,
+		&f.Resolved,
 		&f.IsPublic,
 		&f.CreatedAt, &f.UpdatedAt,
 	); err != nil {
