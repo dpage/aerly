@@ -242,6 +242,10 @@ func (s *Store) CreateTrip(ctx context.Context, in CreateTripPayload, createdBy 
 		t.ID, createdBy); err != nil {
 		return nil, err
 	}
+	// Apply the owner's "always share with" defaults to the new trip.
+	if err := applyAutoSharesTx(ctx, tx, t.ID, createdBy); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

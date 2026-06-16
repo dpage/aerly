@@ -225,6 +225,18 @@ export interface AcceptFriendTokenResult {
 /** The viewer's role on a trip, governing what they can edit. */
 export type TripRole = 'owner' | 'editor' | 'viewer';
 
+/** Role granted by an "always share with" default. 'viewer'/'editor' make the
+ * person a trip member; 'passenger' adds them as a trip-level passenger (a
+ * traveller on every plan). */
+export type AutoShareRole = 'viewer' | 'editor' | 'passenger';
+
+/** One "always share with" default: every new trip the user creates is
+ * automatically shared with `user_id` at the given role. */
+export interface AutoShare {
+  user_id: number;
+  role: AutoShareRole;
+}
+
 /** The kind of thing a plan (and each of its parts) represents. Selects which
  * per-type detail object is populated on a `PlanPart`. */
 export type PlanType = 'flight' | 'train' | 'hotel' | 'ground' | 'dining' | 'excursion';

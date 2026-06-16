@@ -2,6 +2,8 @@ import type { StateCreator } from 'zustand';
 
 import { api, ApiError } from '../api/client';
 import type {
+  AutoShare,
+  AutoShareRole,
   Capabilities,
   Friendship,
   InviteUserInput,
@@ -22,6 +24,7 @@ function anonymousReset(): Partial<StoreState> {
     me: null,
     auth: 'anonymous',
     users: [],
+    autoShares: [],
     capabilities: {
       resolver_available: false,
       poll_interval_sec: 60,
@@ -42,6 +45,10 @@ export interface CoreSlice {
   capabilities: Capabilities;
   users: User[];
   friendships: Friendship[];
+  /** The caller's "always share with" defaults: people every new trip they
+   * create is automatically shared with. Loaded at startup, kept in sync by
+   * the dialog's mutators. */
+  autoShares: AutoShare[];
   /** Superuser-only: when true, the SSE stream includes every event regardless
    * of visibility. Persisted to localStorage so it survives reloads.
    * Non-superusers see the flag stay false; the server ignores show_all for
@@ -61,6 +68,9 @@ export interface CoreSlice {
   deleteUser: (id: number) => Promise<void>;
 
   setHomeAddress: (address: string) => Promise<void>;
+  refreshAutoShares: () => Promise<void>;
+  setAutoShare: (userId: number, role: AutoShareRole) => Promise<void>;
+  removeAutoShare: (userId: number) => Promise<void>;
   logout: () => Promise<void>;
   /** Sign out of every session (this device and all others). */
   logoutAll: () => Promise<void>;
@@ -95,6 +105,7 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
   capabilities: { resolver_available: false, poll_interval_sec: 60, email_ingest_enabled: false },
   users: [],
   friendships: [],
+  autoShares: [],
   showAll: loadShowAll(),
   error: null,
   notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
@@ -115,7 +126,11 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
   },
 
   async refreshAll() {
-    await Promise.all([get().refreshUsers(), get().refreshFriendships()]);
+    await Promise.all([
+      get().refreshUsers(),
+      get().refreshFriendships(),
+      get().refreshAutoShares(),
+    ]);
   },
 
   async refreshUsers() {
@@ -158,6 +173,23 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
       me: updated,
       users: s.users.map((u) => (u.id === updated.id ? updated : u)),
     }));
+  },
+
+  async refreshAutoShares() {
+    try {
+      const autoShares = await api.listMyAutoShares();
+      set({ autoShares });
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+  async setAutoShare(userId, role) {
+    const autoShares = await api.setMyAutoShare(userId, role);
+    set({ autoShares });
+  },
+  async removeAutoShare(userId) {
+    await api.removeMyAutoShare(userId);
+    set((s) => ({ autoShares: s.autoShares.filter((a) => a.user_id !== userId) }));
   },
 
   async logout() {

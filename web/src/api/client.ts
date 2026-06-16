@@ -4,6 +4,8 @@ import type {
   AdminInfo,
   AlertPrefs,
   AuthProvider,
+  AutoShare,
+  AutoShareRole,
   CalendarScope,
   CalendarToken,
   Capabilities,
@@ -188,6 +190,14 @@ export const api = {
   addMyEmail: (address: string) => request<UserEmail>('POST', '/api/me/emails', { address }),
   resendMyEmail: (id: number) => request<UserEmail>('POST', `/api/me/emails/${id}/resend`),
   deleteMyEmail: (id: number) => request<void>('DELETE', `/api/me/emails/${id}`),
+
+  // "Always share with" defaults: people every new trip the caller creates is
+  // automatically shared with. setMyAutoShare returns the full updated list.
+  listMyAutoShares: () => request<AutoShare[]>('GET', '/api/me/auto-shares'),
+  setMyAutoShare: (userId: number, role: AutoShareRole) =>
+    request<AutoShare[]>('PUT', `/api/me/auto-shares/${userId}`, { role }),
+  removeMyAutoShare: (userId: number) =>
+    request<void>('DELETE', `/api/me/auto-shares/${userId}`),
 
   logout: () =>
     fetch('/auth/logout', { method: 'POST', credentials: 'include' }).then(() => undefined),
