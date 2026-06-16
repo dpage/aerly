@@ -25,24 +25,35 @@ const sweepInterval = flightcoord.Throttle
 // whose coords actually changed get republished over SSE so connected
 // clients update without a reload.
 //
+// A second pass (sweepProvisional) re-resolves live, unconfirmed flights so
+// the airline's published schedule replaces a provisional one as soon as it
+// appears; this handles on-table flights the coord pass never visits (an
+// off-table flight the coord pass resolves is marked resolved=true by
+// flightcoord.Fill and so is excluded from the provisional pass).
+//
+// The provisional pass is deferred so it runs on every exit path — the normal
+// path, the FlightPartsWithMissingCoords error path, and a mid-loop context
+// cancellation — without a duplicated call site.
+//
 // Per-row failures are logged and isolated; one bad row never aborts
 // the sweep.
 func (p *Poller) Sweep(ctx context.Context) {
+	now := time.Now()
+	defer p.sweepProvisional(ctx, now)
+
 	flights, err := p.Store.FlightPartsWithMissingCoords(ctx)
 	if err != nil {
 		slog.Error("sweep: list flight parts with missing coords", "err", err)
 		return
 	}
-	if len(flights) == 0 {
-		return
-	}
-	slog.Info("sweep: starting", "candidate_rows", len(flights))
-	now := time.Now()
-	for _, f := range flights {
-		if ctx.Err() != nil {
-			return
+	if len(flights) > 0 {
+		slog.Info("sweep: starting", "candidate_rows", len(flights))
+		for _, f := range flights {
+			if ctx.Err() != nil {
+				return
+			}
+			p.sweepOne(ctx, f, now)
 		}
-		p.sweepOne(ctx, f, now)
 	}
 }
 
@@ -60,5 +71,57 @@ func (p *Poller) sweepOne(ctx context.Context, f *store.Flight, now time.Time) {
 	}
 	if changed {
 		p.publishPartChange(ctx, f.ID)
+	}
+}
+
+// provisionalRefreshIntervalFor paces re-resolution of not-yet-confirmed flights
+// by time-to-departure, so a far-future flight the airline hasn't scheduled yet
+// costs about one resolver call per week rather than one per sweep. Inside 12h
+// the near-departure metadata pass takes over, so this only governs the >12h
+// range.
+func provisionalRefreshIntervalFor(f *store.Flight, now time.Time) time.Duration {
+	if f.ScheduledOut.Sub(now) <= 30*24*time.Hour {
+		return 24 * time.Hour
+	}
+	return 7 * 24 * time.Hour
+}
+
+// sweepProvisional re-resolves live, unconfirmed flights so the airline's
+// published schedule replaces a provisional (email/manual) one as soon as it
+// appears — the gap the coord sweep misses for on-table flights. It hands off to
+// the metadata pass inside 12h and throttles by time-to-departure to protect
+// resolver quota. A successful resolve confirms the flight (resolved=true) and
+// freezes its schedule via resolveAndUpdate.
+func (p *Poller) sweepProvisional(ctx context.Context, now time.Time) {
+	// Bail quietly when there's no resolver, or when the context is already
+	// cancelled (a shutdown mid-sweep reaches here via Sweep's defer — don't log
+	// a spurious query error for it).
+	if p.Resolver == nil || ctx.Err() != nil {
+		return
+	}
+	parts, err := p.Store.ProvisionalFlightParts(ctx)
+	if err != nil {
+		slog.Error("sweep: list provisional flight parts", "err", err)
+		return
+	}
+	for _, f := range parts {
+		if ctx.Err() != nil {
+			return
+		}
+		// Inside 12h the metadata pass owns re-resolution at its ramping cadence.
+		if !now.Before(f.ScheduledOut.Add(-lateRefreshWindow)) {
+			continue
+		}
+		// Tiered throttle on last_resolved_at (resolveAndUpdate bumps it on every
+		// attempt, success or miss).
+		if f.LastResolvedAt != nil && now.Sub(*f.LastResolvedAt) < provisionalRefreshIntervalFor(f, now) {
+			continue
+		}
+		guard("poller.sweepProvisional", f.ID, func() {
+			if _, rerr := p.resolveAndUpdate(ctx, f, now); rerr != nil {
+				return // miss/transport error already stamped last_resolved_at
+			}
+			p.publishPartChange(ctx, f.ID)
+		})
 	}
 }

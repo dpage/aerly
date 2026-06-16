@@ -322,6 +322,100 @@ func TestSweep_PartiallyUnknownPreservesTableFilledLeg(t *testing.T) {
 	}
 }
 
+// A far-future unconfirmed flight (on-table, so the coord pass ignores it) is
+// resolved-and-confirmed by the provisional sweep pass: resolved flips true and
+// the provisional schedule is corrected.
+func TestSweep_ProvisionalConfirmsFarFuture(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	now := time.Now()
+	realOut, realIn := now.Add(60*24*time.Hour+1*time.Hour), now.Add(60*24*time.Hour+4*time.Hour)
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "TK1986", OriginIATA: "IST", DestIATA: "LHR",
+		ScheduledOut: realOut, ScheduledIn: realIn, ICAO24: "4baa01",
+	}}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	// 60 days out, both airports on-table (coords filled → coord pass skips it).
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "TK1986", ScheduledOut: now.Add(60 * 24 * time.Hour),
+		ScheduledIn: now.Add(60*24*time.Hour + 3*time.Hour),
+		OriginIATA:  "IST", DestIATA: "LHR",
+	}, uid)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	p.Sweep(ctx)
+
+	if resolver.calls != 1 {
+		t.Fatalf("resolver.calls = %d, want 1 (provisional pass only)", resolver.calls)
+	}
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if !got.Resolved {
+		t.Errorf("far-future provisional flight should be confirmed by the sweep")
+	}
+	if d := got.ScheduledOut.Sub(realOut); d > time.Second || d < -time.Second {
+		t.Errorf("schedule not corrected: out=%v want≈%v", got.ScheduledOut, realOut)
+	}
+}
+
+// Inside 12h the metadata pass owns re-resolution; the provisional sweep pass
+// must defer (no resolver call, flight stays unconfirmed via the sweep).
+func TestSweep_ProvisionalDefersInside12h(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{Ident: "TK1986", OriginIATA: "IST", DestIATA: "LHR"}}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// 6h out, on-table (coords filled so the coord pass also skips it).
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "TK1986", ScheduledOut: now.Add(6 * time.Hour), ScheduledIn: now.Add(9 * time.Hour),
+		OriginIATA: "IST", DestIATA: "LHR",
+	}, uid)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	p.Sweep(ctx)
+
+	if resolver.calls != 0 {
+		t.Errorf("resolver.calls = %d, want 0 (inside 12h is the metadata pass's job)", resolver.calls)
+	}
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.Resolved {
+		t.Errorf("flight inside 12h must not be confirmed by the sweep pass")
+	}
+}
+
+// Throttle: a far-future flight resolved on one sweep is not re-resolved on the
+// next (weekly cadence), so quota isn't burned.
+func TestSweep_ProvisionalThrottlesFarFuture(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	now := time.Now()
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "TK1986", OriginIATA: "IST", DestIATA: "LHR",
+		ScheduledOut: now.Add(60 * 24 * time.Hour), ScheduledIn: now.Add(60*24*time.Hour + 3*time.Hour),
+	}}
+	p.Resolver = resolver
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	if _, err := mkPart(ctx, s, partSeed{
+		Ident: "TK1986", ScheduledOut: now.Add(60 * 24 * time.Hour), ScheduledIn: now.Add(60*24*time.Hour + 3*time.Hour),
+		OriginIATA: "IST", DestIATA: "LHR",
+	}, uid); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	p.Sweep(ctx) // resolves + confirms, bumps last_resolved_at
+	p.Sweep(ctx) // second sweep: now resolved=true so excluded; the throttle would also hold it
+
+	if resolver.calls != 1 {
+		t.Errorf("resolver.calls = %d, want 1 (second sweep throttled/confirmed)", resolver.calls)
+	}
+}
+
 // resolveByIdent is a Resolver double that only returns success for one
 // specific ident. Used by the mixed-batch test.
 type resolveByIdent struct {
