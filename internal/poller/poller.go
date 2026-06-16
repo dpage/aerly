@@ -377,8 +377,7 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 		OriginIATA: rf.OriginIATA, OriginLat: rf.OriginLat, OriginLon: rf.OriginLon,
 		DestIATA: rf.DestIATA, DestLat: rf.DestLat, DestLon: rf.DestLon,
 		ICAO24: rf.ICAO24, Callsign: rf.Callsign,
-		Notes:          rf.Notes,
-		OriginTerminal: rf.OriginTerminal, DestTerminal: rf.DestTerminal,
+		Notes:        rf.Notes,
 		AircraftType: rf.AircraftType,
 	}); err != nil {
 		slog.Error("poller: backfill write failed", "id", f.ID, "err", err)
@@ -400,6 +399,13 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	// path rather than the only-fill-empty backfill above.
 	if err := p.Store.RefreshFlightPartBelt(ctx, f.ID, rf.DestBaggageBelt); err != nil {
 		slog.Error("poller: refresh belt failed", "id", f.ID, "err", err)
+		return nil, err
+	}
+	// Terminal is updatable like gate (a change is what the terminal-change
+	// alert detects), so it takes the overwrite-when-non-empty path rather than
+	// the only-fill-empty backfill above.
+	if err := p.Store.RefreshFlightPartTerminal(ctx, f.ID, rf.OriginTerminal, rf.DestTerminal); err != nil {
+		slog.Error("poller: refresh terminal", "id", f.ID, "err", err)
 		return nil, err
 	}
 	// Correct the schedule from the resolver whilst the flight is still

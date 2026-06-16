@@ -371,6 +371,39 @@ func TestProvisionalFlightParts(t *testing.T) {
 	}
 }
 
+// TestRefreshFlightPartTerminal: a non-empty terminal overwrites the stored
+// value (so a reassignment is captured); an empty value preserves the existing
+// terminal (the provider omits it until assigned).
+func TestRefreshFlightPartTerminal(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+	id := mkFlightPart(t, s, owner, "BA286", now.Add(2*time.Hour), now.Add(4*time.Hour))
+
+	if err := s.RefreshFlightPartTerminal(ctx, id, "5", "B"); err != nil {
+		t.Fatalf("RefreshFlightPartTerminal: %v", err)
+	}
+	got, _ := s.FlightPartByID(ctx, id)
+	if got.OriginTerminal != "5" || got.DestTerminal != "B" {
+		t.Fatalf("terminal not written: o=%q d=%q", got.OriginTerminal, got.DestTerminal)
+	}
+
+	// A reassignment overwrites; an empty value preserves.
+	if err := s.RefreshFlightPartTerminal(ctx, id, "3", ""); err != nil {
+		t.Fatalf("RefreshFlightPartTerminal (2): %v", err)
+	}
+	got, _ = s.FlightPartByID(ctx, id)
+	if got.OriginTerminal != "3" {
+		t.Errorf("origin terminal not overwritten: %q", got.OriginTerminal)
+	}
+	if got.DestTerminal != "B" {
+		t.Errorf("empty dest terminal should preserve existing: %q", got.DestTerminal)
+	}
+}
+
 func planOf(t *testing.T, s *Store, partID int64) int64 {
 	t.Helper()
 	var planID int64

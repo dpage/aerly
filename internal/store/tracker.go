@@ -370,6 +370,23 @@ func (s *Store) RefreshFlightPartGate(ctx context.Context, partID int64, originG
 	return err
 }
 
+// RefreshFlightPartTerminal overwrites the departure/arrival terminal when the
+// supplied value is non-empty (empty preserves the existing column — the
+// provider omits the terminal until assigned, and an omission must not wipe a
+// known terminal). Mirrors RefreshFlightPartGate: the terminal is updatable
+// because a terminal CHANGE drives the terminal-change alert; the poller reads
+// the pre-refresh terminal from the carrier, calls this, then diffs.
+func (s *Store) RefreshFlightPartTerminal(ctx context.Context, partID int64, originTerminal, destTerminal string) error {
+	originTerminal = strings.TrimSpace(originTerminal)
+	destTerminal = strings.TrimSpace(destTerminal)
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flight_details SET
+			origin_terminal = COALESCE(NULLIF($2, ''), origin_terminal),
+			dest_terminal   = COALESCE(NULLIF($3, ''), dest_terminal)
+		WHERE plan_part_id = $1`, partID, originTerminal, destTerminal)
+	return err
+}
+
 // RefreshFlightPartBelt overwrites the arrival baggage belt when the supplied
 // value is non-empty (empty preserves the existing column — the provider omits
 // the belt until it's assigned near arrival, and an omission must not wipe a
