@@ -64,6 +64,53 @@ func PlanSpan(parts []ProposedPart) (start, end time.Time) {
 	return ds.start, ds.end
 }
 
+// PlanDateSpan computes the [start, end] *calendar dates* a set of proposed
+// parts covers, each read in its own local timezone — the start in the first
+// part's departure tz, the end in the last part's arrival tz. Unlike PlanSpan
+// (which returns UTC instants for date-proximity matching), this is what a
+// trip's starts_on/ends_on date columns should hold: a flight that departs one
+// evening and lands after local midnight in a timezone to the east (common when
+// travelling east) records the trip as ending on its landing day, not the UTC
+// day of the arrival instant (issue #57).
+//
+// Each returned value is midnight UTC on the local date, so storing it into a
+// DATE column yields that exact calendar day regardless of driver timezone
+// handling. A zero start means "no dates".
+func PlanDateSpan(parts []ProposedPart) (start, end time.Time) {
+	for _, p := range parts {
+		if p.StartsAt.IsZero() {
+			continue
+		}
+		s := localDateMidnight(p.StartsAt, p.StartTZ)
+		e := s
+		if p.EndsAt != nil && !p.EndsAt.IsZero() {
+			endTZ := p.EndTZ
+			if endTZ == "" {
+				endTZ = p.StartTZ
+			}
+			e = localDateMidnight(*p.EndsAt, endTZ)
+		}
+		if start.IsZero() || s.Before(start) {
+			start = s
+		}
+		if end.IsZero() || e.After(end) {
+			end = e
+		}
+	}
+	return start, end
+}
+
+// localDateMidnight returns midnight UTC on the calendar day instant t falls on
+// in timezone tz, so storing it into a DATE column yields that exact local day.
+// Reuses localDate's tz handling (empty/unloadable tz → UTC).
+func localDateMidnight(t time.Time, tz string) time.Time {
+	d, err := time.Parse("2006-01-02", localDate(t, tz))
+	if err != nil {
+		return t.UTC().Truncate(24 * time.Hour)
+	}
+	return d
+}
+
 // TripCandidate is a trip considered for email auto-attach, with its effective
 // date span (derived from plan_parts, falling back to starts_on/ends_on).
 type TripCandidate struct {

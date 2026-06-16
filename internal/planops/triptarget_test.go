@@ -5,6 +5,65 @@ import (
 	"time"
 )
 
+// TestPlanDateSpan_EastboundOvernightUsesLocalLandingDay: a flight that departs
+// one evening and lands after local midnight in a timezone to the east must set
+// the trip's end date to the landing day in the destination tz, not the UTC day
+// of the arrival instant (issue #57). Here the arrival instant is still
+// 2026-01-15 in UTC but 2026-01-16 in Istanbul (+3) — the trip ends on the 16th.
+func TestPlanDateSpan_EastboundOvernightUsesLocalLandingDay(t *testing.T) {
+	dep := time.Date(2026, 1, 15, 20, 0, 0, 0, time.UTC)  // 20:00 in London (GMT)
+	arr := time.Date(2026, 1, 15, 22, 30, 0, 0, time.UTC) // 01:30 next day in Istanbul (+3)
+	parts := []ProposedPart{{
+		Type:     "flight",
+		StartsAt: dep,
+		EndsAt:   &arr,
+		StartTZ:  "Europe/London",
+		EndTZ:    "Europe/Istanbul",
+	}}
+
+	// The UTC-instant span (used for date proximity) lands the end on the 15th —
+	// the very off-by-one PlanDateSpan exists to avoid.
+	if _, e := PlanSpan(parts); e.UTC().Format("2006-01-02") != "2026-01-15" {
+		t.Fatalf("precondition: PlanSpan end = %s, want 2026-01-15", e.UTC().Format("2006-01-02"))
+	}
+
+	start, end := PlanDateSpan(parts)
+	if got := start.Format("2006-01-02"); got != "2026-01-15" {
+		t.Errorf("start = %s, want 2026-01-15 (departure day in London)", got)
+	}
+	if got := end.Format("2006-01-02"); got != "2026-01-16" {
+		t.Errorf("end = %s, want 2026-01-16 (landing day in Istanbul)", got)
+	}
+}
+
+// TestPlanDateSpan_SpansMinStartMaxEnd: across several parts the span is the
+// earliest local start day and the latest local end day; a part with no EndsAt
+// contributes its start day as its end.
+func TestPlanDateSpan_SpansMinStartMaxEnd(t *testing.T) {
+	outDep := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+	outArr := time.Date(2026, 6, 1, 17, 0, 0, 0, time.UTC)
+	dinner := time.Date(2026, 6, 3, 19, 0, 0, 0, time.UTC) // point booking, no end
+	parts := []ProposedPart{
+		{Type: "dining", StartsAt: dinner},
+		{Type: "flight", StartsAt: outDep, EndsAt: &outArr, StartTZ: "UTC", EndTZ: "UTC"},
+	}
+	start, end := PlanDateSpan(parts)
+	if got := start.Format("2006-01-02"); got != "2026-06-01" {
+		t.Errorf("start = %s, want 2026-06-01", got)
+	}
+	if got := end.Format("2006-01-02"); got != "2026-06-03" {
+		t.Errorf("end = %s, want 2026-06-03", got)
+	}
+}
+
+// TestPlanDateSpan_Empty: parts with no usable start contribute nothing.
+func TestPlanDateSpan_Empty(t *testing.T) {
+	start, end := PlanDateSpan([]ProposedPart{{Type: "dining"}})
+	if !start.IsZero() || !end.IsZero() {
+		t.Errorf("PlanDateSpan = (%v, %v), want zero span", start, end)
+	}
+}
+
 // TestSelectTrip_AttachesToOverlappingTrip: a plan whose dates fall inside an
 // existing trip's effective span attaches to that trip.
 func TestSelectTrip_AttachesToOverlappingTrip(t *testing.T) {
