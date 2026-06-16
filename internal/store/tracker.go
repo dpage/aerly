@@ -233,9 +233,11 @@ type BackfillPayload struct {
 	ICAO24     string
 	Callsign   string
 	Notes      string
-	// Terminal is backfilled only-fill-empty like the airframe fields (it
-	// rarely changes for a leg). Gate is NOT here — it changes and so is
-	// written via RefreshFlightPartGate (overwrite-when-non-empty).
+	// Terminal is backfilled only-fill-empty here on the coord/backfill path
+	// (flightcoord.Fill). The poller's resolveAndUpdate instead writes it via
+	// RefreshFlightPartTerminal (overwrite-when-non-empty) so a near-departure
+	// terminal CHANGE is captured and alerted on, like gate. Gate is NOT here at
+	// all — it's only ever written via RefreshFlightPartGate.
 	OriginTerminal string
 	DestTerminal   string
 	// AircraftType (e.g. "Boeing 777-300ER") is only-fill-empty metadata too,
@@ -356,9 +358,9 @@ func (s *Store) MarkFlightPartResolved(ctx context.Context, partID int64,
 // RefreshFlightPartGate overwrites the departure/arrival gate when the supplied
 // value is non-empty (empty preserves the existing column — the provider often
 // omits gate before it's assigned, and an omission must not wipe a known gate).
-// Unlike terminal (backfilled only-fill-empty), gate is UPDATABLE because a
-// gate CHANGE is precisely what the gate-change alert detects; the poller reads
-// the pre-refresh gate from the carrier, calls this, then diffs.
+// Gate is UPDATABLE because a gate CHANGE is precisely what the gate-change
+// alert detects; the poller reads the pre-refresh gate from the carrier, calls
+// this, then diffs. Terminal works the same way via RefreshFlightPartTerminal.
 func (s *Store) RefreshFlightPartGate(ctx context.Context, partID int64, originGate, destGate string) error {
 	originGate = strings.TrimSpace(originGate)
 	destGate = strings.TrimSpace(destGate)
