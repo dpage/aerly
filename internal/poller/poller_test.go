@@ -179,10 +179,20 @@ func TestMinPollAge(t *testing.T) {
 	if p.minPollAge(enroute, now) != 10*time.Second {
 		t.Errorf("Enroute minPollAge = %v", p.minPollAge(enroute, now))
 	}
-	// Scheduled and still before departure: slow 5× cadence.
+	// Scheduled and in the final hour: ramp to 5-minute cadence.
 	future := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(time.Hour)}
-	if p.minPollAge(future, now) != 50*time.Second {
-		t.Errorf("pre-departure Scheduled minPollAge = %v", p.minPollAge(future, now))
+	if p.minPollAge(future, now) != 5*time.Minute {
+		t.Errorf("pre-departure Scheduled (1h out) minPollAge = %v, want 5m", p.minPollAge(future, now))
+	}
+	// Scheduled and 3h out: 15-minute cadence.
+	far := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(3 * time.Hour)}
+	if p.minPollAge(far, now) != 15*time.Minute {
+		t.Errorf("pre-departure Scheduled (3h out) minPollAge = %v, want 15m", p.minPollAge(far, now))
+	}
+	// Scheduled and 8h out: hourly cadence.
+	further := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(8 * time.Hour)}
+	if p.minPollAge(further, now) != time.Hour {
+		t.Errorf("pre-departure Scheduled (8h out) minPollAge = %v, want 1h", p.minPollAge(further, now))
 	}
 	// Scheduled but already past departure (airborne, stored status not yet
 	// flipped): must use the fast cadence so refresh() runs and flips it to
@@ -751,5 +761,29 @@ func TestRunImmediateTickThenStops(t *testing.T) {
 	}
 	if tr.calls == 0 {
 		t.Error("Run should have polled at least once")
+	}
+}
+
+func TestMetadataRefreshIntervalFor(t *testing.T) {
+	now := time.Now()
+	mk := func(ttd time.Duration) *store.Flight {
+		return &store.Flight{ScheduledOut: now.Add(ttd)}
+	}
+	cases := []struct {
+		name string
+		ttd  time.Duration
+		want time.Duration
+	}{
+		{"final hour", 30 * time.Minute, 5 * time.Minute},
+		{"just inside an hour", 59 * time.Minute, 5 * time.Minute},
+		{"inside four hours", 3 * time.Hour, 15 * time.Minute},
+		{"beyond four hours", 8 * time.Hour, time.Hour},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := metadataRefreshIntervalFor(mk(c.ttd), now); got != c.want {
+				t.Errorf("ttd=%v: got %v, want %v", c.ttd, got, c.want)
+			}
+		})
 	}
 }

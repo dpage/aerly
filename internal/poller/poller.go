@@ -81,23 +81,28 @@ func (p *Poller) Run(ctx context.Context) {
 }
 
 // minPollAge returns how long to wait between polls for a given flight.
-// Enroute flights are polled at the base interval; all other active statuses
-// (Scheduled, etc.) are polled at 5× the base interval since they change
-// infrequently before departure.
+// Enroute flights are polled at the base interval; a pre-departure flight is
+// polled on the ramping metadata cadence (metadataRefreshIntervalFor), which
+// tightens from hourly toward 5-minutely as departure nears.
 //
 // The stored status only flips Scheduled→Enroute inside refresh() (via
 // RefreshFlightPartStatus, which derives it from the schedule), and refresh()
 // only runs once this throttle lets the flight through. Keying purely off the
 // stored status is therefore a chicken-and-egg trap: a flight that has just
 // crossed its scheduled departure is airborne but still stored as Scheduled,
-// so the slow 5× cadence would delay the flip to Enroute (and position
-// tracking) by up to one slow interval. Treat a flight at/after its scheduled
-// departure as enroute for cadence purposes so it's polled promptly.
+// so a slow pre-departure cadence would delay the flip to Enroute (and position
+// tracking). Treat a flight at/after its scheduled departure as enroute for
+// cadence purposes so it's polled promptly at the base interval.
 func (p *Poller) minPollAge(f *store.Flight, now time.Time) time.Duration {
+	// Active (enroute, or past scheduled departure): poll at the base interval
+	// for live position tracking.
 	if f.Status == "Enroute" || !now.Before(f.ScheduledOut) {
 		return p.Interval
 	}
-	return p.Interval * 5
+	// Pre-departure: ramp toward departure, so the metadata pass is allowed
+	// through often enough to honour the tightest re-resolve tier (5 min in the
+	// final hour).
+	return metadataRefreshIntervalFor(f, now)
 }
 
 func (p *Poller) tick(ctx context.Context) {
@@ -160,7 +165,7 @@ func guard(where string, id int64, fn func()) {
 // (when blank or stale), re-derives its status, and broadcasts the change —
 // without any position tracking. The resolver call is gated by the same
 // needsBackfill / needsLateRefresh triggers and last_resolved_at throttle as
-// the main poll path, so it costs at most one resolve every lateRefreshInterval.
+// the main poll path.
 func (p *Poller) refreshMetadata(ctx context.Context, f *store.Flight, now time.Time) {
 	if p.Resolver == nil || !(needsBackfill(f) || needsLateRefresh(f, now)) {
 		return
@@ -318,12 +323,6 @@ func needsBackfill(f *store.Flight) bool {
 // closer in than that, so the cheap thing is to keep poking from here.
 const lateRefreshWindow = 12 * time.Hour
 
-// lateRefreshInterval throttles how often we re-resolve while inside the
-// window — covers the "every tick for an enroute flight" case. AeroDataBox
-// BASIC tier allows a few hundred calls/day; one call per active flight
-// per ~4h is well under that.
-const lateRefreshInterval = 4 * time.Hour
-
 // needsLateRefresh is true when the flight is in (or close to) its active
 // window and we haven't asked the resolver recently. It complements
 // needsBackfill: backfill cares about *which fields are empty*, this
@@ -338,7 +337,22 @@ func needsLateRefresh(f *store.Flight, now time.Time) bool {
 	if f.LastResolvedAt == nil {
 		return true
 	}
-	return now.Sub(*f.LastResolvedAt) >= lateRefreshInterval
+	return now.Sub(*f.LastResolvedAt) >= metadataRefreshIntervalFor(f, now)
+}
+
+// metadataRefreshIntervalFor ramps how often we re-resolve a pre-departure
+// flight: the closer to departure, the more often, so a late gate / terminal /
+// schedule change surfaces quickly. The 1h floor only applies inside the 12h
+// metadata window (beyond it the flight isn't a metadata-pass candidate).
+func metadataRefreshIntervalFor(f *store.Flight, now time.Time) time.Duration {
+	switch ttd := f.ScheduledOut.Sub(now); {
+	case ttd <= time.Hour:
+		return 5 * time.Minute
+	case ttd <= 4*time.Hour:
+		return 15 * time.Minute
+	default:
+		return time.Hour
+	}
 }
 
 // resolveAndUpdate calls the Resolver and persists the result through both
