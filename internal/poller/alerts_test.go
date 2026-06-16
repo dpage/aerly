@@ -318,6 +318,49 @@ func TestAlert_DedupeSuppressesRepeatOfSameChange(t *testing.T) {
 	}
 }
 
+// TestAlert_SameTerminalDoesNotReAlert mirrors the gate/belt dedupe coverage: a
+// terminal assignment alerts once, and the same terminal on the next tick does
+// not re-alert.
+func TestAlert_SameTerminalDoesNotReAlert(t *testing.T) {
+	p, s, hub, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "BA600", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	// First tick: a departure terminal is assigned → one terminal alert.
+	prev := f
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET origin_terminal = '5' WHERE plan_part_id = $1`, f.ID); err != nil {
+		t.Fatalf("set terminal: %v", err)
+	}
+	p.maybeAlert(ctx, prev, f.ID)
+	if got := drainAlerts(t, ch); len(got) != 1 || got[0].Kind != "terminal" {
+		t.Fatalf("first terminal: expected 1 terminal alert, got %+v", got)
+	}
+
+	// Second tick: same terminal still present → no re-alert.
+	prev2, err := s.FlightPartByID(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("refetch: %v", err)
+	}
+	p.maybeAlert(ctx, prev2, f.ID)
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Fatalf("repeat terminal: expected no alert, got %d", len(got))
+	}
+}
+
 // gateAlertHarness sets up a poller whose resolver assigns a departure gate,
 // plus an owner with a verified email and gate alerts enabled. Returns the
 // owner so the caller seeds a flight at whatever pre-departure offset it needs.
@@ -554,6 +597,58 @@ func TestAlert_GateChangePersistsInboxRow(t *testing.T) {
 	}
 	if !strings.Contains(rows[0].Message, "B32") {
 		t.Errorf("message missing gate: %q", rows[0].Message)
+	}
+}
+
+// A terminal reassignment surfaced near departure raises a terminal alert.
+func TestAlertOnTerminalChange(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, uid, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	if err := s.SetAlertPrefs(ctx, store.AlertPrefs{UserID: uid, InApp: true, Email: true, MinDelayMin: 600}); err != nil {
+		t.Fatalf("set prefs: %v", err)
+	}
+	cap := &captureMailer{}
+	p.MailFromAddress = "alerts@aerly.test"
+	p.SendmailPath = "/bin/true"
+	p.PublicURL = "http://localhost:8080"
+	p.SendAlertEmail = cap.send
+
+	now := time.Now()
+	// 6h out, already confirmed with terminal "5"; provider now reports "3".
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "BA286", ScheduledOut: now.Add(6 * time.Hour), ScheduledIn: now.Add(8 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, uid)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// Seed a known prior terminal and confirm the flight so the schedule path is
+	// inert and the only delta is the terminal.
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET origin_terminal = '5', resolved = true WHERE plan_part_id = $1`, f.ID); err != nil {
+		t.Fatalf("seed terminal: %v", err)
+	}
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "BA286", OriginIATA: "LHR", DestIATA: "JFK", OriginTerminal: "3",
+	}}
+
+	hub := p.Hub
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: uid})
+	defer unsub()
+
+	p.tick(ctx)
+
+	got := drainAlerts(t, ch)
+	if len(got) != 1 || got[0].Kind != "terminal" {
+		t.Fatalf("expected 1 terminal alert, got %+v", got)
+	}
+	if cap.count() != 1 {
+		t.Fatalf("expected 1 terminal-change email, got %d", cap.count())
 	}
 }
 

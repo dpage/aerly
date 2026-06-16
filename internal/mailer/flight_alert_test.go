@@ -13,6 +13,7 @@ func TestFlightAlertSubject(t *testing.T) {
 		"diverted":  "Your flight BA123 has been diverted",
 		"gate":      "Gate change: BA123",
 		"belt":      "Baggage belt: BA123",
+		"terminal":  "Terminal change: BA123",
 		"":          "Your flight BA123 is now delayed", // unknown kind → delayed
 	}
 	for kind, want := range cases {
