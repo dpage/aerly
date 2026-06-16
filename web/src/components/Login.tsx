@@ -3,8 +3,8 @@ import { Box, Button, Divider, Link, Paper, Stack, TextField, Typography } from 
 import GitHubIcon from '@mui/icons-material/GitHub';
 import GoogleIcon from '@mui/icons-material/Google';
 import LoginIcon from '@mui/icons-material/Login';
-import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 
+import AerlyLogo from './AerlyLogo';
 import { api } from '../api/client';
 import type { AuthProvider } from '../api/types';
 
@@ -65,7 +65,7 @@ export default function Login() {
     >
       <Paper sx={{ p: 4, maxWidth: 420, width: '100%' }} elevation={3}>
         <Stack spacing={3} alignItems="center" textAlign="center">
-          <FlightTakeoffIcon color="primary" sx={{ fontSize: 56 }} />
+          <AerlyLogo size={56} />
           <Typography variant="h4">Aerly</Typography>
           <Typography variant="body1" color="text.secondary">
             Track your friends&rsquo; flights to PostgreSQL conferences.

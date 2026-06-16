@@ -30,7 +30,6 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import EmailIcon from '@mui/icons-material/EmailOutlined';
-import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import NotificationsIcon from '@mui/icons-material/NotificationsOutlined';
@@ -56,6 +55,7 @@ import StatsDialog from './StatsDialog';
 import CalendarSubscribeDialog from './CalendarSubscribeDialog';
 import HomeAddressDialog from './HomeAddressDialog';
 import AutoShareDialog from './AutoShareDialog';
+import AerlyLogo from './AerlyLogo';
 
 /** The authenticated app chrome for the trip-planning redesign (spec §11).
  *
@@ -129,7 +129,7 @@ export default function Layout() {
               <MenuIcon />
             </IconButton>
           )}
-          <FlightTakeoffIcon color="primary" sx={{ mr: 1 }} />
+          <AerlyLogo size={28} sx={{ mr: 1 }} />
           <Typography
             variant="h6"
             component={RouterLink}
