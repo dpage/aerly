@@ -19,11 +19,12 @@ describe('AerlyLogo', () => {
     expect(img).toHaveAttribute('src', '/aerly-mark-dark.png');
   });
 
-  it('applies the requested size to width and height', () => {
+  it('applies the requested size as width and height', () => {
     setThemePreference('light');
     render(<AerlyLogo size={56} />);
     const img = screen.getByAltText('Aerly');
-    expect(img).toHaveAttribute('width', '56');
-    expect(img).toHaveAttribute('height', '56');
+    // MUI's Box maps width/height to CSS (an emotion class), not HTML
+    // attributes, so assert the resolved style rather than getAttribute.
+    expect(img).toHaveStyle({ width: '56px', height: '56px' });
   });
 });
