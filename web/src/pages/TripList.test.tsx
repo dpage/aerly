@@ -277,7 +277,9 @@ describe('TripList', () => {
     state.trips = [trip({ id: 7, name: 'ClickMe', starts_on: dateOnly(5) })];
     renderList();
     await userEvent.click(screen.getByText('ClickMe'));
-    expect(navigate).toHaveBeenCalledWith('/trips/7');
+    // The originating list path rides along in the navigation state so the
+    // trip's Back button can return to it (home vs Friends' trips).
+    expect(navigate).toHaveBeenCalledWith('/trips/7', { state: { from: '/' } });
   });
 
   it('creates a trip via the New trip dialog and navigates to it', async () => {
