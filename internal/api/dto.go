@@ -318,12 +318,22 @@ func ToFlightAlertDTO(a store.FlightAlert) FlightAlertDTO {
 	}
 }
 
+// Inbox item sources. These tag which backing table an inbox item came from
+// (flight alerts and share notifications use separate id sequences) so the
+// client can target the right delete endpoint without sniffing the kind.
+const (
+	NotificationSourceFlight = "flight"
+	NotificationSourceShare  = "notification"
+)
+
 // NotificationItemDTO is one generic inbox item, the element type of
 // GET /api/alerts. Flight alerts and share notifications are both mapped
 // onto this shape and merged time-sorted. PlanPartID is populated only for
 // flight alerts (to deep-link to the tracker) and is nil for all other kinds.
+// Source identifies the backing table for the delete endpoint.
 type NotificationItemDTO struct {
 	ID         int64      `json:"id"`
+	Source     string     `json:"source"` // flight|notification
 	Kind       string     `json:"kind"`
 	ActorID    *int64     `json:"actor_id,omitempty"`
 	TripID     *int64     `json:"trip_id,omitempty"`
@@ -337,8 +347,9 @@ type NotificationItemDTO struct {
 // ToNotificationItemDTO projects a stored notification onto the inbox shape.
 func ToNotificationItemDTO(n store.Notification) NotificationItemDTO {
 	return NotificationItemDTO{
-		ID: n.ID, Kind: n.Kind, ActorID: n.ActorID, TripID: n.TripID,
-		PlanID: n.PlanID, Message: n.Message, CreatedAt: n.CreatedAt, ReadAt: n.ReadAt,
+		ID: n.ID, Source: NotificationSourceShare, Kind: n.Kind, ActorID: n.ActorID,
+		TripID: n.TripID, PlanID: n.PlanID, Message: n.Message,
+		CreatedAt: n.CreatedAt, ReadAt: n.ReadAt,
 	}
 }
 

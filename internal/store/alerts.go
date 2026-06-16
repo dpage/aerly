@@ -263,3 +263,17 @@ func (s *Store) CountUnreadFlightAlerts(ctx context.Context, userID int64) (int,
 		userID).Scan(&n)
 	return n, err
 }
+
+// DeleteFlightAlert removes a single alert, scoped to its owner so a user can't
+// delete another's. A no-op (no error) when no such row exists.
+func (s *Store) DeleteFlightAlert(ctx context.Context, userID, id int64) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM flight_alerts WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
+// DeleteAllFlightAlerts removes all of a user's alerts (the inbox "clear all").
+func (s *Store) DeleteAllFlightAlerts(ctx context.Context, userID int64) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM flight_alerts WHERE user_id = $1`, userID)
+	return err
+}

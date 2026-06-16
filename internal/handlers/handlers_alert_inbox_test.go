@@ -121,3 +121,84 @@ func TestAlertsRequireAuth(t *testing.T) {
 		t.Errorf("unauth list status = %d, want 401", w.Code)
 	}
 }
+
+func TestDeleteFlightAlert(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "deleter", false)
+	seedAlert(t, e, uid, "BA286 now departs gate B32")
+
+	// Grab the alert's id from the inbox so we can delete it by source+id.
+	w := e.req(t, http.MethodGet, "/api/alerts", nil, uid)
+	list := decodeBody[[]api.NotificationItemDTO](t, w)
+	if len(list) != 1 || list[0].Source != api.NotificationSourceFlight {
+		t.Fatalf("inbox = %+v", list)
+	}
+	id := list[0].ID
+
+	w = e.req(t, http.MethodDelete, "/api/alerts/flight/"+itoa(id), nil, uid)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d", w.Code)
+	}
+	// Gone from the inbox, and the badge falls back to zero.
+	w = e.req(t, http.MethodGet, "/api/alerts", nil, uid)
+	if len(decodeBody[[]api.NotificationItemDTO](t, w)) != 0 {
+		t.Errorf("alert still present after delete")
+	}
+	w = e.req(t, http.MethodGet, "/api/notifications", nil, uid)
+	if decodeBody[api.NotificationsDTO](t, w).UnreadAlerts != 0 {
+		t.Errorf("unread != 0 after delete")
+	}
+}
+
+func TestDeleteAlertScopedToOwner(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "owner", false)
+	other := e.user(t, "other", false)
+	seedAlert(t, e, owner, "owner's alert")
+
+	w := e.req(t, http.MethodGet, "/api/alerts", nil, owner)
+	id := decodeBody[[]api.NotificationItemDTO](t, w)[0].ID
+
+	// A different user deleting by id is a no-op (the WHERE user_id guards it),
+	// so the owner's alert survives.
+	if w := e.req(t, http.MethodDelete, "/api/alerts/flight/"+itoa(id), nil, other); w.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d", w.Code)
+	}
+	w = e.req(t, http.MethodGet, "/api/alerts", nil, owner)
+	if len(decodeBody[[]api.NotificationItemDTO](t, w)) != 1 {
+		t.Errorf("owner's alert was deleted by another user")
+	}
+}
+
+func TestDeleteAlertInvalidSource(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "baduser", false)
+	w := e.req(t, http.MethodDelete, "/api/alerts/bogus/1", nil, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("invalid source status = %d, want 400", w.Code)
+	}
+}
+
+func TestClearAlerts(t *testing.T) {
+	e := setup(t, nil, nil)
+	actor := e.user(t, "clearactor", false)
+	uid := e.user(t, "clearer", false)
+	seedAlert(t, e, uid, "flight alert one")
+	seedAlert(t, e, uid, "flight alert two")
+	tripID := newTrip(t, e, actor, "Trip")
+	if _, err := e.store.InsertNotification(context.Background(), store.Notification{
+		UserID: uid, Kind: "share", ActorID: &actor, TripID: &tripID,
+		Message: "actor shared with you",
+	}); err != nil {
+		t.Fatalf("InsertNotification: %v", err)
+	}
+
+	if w := e.req(t, http.MethodDelete, "/api/alerts", nil, uid); w.Code != http.StatusNoContent {
+		t.Fatalf("clear status = %d", w.Code)
+	}
+	// Both flight alerts and share notifications are gone.
+	w := e.req(t, http.MethodGet, "/api/alerts", nil, uid)
+	if got := decodeBody[[]api.NotificationItemDTO](t, w); len(got) != 0 {
+		t.Errorf("inbox not empty after clear: %+v", got)
+	}
+}

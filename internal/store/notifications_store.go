@@ -68,3 +68,18 @@ func (s *Store) CountUnreadNotifications(ctx context.Context, userID int64) (int
 		`SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL`, userID).Scan(&n)
 	return n, err
 }
+
+// DeleteNotification removes a single notification, scoped to its owner so a
+// user can't delete another's. A no-op (no error) when no such row exists.
+func (s *Store) DeleteNotification(ctx context.Context, userID, id int64) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM notifications WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
+// DeleteAllNotifications removes all of a user's notifications (the inbox
+// "clear all").
+func (s *Store) DeleteAllNotifications(ctx context.Context, userID int64) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM notifications WHERE user_id = $1`, userID)
+	return err
+}

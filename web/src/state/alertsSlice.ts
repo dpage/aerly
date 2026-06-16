@@ -33,6 +33,8 @@ export interface AlertsSlice {
   loadAlerts: () => Promise<void>;
   applyIncomingAlert: (alert: FlightAlert) => void;
   markAlertsRead: () => Promise<void>;
+  deleteAlert: (item: NotificationItem) => Promise<void>;
+  clearAlerts: () => Promise<void>;
 }
 
 export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = (set, get) => ({
@@ -99,6 +101,9 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
     // it into the generic NotificationItem shape the inbox list now stores.
     const item: NotificationItem = {
       id: alert.id,
+      // The alert.created SSE event only ever carries flight_alerts rows
+      // (flight changes and reminders), so it's always the 'flight' source.
+      source: 'flight',
       kind: alert.kind,
       trip_id: alert.trip_id,
       plan_id: alert.plan_id,
@@ -148,6 +153,47 @@ export const createAlertsSlice: StateCreator<StoreState, [], [], AlertsSlice> = 
         },
         error: errorMessage(err),
       }));
+    }
+  },
+
+  async deleteAlert(item) {
+    // Snapshot for rollback — the optimistic removal keeps the dialog and badge
+    // in sync, but must reconcile with the server if the delete fails.
+    const prevAlerts = get().alerts;
+    const prevNotifications = get().notifications;
+    set((s) => {
+      // Only decrement the badge for an unread item, and only the counter that
+      // backs this item's source (flight alerts vs share notifications).
+      const wasUnread = !item.read_at;
+      const notifications =
+        wasUnread && item.source === 'flight'
+          ? { ...s.notifications, unread_alerts: Math.max(0, s.notifications.unread_alerts - 1) }
+          : wasUnread && item.source === 'notification'
+            ? { ...s.notifications, unread_shares: Math.max(0, s.notifications.unread_shares - 1) }
+            : s.notifications;
+      return {
+        alerts: s.alerts.filter((a) => !(a.source === item.source && a.id === item.id)),
+        notifications,
+      };
+    });
+    try {
+      await api.deleteAlert(item.source, item.id);
+    } catch (err) {
+      set({ alerts: prevAlerts, notifications: prevNotifications, error: errorMessage(err) });
+    }
+  },
+
+  async clearAlerts() {
+    const prevAlerts = get().alerts;
+    const prevNotifications = get().notifications;
+    set((s) => ({
+      alerts: [],
+      notifications: { ...s.notifications, unread_alerts: 0, unread_shares: 0 },
+    }));
+    try {
+      await api.clearAlerts();
+    } catch (err) {
+      set({ alerts: prevAlerts, notifications: prevNotifications, error: errorMessage(err) });
     }
   },
 });

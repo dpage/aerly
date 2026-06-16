@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, Outlet, useLocation } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
@@ -34,6 +34,7 @@ import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import NotificationsIcon from '@mui/icons-material/NotificationsOutlined';
+import TuneIcon from '@mui/icons-material/Tune';
 import HomeIcon from '@mui/icons-material/HomeOutlined';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import GroupAddIcon from '@mui/icons-material/GroupAddOutlined';
@@ -48,6 +49,7 @@ import AboutDialog from './AboutDialog';
 import AdminDialog from './AdminDialog';
 import HelpPanel from './HelpPanel';
 import AlertPrefsDialog from './AlertPrefsDialog';
+import AlertsDialog from './AlertsDialog';
 import EmailsDialog from './EmailsDialog';
 import FriendsDialog from './FriendsDialog';
 import StatsDialog from './StatsDialog';
@@ -70,11 +72,8 @@ export default function Layout() {
   const pendingRequests = useStore((s) => s.notifications.friend_requests_pending);
   const unreadAlerts = useStore((s) => s.notifications.unread_alerts);
   const unreadShares = useStore((s) => s.notifications.unread_shares);
-  const alerts = useStore((s) => s.alerts);
-  const markAlertsRead = useStore((s) => s.markAlertsRead);
   const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
   const location = useLocation();
-  const navigate = useNavigate();
   const theme = useTheme();
   // Below `sm` (≈phones, e.g. iPhone SE) the three nav labels won't fit beside
   // the brand + account icons without wrapping, so they collapse into a drawer.
@@ -87,6 +86,7 @@ export default function Layout() {
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [alertPrefsOpen, setAlertPrefsOpen] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [homeAddrOpen, setHomeAddrOpen] = useState(false);
   const [autoShareOpen, setAutoShareOpen] = useState(false);
@@ -178,10 +178,7 @@ export default function Layout() {
             <Tooltip title="Account menu">
               <IconButton
                 size="small"
-                onClick={(e) => {
-                  setMenuAnchor(e.currentTarget);
-                  if (unreadAlerts > 0 || unreadShares > 0) void markAlertsRead();
-                }}
+                onClick={(e) => setMenuAnchor(e.currentTarget)}
                 aria-label="Account menu"
               >
                 <Avatar src={me?.avatar_url} sx={{ width: 28, height: 28 }}>
@@ -205,40 +202,24 @@ export default function Layout() {
               </MenuItem>
             )}
             <Divider />
-            {alerts.length > 0 && (
-              <Box>
-                <MenuItem disabled sx={{ opacity: '1 !important' }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Alerts
-                  </Typography>
-                </MenuItem>
-                {alerts.slice(0, 6).map((al) => (
-                  <MenuItem
-                    key={`${al.kind}-${al.id}`}
-                    onClick={() => {
-                      closeMenu();
-                      // Flight alerts carry plan_part_id — deep-link to the
-                      // tracker so the user lands on the right flight tile.
-                      // Other inbox items (shares, reminders) open the trip
-                      // timeline instead.
-                      if (al.plan_part_id) {
-                        navigate(`/tracker?part=${al.plan_part_id}`);
-                      } else if (al.trip_id) {
-                        navigate(`/trips/${al.trip_id}`);
-                      }
-                    }}
-                  >
-                    <ListItemIcon>
-                      <NotificationsIcon fontSize="small" />
-                    </ListItemIcon>
-                    <Typography variant="body2" noWrap sx={{ maxWidth: 260 }}>
-                      {al.message}
-                    </Typography>
-                  </MenuItem>
-                ))}
-                <Divider />
-              </Box>
-            )}
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                setAlertsOpen(true);
+              }}
+            >
+              <ListItemIcon>
+                <Badge
+                  variant="dot"
+                  color="error"
+                  invisible={unreadAlerts + unreadShares === 0}
+                  overlap="circular"
+                >
+                  <NotificationsIcon fontSize="small" />
+                </Badge>
+              </ListItemIcon>
+              Alerts…
+            </MenuItem>
             <MenuItem
               onClick={() => {
                 closeMenu();
@@ -286,7 +267,7 @@ export default function Layout() {
               }}
             >
               <ListItemIcon>
-                <NotificationsIcon fontSize="small" />
+                <TuneIcon fontSize="small" />
               </ListItemIcon>
               Alert preferences…
             </MenuItem>
@@ -423,6 +404,7 @@ export default function Layout() {
       <FriendsDialog open={friendsOpen} onClose={() => setFriendsOpen(false)} />
       <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} />
       <AlertPrefsDialog open={alertPrefsOpen} onClose={() => setAlertPrefsOpen(false)} />
+      <AlertsDialog open={alertsOpen} onClose={() => setAlertsOpen(false)} />
       <HomeAddressDialog open={homeAddrOpen} onClose={() => setHomeAddrOpen(false)} />
       <AutoShareDialog open={autoShareOpen} onClose={() => setAutoShareOpen(false)} />
       <CalendarSubscribeDialog

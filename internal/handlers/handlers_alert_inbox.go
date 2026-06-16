@@ -31,6 +31,7 @@ func (a *API) listAlerts(w http.ResponseWriter, r *http.Request) {
 		partID := al.PlanPartID
 		out = append(out, api.NotificationItemDTO{
 			ID:         al.ID,
+			Source:     api.NotificationSourceFlight,
 			Kind:       al.Kind,
 			TripID:     &tripID,
 			PlanID:     &planID,
@@ -63,6 +64,50 @@ func (a *API) markAlertsRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Recompute + push the badge so other tabs/devices clear too.
+	a.publishNotifications(r.Context(), me.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteAlert removes a single inbox item. The {source} path segment selects
+// the backing table (flight alerts and share notifications use separate id
+// sequences), and the delete is scoped to the requesting user. Deleting an
+// unread item changes the badge, so we recompute + push it.
+func (a *API) deleteAlert(w http.ResponseWriter, r *http.Request) {
+	me := auth.UserFrom(r.Context())
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid alert id")
+		return
+	}
+	switch r.PathValue("source") {
+	case api.NotificationSourceFlight:
+		err = a.Store.DeleteFlightAlert(r.Context(), me.ID, id)
+	case api.NotificationSourceShare:
+		err = a.Store.DeleteNotification(r.Context(), me.ID, id)
+	default:
+		writeError(w, http.StatusBadRequest, "invalid alert source")
+		return
+	}
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	a.publishNotifications(r.Context(), me.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// clearAlerts empties the viewer's inbox (both flight alerts and share
+// notifications), then recomputes + pushes the now-zero badge.
+func (a *API) clearAlerts(w http.ResponseWriter, r *http.Request) {
+	me := auth.UserFrom(r.Context())
+	if err := a.Store.DeleteAllFlightAlerts(r.Context(), me.ID); err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	if err := a.Store.DeleteAllNotifications(r.Context(), me.ID); err != nil {
+		handleStoreErr(w, err)
+		return
+	}
 	a.publishNotifications(r.Context(), me.ID)
 	w.WriteHeader(http.StatusNoContent)
 }

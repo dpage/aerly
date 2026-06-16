@@ -97,6 +97,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/notifications", req(http.HandlerFunc(a.getNotifications)))
 	mux.Handle("GET /api/alerts", req(http.HandlerFunc(a.listAlerts)))
 	mux.Handle("POST /api/alerts/read", req(http.HandlerFunc(a.markAlertsRead)))
+	mux.Handle("DELETE /api/alerts", req(http.HandlerFunc(a.clearAlerts)))
+	mux.Handle("DELETE /api/alerts/{source}/{id}", req(http.HandlerFunc(a.deleteAlert)))
 
 	mux.Handle("GET /api/friends", req(http.HandlerFunc(a.listFriends)))
 	mux.Handle("POST /api/friends/invite", req(http.HandlerFunc(a.inviteFriend)))

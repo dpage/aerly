@@ -69,6 +69,7 @@ vi.mock('./AddToTripDialog', () => ({ default: stubDialog('add-dialog') }));
 vi.mock('./AboutDialog', () => ({ default: stubDialog('about-dialog') }));
 vi.mock('./AdminDialog', () => ({ default: stubDialog('admin-dialog') }));
 vi.mock('./AlertPrefsDialog', () => ({ default: stubDialog('alertprefs-dialog') }));
+vi.mock('./AlertsDialog', () => ({ default: stubDialog('alerts-dialog') }));
 vi.mock('./EmailsDialog', () => ({ default: stubDialog('emails-dialog') }));
 vi.mock('./FriendsDialog', () => ({ default: stubDialog('friends-dialog') }));
 vi.mock('./StatsDialog', () => ({ default: stubDialog('stats-dialog') }));
@@ -308,6 +309,7 @@ describe('Layout', () => {
 
     // The menu-driven dialogs.
     const menuDialogs: Array<[string, string]> = [
+      ['Alerts…', 'alerts-dialog'],
       ['Friends…', 'friends-dialog'],
       ['Email addresses…', 'emails-dialog'],
       ['Statistics…', 'stats-dialog'],
@@ -367,81 +369,21 @@ describe('Layout (narrow / mobile)', () => {
 });
 
 describe('Layout (alerts)', () => {
-  it('shows alerts in the account menu and marks them read on open', async () => {
+  it('opens the Alerts dialog from the menu (alert history now lives there)', async () => {
     h.state.notifications = { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 0 };
-    h.state.alerts = [
-      {
-        id: 1,
-        plan_id: 1,
-        trip_id: 1,
-        kind: 'gate',
-        message: 'BA286 now departs gate B32',
-        created_at: '2026-06-01T00:00:00Z',
-      },
-    ];
     renderLayout();
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
-    expect(screen.getByText('BA286 now departs gate B32')).toBeInTheDocument();
-    expect(h.markAlertsRead).toHaveBeenCalled();
+    await userEvent.click(screen.getByText('Alerts…'));
+    expect(screen.getByTestId('alerts-dialog')).toBeInTheDocument();
   });
 
-  it('does not mark alerts read on menu open when there are none unread', async () => {
-    // beforeEach already sets unread_alerts: 0 and alerts: []
+  it('does NOT mark alerts read merely by opening the account menu', async () => {
+    // Reading now happens in the Alerts dialog (on close), not on menu open, so
+    // alerts no longer silently clear just because the menu was glanced at.
+    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 2, unread_shares: 0 };
     renderLayout();
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
     expect(h.markAlertsRead).not.toHaveBeenCalled();
-  });
-
-  it('deep-links to the tracker for a flight alert that has a plan_part_id', async () => {
-    h.state.alerts = [
-      {
-        id: 1,
-        plan_id: 1,
-        plan_part_id: 5,
-        trip_id: 4,
-        kind: 'gate',
-        message: 'BA286 now departs gate B32',
-        created_at: '2026-06-01T00:00:00Z',
-      },
-    ];
-    renderLayout();
-    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
-    await userEvent.click(screen.getByText('BA286 now departs gate B32'));
-    expect(screen.getByTestId('page')).toHaveTextContent('tracker page');
-  });
-
-  it('opens the trip timeline for an alert without a plan_part_id (share or reminder)', async () => {
-    h.state.alerts = [
-      {
-        id: 1,
-        plan_id: 1,
-        trip_id: 4,
-        kind: 'share',
-        message: 'Alice shared Rome 2026 with you',
-        created_at: '2026-06-01T00:00:00Z',
-      },
-    ];
-    renderLayout();
-    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
-    await userEvent.click(screen.getByText('Alice shared Rome 2026 with you'));
-    expect(screen.getByTestId('page')).toHaveTextContent('trip page');
-  });
-
-  it('opens the trip timeline for a reminder alert', async () => {
-    h.state.alerts = [
-      {
-        id: 2,
-        plan_id: 1,
-        trip_id: 4,
-        kind: 'reminder',
-        message: 'Upcoming: Hilton Vienna',
-        created_at: '2026-06-01T00:00:00Z',
-      },
-    ];
-    renderLayout();
-    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
-    await userEvent.click(screen.getByText('Upcoming: Hilton Vienna'));
-    expect(screen.getByTestId('page')).toHaveTextContent('trip page');
   });
 
   it('counts unread shares in the avatar badge', () => {
@@ -449,51 +391,5 @@ describe('Layout (alerts)', () => {
     renderLayout();
     // The badge surfaces the combined inbox count (here, share notifications).
     expect(screen.getByText('2')).toBeInTheDocument();
-  });
-
-  it('marks alerts read on menu open when only share notifications are unread (unread_alerts==0, unread_shares>0)', async () => {
-    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 1 };
-    renderLayout();
-    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
-    expect(h.markAlertsRead).toHaveBeenCalled();
-  });
-
-  it('does NOT mark alerts read when both unread_alerts and unread_shares are zero', async () => {
-    // beforeEach already sets both to 0, but be explicit.
-    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 };
-    renderLayout();
-    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
-    expect(h.markAlertsRead).not.toHaveBeenCalled();
-  });
-
-  it('renders inbox items with composite kind-id keys (no duplicate-key warnings for colliding ids)', () => {
-    // A flight alert and a share notification sharing the same numeric id.
-    h.state.alerts = [
-      {
-        id: 7,
-        kind: 'gate',
-        trip_id: 1,
-        plan_id: 1,
-        plan_part_id: 2,
-        message: 'Flight gate change',
-        created_at: '2026-06-01T00:00:00Z',
-      },
-      {
-        id: 7,
-        kind: 'share',
-        trip_id: 2,
-        plan_id: 2,
-        message: 'Alice shared Rome 2026',
-        created_at: '2026-06-01T00:00:01Z',
-      },
-    ];
-    renderLayout();
-    // Both items must appear — if React saw duplicate keys one would be dropped.
-    // We only open the menu here; the badge visible check suffices without opening.
-    // Open and verify both messages appear.
-    return userEvent.click(screen.getByRole('button', { name: /account menu/i })).then(() => {
-      expect(screen.getByText('Flight gate change')).toBeInTheDocument();
-      expect(screen.getByText('Alice shared Rome 2026')).toBeInTheDocument();
-    });
   });
 });

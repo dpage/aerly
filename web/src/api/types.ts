@@ -701,6 +701,9 @@ export interface CalendarToken {
  * alert.created payload still uses FlightAlert. */
 export interface NotificationItem {
   id: number;
+  /** Backing table the item came from: 'flight' (flight_alerts, incl.
+   * reminders) or 'notification' (shares). Selects the delete endpoint. */
+  source: 'flight' | 'notification';
   kind: string;
   actor_id?: number;
   trip_id?: number;
