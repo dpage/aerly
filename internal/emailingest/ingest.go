@@ -400,7 +400,7 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 			continue
 		}
 		if !ok {
-			tripID, err = s.createTripForPlan(ctx, userID, p, start, end)
+			tripID, err = s.createTripForPlan(ctx, userID, p)
 			if err != nil {
 				slog.Warn("emailingest: create trip for ingested plan", "err", err)
 				failed = append(failed, planReplyFailure(p, err))
@@ -512,7 +512,12 @@ func planTypeLabel(t string) string {
 // proximity (spec §6.3). For a flight booking it names the trip for where the
 // flight lands ("Trip to <city>") rather than after the flight's ident (#21),
 // falling back to the plan title and then a generic label.
-func (s *Service) createTripForPlan(ctx context.Context, userID int64, p planops.ProposedPlan, start, end time.Time) (int64, error) {
+//
+// The trip's date hints come from PlanDateSpan, which reads each part's local
+// calendar day (the arrival day in the destination tz for the end), so an
+// overnight eastbound flight ends the trip on its landing day rather than the
+// UTC day of the arrival instant (issue #57).
+func (s *Service) createTripForPlan(ctx context.Context, userID int64, p planops.ProposedPlan) (int64, error) {
 	name := planops.TripNameForProposedPlan(p)
 	if name == "" {
 		name = strings.TrimSpace(p.Title)
@@ -520,6 +525,7 @@ func (s *Service) createTripForPlan(ctx context.Context, userID int64, p planops
 	if name == "" {
 		name = "Trip from email"
 	}
+	start, end := planops.PlanDateSpan(p.Parts)
 	in := store.CreateTripPayload{Name: name}
 	if !start.IsZero() {
 		s := start
