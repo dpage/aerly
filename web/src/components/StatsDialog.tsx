@@ -88,7 +88,10 @@ export default function StatsDialog({ open, onClose }: Props) {
               <Tab label="Flown" value="flown" />
               <Tab label="Upcoming" value="upcoming" />
             </Tabs>
-            <BucketTiles bucket={tab === 'flown' ? stats.flown : stats.upcoming} />
+            <BucketTiles
+              bucket={tab === 'flown' ? stats.flown : stats.upcoming}
+              upcoming={tab === 'upcoming'}
+            />
             <Typography variant="overline" sx={{ display: 'block', mt: 3, mb: 1 }}>
               Highlights
             </Typography>
@@ -109,13 +112,16 @@ export default function StatsDialog({ open, onClose }: Props) {
   );
 }
 
-function BucketTiles({ bucket }: { bucket: Bucket }) {
+function BucketTiles({ bucket, upcoming }: { bucket: Bucket; upcoming: boolean }) {
   return (
     <Stack spacing={1.5}>
       <Tile label="Flights" value={String(bucket.count)} />
       <Tile label="Distance" value={formatDistance(bucket.miles)} />
       <Tile label="Time in the air" value={formatDuration(bucket.minutes)} />
-      <Tile label="Airports visited" value={String(bucket.airports)} />
+      <Tile
+        label={upcoming ? 'Airports to be visited' : 'Airports visited'}
+        value={String(bucket.airports)}
+      />
     </Stack>
   );
 }

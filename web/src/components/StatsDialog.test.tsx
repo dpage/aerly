@@ -85,6 +85,9 @@ describe('StatsDialog', () => {
     await waitFor(() => {
       expect(screen.getByText('Flights').nextSibling?.textContent).toBe('1');
     });
+    // The "visited" tile is reworded for upcoming flights, which haven't happened yet.
+    expect(screen.getByText('Airports to be visited')).toBeInTheDocument();
+    expect(screen.queryByText('Airports visited')).toBeNull();
   });
 
   it('shows the cancelled/diverted footer when applicable', async () => {
