@@ -117,8 +117,10 @@ func TestFlightPartsNeedingMetadata(t *testing.T) {
 	}
 }
 
-// TestRefreshFlightPartSchedule: a degenerate schedule (no real arrival) gets
-// filled from the resolver; a real user-entered schedule is protected.
+// TestRefreshFlightPartSchedule: an unconfirmed (resolved=false) flight has its
+// schedule overwritten by the resolver, even a complete one (so a provisional
+// email/manual schedule is corrected); a provider-confirmed (resolved=true)
+// schedule is frozen and left untouched.
 func TestRefreshFlightPartSchedule(t *testing.T) {
 	s := newStore(t)
 	if s == nil {
@@ -127,25 +129,32 @@ func TestRefreshFlightPartSchedule(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	owner := mkUser(t, s)
 
-	// Degenerate: scheduled_in == scheduled_out (manual add, number + date only).
-	degen := mkFlightPart(t, s, owner, "VL1939", now.Add(5*time.Hour), now.Add(5*time.Hour))
-	if err := s.RefreshFlightPartSchedule(ctx, degen, now.Add(5*time.Hour), now.Add(6*time.Hour)); err != nil {
+	// Unconfirmed flight with a COMPLETE provisional schedule (arrival after
+	// departure). Under the old degenerate-only guard this was protected; now
+	// it must be overwritten because the provider is authoritative.
+	prov := mkFlightPart(t, s, owner, "TK1986", now.Add(2*time.Hour), now.Add(5*time.Hour))
+	wantOut, wantIn := now.Add(3*time.Hour), now.Add(7*time.Hour)
+	if err := s.RefreshFlightPartSchedule(ctx, prov, wantOut, wantIn); err != nil {
 		t.Fatalf("RefreshFlightPartSchedule: %v", err)
 	}
-	df, _ := s.FlightPartByID(ctx, degen)
-	if !df.ScheduledIn.After(df.ScheduledOut) {
-		t.Errorf("degenerate schedule not filled: out=%v in=%v", df.ScheduledOut, df.ScheduledIn)
+	pf, _ := s.FlightPartByID(ctx, prov)
+	if d := pf.ScheduledOut.Sub(wantOut); d > time.Second || d < -time.Second {
+		t.Errorf("provisional schedule not corrected: out=%v want≈%v", pf.ScheduledOut, wantOut)
 	}
 
-	// Real schedule (arrival after departure): must NOT be overwritten.
-	wantIn := now.Add(4 * time.Hour)
-	real := mkFlightPart(t, s, owner, "BA286", now.Add(2*time.Hour), wantIn)
-	if err := s.RefreshFlightPartSchedule(ctx, real, now, now.Add(10*time.Hour)); err != nil {
-		t.Fatalf("RefreshFlightPartSchedule (protected): %v", err)
+	// Confirmed flight (resolved=true): schedule is frozen, must NOT change.
+	confirmed := mkFlightPart(t, s, owner, "BA286", now.Add(2*time.Hour), now.Add(4*time.Hour))
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE flight_details SET resolved = true WHERE plan_part_id = $1`, confirmed); err != nil {
+		t.Fatalf("mark resolved: %v", err)
 	}
-	rf, _ := s.FlightPartByID(ctx, real)
-	if d := rf.ScheduledIn.Sub(wantIn); d > time.Second || d < -time.Second {
-		t.Errorf("user-entered schedule was overwritten: in=%v want≈%v", rf.ScheduledIn, wantIn)
+	wantFrozen := now.Add(4 * time.Hour)
+	if err := s.RefreshFlightPartSchedule(ctx, confirmed, now, now.Add(10*time.Hour)); err != nil {
+		t.Fatalf("RefreshFlightPartSchedule (frozen): %v", err)
+	}
+	cf, _ := s.FlightPartByID(ctx, confirmed)
+	if d := cf.ScheduledIn.Sub(wantFrozen); d > time.Second || d < -time.Second {
+		t.Errorf("confirmed schedule was overwritten: in=%v want≈%v", cf.ScheduledIn, wantFrozen)
 	}
 }
 

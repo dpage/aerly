@@ -355,16 +355,19 @@ func (s *Store) RefreshFlightPartBelt(ctx context.Context, partID int64, destBel
 	return err
 }
 
-// RefreshFlightPartSchedule fills the scheduled departure/arrival from the
-// resolver, but ONLY when the stored schedule is degenerate — arrival not
-// strictly after departure. That happens when a flight is added manually with
-// just a number + date (propose.go defaults scheduled_in to scheduled_out), so
-// the real times were meant to come from the API but never did. A user-entered
-// real schedule (arrival after departure) is left untouched.
+// RefreshFlightPartSchedule overwrites the scheduled departure/arrival from the
+// resolver whilst the flight is still unconfirmed (resolved = false). An
+// unconfirmed schedule is provisional — extracted from an email, or hand-typed —
+// and the provider is authoritative, so we correct it (including a complete
+// schedule that turned out to differ from the published one). Once a flight is
+// provider-confirmed (resolved = true) its schedule is frozen as the delay
+// baseline and left untouched; live changes then flow through estimated/actual.
+// Callers must not pass a zero/degenerate provider schedule (the poller guards
+// on ScheduledIn.After(ScheduledOut) before calling).
 func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out, in time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET scheduled_out = $2, scheduled_in = $3
-		WHERE plan_part_id = $1 AND scheduled_in <= scheduled_out`, partID, out, in)
+		WHERE plan_part_id = $1 AND resolved = false`, partID, out, in)
 	return err
 }
 
