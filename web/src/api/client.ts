@@ -40,6 +40,7 @@ import type {
   UpdateUserInput,
   User,
   UserEmail,
+  VersionInfo,
 } from './types';
 
 class ApiError extends Error {
@@ -101,6 +102,7 @@ export const api = {
   getMe: () => request<User>('GET', '/api/me'),
   updateMe: (patch: { home_address?: string }) => request<User>('PATCH', '/api/me', patch),
   getConfig: () => request<Capabilities>('GET', '/api/config'),
+  getVersion: () => request<VersionInfo>('GET', '/api/version'),
 
   // Lists the OAuth providers the backend has configured, so the login
   // page can render one button per provider. Returns an empty list on

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  CssBaseline,
+  Snackbar,
+  ThemeProvider,
+} from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
 
@@ -8,6 +16,7 @@ import { useStore } from './state/store';
 import { errorMessage } from './state/helpers';
 import { connectSSE } from './sse';
 import { api } from './api/client';
+import { UI_COMMIT, useUpdateAvailable } from './version';
 import { createAppTheme, useThemeMode } from './theme';
 import Login from './components/Login';
 import Layout from './components/Layout';
@@ -40,6 +49,11 @@ export default function App() {
   const { mode } = useThemeMode();
   const theme = useMemo(() => createAppTheme(mode), [mode]);
   const processedTokenRef = useRef<string | null>(null);
+
+  // Prompt a refresh once the server reports a newer build than this loaded UI
+  // (a deploy ships a new embedded bundle; a browser on the old one should
+  // reload). Only while signed in, and never for unstamped dev builds.
+  const updateAvailable = useUpdateAvailable(auth === 'authenticated', UI_COMMIT);
 
   useEffect(() => {
     void init();
@@ -219,6 +233,22 @@ export default function App() {
               {notice.message}
             </Alert>
           ) : undefined}
+        </Snackbar>
+        {/* Persistent (no auto-hide) and anchored top-center so it never fights
+            the transient error/notice snackbars at the bottom. Stays until the
+            user reloads onto the new build. */}
+        <Snackbar open={updateAvailable} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+          <Alert
+            severity="info"
+            variant="filled"
+            action={
+              <Button color="inherit" size="small" onClick={() => window.location.reload()}>
+                Refresh
+              </Button>
+            }
+          >
+            A new version of Aerly is available.
+          </Alert>
         </Snackbar>
       </LocalizationProvider>
     </ThemeProvider>

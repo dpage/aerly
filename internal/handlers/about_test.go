@@ -91,6 +91,38 @@ func TestAdminInfoRequiresSuperuser(t *testing.T) {
 	}
 }
 
+// TestVersionEndpointOpenToAnyUser: /api/version is the lightweight build probe
+// the SPA polls to prompt a refresh after a deploy. Unlike /api/admin/info it is
+// NOT superuser-gated (every signed-in client needs it), but it still requires a
+// session and exposes only the commit/build-time — no secrets.
+func TestVersionEndpointOpenToAnyUser(t *testing.T) {
+	e := setup(t, nil, &config.Config{LLMAPIKey: "secret"})
+	normal := e.user(t, "normal", false)
+
+	// Anonymous is unauthorized.
+	if w := e.req(t, "GET", "/api/version", nil, 0); w.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous /api/version = %d, want 401", w.Code)
+	}
+
+	// A normal (non-superuser) signed-in user gets the build identifier.
+	w := e.req(t, "GET", "/api/version", nil, normal)
+	if w.Code != http.StatusOK {
+		t.Fatalf("normal user /api/version = %d, want 200", w.Code)
+	}
+	body := decodeBody[map[string]any](t, w)
+	for _, key := range []string{"commit", "short", "build_time"} {
+		if _, ok := body[key]; !ok {
+			t.Errorf("version.%s missing: %v", key, body)
+		}
+	}
+	// The superuser-only diagnostic fields must not appear here.
+	for _, key := range []string{"go_version", "config", "runtime"} {
+		if _, ok := body[key]; ok {
+			t.Errorf("version payload leaked %q to a non-admin: %v", key, body)
+		}
+	}
+}
+
 func TestAdminInfoStubTrackerWhenUnconfigured(t *testing.T) {
 	e := setup(t, nil, &config.Config{})
 	admin := e.user(t, "admin", true)

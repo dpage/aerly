@@ -6,6 +6,13 @@ import react from '@vitejs/plugin-react';
 // only used during `npm run dev`.
 export default defineConfig({
   plugins: [react()],
+  // Bake the build commit into the bundle so the running UI knows which version
+  // it is and can prompt a refresh when the server reports a newer one. The
+  // Makefile passes COMMIT (the same value stamped into the Go binary); it's
+  // empty under `npm run dev`, where the update check stays dormant.
+  define: {
+    __APP_COMMIT__: JSON.stringify(process.env.COMMIT ?? ''),
+  },
   server: {
     port: 5173,
     proxy: {

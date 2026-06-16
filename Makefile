@@ -24,7 +24,7 @@ build: build-web build-go
 
 build-web:
 	cd $(WEB_DIR) && $(NPM) install --no-audit --no-fund
-	cd $(WEB_DIR) && $(NPM) run build
+	cd $(WEB_DIR) && COMMIT=$(COMMIT) $(NPM) run build
 
 build-go:
 	mkdir -p $(BIN_DIR)
