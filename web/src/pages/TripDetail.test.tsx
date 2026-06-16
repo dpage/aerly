@@ -78,7 +78,7 @@ function trip(over: Partial<Trip> = {}): Trip {
   } as Trip;
 }
 
-function renderDetail(path = '/trips/7') {
+function renderDetail(path: string | { pathname: string; state?: unknown } = '/trips/7') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
@@ -87,6 +87,7 @@ function renderDetail(path = '/trips/7') {
           <Route path="map" element={<div data-testid="outlet">map body</div>} />
         </Route>
         <Route path="/" element={<div data-testid="trips-list">trips list</div>} />
+        <Route path="/friends" element={<div data-testid="friends-list">friends list</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -234,6 +235,22 @@ describe('TripDetail', () => {
     renderDetail();
     await userEvent.click(screen.getByRole('button', { name: /trips/i }));
     expect(screen.getByTestId('trips-list')).toBeInTheDocument();
+  });
+
+  it("returns to the friends' trips list when opened from there", async () => {
+    h.state.currentTrip = trip();
+    renderDetail({ pathname: '/trips/7', state: { from: '/friends' } });
+    await userEvent.click(screen.getByRole('button', { name: /trips/i }));
+    expect(screen.getByTestId('friends-list')).toBeInTheDocument();
+  });
+
+  it("returns to the friends' list even after switching tabs", async () => {
+    h.state.currentTrip = trip();
+    renderDetail({ pathname: '/trips/7', state: { from: '/friends' } });
+    // Switching tabs replaces location.state; the captured origin must survive.
+    await userEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    await userEvent.click(screen.getByRole('button', { name: /trips/i }));
+    expect(screen.getByTestId('friends-list')).toBeInTheDocument();
   });
 
   it('renders the timeline outlet by default and switches to map', async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Avatar,
   Box,
@@ -259,6 +259,7 @@ function TripGroup({ label, trips }: { label: string; trips: Trip[] }) {
 
 function TripCard({ trip }: { trip: Trip }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const users = useStore((s) => s.users);
   const me = useStore((s) => s.me);
 
@@ -303,7 +304,9 @@ function TripCard({ trip }: { trip: Trip }) {
         />
       )}
       <CardActionArea
-        onClick={() => navigate(`/trips/${trip.id}`)}
+        // Remember which list we opened the trip from (home vs Friends' trips)
+        // so the trip's Back button returns there rather than always going home.
+        onClick={() => navigate(`/trips/${trip.id}`, { state: { from: location.pathname } })}
         sx={{ p: 2, position: 'relative' }}
       >
         <Stack direction="row" alignItems="flex-start" spacing={1}>

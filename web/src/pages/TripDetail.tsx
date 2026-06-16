@@ -40,6 +40,16 @@ export default function TripDetail() {
   const location = useLocation();
   const tripId = Number(params.id);
 
+  // Where "Back" should return to: the list we arrived from (TripList stashes
+  // its pathname in the navigation state), defaulting to the home trips list
+  // when there's no origin (e.g. a deep link or a hard refresh). Captured once
+  // on mount — switching the Timeline/Map tabs replaces location.state, so we
+  // read it lazily here to keep the origin stable for the page's lifetime.
+  const [backTo] = useState<string>(() => {
+    const from = (location.state as { from?: string } | null)?.from;
+    return typeof from === 'string' ? from : '/';
+  });
+
   const currentTrip = useStore((s) => s.currentTrip);
   const loadTrip = useStore((s) => s.loadTrip);
   const clearCurrentTrip = useStore((s) => s.clearCurrentTrip);
@@ -85,7 +95,7 @@ export default function TripDetail() {
               size="small"
               edge="start"
               aria-label="Back to trips"
-              onClick={() => navigate('/')}
+              onClick={() => navigate(backTo)}
               sx={{ flexShrink: 0 }}
             >
               <ArrowBackIcon />
@@ -176,7 +186,7 @@ export default function TripDetail() {
         </Box>
       ) : (
         <Box sx={{ px: 3, pt: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Button size="small" onClick={() => navigate('/')}>
+          <Button size="small" onClick={() => navigate(backTo)}>
             ← Trips
           </Button>
           <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
@@ -254,7 +264,7 @@ export default function TripDetail() {
           open={editOpen}
           trip={loaded}
           onClose={() => setEditOpen(false)}
-          onDeleted={() => navigate('/')}
+          onDeleted={() => navigate(backTo)}
         />
       )}
       {loaded && (
