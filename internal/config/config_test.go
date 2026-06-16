@@ -451,3 +451,20 @@ func TestLoadEmailIngestRateLimitInvalid(t *testing.T) {
 		t.Errorf("expected RATE_LIMIT_PER_DAY error, got %v", err)
 	}
 }
+
+func TestLoadEmailIngestRequireFlagsFailClosed(t *testing.T) {
+	// A typo in an auth-gate flag must hard-fail startup, not silently disable
+	// enforcement.
+	emailIngestBase(t)
+	t.Setenv("EMAIL_INGEST_REQUIRE_DKIM", "true")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "EMAIL_INGEST_REQUIRE_DKIM must be 0 or 1") {
+		t.Errorf("expected REQUIRE_DKIM 0/1 error, got %v", err)
+	}
+
+	emailIngestBase(t)
+	t.Setenv("EMAIL_INGEST_REQUIRE_DKIM", "1") // clear the typo set above
+	t.Setenv("EMAIL_INGEST_REQUIRE_SPF", "yes")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "EMAIL_INGEST_REQUIRE_SPF must be 0 or 1") {
+		t.Errorf("expected REQUIRE_SPF 0/1 error, got %v", err)
+	}
+}

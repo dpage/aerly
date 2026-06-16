@@ -137,15 +137,19 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("EMAIL_INGEST_POLL_INTERVAL must be a positive duration")
 		}
 		cfg.EmailIngestPollInterval = pi
-		cfg.EmailIngestRequireDKIM = getenv("EMAIL_INGEST_REQUIRE_DKIM", "1") == "1"
+		dkimReq, err := parseBool01("EMAIL_INGEST_REQUIRE_DKIM", true)
+		if err != nil {
+			return nil, err
+		}
+		cfg.EmailIngestRequireDKIM = dkimReq
 		// SPF enforcement defaults to whatever DKIM does, so an operator who
 		// enables (or disables) sender authentication gets both checks without
 		// setting a second flag; EMAIL_INGEST_REQUIRE_SPF overrides independently.
-		spfDefault := "0"
-		if cfg.EmailIngestRequireDKIM {
-			spfDefault = "1"
+		spfReq, err := parseBool01("EMAIL_INGEST_REQUIRE_SPF", cfg.EmailIngestRequireDKIM)
+		if err != nil {
+			return nil, err
 		}
-		cfg.EmailIngestRequireSPF = getenv("EMAIL_INGEST_REQUIRE_SPF", spfDefault) == "1"
+		cfg.EmailIngestRequireSPF = spfReq
 		cfg.EmailIngestDKIMAuthServID = strings.TrimSpace(os.Getenv("EMAIL_INGEST_DKIM_AUTHSERV_ID"))
 		// DKIM/SPF enforcement is meaningless unless we know which authserv-id our
 		// own MTA stamps: otherwise any Authentication-Results header the sender
@@ -220,4 +224,22 @@ func getenv(k, dflt string) string {
 		return v
 	}
 	return dflt
+}
+
+// parseBool01 reads a strict 0/1 boolean env var, returning dflt when unset or
+// empty. Unlike the loose `== "1"` pattern, an unrecognised value (e.g. a typo
+// like "true") is a hard error rather than a silent false — important for the
+// auth-gate flags, where silently disabling enforcement would be a security
+// regression.
+func parseBool01(k string, dflt bool) (bool, error) {
+	switch strings.TrimSpace(os.Getenv(k)) {
+	case "":
+		return dflt, nil
+	case "0":
+		return false, nil
+	case "1":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s must be 0 or 1", k)
+	}
 }

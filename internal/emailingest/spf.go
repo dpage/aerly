@@ -42,7 +42,7 @@ func SPFPass(headers []string, trustedAuthServID, domain string) bool {
 // equals domain.
 func spfLineMatches(line, domain string) bool {
 	line = strings.ToLower(line)
-	if !strings.Contains(line, "spf=pass") {
+	if !hasAuthResultToken(line, "spf=pass") {
 		return false
 	}
 	id := spfIdentityDomain(line, "smtp.mailfrom=")
@@ -50,6 +50,23 @@ func spfLineMatches(line, domain string) bool {
 		id = spfIdentityDomain(line, "smtp.helo=")
 	}
 	return id != "" && id == domain
+}
+
+// hasAuthResultToken reports whether want (e.g. "spf=pass" / "dkim=pass")
+// appears in line as a complete token — delimited by whitespace or ';' per
+// RFC 8601 — rather than as a substring of another field's value. Without this,
+// a real spf=fail result could be spoofed by an attacker-controlled identity
+// such as smtp.mailfrom=foo+spf=pass@example.com, whose local-part contains the
+// literal "spf=pass". Callers must lower-case line first.
+func hasAuthResultToken(line, want string) bool {
+	for _, tok := range strings.FieldsFunc(line, func(r rune) bool {
+		return r == ';' || r == ' ' || r == '\t' || r == '\r' || r == '\n'
+	}) {
+		if tok == want {
+			return true
+		}
+	}
+	return false
 }
 
 // spfIdentityDomain extracts the domain of the value following key (e.g.

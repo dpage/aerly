@@ -50,7 +50,10 @@ func authServMatches(header, want string) bool {
 
 func dkimLineMatches(line, domain string) bool {
 	line = strings.ToLower(line)
-	if !strings.Contains(line, "dkim=pass") {
+	// Match dkim=pass as a complete RFC 8601 token, not a substring: an
+	// attacker-controlled field value (e.g. header.i=foo+dkim=pass@example.com)
+	// must not be able to smuggle the result past a real dkim=fail.
+	if !hasAuthResultToken(line, "dkim=pass") {
 		return false
 	}
 	idx := strings.Index(line, "header.d=")

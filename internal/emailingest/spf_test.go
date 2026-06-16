@@ -50,6 +50,15 @@ func TestSPFPass_NoIdentity(t *testing.T) {
 	}
 }
 
+func TestSPFPass_NoTokenSmuggling(t *testing.T) {
+	// A real spf=fail must not be overridden by "spf=pass" smuggled into the
+	// (attacker-controlled) mailfrom local-part.
+	h := []string{"mail.example; spf=fail smtp.mailfrom=foo+spf=pass@example.com"}
+	if SPFPass(h, trustedID, "example.com") {
+		t.Error("spf=pass smuggled in the mailfrom local-part must not authenticate")
+	}
+}
+
 func TestSPFPass_StrictDomainMatch(t *testing.T) {
 	h := []string{"mail.example; spf=pass smtp.mailfrom=bounces.example.com"}
 	if SPFPass(h, trustedID, "example.com") {

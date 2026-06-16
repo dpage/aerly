@@ -84,6 +84,15 @@ func TestDKIMPass_IgnoresUntrustedAuthServID(t *testing.T) {
 	}
 }
 
+func TestDKIMPass_NoTokenSmuggling(t *testing.T) {
+	// A real dkim=fail must not be overridden by "dkim=pass" smuggled into
+	// another field's value (here the agent/identity field).
+	h := []string{"mail.example; dkim=fail header.d=example.com header.i=foo+dkim=pass@example.com"}
+	if DKIMPass(h, trustedID, "example.com") {
+		t.Error("dkim=pass smuggled into a field value must not authenticate")
+	}
+}
+
 func TestFromDomain(t *testing.T) {
 	cases := []struct {
 		in, want string
