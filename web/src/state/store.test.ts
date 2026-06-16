@@ -13,6 +13,9 @@ vi.mock('../api/client', async () => {
       getConfig: vi.fn(),
       listUsers: vi.fn(),
       listFriends: vi.fn(),
+      listMyAutoShares: vi.fn(),
+      setMyAutoShare: vi.fn(),
+      removeMyAutoShare: vi.fn(),
       inviteUser: vi.fn(),
       updateUser: vi.fn(),
       deleteUser: vi.fn(),
@@ -48,6 +51,7 @@ beforeEach(() => {
   // don't care about a particular slice don't need to set them up explicitly.
   mockApi.listFriends.mockResolvedValue([]);
   mockApi.listUsers.mockResolvedValue([]);
+  mockApi.listMyAutoShares.mockResolvedValue([]);
   // restore action references in case a previous test mutated them
   useStore.setState({ ...initialState }, false);
   useStore.setState(
@@ -111,6 +115,40 @@ describe('refreshUsers error branches', () => {
     await useStore.getState().refreshAll();
     expect(useStore.getState().users).toHaveLength(1);
     expect(useStore.getState().friendships).toHaveLength(1);
+  });
+});
+
+describe('auto-shares', () => {
+  it('refreshAutoShares loads the defaults', async () => {
+    mockApi.listMyAutoShares.mockResolvedValue([{ user_id: 2, role: 'viewer' }]);
+    await useStore.getState().refreshAutoShares();
+    expect(useStore.getState().autoShares).toEqual([{ user_id: 2, role: 'viewer' }]);
+  });
+
+  it('refreshAutoShares sets error on failure', async () => {
+    mockApi.listMyAutoShares.mockRejectedValue(new Error('boom'));
+    await useStore.getState().refreshAutoShares();
+    expect(useStore.getState().error).toBe('boom');
+  });
+
+  it('setAutoShare stores the server-returned list', async () => {
+    mockApi.setMyAutoShare.mockResolvedValue([{ user_id: 3, role: 'editor' }]);
+    await useStore.getState().setAutoShare(3, 'editor');
+    expect(mockApi.setMyAutoShare).toHaveBeenCalledWith(3, 'editor');
+    expect(useStore.getState().autoShares).toEqual([{ user_id: 3, role: 'editor' }]);
+  });
+
+  it('removeAutoShare drops the entry locally', async () => {
+    useStore.setState({
+      autoShares: [
+        { user_id: 2, role: 'viewer' },
+        { user_id: 3, role: 'editor' },
+      ],
+    });
+    mockApi.removeMyAutoShare.mockResolvedValue(undefined);
+    await useStore.getState().removeAutoShare(2);
+    expect(mockApi.removeMyAutoShare).toHaveBeenCalledWith(2);
+    expect(useStore.getState().autoShares).toEqual([{ user_id: 3, role: 'editor' }]);
   });
 });
 

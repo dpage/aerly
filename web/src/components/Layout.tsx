@@ -36,6 +36,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import NotificationsIcon from '@mui/icons-material/NotificationsOutlined';
 import HomeIcon from '@mui/icons-material/HomeOutlined';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
+import GroupAddIcon from '@mui/icons-material/GroupAddOutlined';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
@@ -52,6 +53,7 @@ import FriendsDialog from './FriendsDialog';
 import StatsDialog from './StatsDialog';
 import CalendarSubscribeDialog from './CalendarSubscribeDialog';
 import HomeAddressDialog from './HomeAddressDialog';
+import AutoShareDialog from './AutoShareDialog';
 
 /** The authenticated app chrome for the trip-planning redesign (spec §11).
  *
@@ -87,6 +89,7 @@ export default function Layout() {
   const [alertPrefsOpen, setAlertPrefsOpen] = useState(false);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [homeAddrOpen, setHomeAddrOpen] = useState(false);
+  const [autoShareOpen, setAutoShareOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   const closeMenu = () => setMenuAnchor(null);
@@ -301,6 +304,17 @@ export default function Layout() {
             <MenuItem
               onClick={() => {
                 closeMenu();
+                setAutoShareOpen(true);
+              }}
+            >
+              <ListItemIcon>
+                <GroupAddIcon fontSize="small" />
+              </ListItemIcon>
+              Always share with…
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeMenu();
                 setSubscribeOpen(true);
               }}
             >
@@ -410,6 +424,7 @@ export default function Layout() {
       <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} />
       <AlertPrefsDialog open={alertPrefsOpen} onClose={() => setAlertPrefsOpen(false)} />
       <HomeAddressDialog open={homeAddrOpen} onClose={() => setHomeAddrOpen(false)} />
+      <AutoShareDialog open={autoShareOpen} onClose={() => setAutoShareOpen(false)} />
       <CalendarSubscribeDialog
         open={subscribeOpen}
         onClose={() => setSubscribeOpen(false)}

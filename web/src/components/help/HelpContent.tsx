@@ -244,6 +244,10 @@ export const HELP_PAGES: HelpPage[] = [
           description="Someone travelling on the whole trip (e.g. your partner). They become a passenger on every plan — existing and future — so they see all of it (except plans hidden from them), and it shows up under their own My trips."
         />
         <Body>You can only add people who are already your friends.</Body>
+        <FeatureItem
+          title="Always share with"
+          description="In the account menu, set a list of friends who are added to every new trip you create automatically — e.g. your partner as a viewer and your assistant as an editor. It applies only to trips you create from then on; trips you've already shared are left as they are."
+        />
         <SectionTitle>Per-plan privacy</SectionTitle>
         <FeatureItem
           title="Who can see this plan?"

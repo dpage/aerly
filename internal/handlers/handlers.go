@@ -82,6 +82,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/me/emails", req(http.HandlerFunc(a.addMyEmail)))
 	mux.Handle("POST /api/me/emails/{id}/resend", req(http.HandlerFunc(a.resendMyEmail)))
 	mux.Handle("DELETE /api/me/emails/{id}", req(http.HandlerFunc(a.deleteMyEmail)))
+	mux.Handle("GET /api/me/auto-shares", req(http.HandlerFunc(a.listMyAutoShares)))
+	mux.Handle("PUT /api/me/auto-shares/{userId}", req(http.HandlerFunc(a.setMyAutoShare)))
+	mux.Handle("DELETE /api/me/auto-shares/{userId}", req(http.HandlerFunc(a.deleteMyAutoShare)))
 
 	// The legacy /api/flights CRUD surface (list/create/get/update/delete +
 	// passengers/shares) was retired in Wave 3 — flights now live in the plan

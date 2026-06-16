@@ -73,6 +73,23 @@ func ToDirectoryUserDTO(u *store.User) UserDTO {
 	}
 }
 
+// AutoShareDTO is one entry in a user's "always share with" defaults: the
+// target user and the role they're auto-granted on every new trip the owner
+// creates. Role is "viewer", "editor", or "passenger".
+type AutoShareDTO struct {
+	UserID int64  `json:"user_id"`
+	Role   string `json:"role"`
+}
+
+// ToAutoShareDTOs projects a user's auto-share defaults for the wire.
+func ToAutoShareDTOs(shares []store.AutoShare) []AutoShareDTO {
+	out := make([]AutoShareDTO, 0, len(shares))
+	for _, a := range shares {
+		out = append(out, AutoShareDTO{UserID: a.ShareWithID, Role: a.Role})
+	}
+	return out
+}
+
 // FriendshipDTO describes one row in /api/friends, oriented from the
 // viewer's perspective. Direction is "outgoing" when the viewer initiated
 // a pending request, "incoming" when the viewer needs to act on someone

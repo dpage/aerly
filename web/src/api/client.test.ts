@@ -256,6 +256,25 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(last()[1]?.body).toBe(JSON.stringify({ home_address: '1 Main St' }));
   });
 
+  it('listMyAutoShares', async () => {
+    await api.listMyAutoShares();
+    expect(last()[0]).toBe('/api/me/auto-shares');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('setMyAutoShare sends the role to the per-user path', async () => {
+    await api.setMyAutoShare(7, 'editor');
+    expect(last()[0]).toBe('/api/me/auto-shares/7');
+    expect(last()[1]?.method).toBe('PUT');
+    expect(last()[1]?.body).toBe(JSON.stringify({ role: 'editor' }));
+  });
+
+  it('removeMyAutoShare', async () => {
+    await api.removeMyAutoShare(7);
+    expect(last()[0]).toBe('/api/me/auto-shares/7');
+    expect(last()[1]?.method).toBe('DELETE');
+  });
+
   it('cancelOutgoingInvite sends the email body and resolves undefined', async () => {
     const r = await api.cancelOutgoingInvite('bob@example.com');
     expect(r).toBeUndefined();

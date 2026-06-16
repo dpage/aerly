@@ -74,6 +74,7 @@ vi.mock('./FriendsDialog', () => ({ default: stubDialog('friends-dialog') }));
 vi.mock('./StatsDialog', () => ({ default: stubDialog('stats-dialog') }));
 vi.mock('./CalendarSubscribeDialog', () => ({ default: stubDialog('subscribe-dialog') }));
 vi.mock('./HomeAddressDialog', () => ({ default: stubDialog('home-dialog') }));
+vi.mock('./AutoShareDialog', () => ({ default: stubDialog('autoshare-dialog') }));
 
 import Layout from './Layout';
 
