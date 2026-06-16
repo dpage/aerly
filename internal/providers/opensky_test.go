@@ -43,6 +43,22 @@ func TestOpenSkyRateLimited(t *testing.T) {
 	}
 }
 
+// A 429 fires the OnRateLimit hook so the operator can be alerted even though
+// the wrapping DeadReckoner swallows the error.
+func TestOpenSkyRateLimitFiresHook(t *testing.T) {
+	o := newOpenSky(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	var gotProvider, gotDetail string
+	o.OnRateLimit = func(provider, detail string) { gotProvider, gotDetail = provider, detail }
+	if _, err := o.Track(context.Background(), osFlight("abc123"), time.Now()); err == nil {
+		t.Error("expected rate-limit error")
+	}
+	if gotProvider != "OpenSky" || gotDetail == "" {
+		t.Errorf("hook got (%q,%q), want provider OpenSky + non-empty detail", gotProvider, gotDetail)
+	}
+}
+
 func TestOpenSkyNon200(t *testing.T) {
 	o := newOpenSky(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
