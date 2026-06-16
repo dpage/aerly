@@ -41,6 +41,12 @@ func HTMLShell(title, body, publicURL string) string {
 	safeTitle := html.EscapeString(title)
 	safeSite := html.EscapeString(site)
 	safeHost := html.EscapeString(host)
+	// The brand mark is served from the SPA root (web/public/email-mark.png):
+	// the glowing icon on a dark, rounded tile with transparent corners, so it
+	// sits cleanly on the blue header bar. Remote images may be blocked until
+	// the recipient opts in, so the "Aerly" wordmark beside it carries the brand
+	// regardless.
+	iconURL := safeSite + "/email-mark.png"
 	return `<!doctype html>
 <html lang="en">
 <head>
@@ -56,7 +62,7 @@ func HTMLShell(title, body, publicURL string) string {
 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
 <tr>
 <td valign="middle" style="padding-right:12px;">
-<div style="width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.18);color:#ffffff;font-size:20px;line-height:36px;text-align:center;font-family:Arial,sans-serif;">&#9992;&#xFE0E;</div>
+<img src="` + iconURL + `" width="40" height="40" alt="Aerly" style="display:block;border:0;outline:none;text-decoration:none;width:40px;height:40px;">
 </td>
 <td valign="middle" style="color:#ffffff;font-size:18px;font-weight:600;letter-spacing:0.2px;">Aerly</td>
 </tr>

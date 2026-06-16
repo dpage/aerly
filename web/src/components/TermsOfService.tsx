@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Box, Divider, Link, Paper, Stack, Typography } from '@mui/material';
-import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
+
+import AerlyLogo from './AerlyLogo';
 
 export default function TermsOfService() {
   return (
@@ -16,7 +17,7 @@ export default function TermsOfService() {
       <Paper sx={{ p: 4, maxWidth: 640, width: '100%' }} elevation={3}>
         <Stack spacing={3}>
           <Stack spacing={1} alignItems="center" textAlign="center">
-            <FlightTakeoffIcon color="primary" sx={{ fontSize: 56 }} />
+            <AerlyLogo size={56} />
             <Typography variant="h4" component="h1">
               Terms of Service
             </Typography>
