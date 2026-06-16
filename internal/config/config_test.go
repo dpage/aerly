@@ -369,3 +369,102 @@ func TestLoadEmailIngestRequireDKIMOff(t *testing.T) {
 		t.Error("RequireDKIM should be false when env=0")
 	}
 }
+
+func TestLoadEmailIngestRequireSPFDefaultsToDKIM(t *testing.T) {
+	emailIngestBase(t) // RequireDKIM defaults on
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.EmailIngestRequireSPF {
+		t.Error("RequireSPF should follow RequireDKIM (on by default)")
+	}
+
+	// With DKIM off and SPF unset, SPF follows DKIM off — and no authserv-id is
+	// then required.
+	t.Setenv("EMAIL_INGEST_REQUIRE_DKIM", "0")
+	t.Setenv("EMAIL_INGEST_DKIM_AUTHSERV_ID", "")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.EmailIngestRequireSPF {
+		t.Error("RequireSPF should follow RequireDKIM off when unset")
+	}
+}
+
+func TestLoadEmailIngestRequireSPFOverride(t *testing.T) {
+	emailIngestBase(t)
+	// DKIM off but SPF explicitly on: SPF enforced, and the authserv-id is now
+	// required (it backs both checks).
+	t.Setenv("EMAIL_INGEST_REQUIRE_DKIM", "0")
+	t.Setenv("EMAIL_INGEST_REQUIRE_SPF", "1")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.EmailIngestRequireSPF || cfg.EmailIngestRequireDKIM {
+		t.Errorf("want SPF on, DKIM off; got spf=%v dkim=%v", cfg.EmailIngestRequireSPF, cfg.EmailIngestRequireDKIM)
+	}
+
+	t.Setenv("EMAIL_INGEST_DKIM_AUTHSERV_ID", "")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "AUTHSERV_ID") {
+		t.Errorf("expected authserv-id required when only SPF is on, got %v", err)
+	}
+}
+
+func TestLoadEmailIngestRateLimitDefault(t *testing.T) {
+	emailIngestBase(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmailIngestRateLimitPerDay != 50 {
+		t.Errorf("rate limit default = %d, want 50", cfg.EmailIngestRateLimitPerDay)
+	}
+}
+
+func TestLoadEmailIngestRateLimitCustomAndDisabled(t *testing.T) {
+	emailIngestBase(t)
+	t.Setenv("EMAIL_INGEST_RATE_LIMIT_PER_DAY", "10")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmailIngestRateLimitPerDay != 10 {
+		t.Errorf("rate limit = %d, want 10", cfg.EmailIngestRateLimitPerDay)
+	}
+	t.Setenv("EMAIL_INGEST_RATE_LIMIT_PER_DAY", "0") // 0 disables
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmailIngestRateLimitPerDay != 0 {
+		t.Errorf("rate limit = %d, want 0 (disabled)", cfg.EmailIngestRateLimitPerDay)
+	}
+}
+
+func TestLoadEmailIngestRateLimitInvalid(t *testing.T) {
+	emailIngestBase(t)
+	t.Setenv("EMAIL_INGEST_RATE_LIMIT_PER_DAY", "-1")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "RATE_LIMIT_PER_DAY") {
+		t.Errorf("expected RATE_LIMIT_PER_DAY error, got %v", err)
+	}
+}
+
+func TestLoadEmailIngestRequireFlagsFailClosed(t *testing.T) {
+	// A typo in an auth-gate flag must hard-fail startup, not silently disable
+	// enforcement.
+	emailIngestBase(t)
+	t.Setenv("EMAIL_INGEST_REQUIRE_DKIM", "true")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "EMAIL_INGEST_REQUIRE_DKIM must be 0 or 1") {
+		t.Errorf("expected REQUIRE_DKIM 0/1 error, got %v", err)
+	}
+
+	emailIngestBase(t)
+	t.Setenv("EMAIL_INGEST_REQUIRE_DKIM", "1") // clear the typo set above
+	t.Setenv("EMAIL_INGEST_REQUIRE_SPF", "yes")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "EMAIL_INGEST_REQUIRE_SPF must be 0 or 1") {
+		t.Errorf("expected REQUIRE_SPF 0/1 error, got %v", err)
+	}
+}
