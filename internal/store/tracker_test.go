@@ -335,6 +335,42 @@ func TestTaggedTripSpan(t *testing.T) {
 	}
 }
 
+// TestProvisionalFlightParts: only live, non-terminal, unconfirmed parts are
+// returned — the candidates for the sweep's provisional re-resolution pass.
+func TestProvisionalFlightParts(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Unconfirmed, future, non-terminal → returned.
+	want := mkFlightPart(t, s, owner, "TK1986", now.Add(48*time.Hour), now.Add(50*time.Hour))
+
+	// Confirmed → excluded.
+	confirmed := mkFlightPart(t, s, owner, "BA286", now.Add(48*time.Hour), now.Add(50*time.Hour))
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE flight_details SET resolved = true WHERE plan_part_id = $1`, confirmed); err != nil {
+		t.Fatalf("mark resolved: %v", err)
+	}
+
+	// Terminal status → excluded (don't burn quota re-resolving history).
+	arrived := mkFlightPart(t, s, owner, "LH441", now.Add(-50*time.Hour), now.Add(-48*time.Hour))
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE flight_details SET flight_status = 'Arrived' WHERE plan_part_id = $1`, arrived); err != nil {
+		t.Fatalf("mark arrived: %v", err)
+	}
+
+	parts, err := s.ProvisionalFlightParts(ctx)
+	if err != nil {
+		t.Fatalf("ProvisionalFlightParts: %v", err)
+	}
+	if len(parts) != 1 || parts[0].ID != want {
+		t.Fatalf("expected only the unconfirmed future part %d, got %d: %+v", want, len(parts), parts)
+	}
+}
+
 func planOf(t *testing.T, s *Store, partID int64) int64 {
 	t.Helper()
 	var planID int64

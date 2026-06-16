@@ -164,6 +164,34 @@ func (s *Store) FlightPartsWithMissingCoords(ctx context.Context) ([]*Flight, er
 	return out, rows.Err()
 }
 
+// ProvisionalFlightParts returns every live (non-dismissed), non-terminal flight
+// part the provider hasn't confirmed yet (resolved = false), oldest departure
+// first. These are the candidates for the sweep's provisional re-resolution
+// pass — including on-table flights whose coords are already filled, which
+// FlightPartsWithMissingCoords never returns. Terminal-status rows are excluded
+// so we don't spend resolver quota re-resolving arrived/cancelled history.
+func (s *Store) ProvisionalFlightParts(ctx context.Context) ([]*Flight, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+flightPartColumns+` `+flightPartFrom+`
+		WHERE fd.resolved = false
+		  AND fd.flight_status NOT IN ('Arrived', 'Cancelled', 'Diverted')
+		  AND part.dismissed_at IS NULL
+		ORDER BY fd.scheduled_out ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Flight
+	for rows.Next() {
+		f, err := scanFlightPart(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // FlightPartsByPlanMissingCoords returns the flight parts of a single plan that
 // have at least one NULL coord column. It scopes FlightPartsWithMissingCoords to
 // one plan so the one-shot backfill fired right after ingest only touches the
