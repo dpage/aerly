@@ -11,6 +11,8 @@ describe('HelpContent', () => {
       'plans',
       'tracker',
       'sharing',
+      'alerts',
+      'account',
     ]);
     for (const p of HELP_PAGES) {
       expect(p.label).toBeTruthy();
@@ -35,6 +37,30 @@ describe('HelpContent', () => {
     expect(screen.getByText('Passengers')).toBeInTheDocument();
     // The HelpTip callout renders.
     expect(screen.getByText('Tip:')).toBeInTheDocument();
+  });
+
+  it('the alerts page covers the inbox, preferences and reminders', () => {
+    const alerts = HELP_PAGES.find((p) => p.id === 'alerts')!;
+    render(<div>{alerts.body}</div>);
+    expect(screen.getByText('Alerts inbox')).toBeInTheDocument();
+    expect(screen.getByText('Alert preferences')).toBeInTheDocument();
+    expect(screen.getByText('Notify me of changes')).toBeInTheDocument();
+    expect(screen.getByText('Reminders')).toBeInTheDocument();
+  });
+
+  it('the account page covers statistics, home address and calendar feeds', () => {
+    const account = HELP_PAGES.find((p) => p.id === 'account')!;
+    render(<div>{account.body}</div>);
+    expect(screen.getByText('Statistics')).toBeInTheDocument();
+    expect(screen.getByText('Home address')).toBeInTheDocument();
+    expect(screen.getByText('Subscribe to calendar')).toBeInTheDocument();
+  });
+
+  it('the sharing page also explains adding friends', () => {
+    const sharing = HELP_PAGES.find((p) => p.id === 'sharing')!;
+    render(<div>{sharing.body}</div>);
+    expect(screen.getByText('Add a friend')).toBeInTheDocument();
+    expect(screen.getByText('Unfriend')).toBeInTheDocument();
   });
 
   it('maps context hints to topic pages, defaulting to the overview', () => {

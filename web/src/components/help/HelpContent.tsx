@@ -9,6 +9,8 @@ import LuggageOutlinedIcon from '@mui/icons-material/LuggageOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
+import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 
 // --- content primitives -----------------------------------------------------
 
@@ -99,7 +101,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="3. Share it"
-          description="Invite friends as editors or viewers, and fine-tune who sees what per plan. See Sharing & privacy."
+          description="Invite friends as editors or viewers, and fine-tune who sees what per plan. See Friends & sharing."
         />
         <HelpTip>
           The Map tab and the global Tracker show every mappable plan in time order — click an item
@@ -116,12 +118,20 @@ export const HELP_PAGES: HelpPage[] = [
       <Box>
         <Body>
           A trip is the container for everything else. Create one from the Trips list with{' '}
-          <strong>New trip</strong>.
+          <strong>New trip</strong> — give it a name, and optionally a destination and dates.
+          Your own trips live under <strong>My trips</strong> (along with any you&apos;re a
+          passenger on); trips a friend has shared with you appear under <strong>Friends&apos;
+          trips</strong>.
         </Body>
         <SectionTitle>Dates</SectionTitle>
         <FeatureItem
           title="Optional, and auto-inferred"
           description="Leave dates blank and Aerly shows an inferred span (marked with ~) from the plans inside. If a plan falls outside dates you have set, the trip flags it so you can check."
+        />
+        <SectionTitle>Importing</SectionTitle>
+        <FeatureItem
+          title="Import a TripIt .ics"
+          description="Use Import .ics on the Trips list to turn a TripIt calendar export into a trip — Aerly creates it and adds the plans for you. Re-importing the same export updates the existing trip rather than duplicating it."
         />
         <SectionTitle>Tags & editing</SectionTitle>
         <FeatureItem
@@ -168,6 +178,15 @@ export const HELP_PAGES: HelpPage[] = [
           title="Timeline & map"
           description="Plans show on the trip's Timeline (grouped by local day) and on the Map tab, which lists every mappable plan in time order beside the map."
         />
+        <SectionTitle>Combine or split bookings</SectionTitle>
+        <FeatureItem
+          title="Link bookings"
+          description="When two or more flights, trains or transfers are really one booking, editors can use Link bookings on the Timeline to select them and fold them into a single multi-part plan."
+        />
+        <FeatureItem
+          title="Split out"
+          description="A multi-leg booking's Edit dialog offers Split out on each leg, to pull a leg back into its own separate plan."
+        />
       </Box>
     ),
   },
@@ -206,6 +225,14 @@ export const HELP_PAGES: HelpPage[] = [
           description="Scope the Tracker to a tag to see just that group of trips (e.g. one conference)."
         />
         <FeatureItem
+          title="Mine only"
+          description="Toggle Mine only to hide everyone else's plans and show just your own."
+        />
+        <FeatureItem
+          title="Show / hide types"
+          description="Tap the coloured type chips (flights, hotels, trains, taxis, dining, excursions) to show or hide each kind of plan on the map."
+        />
+        <FeatureItem
           title="Live flights"
           description="When a flight is airborne and tracking data is available, its pin shows the aircraft's current position, and selecting it draws the flown track over the planned route."
         />
@@ -218,14 +245,27 @@ export const HELP_PAGES: HelpPage[] = [
   },
   {
     id: 'sharing',
-    label: 'Sharing & privacy',
+    label: 'Friends & sharing',
     Icon: PeopleOutlineIcon,
     body: (
       <Box>
         <Body>
-          Sharing works at two levels: who is on the <strong>trip</strong>, and who can see each
-          individual <strong>plan</strong>.
+          You share trips with <strong>friends</strong>. Sharing then works at two levels: who is on
+          the <strong>trip</strong>, and who can see each individual <strong>plan</strong>.
         </Body>
+        <SectionTitle>Friends</SectionTitle>
+        <FeatureItem
+          title="Add a friend"
+          description="Open Friends from the account menu and invite someone by email. If they're already on Aerly they get a friend request; otherwise they're emailed an invitation to join."
+        />
+        <FeatureItem
+          title="Requests & the badge"
+          description="Incoming requests appear in the same dialog to accept or decline — a badge on your avatar flags any that are pending."
+        />
+        <FeatureItem
+          title="Unfriend"
+          description="Removing a friend also revokes the flight access the two of you had shared with each other."
+        />
         <SectionTitle>Trip roles (Share trip)</SectionTitle>
         <FeatureItem
           title="Owner"
@@ -260,6 +300,91 @@ export const HELP_PAGES: HelpPage[] = [
         <HelpTip>
           Trip roles control the whole trip; per-plan privacy is a finer control on top — use it to
           keep a surprise dinner hidden from one traveller while the rest of the trip stays shared.
+        </HelpTip>
+      </Box>
+    ),
+  },
+  {
+    id: 'alerts',
+    label: 'Alerts & reminders',
+    Icon: NotificationsOutlinedIcon,
+    body: (
+      <Box>
+        <Body>
+          Aerly tells you when a flight changes, and can remind you before a plan. Everything
+          collects in the <strong>Alerts</strong> inbox in the account menu.
+        </Body>
+        <SectionTitle>Alerts inbox</SectionTitle>
+        <FeatureItem
+          title="What lands here"
+          description="Flight changes (delays, gate or terminal changes, cancellations), reminders, and notifications that a trip has been shared with you. A badge on your avatar shows the unread count."
+        />
+        <FeatureItem
+          title="Open, delete, clear"
+          description="Open an alert to jump straight to the affected flight or trip. Delete items individually or use Clear all; opening the inbox marks everything read."
+        />
+        <SectionTitle>Alert preferences</SectionTitle>
+        <FeatureItem
+          title="How you're notified"
+          description="In Alert preferences (account menu) choose in-app, email, or both — and set a minimum delay so short hiccups below that many minutes don't alert you."
+        />
+        <FeatureItem
+          title="Notify me of changes"
+          description="As a trip viewer you don't get a plan's flight alerts by default. Open the plan and turn on Notify me of changes for the ones you want to follow. (Owners and editors are alerted via their own preferences.)"
+        />
+        <SectionTitle>Reminders</SectionTitle>
+        <FeatureItem
+          title="Per trip"
+          description="Turn on Email me reminders on a trip and set a lead time in hours to be reminded before every plan you can see on it."
+        />
+        <FeatureItem
+          title="Per plan"
+          description="A plan's Reminder control overrides the trip setting — change its lead time, or opt a single plan in or out."
+        />
+        <HelpTip>
+          Reminders are about timing (a heads-up before you travel); the flight alerts above fire
+          whenever the airline reports a change. They&apos;re independent — set each to taste.
+        </HelpTip>
+      </Box>
+    ),
+  },
+  {
+    id: 'account',
+    label: 'Your account',
+    Icon: SettingsOutlinedIcon,
+    body: (
+      <Box>
+        <Body>
+          These all live in the account menu under your avatar (top-right).
+        </Body>
+        <SectionTitle>Statistics</SectionTitle>
+        <FeatureItem
+          title="Your flying, totted up"
+          description="Flown and upcoming totals — flights, distance, time in the air and airports — plus highlights like your longest flight, most-visited airport and laps of the Earth."
+        />
+        <SectionTitle>Home address</SectionTitle>
+        <FeatureItem
+          title="Context for text capture"
+          description="Set your home address once so plans captured from text (e.g. “taxi from home to the airport”) know where home is. It's only ever visible to you."
+        />
+        <SectionTitle>Subscribe to calendar</SectionTitle>
+        <FeatureItem
+          title="Private iCal feeds"
+          description="Get a private subscription link — your whole schedule, a single trip, or one plan — to add to Apple Calendar, Google Calendar or Outlook. It always shows exactly what you can see in the app. Regenerate the link to revoke the old one."
+        />
+        <SectionTitle>Email addresses</SectionTitle>
+        <FeatureItem
+          title="When forwarding is enabled"
+          description="If your Aerly is set up to add flights from forwarded booking emails, use Email addresses to add and verify the addresses you can forward from. (Hidden when forwarding isn't enabled.)"
+        />
+        <SectionTitle>Appearance & sessions</SectionTitle>
+        <FeatureItem
+          title="Theme and signing out"
+          description="Switch between Light, Dark and System appearance. Sign out ends this session; Sign out everywhere ends every active session on all your devices."
+        />
+        <HelpTip>
+          Always share with (also in the account menu) auto-adds chosen friends to every new trip —
+          see Friends &amp; sharing.
         </HelpTip>
       </Box>
     ),

@@ -48,7 +48,7 @@ describe('HelpPanel', () => {
     h.state.helpOpen = true;
     render(<HelpPanel />);
     // Click the Sharing nav item.
-    await user.click(screen.getByRole('button', { name: /sharing & privacy/i }));
+    await user.click(screen.getByRole('button', { name: /friends & sharing/i }));
     expect(screen.getByText('Passengers')).toBeInTheDocument();
     // Back returns to the overview.
     await user.click(screen.getByRole('button', { name: /back to help overview/i }));
