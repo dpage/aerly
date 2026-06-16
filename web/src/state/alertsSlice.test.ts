@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import type { AlertPrefs, FlightAlert, Plan, Trip } from '../api/types';
+import type { AlertPrefs, FlightAlert, NotificationItem, Plan, Trip } from '../api/types';
 
 vi.mock('../api/client', () => ({
   ApiError: class {},
@@ -16,6 +16,8 @@ vi.mock('../api/client', () => ({
     getTrip: vi.fn(),
     getAlerts: vi.fn(),
     markAlertsRead: vi.fn(),
+    deleteAlert: vi.fn(),
+    clearAlerts: vi.fn(),
   },
 }));
 
@@ -186,6 +188,7 @@ describe('alertsSlice inbox', () => {
     const stored = useStore.getState().alerts[0];
     expect(stored).toEqual({
       id: 7,
+      source: 'flight',
       kind: 'gate',
       trip_id: 1,
       plan_id: 1,
@@ -272,6 +275,7 @@ describe('alertsSlice inbox', () => {
       alerts: [
         {
           id: 5,
+          source: 'notification',
           kind: 'share',
           trip_id: 1,
           plan_id: 1,
@@ -298,5 +302,105 @@ describe('alertsSlice inbox', () => {
     useStore.getState().applyIncomingAlert(mk(3, 'original')); // exact same kind+id
     expect(useStore.getState().alerts).toHaveLength(1);
     expect(useStore.getState().notifications.unread_alerts).toBe(1);
+  });
+
+  const item = (over: Partial<NotificationItem> = {}): NotificationItem => ({
+    id: 1,
+    source: 'flight',
+    kind: 'gate',
+    trip_id: 1,
+    plan_id: 1,
+    plan_part_id: 1,
+    message: 'm',
+    created_at: '2026-06-01T00:00:00Z',
+    ...over,
+  });
+
+  it('deleteAlert removes the item and decrements the matching unread counter', async () => {
+    mockApi.deleteAlert.mockResolvedValue(undefined);
+    const unread = item({ id: 9, read_at: undefined });
+    useStore.setState({
+      alerts: [unread],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 0 },
+    });
+    await useStore.getState().deleteAlert(unread);
+    expect(mockApi.deleteAlert).toHaveBeenCalledWith('flight', 9);
+    expect(useStore.getState().alerts).toHaveLength(0);
+    expect(useStore.getState().notifications.unread_alerts).toBe(0);
+  });
+
+  it('deleteAlert decrements unread_shares for a notification-source item', async () => {
+    mockApi.deleteAlert.mockResolvedValue(undefined);
+    const share = item({ id: 4, source: 'notification', kind: 'share', plan_part_id: undefined });
+    useStore.setState({
+      alerts: [share],
+      notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 2 },
+    });
+    await useStore.getState().deleteAlert(share);
+    expect(mockApi.deleteAlert).toHaveBeenCalledWith('notification', 4);
+    expect(useStore.getState().notifications.unread_shares).toBe(1);
+  });
+
+  it('deleteAlert leaves the unread counter untouched for an already-read item', async () => {
+    mockApi.deleteAlert.mockResolvedValue(undefined);
+    const read = item({ id: 2, read_at: '2026-06-01T01:00:00Z' });
+    useStore.setState({
+      alerts: [read],
+      notifications: { friend_requests_pending: 0, unread_alerts: 3, unread_shares: 0 },
+    });
+    await useStore.getState().deleteAlert(read);
+    expect(useStore.getState().notifications.unread_alerts).toBe(3);
+  });
+
+  it('deleteAlert keys on (source, id) so a colliding id in the other source survives', async () => {
+    mockApi.deleteAlert.mockResolvedValue(undefined);
+    const flight = item({ id: 5, source: 'flight' });
+    const share = item({ id: 5, source: 'notification', kind: 'share', plan_part_id: undefined });
+    useStore.setState({
+      alerts: [flight, share],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 1 },
+    });
+    await useStore.getState().deleteAlert(flight);
+    const alerts = useStore.getState().alerts;
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].source).toBe('notification');
+  });
+
+  it('deleteAlert rolls back the optimistic removal when the server call fails', async () => {
+    mockApi.deleteAlert.mockRejectedValue(new Error('boom'));
+    const unread = item({ id: 9 });
+    useStore.setState({
+      alerts: [unread],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 0 },
+    });
+    await useStore.getState().deleteAlert(unread);
+    expect(useStore.getState().alerts).toHaveLength(1);
+    expect(useStore.getState().notifications.unread_alerts).toBe(1);
+    expect(useStore.getState().error).toBe('boom');
+  });
+
+  it('clearAlerts empties the list and zeroes both unread counters', async () => {
+    mockApi.clearAlerts.mockResolvedValue(undefined);
+    useStore.setState({
+      alerts: [item({ id: 1 }), item({ id: 2 })],
+      notifications: { friend_requests_pending: 0, unread_alerts: 2, unread_shares: 1 },
+    });
+    await useStore.getState().clearAlerts();
+    expect(mockApi.clearAlerts).toHaveBeenCalled();
+    expect(useStore.getState().alerts).toHaveLength(0);
+    expect(useStore.getState().notifications.unread_alerts).toBe(0);
+    expect(useStore.getState().notifications.unread_shares).toBe(0);
+  });
+
+  it('clearAlerts rolls back when the server call fails', async () => {
+    mockApi.clearAlerts.mockRejectedValue(new Error('net'));
+    useStore.setState({
+      alerts: [item({ id: 1 })],
+      notifications: { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 0 },
+    });
+    await useStore.getState().clearAlerts();
+    expect(useStore.getState().alerts).toHaveLength(1);
+    expect(useStore.getState().notifications.unread_alerts).toBe(1);
+    expect(useStore.getState().error).toBe('net');
   });
 });

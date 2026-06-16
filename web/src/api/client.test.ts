@@ -176,6 +176,31 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     await api.deleteMyEmail(7);
   });
 
+  it('getAlerts', async () => {
+    await api.getAlerts();
+    expect(last()[0]).toBe('/api/alerts');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('markAlertsRead', async () => {
+    mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.markAlertsRead();
+  });
+
+  it('deleteAlert targets the source-scoped path', async () => {
+    const spy2 = mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.deleteAlert('flight', 9);
+    expect(spy2.mock.calls[0][0]).toBe('/api/alerts/flight/9');
+    expect(spy2.mock.calls[0][1]?.method).toBe('DELETE');
+  });
+
+  it('clearAlerts deletes the whole inbox', async () => {
+    const spy2 = mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
+    await api.clearAlerts();
+    expect(spy2.mock.calls[0][0]).toBe('/api/alerts');
+    expect(spy2.mock.calls[0][1]?.method).toBe('DELETE');
+  });
+
   it('listFriends', async () => {
     await api.listFriends();
     expect(last()[0]).toBe('/api/friends');

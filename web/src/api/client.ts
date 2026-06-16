@@ -187,6 +187,9 @@ export const api = {
   getNotifications: () => request<Notifications>('GET', '/api/notifications'),
   getAlerts: () => request<NotificationItem[]>('GET', '/api/alerts'),
   markAlertsRead: () => request<void>('POST', '/api/alerts/read'),
+  deleteAlert: (source: NotificationItem['source'], id: number) =>
+    request<void>('DELETE', `/api/alerts/${source}/${id}`),
+  clearAlerts: () => request<void>('DELETE', '/api/alerts'),
 
   listMyEmails: () => request<UserEmail[]>('GET', '/api/me/emails'),
   addMyEmail: (address: string) => request<UserEmail>('POST', '/api/me/emails', { address }),
@@ -198,8 +201,7 @@ export const api = {
   listMyAutoShares: () => request<AutoShare[]>('GET', '/api/me/auto-shares'),
   setMyAutoShare: (userId: number, role: AutoShareRole) =>
     request<AutoShare[]>('PUT', `/api/me/auto-shares/${userId}`, { role }),
-  removeMyAutoShare: (userId: number) =>
-    request<void>('DELETE', `/api/me/auto-shares/${userId}`),
+  removeMyAutoShare: (userId: number) => request<void>('DELETE', `/api/me/auto-shares/${userId}`),
 
   logout: () =>
     fetch('/auth/logout', { method: 'POST', credentials: 'include' }).then(() => undefined),
