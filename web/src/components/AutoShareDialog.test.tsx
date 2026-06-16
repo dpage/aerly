@@ -102,4 +102,50 @@ describe('AutoShareDialog', () => {
     expect(await screen.findByRole('option', { name: 'Assistant' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Wife' })).not.toBeInTheDocument();
   });
+
+  it('changes the role of an existing default', async () => {
+    h.state.autoShares = [{ user_id: 2, role: 'viewer' }];
+    h.setAutoShare.mockResolvedValue(undefined);
+    render(<AutoShareDialog open onClose={() => {}} />);
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Role for Wife' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Passenger' }));
+    await waitFor(() => expect(h.setAutoShare).toHaveBeenCalledWith(2, 'passenger'));
+  });
+
+  it('surfaces errors from add, role change, and remove via setError', async () => {
+    h.state.autoShares = [{ user_id: 2, role: 'viewer' }];
+    render(<AutoShareDialog open onClose={() => {}} />);
+
+    // Role change failure.
+    h.setAutoShare.mockRejectedValueOnce(new Error('role boom'));
+    await userEvent.click(screen.getByRole('combobox', { name: 'Role for Wife' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Editor' }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('role boom'));
+
+    // Remove failure.
+    h.removeAutoShare.mockRejectedValueOnce(new Error('remove boom'));
+    const row = screen.getByText('Wife').closest('tr');
+    await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /remove wife/i }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('remove boom'));
+
+    // Add failure.
+    h.setAutoShare.mockRejectedValueOnce(new Error('add boom'));
+    await userEvent.click(screen.getByRole('combobox', { name: 'Friend' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Assistant' }));
+    await userEvent.click(screen.getByRole('button', { name: /add/i }));
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('add boom'));
+  });
+
+  it('renders a role chip and #id label when the shared user is not loaded', () => {
+    // A default whose target isn't in the users cache (e.g. not yet fetched):
+    // falls back to a static chip + "User #<id>" label rather than a Select.
+    h.state.users = [user(1, 'Me')];
+    h.state.autoShares = [{ user_id: 42, role: 'passenger' }];
+    render(<AutoShareDialog open onClose={() => {}} />);
+
+    expect(screen.getByText('User #42')).toBeInTheDocument();
+    expect(screen.getByText('Passenger')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /role for/i })).not.toBeInTheDocument();
+  });
 });

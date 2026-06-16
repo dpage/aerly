@@ -44,6 +44,9 @@ func TestAutoSharesCRUD(t *testing.T) {
 		t.Fatalf("delete code = %d; body=%s", w.Code, w.Body.String())
 	}
 	w = e.req(t, "GET", "/api/me/auto-shares", nil, me)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list-after-delete code = %d; body=%s", w.Code, w.Body.String())
+	}
 	if strings.TrimSpace(w.Body.String()) != "[]" {
 		t.Errorf("expected empty list after delete, got %s", w.Body.String())
 	}

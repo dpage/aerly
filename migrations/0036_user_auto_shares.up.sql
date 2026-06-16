@@ -21,3 +21,6 @@ CREATE TABLE user_auto_shares (
 );
 
 CREATE INDEX user_auto_shares_user_idx ON user_auto_shares (user_id);
+-- Index the FK target column so deleting/updating a user doesn't force a full
+-- scan of this table for the referential-integrity check.
+CREATE INDEX user_auto_shares_share_with_idx ON user_auto_shares (share_with_id);

@@ -3,21 +3,23 @@ package store
 import (
 	"errors"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
-// roleOnTrip returns the target's trip_members role, or "" if none.
+// roleOnTrip returns the target's trip_members role, or "" if none. A real
+// query failure fails the test rather than being masked as "no role".
 func roleOnTrip(t *testing.T, s *Store, tripID, userID int64) string {
 	t.Helper()
 	var role string
 	err := s.pool.QueryRow(ctx,
 		`SELECT role FROM trip_members WHERE trip_id = $1 AND user_id = $2`,
 		tripID, userID).Scan(&role)
-	if errors.Is(err, ErrNotFound) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ""
 	}
 	if err != nil {
-		// pgx returns its own no-rows sentinel here, not ErrNotFound.
-		return ""
+		t.Fatalf("roleOnTrip query failed: %v", err)
 	}
 	return role
 }

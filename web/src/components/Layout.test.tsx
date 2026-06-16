@@ -313,6 +313,7 @@ describe('Layout', () => {
       ['Statistics…', 'stats-dialog'],
       ['Alert preferences…', 'alertprefs-dialog'],
       ['Home address…', 'home-dialog'],
+      ['Always share with…', 'autoshare-dialog'],
       ['Subscribe to calendar…', 'subscribe-dialog'],
     ];
     for (const [item, testid] of menuDialogs) {
