@@ -60,7 +60,7 @@ type QuotaNotifier struct {
 // due, is sent on a detached goroutine so a poll (or an Add Flight request)
 // never blocks on the sendmail pipe.
 func (n *QuotaNotifier) Notify(provider, detail string) {
-	if n == nil || n.MailFromAddress == "" {
+	if n == nil || n.MailFromAddress == "" || n.Store == nil {
 		return
 	}
 	if !n.due(provider) {

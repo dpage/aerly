@@ -119,3 +119,17 @@ func TestQuotaNotifier_NotifyNoopWithoutMailFrom(t *testing.T) {
 	var nilN *QuotaNotifier
 	nilN.Notify("OpenSky", "x")
 }
+
+func TestQuotaNotifier_NotifyNoopWithoutStore(t *testing.T) {
+	n := &QuotaNotifier{
+		MailFromAddress: "alerts@aerly.test",
+		// Store left nil — Notify must short-circuit rather than launch a
+		// dispatch goroutine that would dereference a nil Store and panic.
+	}
+	n.Notify("OpenSky", "x")
+	// A nil Store must also leave the cooldown untouched, so a later call once
+	// a Store is wired isn't wrongly throttled.
+	if _, ok := n.lastSent["OpenSky"]; ok {
+		t.Error("Notify stamped the cooldown despite a nil Store")
+	}
+}
