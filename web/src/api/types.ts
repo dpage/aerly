@@ -48,6 +48,13 @@ export interface UserEmail {
   created_at: string;
 }
 
+/** Lightweight build identifier (GET /api/version), polled to detect a deploy. */
+export interface VersionInfo {
+  commit: string;
+  short: string;
+  build_time: string;
+}
+
 /** Superuser-only "About" / diagnostics payload (GET /api/admin/info). */
 export interface AdminInfo {
   version: {

@@ -10,6 +10,15 @@ const h = vi.hoisted(() => ({
 
 vi.mock('../api/client', () => ({ api: h.api }));
 
+// Pin the UI build commit so we can exercise the "UI build" row and its stale
+// flag deterministically (the real UI_COMMIT is empty under tests).
+vi.mock('../version', () => ({
+  UI_COMMIT: 'uicommitabcd1234',
+  shortCommit: (s: string) => (s.length > 12 ? s.slice(0, 12) : s),
+  isNewerBuild: (server: string, ui: string) => Boolean(server) && Boolean(ui) && server !== ui,
+  uiBuildLabel: (ui: string) => (ui ? (ui.length > 12 ? ui.slice(0, 12) : ui) : 'dev'),
+}));
+
 import AboutDialog from './AboutDialog';
 
 function info(over: Partial<AdminInfo> = {}): AdminInfo {
@@ -79,6 +88,28 @@ describe('AboutDialog', () => {
     // No dirty chip and no dev-bypass chip in the default fixture.
     expect(screen.queryByText('dirty')).not.toBeInTheDocument();
     expect(screen.queryByText('ON')).not.toBeInTheDocument();
+  });
+
+  it('shows the running UI build and flags it stale when it differs from the server', async () => {
+    // Default fixture: server commit 0123… ≠ the pinned UI commit → stale.
+    render(<AboutDialog open onClose={() => {}} />);
+    await waitFor(() => expect(h.api.getAdminInfo).toHaveBeenCalled());
+    expect(screen.getByText('UI build').parentElement).toHaveTextContent('uicommitabcd');
+    expect(screen.getByText('stale')).toBeInTheDocument();
+  });
+
+  it('does not flag the UI build stale when it matches the server build', async () => {
+    h.api.getAdminInfo.mockResolvedValue(
+      info({
+        version: {
+          commit: 'uicommitabcd1234',
+          short: 'uicommitabcd',
+        } as AdminInfo['version'],
+      }),
+    );
+    render(<AboutDialog open onClose={() => {}} />);
+    await screen.findByText('UI build');
+    expect(screen.queryByText('stale')).not.toBeInTheDocument();
   });
 
   it('shows an error alert when the fetch fails', async () => {

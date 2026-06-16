@@ -87,3 +87,21 @@ func trackerName(c *config.Config) string {
 	}
 	return "stub"
 }
+
+// VersionDTO is the build identifier any authenticated client can poll to detect
+// that a newer build has been deployed (the SPA is embedded in the binary, so a
+// commit change means a new frontend is being served and a browser running the
+// old bundle should refresh). It carries only the commit + build time — no
+// secrets — so unlike AdminInfoDTO it isn't gated to superusers.
+type VersionDTO struct {
+	Commit    string `json:"commit"`
+	Short     string `json:"short"`
+	BuildTime string `json:"build_time"`
+}
+
+func (a *API) getVersion(w http.ResponseWriter, r *http.Request) {
+	_ = r
+	v := version.Get()
+	writeJSON(w, http.StatusOK, VersionDTO{Commit: v.Commit, Short: v.Short, BuildTime: v.BuildTime})
+}
+

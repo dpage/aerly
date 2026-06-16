@@ -21,6 +21,7 @@ import IconButton from '@mui/material/IconButton';
 
 import { api } from '../api/client';
 import type { AdminInfo } from '../api/types';
+import { UI_COMMIT, isNewerBuild, uiBuildLabel } from '../version';
 
 interface Props {
   open: boolean;
@@ -107,6 +108,22 @@ function Sections({ info }: { info: AdminInfo }) {
           )}
         </Row>
         <Row label="Built">{formatDateTime(v.build_time)}</Row>
+        {/* The commit above is the server's; this is the build THIS browser is
+            actually running. They differ when a tab is on a stale cached bundle
+            after a deploy — flagged so an operator isn't misled by the server
+            hash alone. */}
+        <Row label="UI build">
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Box component="code" sx={{ fontFamily: 'monospace' }}>
+              {uiBuildLabel(UI_COMMIT)}
+            </Box>
+            {isNewerBuild(v.commit, UI_COMMIT) && (
+              <Tooltip title="This browser is running an older build — refresh to update">
+                <Chip label="stale" size="small" color="warning" variant="outlined" />
+              </Tooltip>
+            )}
+          </Stack>
+        </Row>
         <Row label="Go">{v.go_version}</Row>
         <Row label="Platform">{`${v.os}/${v.arch}`}</Row>
       </Section>

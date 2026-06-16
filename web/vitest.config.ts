@@ -4,6 +4,11 @@ import react from '@vitejs/plugin-react';
 // Separate from vite.config.ts to keep the build pipeline untouched.
 export default defineConfig({
   plugins: [react()],
+  // Define the build-commit constant so version.ts compiles under tests too
+  // (empty here, matching an unstamped dev build).
+  define: {
+    __APP_COMMIT__: JSON.stringify(process.env.COMMIT ?? ''),
+  },
   test: {
     environment: 'jsdom',
     globals: true,

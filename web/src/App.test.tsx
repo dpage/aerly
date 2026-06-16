@@ -32,6 +32,7 @@ const h = vi.hoisted(() => {
       loadTracker: vi.fn(),
       applyNotificationsUpdate: vi.fn(),
       users: [] as Array<{ id: number; name: string }>,
+      updateAvailable: false,
     },
   };
 });
@@ -40,6 +41,12 @@ const state = h.state;
 
 vi.mock('./sse', () => ({ connectSSE: h.connectSSE }));
 vi.mock('./api/client', () => ({ api: h.api, ApiError: class {} }));
+// The real update hook polls /api/version; here we drive its result directly so
+// we can assert the refresh snackbar without timers or network.
+vi.mock('./version', () => ({
+  UI_COMMIT: 'test-ui-commit',
+  useUpdateAvailable: () => h.state.updateAvailable,
+}));
 // The authenticated `/` route renders Layout → TripList. Mock the chrome to a
 // plain Outlet so the routed page shows through, and stub the pages.
 vi.mock('./components/Layout', async () => {
@@ -76,6 +83,7 @@ beforeEach(() => {
   state.error = null;
   state.notice = null;
   state.users = [];
+  state.updateAvailable = false;
   window.history.pushState({}, '', '/');
 });
 
@@ -136,6 +144,41 @@ describe('App', () => {
     expect(state.listTrips).toHaveBeenCalled();
     expect(state.loadTrip).toHaveBeenCalledWith(5);
     expect(state.loadTracker).toHaveBeenCalled();
+  });
+
+  it('shows the update snackbar and reloads on Refresh when a newer build is live', async () => {
+    state.auth = 'authenticated';
+    state.updateAvailable = true;
+    const reload = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        href: orig.href,
+        origin: orig.origin,
+        pathname: '/',
+        search: '',
+        hash: '',
+        assign: vi.fn(),
+        replace: vi.fn(),
+        reload,
+      },
+    });
+    try {
+      render(<App />);
+      expect(screen.getByText('A new version of Aerly is available.')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /refresh/i }));
+      expect(reload).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: orig });
+    }
+  });
+
+  it('does not show the update snackbar when no newer build is reported', () => {
+    state.auth = 'authenticated';
+    state.updateAvailable = false;
+    render(<App />);
+    expect(screen.queryByText('A new version of Aerly is available.')).not.toBeInTheDocument();
   });
 
   it('renders the success-notice snackbar and clears it via the close button', async () => {
