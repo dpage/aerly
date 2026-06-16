@@ -442,16 +442,21 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 
 // planReplyItem renders a committed proposal of any type as a ReplyItem for the
 // confirmation email. Flights show "IDENT" + date (ManualNote set when the
-// schedule came from the email's own details rather than the resolver —
-// detectable by the absence of a resolved airframe). Every other type shows its
-// title (or the type label) + "<Type> · <date>".
+// schedule came from the email's own details rather than the resolver, i.e. the
+// enrich fallback path that leaves FlightDetail.Resolved false). Every other
+// type shows its title (or the type label) + "<Type> · <date>".
+//
+// ManualNote keys off Resolved, not the airframe: the resolver's schedule
+// endpoint never returns an ICAO24/Mode-S hex for a future flight (that only
+// arrives once the aircraft is live-tracked near departure), so an airframe
+// check would mis-flag every resolved future flight as "from the email".
 func planReplyItem(p planops.ProposedPlan) ReplyItem {
 	if p.Type == "flight" && len(p.Parts) > 0 && p.Parts[0].Flight != nil {
 		fd := p.Parts[0].Flight
 		return ReplyItem{
 			Label:      fd.Ident,
 			Detail:     fd.ScheduledOut.Format("2006-01-02"),
-			ManualNote: fd.ICAO24 == nil,
+			ManualNote: !fd.Resolved,
 		}
 	}
 	return ReplyItem{Label: planLabel(p), Detail: planDetail(p)}
