@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/dpage/aerly/internal/api"
@@ -103,6 +104,29 @@ func TestAddMyEmail_AddressTaken(t *testing.T) {
 	w := e.req(t, "POST", "/api/me/emails", map[string]string{"address": "shared@example.com"}, uid)
 	if w.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", w.Code)
+	}
+	// An address held by a different account never shows in this account's
+	// list, so the message must say so rather than just "already registered".
+	if !strings.Contains(w.Body.String(), "another Aerly account") {
+		t.Errorf("body = %q, want it to mention another account", w.Body.String())
+	}
+}
+
+func TestAddMyEmail_OwnAddressReadd(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	if _, _, err := e.store.InsertUnverifiedEmail(context.Background(), uid, "mine@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	e.api.SendVerifyEmail = func(context.Context, string, string) error { return nil }
+
+	w := e.req(t, "POST", "/api/me/emails", map[string]string{"address": "mine@example.com"}, uid)
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", w.Code)
+	}
+	// Re-adding an address the user already owns gets a distinct message.
+	if !strings.Contains(w.Body.String(), "already added") {
+		t.Errorf("body = %q, want it to say already added", w.Body.String())
 	}
 }
 

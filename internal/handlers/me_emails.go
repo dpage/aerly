@@ -54,7 +54,21 @@ func (a *API) addMyEmail(w http.ResponseWriter, r *http.Request) {
 	row, token, err := a.Store.InsertUnverifiedEmail(r.Context(), u.ID, in.Address)
 	switch {
 	case errors.Is(err, store.ErrAddressTaken):
-		writeError(w, http.StatusConflict, "address already registered")
+		// The address column is globally unique across accounts, so a conflict
+		// means either the signed-in user is re-adding one of their own
+		// addresses, or (the confusing case) it already belongs to a different
+		// account and so never appears in this account's list. Distinguish the
+		// two so the message actually explains what happened.
+		msg := "That email address is already registered to another Aerly account."
+		if mine, e := a.Store.EmailsByUser(r.Context(), u.ID); e == nil {
+			for _, em := range mine {
+				if strings.EqualFold(em.Address, strings.TrimSpace(in.Address)) {
+					msg = "You've already added that address."
+					break
+				}
+			}
+		}
+		writeError(w, http.StatusConflict, msg)
 		return
 	case err != nil:
 		handleStoreErr(w, err)
