@@ -27,18 +27,36 @@ export interface ServiceWorkerUpdate {
  * interval, and reports when one is ready. */
 export function useServiceWorkerUpdate(): ServiceWorkerUpdate {
   const registrationRef = useRef<ServiceWorkerRegistration | undefined>(undefined);
+  const pollTimerRef = useRef<number | undefined>(undefined);
   const {
     needRefresh: [needRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_swUrl, registration) {
       registrationRef.current = registration ?? undefined;
+      // Drop any prior timer so a re-registration (HMR / remount) can't stack
+      // pollers that each fire registration.update().
+      if (pollTimerRef.current !== undefined) {
+        window.clearInterval(pollTimerRef.current);
+        pollTimerRef.current = undefined;
+      }
       if (!registration) return;
       // Long-open tabs (a left-open phone) won't navigate, so poll the server
       // for a fresh worker the way version.ts polls /api/version.
-      window.setInterval(() => void registration.update(), UPDATE_POLL_MS);
+      pollTimerRef.current = window.setInterval(
+        () => void registration.update(),
+        UPDATE_POLL_MS,
+      );
     },
   });
+
+  // Stop polling when the hook unmounts.
+  useEffect(
+    () => () => {
+      if (pollTimerRef.current !== undefined) window.clearInterval(pollTimerRef.current);
+    },
+    [],
+  );
 
   const applyUpdate = () => {
     if (needRefresh) {

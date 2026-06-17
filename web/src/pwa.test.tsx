@@ -68,6 +68,22 @@ describe('useServiceWorkerUpdate', () => {
     expect(registration.update).toHaveBeenCalledTimes(2);
   });
 
+  it('replaces the poll timer when registration happens again', () => {
+    vi.useFakeTimers();
+    const first = { update: vi.fn() } as unknown as ServiceWorkerRegistration;
+    const second = { update: vi.fn() } as unknown as ServiceWorkerRegistration;
+    renderHook(() => useServiceWorkerUpdate());
+
+    act(() => mock.onRegisteredSW?.('/sw.js', first));
+    // A second registration (HMR / remount) must clear the first poller so
+    // only the latest registration is polled.
+    act(() => mock.onRegisteredSW?.('/sw.js', second));
+
+    act(() => vi.advanceTimersByTime(5 * 60 * 1000));
+    expect(first.update).not.toHaveBeenCalled();
+    expect(second.update).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores a null registration and falls back to a reload when unsupported', () => {
     const reload = vi.fn();
     const orig = window.location;

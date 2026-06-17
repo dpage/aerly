@@ -14,6 +14,7 @@ func TestSPAHandlerServesIndexAtRoot(t *testing.T) {
 		"assets/app.js":        {Data: []byte("console.log(1)")},
 		"favicon.ico":          {Data: []byte("ico")},
 		"sw.js":                {Data: []byte("/* service worker */")},
+		"registerSW.js":        {Data: []byte("/* register sw */")},
 		"manifest.webmanifest": {Data: []byte(`{"name":"Aerly"}`)},
 	}
 	h := SPAHandler(fsys)
@@ -60,6 +61,16 @@ func TestSPAHandlerServesIndexAtRoot(t *testing.T) {
 	}
 	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
 		t.Errorf("sw.js cache header = %q, want no-cache", cc)
+	}
+
+	// The registerSW helper follows the same revalidation policy as sw.js.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/registerSW.js", nil))
+	if w.Code != 200 {
+		t.Fatalf("registerSW.js = %d", w.Code)
+	}
+	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("registerSW.js cache header = %q, want no-cache", cc)
 	}
 
 	// Web app manifest → correct MIME so browsers honour it.
