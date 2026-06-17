@@ -54,6 +54,15 @@ describe('AlertPrefsSection', () => {
     );
   });
 
+  it('persists immediately when the in-app channel is toggled off', async () => {
+    render(<AlertPrefsSection />);
+    await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole('checkbox', { name: /in-app/i }));
+    await waitFor(() =>
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith({ in_app: false, email: false, min_delay_min: 15 }),
+    );
+  });
+
   it('persists the threshold on blur, clamping invalid input to 0', async () => {
     render(<AlertPrefsSection />);
     await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
