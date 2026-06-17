@@ -1,11 +1,8 @@
 import { Box, type SxProps, type Theme } from '@mui/material';
 
-import { useThemeMode } from '../theme';
-
-/** The Aerly brand mark — the metallic icon in light mode, the glowing icon in
- * dark mode. Each variant is a transparent PNG that only ever renders against
- * the matching background, so there's no edge fringing. The assets live in
- * web/public and are served from the SPA root. */
+/** The Aerly brand mark — a single transparent PNG designed to read well
+ * against both light and dark backgrounds, so there's no need for theme-aware
+ * variants. The asset lives in web/public and is served from the SPA root. */
 export default function AerlyLogo({
   size = 24,
   sx,
@@ -14,12 +11,10 @@ export default function AerlyLogo({
   size?: number;
   sx?: SxProps<Theme>;
 }) {
-  const { mode } = useThemeMode();
-  const src = mode === 'dark' ? '/aerly-mark-dark.png' : '/aerly-mark-light.png';
   return (
     <Box
       component="img"
-      src={src}
+      src="/aerly-mark.png"
       alt="Aerly"
       width={size}
       height={size}
