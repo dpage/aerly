@@ -115,7 +115,16 @@ export default function Layout() {
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <AppBar position="static" color="default" elevation={1}>
+      {/* Pad the bar down by the iOS status-bar height when installed as a PWA
+          (the black-translucent status bar floats over the web view, thanks to
+          viewport-fit=cover). env() is 0 everywhere it doesn't apply, so this
+          is a no-op in the browser and on Android. */}
+      <AppBar
+        position="static"
+        color="default"
+        elevation={1}
+        sx={{ pt: 'env(safe-area-inset-top)' }}
+      >
         <Toolbar variant="dense">
           {isNarrow && (
             <IconButton

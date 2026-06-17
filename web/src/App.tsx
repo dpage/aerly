@@ -257,11 +257,10 @@ export default function App() {
             A new version of Aerly is available.
           </Alert>
         </Snackbar>
-        {/* Offline notice — anchored bottom-left so it doesn't fight the
-            centred error/notice/update snackbars. Persistent while offline;
-            cached trips and maps stay readable and reconnect refreshes on its
-            own when the network returns. */}
-        <Snackbar open={!online} anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}>
+        {/* Offline notice — bottom-centre. Persistent while offline; cached
+            trips and maps stay readable and reconnect refreshes on its own when
+            the network returns. */}
+        <Snackbar open={!online} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
           <Alert severity="warning" variant="filled">
             You&apos;re offline — showing saved data.
           </Alert>

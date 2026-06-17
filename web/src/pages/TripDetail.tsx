@@ -4,6 +4,7 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   IconButton,
   ListItemIcon,
   Menu,
@@ -23,6 +24,7 @@ import EditIcon from '@mui/icons-material/EditOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 
 import { useStore } from '../state/store';
+import { useOnlineStatus } from '../pwa';
 import { fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
 import AddToTripDialog from '../components/AddToTripDialog';
 import TripMembersDialog from '../components/TripMembersDialog';
@@ -51,8 +53,10 @@ export default function TripDetail() {
   });
 
   const currentTrip = useStore((s) => s.currentTrip);
+  const currentTripStatus = useStore((s) => s.currentTripStatus);
   const loadTrip = useStore((s) => s.loadTrip);
   const clearCurrentTrip = useStore((s) => s.clearCurrentTrip);
+  const online = useOnlineStatus();
   const [shareOpen, setShareOpen] = useState(false);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -73,7 +77,10 @@ export default function TripDetail() {
   const onMap = location.pathname.endsWith('/map');
   const tab = onMap ? 'map' : 'timeline';
   const loaded = currentTrip?.id === tripId ? currentTrip : null;
-  const title = loaded ? loaded.name : `Trip #${tripId}`;
+  // No internal id in the placeholder: until the trip loads we show no name
+  // rather than "Trip #35". The body below shows a spinner or a clean message.
+  const title = loaded ? loaded.name : '';
+  const unavailable = !loaded && currentTripStatus === 'error';
   // Secondary header line beside the name: destination and, when the trip has
   // any dates, its from/to span. Omitted entirely when neither is known.
   const hasDates =
@@ -219,13 +226,15 @@ export default function TripDetail() {
               Share
             </Button>
           )}
-          <Button
-            size="small"
-            startIcon={<CalendarMonthIcon />}
-            onClick={() => setSubscribeOpen(true)}
-          >
-            Subscribe
-          </Button>
+          {loaded && (
+            <Button
+              size="small"
+              startIcon={<CalendarMonthIcon />}
+              onClick={() => setSubscribeOpen(true)}
+            >
+              Subscribe
+            </Button>
+          )}
         </Box>
       )}
       {datesMismatch && (
@@ -241,17 +250,36 @@ export default function TripDetail() {
           <TripReminderToggle trip={loaded} />
         </Box>
       )}
-      <Tabs
-        value={tab}
-        onChange={(_e, v) => navigate(v === 'map' ? `/trips/${tripId}/map` : `/trips/${tripId}`)}
-        sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}
-      >
-        <Tab label="Timeline" value="timeline" />
-        <Tab label="Map" value="map" />
-      </Tabs>
-      <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
-        <Outlet />
-      </Box>
+      {/* Tabs + routed body once the trip is loaded; otherwise a spinner while
+          it loads, or a clean message when it can't be (offline and not cached,
+          or no longer available) — never an internal id or a stuck "Loading…". */}
+      {loaded ? (
+        <>
+          <Tabs
+            value={tab}
+            onChange={(_e, v) => navigate(v === 'map' ? `/trips/${tripId}/map` : `/trips/${tripId}`)}
+            sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab label="Timeline" value="timeline" />
+            <Tab label="Map" value="map" />
+          </Tabs>
+          <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
+            <Outlet />
+          </Box>
+        </>
+      ) : unavailable ? (
+        <Box sx={{ px: 3, pt: 3 }}>
+          <Alert severity="info">
+            {online
+              ? "Sorry, this trip couldn't be loaded. Please try again."
+              : "This trip isn't saved for offline viewing yet. Reconnect to the internet to open it."}
+          </Alert>
+        </Box>
+      ) : (
+        <Box sx={{ display: 'grid', placeItems: 'center', flexGrow: 1, minHeight: 0 }}>
+          <CircularProgress />
+        </Box>
+      )}
       {loaded && canEdit && (
         <AddToTripDialog
           open={newPlanOpen}

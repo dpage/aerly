@@ -25,6 +25,10 @@ export interface TripsSlice {
   trips: Trip[];
   /** The trip open in the detail view, with its plans loaded. */
   currentTrip: (Trip & { plans: Plan[] }) | null;
+  /** Load state of the open trip: 'loading' while fetching, 'loaded' once
+   * present, 'error' when it couldn't be fetched (offline and not cached, or
+   * gone). Drives the detail view's clean fallback instead of a stuck spinner. */
+  currentTripStatus: 'loading' | 'loaded' | 'error';
   tripsLoading: boolean;
   tagSuggestions: TagSuggestion[];
 
@@ -55,6 +59,7 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
   return {
     trips: [],
     currentTrip: null,
+    currentTripStatus: 'loading',
     tripsLoading: false,
     tagSuggestions: [],
 
@@ -63,6 +68,9 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
       try {
         const trips = await api.listTrips();
         set({ trips, tripsLoading: false });
+        // Warm the offline cache with each trip's detail so the timelines are
+        // readable offline, not just the list.
+        prefetchTripsForOffline(trips);
       } catch (err) {
         set({ error: errorMessage(err), tripsLoading: false });
       }
@@ -70,10 +78,11 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
 
     async loadTrip(id) {
       const seq = ++loadSeq;
+      set({ currentTripStatus: 'loading' });
       try {
         const currentTrip = await api.getTrip(id);
         if (seq !== loadSeq) return; // a newer load (or a clear) superseded this one
-        set({ currentTrip });
+        set({ currentTrip, currentTripStatus: 'loaded' });
       } catch (err) {
         if (seq !== loadSeq) return;
         // A 404 means the trip is gone — typically because it was just deleted
@@ -81,15 +90,21 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
         // silently rather than alarming the user with a "not found".
         if (err instanceof ApiError && err.status === 404) {
           set((s) => (s.currentTrip?.id === id ? { currentTrip: null } : {}));
+          set({ currentTripStatus: 'error' });
           return;
         }
-        set({ error: errorMessage(err) });
+        // Surface a toast only when online; offline the in-page message and the
+        // offline banner already explain it, without a noisy "failed to fetch".
+        if (typeof navigator === 'undefined' || navigator.onLine) {
+          set({ error: errorMessage(err) });
+        }
+        set({ currentTripStatus: 'error' });
       }
     },
 
     clearCurrentTrip() {
       loadSeq++; // invalidate any in-flight loadTrip so it can't repopulate after clear
-      set({ currentTrip: null });
+      set({ currentTrip: null, currentTripStatus: 'loading' });
     },
 
     async createTrip(input) {
@@ -174,3 +189,16 @@ export const createTripsSlice: StateCreator<StoreState, [], [], TripsSlice> = (s
     },
   };
 };
+
+/** Warm the offline cache: when a service worker controls the page and we're
+ * online, fetch each trip's detail in the background so the runtime cache holds
+ * it for offline viewing. Fire-and-forget; failures are ignored (a trip that
+ * fails to prefetch simply isn't available offline). */
+function prefetchTripsForOffline(trips: Trip[]): void {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !navigator.onLine) {
+    return;
+  }
+  for (const t of trips) {
+    void api.getTrip(t.id).catch(() => {});
+  }
+}
