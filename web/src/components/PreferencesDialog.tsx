@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Tab, Tabs } from '@mui/material';
 
 import { useStore } from '../state/store';
@@ -20,6 +20,12 @@ interface Props {
 export default function PreferencesDialog({ open, onClose }: Props) {
   const emailEnabled = useStore((s) => s.capabilities.email_ingest_enabled);
   const [tab, setTab] = useState(0);
+
+  // The dialog stays mounted (only `open` toggles), so reset to the first tab
+  // each time it opens rather than reopening on whichever tab was last viewed.
+  useEffect(() => {
+    if (open) setTab(0);
+  }, [open]);
 
   // Built dynamically so the gated Emails tab doesn't leave a hole in the index
   // space when ingest is disabled.

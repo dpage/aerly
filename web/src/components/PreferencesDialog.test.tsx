@@ -57,6 +57,17 @@ describe('PreferencesDialog', () => {
     expect(screen.getByTestId('sec-home')).toBeInTheDocument();
   });
 
+  it('resets to the Alerts tab when reopened', async () => {
+    const { rerender } = render(<PreferencesDialog open onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Home' }));
+    expect(screen.getByTestId('sec-home')).toBeInTheDocument();
+    // Close, then reopen — the last-viewed tab must not be remembered.
+    rerender(<PreferencesDialog open={false} onClose={() => {}} />);
+    rerender(<PreferencesDialog open onClose={() => {}} />);
+    expect(screen.getByTestId('sec-alerts')).toBeInTheDocument();
+    expect(screen.queryByTestId('sec-home')).not.toBeInTheDocument();
+  });
+
   it('calls onClose from the Close button', async () => {
     const onClose = vi.fn();
     render(<PreferencesDialog open onClose={onClose} />);
