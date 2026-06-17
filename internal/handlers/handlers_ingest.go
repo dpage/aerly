@@ -12,7 +12,7 @@ import (
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
-	"github.com/dpage/aerly/internal/tripitics"
+	"github.com/dpage/aerly/internal/importics"
 )
 
 // maxUploadBytes caps a single ingest document (PDF ticket) to keep multipart
@@ -192,11 +192,11 @@ func looksICal(b []byte) bool {
 // false for a calendar no source-specific mapper handles, so the caller can
 // fall back to the LLM.
 func icalProposals(data []byte) (out api.IngestResultDTO, recognised bool) {
-	cal, err := tripitics.Parse(bytes.NewReader(data))
+	cal, err := importics.Parse(bytes.NewReader(data))
 	if err != nil {
 		return api.IngestResultDTO{}, false
 	}
-	mt, _, ok := tripitics.Map(cal)
+	mt, _, ok := importics.Map(cal)
 	if !ok {
 		return api.IngestResultDTO{}, false
 	}

@@ -1,0 +1,338 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Kayak Software Corporation//NONSGML Kayak Trips//EN
+METHOD:PUBLISH
+X-WR-CALNAME:traveler@example.com's Trips on KAYAK
+X-WR-CALDESC:KAYAK - Trips calendar feed
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-bus-out@kayak.com
+SEQUENCE:1
+DTSTART:20260401T144500Z
+DTEND:20260401T155000Z
+SUMMARY:Bus Sample Lines Express 100100
+DESCRIPTION:Sample Lines Express Bus Number 100100 \nConfirmation Number: AAA111
+    \nBooking reference: AAA111
+ \nDeparting from Central Bus Station, Sampleton - 04/01/2026 4:45PM CEST \nArriving at Sample Airport (VIE), Sampleton - 04/01/2026 5:50PM CEST \n\nView trip: https://www.kayak.com/trips/!SA0001?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-flt-vie-zrh@kayak.com
+SEQUENCE:1
+DTSTART:20260401T180500Z
+DTEND:20260401T192500Z
+SUMMARY:LX 3537 from Vienna (VIE) to Zurich (ZRH)
+DESCRIPTION:Sample Air Flight 3537    \nBooking reference: BBB222
+ \nDeparting from Vienna Intl (VIE) - 04/01/2026 8:05PM CEST \nArriving at Zurich (ZRH) - 04/01/2026 9:25PM CEST \n\nView trip: https://www.kayak.com/trips/!SA0001?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-flt-zrh-jnb@kayak.com
+SEQUENCE:1
+DTSTART:20260401T203000Z
+DTEND:20260402T072000Z
+SUMMARY:LX 282 from Zurich (ZRH) to Johannesburg (JNB)
+DESCRIPTION:Sample Air Flight 282    \nBooking reference: BBB222
+ \nDeparting from Zurich (ZRH) - 04/01/2026 10:30PM CEST \nArriving at OR Tambo (JNB) - 04/02/2026 9:20AM SAST \n\nView trip: https://www.kayak.com/trips/!SA0001?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-hotel-in@kayak.com
+SEQUENCE:1
+DTSTART:20260402T120000Z
+DTEND:20260402T123000Z
+SUMMARY:Check in to Sample Lodge Sandton
+DESCRIPTION:\nCheck In Time: 04/02/2026 2:00PM SAST
+ \nCheck Out Time: 04/11/2026 11:30AM SAST
+    \nBooking reference: CCC333
+ \nAddress: 1 Example Drive, Sandton, South Africa
+ \nPhone Number: +27 00 000 0000
+ \n\nView trip: https://www.kayak.com/trips/!SA0001?ref=calendar
+LOCATION:1 Example Drive, Sandton, South Africa
+GEO:-26.043703;28.091442
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-hotel-out@kayak.com
+SEQUENCE:1
+DTSTART:20260411T093000Z
+DTEND:20260411T100000Z
+SUMMARY:Check out from Sample Lodge Sandton
+DESCRIPTION:\nCheck Out Time: 04/11/2026 11:30AM SAST
+    \nBooking reference: CCC333
+ \nAddress: 1 Example Drive, Sandton, South Africa
+ \nPhone Number: +27 00 000 0000
+ \n\nView trip: https://www.kayak.com/trips/!SA0001?ref=calendar
+LOCATION:1 Example Drive, Sandton, South Africa
+GEO:-26.043703;28.091442
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-flt-jnb-muc@kayak.com
+SEQUENCE:1
+DTSTART:20260411T064500Z
+DTEND:20260411T171000Z
+SUMMARY:LH 579 from Johannesburg (JNB) to Munich (MUC)
+DESCRIPTION:Sample Air Flight 579    \nBooking reference: BBB222
+ \nDeparting from OR Tambo (JNB) - 04/11/2026 8:45AM SAST \nArriving at Munich (MUC) - 04/11/2026 7:10PM CEST \n\nView trip: https://www.kayak.com/trips/!SA0001?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-flt-muc-vie@kayak.com
+SEQUENCE:1
+DTSTART:20260411T194000Z
+DTEND:20260411T204500Z
+SUMMARY:LH 6326 from Munich (MUC) to Vienna (VIE)
+DESCRIPTION:Sample Air Flight 6326    \nBooking reference: BBB222
+ \nDeparting from Munich (MUC) - 04/11/2026 9:40PM CEST \nArriving at Vienna Intl (VIE) - 04/11/2026 10:45PM CEST \n\nView trip: https://www.kayak.com/trips/!SA0001?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-bus-back@kayak.com
+SEQUENCE:1
+DTSTART:20260411T215900Z
+DTEND:20260411T225400Z
+SUMMARY:Bus Sample Lines 100100
+DESCRIPTION:Sample Lines Bus Number 100100 \nConfirmation Number: DDD444
+    \nBooking reference: DDD444
+ \nDeparting from Sample Airport VIE, Sampleton - 04/11/2026 11:59PM CEST \nArriving at Central Bus Station, Sampleton - 04/12/2026 12:54AM CEST \n\nView trip: https://www.kayak.com/trips/!SA0001?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:sa-envelope@kayak.com
+SEQUENCE:1
+DTSTART;VALUE=DATE:20260401
+DTEND;VALUE=DATE:20260413
+SUMMARY:South Africa 2026
+DESCRIPTION:South Africa 2026 - https://www.kayak.com/trips/!SA0001?ref=calendar
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:ja-train@kayak.com
+SEQUENCE:1
+DTSTART:20250618T102600Z
+DTEND:20250618T143900Z
+SUMMARY:Train RJ 1048
+DESCRIPTION:RJ Train Number 1048    \nContact: +000 000 000 000
+ \nDeparting from Bratislava, hl.n, Slovakia - 06/18/2025 12:26PM CEST \nArriving at Praha, hl.n, Czechia - 06/18/2025 4:39PM CEST \n\nView trip: https://www.kayak.com/trips/!JA0002?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:ja-show@kayak.com
+SEQUENCE:1
+DTSTART:20250618T170000Z
+DTEND:20250618T190000Z
+SUMMARY:1x Sample Show / Sample Theatre
+DESCRIPTION:Event Name: 1x Sample Show / Sample Theatre
+ \nStart Time: 06/18/2025 7:00PM CEST
+ \nEnd Time: 06/18/2025 9:00PM CEST
+ \nAddress: 1 Example Square, Praha, Czechia
+ \nConfirmation Number: EEE555
+    \nBooking reference: EEE555
+ \n\nView trip: https://www.kayak.com/trips/!JA0002?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:ja-bus@kayak.com
+SEQUENCE:1
+DTSTART:20250618T210000Z
+DTEND:20250619T011500Z
+SUMMARY:Bus RegioJet
+DESCRIPTION:RegioJet Bus Number     \nContact: +000 000 000 000
+ \nDeparting from Praha, UAN Florenc, Czechia - 06/18/2025 11:00PM CEST \nArriving at Bratislava, Autobusova stanica Nivy, Slovakia - 06/19/2025 3:15AM CEST \n\nView trip: https://www.kayak.com/trips/!JA0002?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:ja-envelope@kayak.com
+SEQUENCE:1
+DTSTART;VALUE=DATE:20250618
+DTEND;VALUE=DATE:20250620
+SUMMARY:Jeff Arcuri
+DESCRIPTION:Jeff Arcuri - https://www.kayak.com/trips/!JA0002?ref=calendar
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:car-pickup@kayak.com
+SEQUENCE:1
+DTSTART:20251105T070000Z
+DTEND:20251105T073000Z
+SUMMARY:Car Pickup (Agency: SampleRent)
+DESCRIPTION:Car Pickup at SampleRent         \nPickup Time: 11/05/2025 8:00AM CET
+ \nPickup Address: 2 Example Road, Sampleton 000 00
+ \nDropoff Time: 11/06/2025 8:00AM CET
+ \nDropoff Address: 2 Example Road, Sampleton 000 00
+ \nConfirmation Number: FFF666
+ \nCar Type: Sample Car or similar Automatic
+ \n\nView trip: https://www.kayak.com/trips/!HQ0003?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:car-meeting@kayak.com
+SEQUENCE:1
+DTSTART:20251105T090000Z
+DTEND:20251105T160000Z
+SUMMARY:Sample Meeting
+DESCRIPTION:Event Name: Sample Meeting
+ \nStart Time: 11/05/2025 10:00AM CET
+ \nEnd Time: 11/05/2025 5:00PM CET
+ \nAddress: 3 Example Street, Sampleburg, Sampleland
+ \n\nView trip: https://www.kayak.com/trips/!HQ0003?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:car-dinner@kayak.com
+SEQUENCE:1
+DTSTART:20251105T180000Z
+DTEND:20251105T200000Z
+SUMMARY:Sample Bistro
+DESCRIPTION:Restaurant Name: Sample Bistro
+ \nGuests: 
+ \nStart Time: 11/05/2025 7:00PM CET
+ \nEnd Time: 11/05/2025 9:00PM CET
+ \nAddress: 4 Example Avenue, Sampleburg, Sampleland
+ \n\nView trip: https://www.kayak.com/trips/!HQ0003?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:car-dropoff@kayak.com
+SEQUENCE:1
+DTSTART:20251106T070000Z
+DTEND:20251106T073000Z
+SUMMARY:Car Dropoff (Agency: SampleRent)
+DESCRIPTION:Car Dropoff at SampleRent         \nDropoff Time: 11/06/2025 8:00AM CET
+ \nDropoff Address: 2 Example Road, Sampleton 000 00
+ \nConfirmation Number: FFF666
+ \nCar Type: Sample Car or similar Automatic
+ \n\nView trip: https://www.kayak.com/trips/!HQ0003?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:car-envelope@kayak.com
+SEQUENCE:1
+DTSTART;VALUE=DATE:20251105
+DTEND;VALUE=DATE:20251107
+SUMMARY:HQ 2025.11
+DESCRIPTION:HQ 2025.11 - https://www.kayak.com/trips/!HQ0003?ref=calendar
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:past-flt-out@kayak.com
+SEQUENCE:1
+DTSTART:20240828T081500Z
+DTEND:20240828T094000Z
+SUMMARY:LH 6333 from Vienna (VIE) to Frankfurt am Main (FRA)
+DESCRIPTION:Sample Air Flight 6333 \nConfirmation Number: GGG777
+    \nBooking reference: GGG777
+ \nDeparting from Vienna Intl (VIE) - 08/28/2024 10:15AM CEST \nArriving at Frankfurt (FRA) - 08/28/2024 11:40AM CEST \n\nView trip: https://www.kayak.com/trips/!PA0004?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:past-hotel-in@kayak.com
+SEQUENCE:1
+DTSTART:20240828T093000Z
+DTEND:20240828T100000Z
+SUMMARY:Check in to Sample City Hotel
+DESCRIPTION:\nCheck In Time: 08/28/2024 3:00PM CEST
+ \nCheck Out Time: 09/02/2024 11:00AM CEST
+    \nBooking reference: HHH888
+ \nAddress: 5 Example Lane, Sampletown, Sampleland
+ \n\nView trip: https://www.kayak.com/trips/!PA0004?ref=calendar
+LOCATION:5 Example Lane, Sampletown, Sampleland
+GEO:50.110000;8.660000
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:past-hotel-out@kayak.com
+SEQUENCE:1
+DTSTART:20240902T053000Z
+DTEND:20240902T060000Z
+SUMMARY:Check out from Sample City Hotel
+DESCRIPTION:\nCheck Out Time: 09/02/2024 11:00AM CEST
+    \nBooking reference: HHH888
+ \nAddress: 5 Example Lane, Sampletown, Sampleland
+ \n\nView trip: https://www.kayak.com/trips/!PA0004?ref=calendar
+LOCATION:5 Example Lane, Sampletown, Sampleland
+GEO:50.110000;8.660000
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:past-envelope@kayak.com
+SEQUENCE:1
+DTSTART;VALUE=DATE:20240828
+DTEND;VALUE=DATE:20240903
+SUMMARY:Past Conference 2024
+DESCRIPTION:Past Conference 2024 - https://www.kayak.com/trips/!PA0004?ref=calendar
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:rail-only-1@kayak.com
+SEQUENCE:1
+DTSTART:20250513T061500Z
+DTEND:20250513T071500Z
+SUMMARY:Train Sample Rail REX 700
+DESCRIPTION:Sample Rail Train Number REX 700 \nDeparting from Sampleton, Sampleland - 05/13/2025 8:15AM CEST \nArriving at Sampleburg, Sampleland - 05/13/2025 9:15AM CEST \n\nView trip: https://www.kayak.com/trips/!RA0005?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:rail-only-2@kayak.com
+SEQUENCE:1
+DTSTART:20250513T154500Z
+DTEND:20250513T164400Z
+SUMMARY:Train Sample Rail 701
+DESCRIPTION:Sample Rail Train Number 701 \nConfirmation Number: III999
+    \nBooking reference: III999
+ \nDeparting from Sampleburg, Sampleland - 05/13/2025 5:45PM CEST \nArriving at Sampleton, Sampleland - 05/13/2025 6:44PM CEST \n\nView trip: https://www.kayak.com/trips/!RA0005?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:rail-envelope@kayak.com
+SEQUENCE:1
+DTSTART;VALUE=DATE:20250513
+DTEND;VALUE=DATE:20250514
+SUMMARY:Day Trip 2025
+DESCRIPTION:Day Trip 2025 - https://www.kayak.com/trips/!RA0005?ref=calendar
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:dine-restaurant@kayak.com
+SEQUENCE:1
+DTSTART:20250317T180000Z
+DTEND:20250317T190000Z
+SUMMARY:Sample Ristorante
+DESCRIPTION:Restaurant Name: Sample Ristorante
+ \nGuests: 
+ \nStart Time: 03/17/2025 7:00PM CET
+ \nEnd Time: 03/17/2025 8:00PM CET
+ \nAddress: 6 Example Plaza, Sampletown, Sampleland
+ \n\nView trip: https://www.kayak.com/trips/!DI0006?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:dine-tour@kayak.com
+SEQUENCE:1
+DTSTART:20250318T110000Z
+DTEND:20250318T120000Z
+SUMMARY:Sample Park
+DESCRIPTION:Event Name: Sample Park
+ \nStart Time: 03/18/2025 1:00PM CET
+ \nEnd Time: 03/18/2025 2:00PM CET
+ \nAddress: 7 Example Way, Sampletown, Sampleland
+    \nBooking reference: JJJ000
+ \n\nView trip: https://www.kayak.com/trips/!DI0006?ref=calendar
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260101T000000Z
+UID:dine-envelope@kayak.com
+SEQUENCE:1
+DTSTART;VALUE=DATE:20250317
+DTEND;VALUE=DATE:20250319
+SUMMARY:City Break 2025
+DESCRIPTION:City Break 2025 - https://www.kayak.com/trips/!DI0006?ref=calendar
+TRANSP:TRANSPARENT
+END:VEVENT
+END:VCALENDAR

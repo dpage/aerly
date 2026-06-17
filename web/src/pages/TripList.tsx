@@ -62,6 +62,9 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
     try {
       const res = await api.importTrip(file);
       await listTrips();
+      // A Kayak feed imports several trips at once; stay on the refreshed list
+      // rather than guessing which one to open. A single import opens its trip.
+      if ((res.trips?.length ?? 1) > 1) return;
       navigate(`/trips/${res.trip.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not import that .ics.');
