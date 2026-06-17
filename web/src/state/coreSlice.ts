@@ -35,6 +35,21 @@ function anonymousReset(): Partial<StoreState> {
   };
 }
 
+/** Coerce a notifications payload to complete, finite numeric counts. The badge
+ * sums the three counts, so a single missing or non-numeric field would poison
+ * the sum into `NaN` and surface as a literal "NaN" badge. A backend older than
+ * a given count field omits it entirely, which happens during the version-skew
+ * window of a deploy (or against a stale dev binary), so default every count to
+ * 0 — a count we don't yet understand reads as "nothing to show". */
+function normaliseNotifications(n: Partial<Notifications> | null | undefined): Notifications {
+  const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  return {
+    friend_requests_pending: count(n?.friend_requests_pending),
+    unread_alerts: count(n?.unread_alerts),
+    unread_shares: count(n?.unread_shares),
+  };
+}
+
 /** The core slice: auth/me/capabilities, the user + friendship caches, and the
  * notification badge. The trip-planning slices (trips, plans, tracker, …) own
  * the redesigned domain state; this slice holds the cross-cutting session
@@ -217,14 +232,14 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
   async refreshNotifications() {
     try {
       const n = await api.getNotifications();
-      set({ notifications: n });
+      set({ notifications: normaliseNotifications(n) });
     } catch {
       // Non-fatal: stale badge is fine; SSE / next reload will recover.
     }
   },
 
   applyNotificationsUpdate(n) {
-    set({ notifications: n });
+    set({ notifications: normaliseNotifications(n) });
   },
 
   setNotice(n) {

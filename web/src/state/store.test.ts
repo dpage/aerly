@@ -311,6 +311,27 @@ describe('notifications + notice slice', () => {
     expect(useStore.getState().notifications.friend_requests_pending).toBe(7);
   });
 
+  it('applyNotificationsUpdate defaults a missing count to 0 (version skew)', () => {
+    useStore.setState({
+      notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
+    });
+    // A backend older than the unread_shares field omits it from the payload.
+    // The badge sums the three counts, so a missing field must read as 0 rather
+    // than undefined, otherwise the avatar badge renders the literal "NaN".
+    useStore.getState().applyNotificationsUpdate({ friend_requests_pending: 2, unread_alerts: 1 });
+    const n = useStore.getState().notifications;
+    expect(n.unread_shares).toBe(0);
+    expect(n.friend_requests_pending + n.unread_alerts + n.unread_shares).toBe(3);
+  });
+
+  it('refreshNotifications normalises a payload missing a count to 0', async () => {
+    mockApi.getNotifications.mockResolvedValue({ friend_requests_pending: 1, unread_alerts: 4 });
+    await useStore.getState().refreshNotifications();
+    const n = useStore.getState().notifications;
+    expect(n.unread_shares).toBe(0);
+    expect(n.friend_requests_pending + n.unread_alerts + n.unread_shares).toBe(5);
+  });
+
   it('setNotice sets and clears the notice', () => {
     useStore.getState().setNotice({ message: 'hi', severity: 'success' });
     expect(useStore.getState().notice).toEqual({ message: 'hi', severity: 'success' });
