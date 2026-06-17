@@ -290,8 +290,9 @@ export const api = {
   ingestConfirm: (tripId: number, plans: ConfirmPlanInput[]) =>
     request<Plan[]>('POST', `/api/trips/${tripId}/ingest/confirm`, { plans }),
 
-  // Import a whole TripIt .ics as its own trip (creates/reuses the trip from
-  // the export and commits its plans, deduped — see POST /api/trips/import).
+  // Import a whole TripIt or Kayak .ics as its own trip(s) (creates/reuses the
+  // trip(s) from the export and commits their plans, deduped; a Kayak feed can
+  // yield several trips — see POST /api/trips/import).
   importTrip: (file: File) => {
     const form = new FormData();
     form.append('file', file, file.name);

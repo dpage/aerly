@@ -517,8 +517,8 @@ function UploadTab({ disabled, onIngest }: UploadTabProps) {
   return (
     <Stack spacing={2} sx={{ pt: 1 }}>
       <Typography variant="body2" color="text.secondary">
-        Drop in a ticket or confirmation (PDF, email, or text) — or a TripIt calendar export (.ics)
-        — and Aerly will extract the plans for you to confirm.
+        Drop in a ticket or confirmation (PDF, email, or text) — or a TripIt or Kayak calendar
+        export (.ics) — and Aerly will extract the plans for you to confirm.
       </Typography>
       <Button variant="outlined" component="label">
         Choose file

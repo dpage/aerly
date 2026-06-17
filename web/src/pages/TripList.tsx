@@ -51,9 +51,10 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
     void listTrips();
   }, [listTrips]);
 
-  // Import a TripIt .ics as its own trip: the backend creates (or reuses, on
-  // re-import) the trip from the export and commits its plans, then we refresh
-  // the list and open the trip.
+  // Import a TripIt or Kayak .ics as its own trip(s): the backend creates (or
+  // reuses, on re-import) the trip(s) from the export and commits their plans,
+  // then we refresh the list. A single-trip import opens the trip; a multi-trip
+  // Kayak feed stays on the list.
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const onImportFile = async (file?: File) => {
@@ -136,7 +137,7 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
         </Typography>
         {mine && (
           <Stack direction="row" spacing={1}>
-            <Tooltip title="Import a trip from a TripIt calendar export (.ics)">
+            <Tooltip title="Import trips from a TripIt or Kayak calendar export (.ics)">
               <Button
                 variant="outlined"
                 startIcon={<FileUploadIcon />}

@@ -130,8 +130,8 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <SectionTitle>Importing</SectionTitle>
         <FeatureItem
-          title="Import a TripIt .ics"
-          description="Use Import .ics on the Trips list to turn a TripIt calendar export into a trip — Aerly creates it and adds the plans for you. Re-importing the same export updates the existing trip rather than duplicating it."
+          title="Import a TripIt or Kayak .ics"
+          description="Use Import .ics on the Trips list to turn a TripIt or Kayak calendar export into trips — Aerly creates them and adds the plans for you. A Kayak account feed can hold several trips and imports them all at once. Re-importing the same export updates the existing trips rather than duplicating them."
         />
         <SectionTitle>Tags & editing</SectionTitle>
         <FeatureItem
