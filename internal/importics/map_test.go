@@ -1,4 +1,4 @@
-package tripitics
+package importics
 
 import (
 	"testing"
@@ -13,12 +13,17 @@ func TestDetectSource(t *testing.T) {
 	}
 	// A standard calendar from some other producer isn't recognised, so Map
 	// reports ok=false and the caller falls back.
-	other := &Calendar{Name: "Kayak Itinerary", Events: []Event{{UID: "evt-1@kayak.com", Summary: "Flight"}}}
+	other := &Calendar{Name: "My Calendar", Events: []Event{{UID: "evt-1@google.com", Summary: "Flight"}}}
 	if src := Detect(other); src != SourceUnknown {
-		t.Errorf("Detect(non-TripIt) = %q, want unknown", src)
+		t.Errorf("Detect(unrecognised) = %q, want unknown", src)
 	}
 	if _, _, ok := Map(other); ok {
-		t.Error("Map(non-TripIt) ok = true, want false (caller should fall back)")
+		t.Error("Map(unrecognised) ok = true, want false (caller should fall back)")
+	}
+	// Kayak's account feed is recognised from its calendar name.
+	kayak := &Calendar{Name: "alex's Trips on KAYAK", Events: []Event{{UID: "0-0-AI@kayak.com"}}}
+	if src := Detect(kayak); src != SourceKayak {
+		t.Errorf("Detect(Kayak) = %q, want kayak", src)
 	}
 }
 

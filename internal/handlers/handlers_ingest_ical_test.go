@@ -9,10 +9,10 @@ import (
 	"github.com/dpage/aerly/internal/api"
 )
 
-// readICS loads a real TripIt fixture shared with the tripitics package.
+// readICS loads a real .ics fixture shared with the importics package.
 func readICS(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile("../tripitics/testdata/" + name)
+	b, err := os.ReadFile("../importics/testdata/" + name)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -20,7 +20,7 @@ func readICS(t *testing.T, name string) string {
 }
 
 // TestIngestICalPropose: a TripIt .ics pasted/uploaded is imported via the
-// deterministic tripitics path — note setup wires NO extractor, so this also
+// deterministic importics path — note setup wires NO extractor, so this also
 // proves the iCal path needs no LLM provider. Historical (2016) flights survive
 // (no ±2-year guard) and carry a terminal status so the poller ignores them.
 func TestIngestICalPropose(t *testing.T) {

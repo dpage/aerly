@@ -373,8 +373,10 @@ describe('TripList', () => {
   });
 
   it('imports a .ics: uploads, refreshes the list, and opens the new trip', async () => {
+    const imported = trip({ id: 77, name: 'Imported' });
     mockImportTrip.mockResolvedValue({
-      trip: trip({ id: 77, name: 'Imported' }),
+      trip: imported,
+      trips: [imported],
       added: 7,
       skipped: 0,
     });
@@ -387,6 +389,24 @@ describe('TripList', () => {
     expect(mockImportTrip).toHaveBeenCalledWith(file);
     expect(listTrips).toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith('/trips/77');
+  });
+
+  it('imports a Kayak feed: stays on the refreshed list for multiple trips', async () => {
+    mockImportTrip.mockResolvedValue({
+      trip: trip({ id: 1, name: 'A' }),
+      trips: [trip({ id: 1, name: 'A' }), trip({ id: 2, name: 'B' })],
+      added: 9,
+      skipped: 0,
+    });
+    const { container } = renderList('mine');
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['BEGIN:VCALENDAR\nEND:VCALENDAR'], 'kayak.ics', {
+      type: 'text/calendar',
+    });
+    await userEvent.upload(input, file);
+    expect(mockImportTrip).toHaveBeenCalledWith(file);
+    expect(listTrips).toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('surfaces an error when the .ics import fails', async () => {

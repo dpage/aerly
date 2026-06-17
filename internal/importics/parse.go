@@ -1,15 +1,14 @@
-// Package tripitics parses iCalendar (RFC 5545) data exported from TripIt.
+// Package importics parses iCalendar (RFC 5545) trip exports into Aerly plans.
 //
-// TripIt's public API is closed to new integrations, and the per-account
-// calendar feed only carries the last 90 days, so the practical way to import
-// historical trips is the per-trip "Export trip to calendar" .ics download.
-// This package owns the format-independent half of that import: turning a .ics
-// file into structured events. The TripIt-specific mapping from an event to an
-// Aerly plan (flight ident/route/times, hotel check-in/out, …) lives in a
-// separate mapper that is written against a real exported sample, since how
-// TripIt encodes a booking inside SUMMARY/DESCRIPTION/LOCATION is not part of
-// the iCalendar standard.
-package tripitics
+// Travel services publish trips as .ics downloads or calendar feeds: TripIt's
+// per-trip "Export trip to calendar" and Kayak's per-account "Trips calendar
+// feed" are the two supported today. This package owns the format-independent
+// half of that import — turning a .ics file into structured events — plus a
+// per-source mapper that turns those events into plans (flight ident/route/
+// times, hotel check-in/out, …). The mapping is source-specific and written
+// against real exported samples, because how a producer encodes a booking
+// inside SUMMARY/DESCRIPTION/LOCATION is not part of the iCalendar standard.
+package importics
 
 import (
 	"bufio"
@@ -167,7 +166,7 @@ func unfold(r io.Reader) ([]string, error) {
 		out = append(out, line)
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("tripitics: read ics: %w", err)
+		return nil, fmt.Errorf("importics: read ics: %w", err)
 	}
 	return out, nil
 }
