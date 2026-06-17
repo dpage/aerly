@@ -133,6 +133,34 @@ func TestMapCalaisEurotunnelAsTrain(t *testing.T) {
 	}
 }
 
+// TestMapRailTagged guards #65: TripIt tags some rail directly as [Rail] rather
+// than mis-filing it under [Ground Transportation], and the operator name in the
+// SUMMARY ("MZR - ...") carries none of the rail keywords isRail sniffs for.
+// Before the fix these legs matched no classify case and were silently dropped,
+// so only the hotel survived. The fixture is a synthetic round-trip standing in
+// for such an itinerary.
+func TestMapRailTagged(t *testing.T) {
+	mt := mustMapTripIt(t, parseFixture(t, "rivermouth_2026.ics"))
+	by := plansByType(mt)
+
+	if len(by["train"]) != 2 {
+		t.Errorf("got %d train plans, want 2 rail legs; ground=%d, hotel=%d",
+			len(by["train"]), len(by["ground"]), len(by["hotel"]))
+	}
+	if len(by["ground"]) != 0 {
+		t.Errorf("got %d ground plans, want 0 (rail must not fall through to ground)", len(by["ground"]))
+	}
+	if len(by["hotel"]) != 1 {
+		t.Errorf("got %d hotel plans, want 1", len(by["hotel"]))
+	}
+	for _, p := range by["train"] {
+		part := p.Parts[0]
+		if part.Train == nil || part.Train.Operator != "MZR" {
+			t.Errorf("train operator = %+v, want MZR", part.Train)
+		}
+	}
+}
+
 // TestMapTransferEndpointsAreDistinct guards the crow-flight bug: TripIt puts a
 // single GEO (the *arrival* point) on each transport event, so a naive importer
 // collapses both endpoints onto it (start == end) and the map can't draw a leg.

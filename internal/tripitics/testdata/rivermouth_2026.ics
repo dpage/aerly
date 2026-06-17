@@ -1,0 +1,77 @@
+BEGIN:VCALENDAR
+METHOD:PUBLISH
+X-WR-CALNAME:Alex Carter (TripIt - Rivermouth 2026)
+X-WR-CALDESC:Rivermouth 2026 (Trip Shared by Alex Carter)
+PRODID:-//John Papaioannou/NONSGML Bennu 0.1//EN
+VERSION:2.0
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+UID:00000000-0000-9000-0001-000000000001@tripit.com
+DTSTART;VALUE=DATE:20260612
+DTEND;VALUE=DATE:20260615
+SUMMARY:Rivermouth 2026
+LOCATION:Rivermouth\, Atlantis
+GEO:10.00000;20.00000
+TRANSP:TRANSPARENT
+DESCRIPTION:Alex Carter is in Rivermouth\, Atlantis from Jun 12 to 14\, 202
+ 6\nView and/or edit details in TripIt : https://www.tripit.com/trip/show?i
+ d=100000001\nTripIt - organize your travel at https://www.tripit.com\n
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+DTEND:20260612T151600Z
+LOCATION:Central Station\, 00000 Rivervale\, Atlantis\, Central Station
+UID:item-00000000-0000-9000-0003-000000000002@tripit.com
+DTSTART:20260612T124800Z
+SUMMARY:MZR - Central Station to Rivermouth
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/100000001\n \n\nFri\, Jun 12\n14:48  CEST\n[Rail] MZR - Central S
+ tation to Rivermouth\nDepart Central Station 00000 Rivervale\, Atlantis\, C
+ entral Station\n \n17:16  CEST\nArrive Rivermouth 00001 Rivermouth\, Atlant
+ is\n \n\nTripIt - organize your travel at https://www.tripit.com
+GEO:11.00000;21.00000
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+SUMMARY:Check-in: Rivermouth Lodge
+TRANSP:TRANSPARENT
+UID:item-00000000-0000-9000-0003-000000000003@tripit.com
+DTSTART:20260612T130000Z
+DTEND:20260612T140000Z
+LOCATION:1 Example Way\, Rivermouth\, 00001 Rivermouth\, Atlantis
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/100000001\n \n\n15:00  CEST\n[Lodging] Arrive Rivermouth Lodge\nC
+ heck-In: 15:00\n1 Example Way\, Rivermouth\, 00001 Rivermouth\, Atlantis\n+
+ 1 555 0100\n \n\n \nTripIt - organize your travel at https://www.tripit.com
+GEO:10.50000;20.50000
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+SUMMARY:Check-out: Rivermouth Lodge
+TRANSP:TRANSPARENT
+UID:item-00000000-0000-9000-0003-000000000004@tripit.com
+DTSTART:20260614T080000Z
+DTEND:20260614T090000Z
+LOCATION:1 Example Way\, Rivermouth\, 00001 Rivermouth\, Atlantis
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/100000001\n \n\nSun\, Jun 14\n10:00  CEST\n[Lodging] Depart River
+ mouth Lodge\nCheck-Out: 10:00\n1 Example Way\, Rivermouth\, 00001 Rivermout
+ h\, Atlantis\n+1 555 0100\n \n\n \nTripIt - organize your travel at https:/
+ /www.tripit.com
+GEO:10.50000;20.50000
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+DTEND:20260614T110900Z
+LOCATION:Rivermouth\; 00001 Rivermouth\, Atlantis
+UID:item-00000000-0000-9000-0003-000000000005@tripit.com
+DTSTART:20260614T084900Z
+SUMMARY:MZR - Rivermouth to Central Station
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/100000001\n \n\n10:49  CEST\n[Rail] MZR - Rivermouth to Central S
+ tation\nDepart Rivermouth 00001 Rivermouth\, Atlantis\n \n13:09  CEST\nArri
+ ve Central Station 00000 Rivervale\, Atlantis\, Central Station\n \n\nTripI
+ t - organize your travel at https://www.tripit.com
+GEO:10.00000;20.00000
+END:VEVENT
+END:VCALENDAR
