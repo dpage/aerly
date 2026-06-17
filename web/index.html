@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <!-- PWA: theme tint for the browser/OS chrome, and the iOS-specific hints
+         that let Aerly run full-screen when added to the home screen (iOS reads
+         these, not the web manifest, for standalone display and titling). The
+         web app manifest itself is injected by vite-plugin-pwa at build time. -->
+    <meta name="theme-color" content="#0d1117" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Aerly" />
     <!-- A single brand mark designed to read against both light and dark UI,
          so no theme-aware variants are needed. favicon.ico is the legacy
          fallback for clients that ignore the PNG link. -->

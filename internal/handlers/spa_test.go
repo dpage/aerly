@@ -3,15 +3,18 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
 
 func TestSPAHandlerServesIndexAtRoot(t *testing.T) {
 	fsys := fstest.MapFS{
-		"index.html":    {Data: []byte("<!doctype html><title>app</title>")},
-		"assets/app.js": {Data: []byte("console.log(1)")},
-		"favicon.ico":   {Data: []byte("ico")},
+		"index.html":           {Data: []byte("<!doctype html><title>app</title>")},
+		"assets/app.js":        {Data: []byte("console.log(1)")},
+		"favicon.ico":          {Data: []byte("ico")},
+		"sw.js":                {Data: []byte("/* service worker */")},
+		"manifest.webmanifest": {Data: []byte(`{"name":"Aerly"}`)},
 	}
 	h := SPAHandler(fsys)
 
@@ -46,6 +49,27 @@ func TestSPAHandlerServesIndexAtRoot(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/favicon.ico", nil))
 	if w.Code != 200 || w.Header().Get("Cache-Control") == "public, max-age=31536000, immutable" {
 		t.Errorf("favicon served wrong: %d %q", w.Code, w.Header().Get("Cache-Control"))
+	}
+
+	// Service worker → served no-cache so browsers revalidate it on each load
+	// and pick up new builds (never long-cached like hashed assets).
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/sw.js", nil))
+	if w.Code != 200 {
+		t.Fatalf("sw.js = %d", w.Code)
+	}
+	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("sw.js cache header = %q, want no-cache", cc)
+	}
+
+	// Web app manifest → correct MIME so browsers honour it.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/manifest.webmanifest", nil))
+	if w.Code != 200 {
+		t.Fatalf("manifest = %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/manifest+json") {
+		t.Errorf("manifest content-type = %q, want application/manifest+json", ct)
 	}
 }
 

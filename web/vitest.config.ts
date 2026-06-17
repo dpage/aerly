@@ -1,9 +1,20 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 // Separate from vite.config.ts to keep the build pipeline untouched.
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // vite-plugin-pwa's virtual module only exists during a real build.
+      // Point it at a tiny stub so anything importing src/pwa.ts resolves
+      // under vitest; pwa.test.tsx overrides this per-test with vi.mock.
+      'virtual:pwa-register/react': fileURLToPath(
+        new URL('./src/test/pwa-register-stub.ts', import.meta.url),
+      ),
+    },
+  },
   // Define the build-commit constant so version.ts compiles under tests too
   // (empty here, matching an unstamped dev build).
   define: {
