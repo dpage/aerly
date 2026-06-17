@@ -82,13 +82,13 @@ func mapTripIt(cal *Calendar) *MappedTrip {
 			mt.TripItID = tripItID(e.Description)
 			continue
 		}
-		switch classify(e) {
+		switch c := classify(e); c {
 		case "flight":
 			if p, ok := mapFlight(e); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "ground", "train":
-			if p, ok := mapTransport(e, placeGeo); ok {
+			if p, ok := mapTransport(e, c, placeGeo); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "hotel":
@@ -116,8 +116,10 @@ func isEnvelope(e Event) bool {
 
 // classify returns the Aerly plan type for a booking event, or "" to skip it.
 // The [Type] tag TripIt embeds in the description is the primary signal, with
-// the SUMMARY shape as a fallback. Eurotunnel/rail is lifted to "train" even
-// though TripIt files it under [Ground Transportation].
+// the SUMMARY shape as a fallback. Rail arrives two ways: tagged [Rail]
+// directly (e.g. ZSSK, #65), or mis-filed under [Ground Transportation] for
+// some operators (e.g. Eurotunnel); both are lifted to "train" here so this is
+// the single place that settles the transport type.
 func classify(e Event) string {
 	if strings.HasPrefix(e.Summary, "Check-in:") || strings.HasPrefix(e.Summary, "Check-out:") {
 		return "hotel"
@@ -128,6 +130,8 @@ func classify(e Event) string {
 		return "flight"
 	case strings.Contains(d, "[Lodging]"):
 		return "hotel"
+	case strings.Contains(d, "[Rail]"):
+		return "train"
 	case strings.Contains(d, "[Ground Transportation]"), strings.Contains(d, "[Transportation]"):
 		if isRail(e.Summary) {
 			return "train"
@@ -216,14 +220,11 @@ func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
 }
 
 // mapTransport maps a TripIt ground/rail event into a ground or train plan,
-// parsing "<provider> - <from> to <to>" from the SUMMARY (Eurotunnel and other
-// rail are lifted to train; everything else is ground). placeGeo (built by
+// parsing "<provider> - <from> to <to>" from the SUMMARY. planType ("ground" or
+// "train") comes from classify, which is the single arbiter of the type; this
+// function trusts it rather than re-sniffing the summary. placeGeo (built by
 // transferPlaceIndex) supplies the origin coordinate TripIt omits.
-func mapTransport(e Event, placeGeo map[string]LatLon) (planops.ConfirmPlanInput, bool) {
-	planType := "ground"
-	if isRail(e.Summary) {
-		planType = "train"
-	}
+func mapTransport(e Event, planType string, placeGeo map[string]LatLon) (planops.ConfirmPlanInput, bool) {
 	provider, from, to := e.Summary, "", ""
 	if m := transportRe.FindStringSubmatch(e.Summary); m != nil {
 		provider, from, to = m[1], m[2], m[3]

@@ -1,0 +1,81 @@
+BEGIN:VCALENDAR
+METHOD:PUBLISH
+X-WR-CALNAME:Pavlo Golub (TripIt - Partizanske 2026)
+X-WR-CALDESC:Partizanske 2026 (Trip Shared by Pavlo Golub)
+PRODID:-//John Papaioannou/NONSGML Bennu 0.1//EN
+VERSION:2.0
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+UID:7ca7e941-5a4c-9000-0001-000016cb2c2b@tripit.com
+DTSTART;VALUE=DATE:20260612
+DTEND;VALUE=DATE:20260615
+SUMMARY:Partizanske 2026
+LOCATION:Partizanske\, Slovakia
+GEO:48.62861;18.38455
+TRANSP:TRANSPARENT
+DESCRIPTION:Pavlo Golub is in Partizanske\, Slovakia from Jun 12 to 14\, 2
+ 026\nView and/or edit details in TripIt : https://www.tripit.com/trip/show
+ ?id=382413867\nTripIt - organize your travel at https://www.tripit.com\n
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+DTEND:20260612T151600Z
+LOCATION:Bratislava N.Mesto\; Tomášikova\, 831 04 Bratislava-Nové Mesto\, 
+ Slovakia\, Bratislava N.Mesto
+UID:item-d17d4339-ff14-9000-0003-0001453fa401@tripit.com
+DTSTART:20260612T124800Z
+SUMMARY:ZSSK - Bratislava N.Mesto to Partizánske
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/382413867\n \n\nFri\, Jun 12\n14:48  CEST\n[Rail] ZSSK - Bratis
+ lava N.Mesto to Partizánske\nDepart Bratislava N.Mesto Tomášikova\, 831 04
+  Bratislava-Nové Mesto\, Slovakia\, Bratislava N.Mesto\n \n17:16  CEST\nAr
+ rive Partizánske 958 01 Partizánske\, Slovakia\n \n\nTripIt - organize you
+ r travel at https://www.tripit.com
+GEO:48.6216701;18.3760442
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+SUMMARY:Check-in: Cassian Inn
+TRANSP:TRANSPARENT
+UID:item-e6079720-88e4-9000-0003-0001453fc759@tripit.com
+DTSTART:20260612T130000Z
+DTEND:20260612T140000Z
+LOCATION:Mostová 231/17\, Veľké Bielice\, 958 04 Partizánske\, Slovakia
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/382413867\n \n\n15:00  CEST\n[Lodging] Arrive Cassian Inn\nChec
+ k-In: 15:00\nMostová 231/17\, Veľké Bielice\, 958 04 Partizánske\, Slovaki
+ a\n0940 942 778\n \n\n \nTripIt - organize your travel at https://www.trip
+ it.com
+GEO:48.6291628;18.3545803
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+SUMMARY:Check-out: Cassian Inn
+TRANSP:TRANSPARENT
+UID:item-a4728a33-b0de-9000-0003-0001453fc75d@tripit.com
+DTSTART:20260614T080000Z
+DTEND:20260614T090000Z
+LOCATION:Mostová 231/17\, Veľké Bielice\, 958 04 Partizánske\, Slovakia
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/382413867\n \n\nSun\, Jun 14\n10:00  CEST\n[Lodging] Depart Cas
+ sian Inn\nCheck-Out: 10:00\nMostová 231/17\, Veľké Bielice\, 958 04 Partiz
+ ánske\, Slovakia\n0940 942 778\n \n\n \nTripIt - organize your travel at h
+ ttps://www.tripit.com
+GEO:48.6291628;18.3545803
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260617T130047Z
+DTEND:20260614T110900Z
+LOCATION:Partizánske\; 958 01 Partizánske\, Slovakia
+UID:item-8aa9547f-4fab-9000-0003-0001453fe0d9@tripit.com
+DTSTART:20260614T084900Z
+SUMMARY:ZSSK - Partizánske to Bratislava N.Mesto
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tr
+ ip/show/id/382413867\n \n\n10:49  CEST\n[Rail] ZSSK - Partizánske to Brati
+ slava N.Mesto\nDepart Partizánske 958 01 Partizánske\, Slovakia\n \n13:09 
+  CEST\nArrive Bratislava N.Mesto Tomášikova\, 831 04 Bratislava-Nové Mesto
+ \, Slovakia\, Bratislava N.Mesto\n \n\nTripIt - organize your travel at ht
+ tps://www.tripit.com
+GEO:48.1716107;17.1465422
+END:VEVENT
+END:VCALENDAR
