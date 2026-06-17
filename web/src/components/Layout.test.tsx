@@ -68,14 +68,11 @@ function stubDialog(testid: string) {
 vi.mock('./AddToTripDialog', () => ({ default: stubDialog('add-dialog') }));
 vi.mock('./AboutDialog', () => ({ default: stubDialog('about-dialog') }));
 vi.mock('./AdminDialog', () => ({ default: stubDialog('admin-dialog') }));
-vi.mock('./AlertPrefsDialog', () => ({ default: stubDialog('alertprefs-dialog') }));
 vi.mock('./AlertsDialog', () => ({ default: stubDialog('alerts-dialog') }));
-vi.mock('./EmailsDialog', () => ({ default: stubDialog('emails-dialog') }));
 vi.mock('./FriendsDialog', () => ({ default: stubDialog('friends-dialog') }));
 vi.mock('./StatsDialog', () => ({ default: stubDialog('stats-dialog') }));
 vi.mock('./CalendarSubscribeDialog', () => ({ default: stubDialog('subscribe-dialog') }));
-vi.mock('./HomeAddressDialog', () => ({ default: stubDialog('home-dialog') }));
-vi.mock('./AutoShareDialog', () => ({ default: stubDialog('autoshare-dialog') }));
+vi.mock('./PreferencesDialog', () => ({ default: stubDialog('preferences-dialog') }));
 
 import Layout from './Layout';
 
@@ -209,20 +206,6 @@ describe('Layout', () => {
     expect(screen.getByTestId('friends-dialog')).toBeInTheDocument();
   });
 
-  it('hides the Email addresses item when email ingest is disabled', async () => {
-    renderLayout();
-    await openMenu();
-    expect(screen.queryByText('Email addresses…')).not.toBeInTheDocument();
-  });
-
-  it('shows and opens Email addresses when ingest is enabled', async () => {
-    h.state.capabilities = { email_ingest_enabled: true };
-    renderLayout();
-    await openMenu();
-    await userEvent.click(screen.getByText('Email addresses…'));
-    expect(screen.getByTestId('emails-dialog')).toBeInTheDocument();
-  });
-
   it('opens Statistics from the menu', async () => {
     renderLayout();
     await openMenu();
@@ -230,25 +213,26 @@ describe('Layout', () => {
     expect(screen.getByTestId('stats-dialog')).toBeInTheDocument();
   });
 
-  it('opens Alert preferences from the menu', async () => {
-    renderLayout();
-    await openMenu();
-    await userEvent.click(screen.getByText('Alert preferences…'));
-    expect(screen.getByTestId('alertprefs-dialog')).toBeInTheDocument();
-  });
-
-  it('opens Home address from the menu', async () => {
-    renderLayout();
-    await openMenu();
-    await userEvent.click(screen.getByText('Home address…'));
-    expect(screen.getByTestId('home-dialog')).toBeInTheDocument();
-  });
-
   it('opens Subscribe to calendar from the menu', async () => {
     renderLayout();
     await openMenu();
     await userEvent.click(screen.getByText('Subscribe to calendar…'));
     expect(screen.getByTestId('subscribe-dialog')).toBeInTheDocument();
+  });
+
+  it('opens Preferences from the menu', async () => {
+    renderLayout();
+    await openMenu();
+    await userEvent.click(screen.getByText('Preferences…'));
+    expect(screen.getByTestId('preferences-dialog')).toBeInTheDocument();
+  });
+
+  it('shows a count chip on the Alerts item for unread alerts + shares', async () => {
+    h.state.notifications = { friend_requests_pending: 0, unread_alerts: 2, unread_shares: 1 };
+    renderLayout();
+    await openMenu();
+    const alertsItem = screen.getByText('Alerts…').closest('li')!;
+    expect(alertsItem).toHaveTextContent('3');
   });
 
   it('changes the theme preference', async () => {
@@ -299,7 +283,6 @@ describe('Layout', () => {
 
   it('closes each account-level dialog via its onClose callback', async () => {
     h.state.me = user({ is_superuser: true });
-    h.state.capabilities = { email_ingest_enabled: true };
     renderLayout();
 
     // Admin (top-bar action, superuser only).
@@ -311,12 +294,9 @@ describe('Layout', () => {
     const menuDialogs: Array<[string, string]> = [
       ['Alerts…', 'alerts-dialog'],
       ['Friends…', 'friends-dialog'],
-      ['Email addresses…', 'emails-dialog'],
       ['Statistics…', 'stats-dialog'],
-      ['Alert preferences…', 'alertprefs-dialog'],
-      ['Home address…', 'home-dialog'],
-      ['Always share with…', 'autoshare-dialog'],
       ['Subscribe to calendar…', 'subscribe-dialog'],
+      ['Preferences…', 'preferences-dialog'],
     ];
     for (const [item, testid] of menuDialogs) {
       await openMenu();

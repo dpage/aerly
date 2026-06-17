@@ -29,17 +29,14 @@ import RadarIcon from '@mui/icons-material/Radar';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
-import EmailIcon from '@mui/icons-material/EmailOutlined';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import NotificationsIcon from '@mui/icons-material/NotificationsOutlined';
-import TuneIcon from '@mui/icons-material/Tune';
-import HomeIcon from '@mui/icons-material/HomeOutlined';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
-import GroupAddIcon from '@mui/icons-material/GroupAddOutlined';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
+import SettingsIcon from '@mui/icons-material/SettingsOutlined';
 
 import { useStore } from '../state/store';
 import { userInitial, userName } from '../lib/format';
@@ -47,14 +44,11 @@ import { useThemeMode, type ThemePreference } from '../theme';
 import AboutDialog from './AboutDialog';
 import AdminDialog from './AdminDialog';
 import HelpPanel from './HelpPanel';
-import AlertPrefsDialog from './AlertPrefsDialog';
 import AlertsDialog from './AlertsDialog';
-import EmailsDialog from './EmailsDialog';
 import FriendsDialog from './FriendsDialog';
 import StatsDialog from './StatsDialog';
 import CalendarSubscribeDialog from './CalendarSubscribeDialog';
-import HomeAddressDialog from './HomeAddressDialog';
-import AutoShareDialog from './AutoShareDialog';
+import PreferencesDialog from './PreferencesDialog';
 import AerlyLogo from './AerlyLogo';
 
 /** The authenticated app chrome for the trip-planning redesign (spec §11).
@@ -67,7 +61,6 @@ export default function Layout() {
   const me = useStore((s) => s.me);
   const logout = useStore((s) => s.logout);
   const logoutAll = useStore((s) => s.logoutAll);
-  const capabilities = useStore((s) => s.capabilities);
   const openHelp = useStore((s) => s.openHelp);
   const pendingRequests = useStore((s) => s.notifications.friend_requests_pending);
   const unreadAlerts = useStore((s) => s.notifications.unread_alerts);
@@ -82,14 +75,11 @@ export default function Layout() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
-  const [emailsOpen, setEmailsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
-  const [alertPrefsOpen, setAlertPrefsOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
-  const [homeAddrOpen, setHomeAddrOpen] = useState(false);
-  const [autoShareOpen, setAutoShareOpen] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   const closeMenu = () => setMenuAnchor(null);
@@ -113,6 +103,15 @@ export default function Layout() {
       : location.pathname.startsWith('/trips/')
         ? 'plans'
         : 'trips';
+
+  // A non-interactive caption row that heads a group of menu items.
+  const sectionLabel = (text: string) => (
+    <MenuItem disabled sx={{ opacity: '1 !important' }}>
+      <Typography variant="caption" color="text.secondary">
+        {text}
+      </Typography>
+    </MenuItem>
+  );
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -201,7 +200,9 @@ export default function Layout() {
                 </Typography>
               </MenuItem>
             )}
+
             <Divider />
+            {sectionLabel('Activity')}
             <MenuItem
               onClick={() => {
                 closeMenu();
@@ -209,16 +210,19 @@ export default function Layout() {
               }}
             >
               <ListItemIcon>
-                <Badge
-                  variant="dot"
-                  color="error"
-                  invisible={unreadAlerts + unreadShares === 0}
-                  overlap="circular"
-                >
-                  <NotificationsIcon fontSize="small" />
-                </Badge>
+                <NotificationsIcon fontSize="small" />
               </ListItemIcon>
-              Alerts…
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
+                <Box>Alerts…</Box>
+                {unreadAlerts + unreadShares > 0 && (
+                  <Chip
+                    label={unreadAlerts + unreadShares}
+                    size="small"
+                    color="error"
+                    sx={{ ml: 'auto' }}
+                  />
+                )}
+              </Box>
             </MenuItem>
             <MenuItem
               onClick={() => {
@@ -236,19 +240,9 @@ export default function Layout() {
                 )}
               </Box>
             </MenuItem>
-            {capabilities.email_ingest_enabled && (
-              <MenuItem
-                onClick={() => {
-                  closeMenu();
-                  setEmailsOpen(true);
-                }}
-              >
-                <ListItemIcon>
-                  <EmailIcon fontSize="small" />
-                </ListItemIcon>
-                Email addresses…
-              </MenuItem>
-            )}
+
+            <Divider />
+            {sectionLabel('Your travel')}
             <MenuItem
               onClick={() => {
                 closeMenu();
@@ -263,39 +257,6 @@ export default function Layout() {
             <MenuItem
               onClick={() => {
                 closeMenu();
-                setAlertPrefsOpen(true);
-              }}
-            >
-              <ListItemIcon>
-                <TuneIcon fontSize="small" />
-              </ListItemIcon>
-              Alert preferences…
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                closeMenu();
-                setHomeAddrOpen(true);
-              }}
-            >
-              <ListItemIcon>
-                <HomeIcon fontSize="small" />
-              </ListItemIcon>
-              Home address…
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                closeMenu();
-                setAutoShareOpen(true);
-              }}
-            >
-              <ListItemIcon>
-                <GroupAddIcon fontSize="small" />
-              </ListItemIcon>
-              Always share with…
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                closeMenu();
                 setSubscribeOpen(true);
               }}
             >
@@ -303,6 +264,20 @@ export default function Layout() {
                 <CalendarMonthIcon fontSize="small" />
               </ListItemIcon>
               Subscribe to calendar…
+            </MenuItem>
+
+            <Divider />
+            {sectionLabel('Settings')}
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                setPrefsOpen(true);
+              }}
+            >
+              <ListItemIcon>
+                <SettingsIcon fontSize="small" />
+              </ListItemIcon>
+              Preferences…
             </MenuItem>
             {me?.is_superuser && (
               <MenuItem
@@ -317,6 +292,7 @@ export default function Layout() {
                 About Aerly…
               </MenuItem>
             )}
+
             <Divider />
             <MenuItem disabled sx={{ opacity: '1 !important' }}>
               <Typography variant="caption" color="text.secondary">
@@ -344,6 +320,7 @@ export default function Layout() {
                 {label}
               </MenuItem>
             ))}
+
             <Divider />
             <MenuItem
               onClick={() => {
@@ -400,18 +377,15 @@ export default function Layout() {
 
       <AdminDialog open={adminOpen} onClose={() => setAdminOpen(false)} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
-      <EmailsDialog open={emailsOpen} onClose={() => setEmailsOpen(false)} />
       <FriendsDialog open={friendsOpen} onClose={() => setFriendsOpen(false)} />
       <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} />
-      <AlertPrefsDialog open={alertPrefsOpen} onClose={() => setAlertPrefsOpen(false)} />
       <AlertsDialog open={alertsOpen} onClose={() => setAlertsOpen(false)} />
-      <HomeAddressDialog open={homeAddrOpen} onClose={() => setHomeAddrOpen(false)} />
-      <AutoShareDialog open={autoShareOpen} onClose={() => setAutoShareOpen(false)} />
       <CalendarSubscribeDialog
         open={subscribeOpen}
         onClose={() => setSubscribeOpen(false)}
         scope="me"
       />
+      <PreferencesDialog open={prefsOpen} onClose={() => setPrefsOpen(false)} />
       <HelpPanel />
     </Box>
   );
