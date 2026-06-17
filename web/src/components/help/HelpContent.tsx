@@ -286,7 +286,7 @@ export const HELP_PAGES: HelpPage[] = [
         <Body>You can only add people who are already your friends.</Body>
         <FeatureItem
           title="Always share with"
-          description="In the account menu, set a list of friends who are added to every new trip you create automatically — e.g. your partner as a viewer and your assistant as an editor. It applies only to trips you create from then on; trips you've already shared are left as they are."
+          description="In Preferences → Sharing, set a list of friends who are added to every new trip you create automatically — e.g. your partner as a viewer and your assistant as an editor. It applies only to trips you create from then on; trips you've already shared are left as they are."
         />
         <SectionTitle>Per-plan privacy</SectionTitle>
         <FeatureItem
@@ -326,7 +326,7 @@ export const HELP_PAGES: HelpPage[] = [
         <SectionTitle>Alert preferences</SectionTitle>
         <FeatureItem
           title="How you're notified"
-          description="In Alert preferences (account menu) choose in-app, email, or both — and set a minimum delay so short hiccups below that many minutes don't alert you."
+          description="In Preferences → Alerts choose in-app, email, or both — and set a minimum delay so short hiccups below that many minutes don't alert you."
         />
         <FeatureItem
           title="Notify me of changes"
@@ -355,37 +355,39 @@ export const HELP_PAGES: HelpPage[] = [
     body: (
       <Box>
         <Body>
-          These all live in the account menu under your avatar (top-right).
+          These all live in the account menu under your avatar (top-right). Most of your settings
+          are gathered together under Preferences, a tabbed dialog covering alert delivery, sharing
+          defaults, your home address and forwarding emails.
         </Body>
         <SectionTitle>Statistics</SectionTitle>
         <FeatureItem
           title="Your flying, totted up"
           description="Flown and upcoming totals — flights, distance, time in the air and airports — plus highlights like your longest flight, most-visited airport and laps of the Earth."
         />
-        <SectionTitle>Home address</SectionTitle>
-        <FeatureItem
-          title="Context for text capture"
-          description="Set your home address once so plans captured from text (e.g. “taxi from home to the airport”) know where home is. It's only ever visible to you."
-        />
         <SectionTitle>Subscribe to calendar</SectionTitle>
         <FeatureItem
           title="Private iCal feeds"
           description="Get a private subscription link — your whole schedule, a single trip, or one plan — to add to Apple Calendar, Google Calendar or Outlook. It always shows exactly what you can see in the app. Regenerate the link to revoke the old one."
         />
-        <SectionTitle>Email addresses</SectionTitle>
+        <SectionTitle>Preferences</SectionTitle>
         <FeatureItem
-          title="When forwarding is enabled"
-          description="If your Aerly is set up to add flights from forwarded booking emails, use Email addresses to add and verify the addresses you can forward from. (Hidden when forwarding isn't enabled.)"
+          title="Home address"
+          description="On the Home tab, set your home address once so plans captured from text (e.g. “taxi from home to the airport”) know where home is. It's only ever visible to you."
         />
+        <FeatureItem
+          title="Email addresses"
+          description="If your Aerly is set up to add flights from forwarded booking emails, use the Emails tab to add and verify the addresses you can forward from. (Hidden when forwarding isn't enabled.)"
+        />
+        <HelpTip>
+          Preferences also holds alert delivery (see Flight alerts) and the “Always share with”
+          sharing defaults (see Friends &amp; sharing) — each on its own tab. Everything saves as you
+          go, so there's no Save button.
+        </HelpTip>
         <SectionTitle>Appearance & sessions</SectionTitle>
         <FeatureItem
           title="Theme and signing out"
           description="Switch between Light, Dark and System appearance. Sign out ends this session; Sign out everywhere ends every active session on all your devices."
         />
-        <HelpTip>
-          Always share with (also in the account menu) auto-adds chosen friends to every new trip —
-          see Friends &amp; sharing.
-        </HelpTip>
       </Box>
     ),
   },
