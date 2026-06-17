@@ -21,6 +21,7 @@ import { useServiceWorkerUpdate, useOnlineStatus } from './pwa';
 import { createAppTheme, useThemeMode } from './theme';
 import Login from './components/Login';
 import Layout from './components/Layout';
+import InstallPrompt from './components/InstallPrompt';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
 import TripList from './pages/TripList';
@@ -265,6 +266,7 @@ export default function App() {
             You&apos;re offline — showing saved data.
           </Alert>
         </Snackbar>
+        <InstallPrompt />
       </LocalizationProvider>
     </ThemeProvider>
   );

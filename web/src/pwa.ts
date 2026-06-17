@@ -79,6 +79,77 @@ export function useServiceWorkerUpdate(): ServiceWorkerUpdate {
   return { updateAvailable: needRefresh, applyUpdate };
 }
 
+/** The non-standard event Chromium fires when a site meets the install
+ * criteria. Capturing it lets us defer the prompt to our own button. */
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+}
+
+/** True on iOS/iPadOS, where there's no install API — the user must use
+ * Safari's Share → "Add to Home Screen". iPadOS 13+ reports a desktop UA, so we
+ * also treat a touch-capable "Macintosh" as iOS. */
+function isIos(): boolean {
+  const ua = navigator.userAgent;
+  return /iphone|ipad|ipod/i.test(ua) || (ua.includes('Macintosh') && 'ontouchend' in document);
+}
+
+/** True when already running as an installed app, so we don't offer to install
+ * again. */
+function isStandalone(): boolean {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as { standalone?: boolean }).standalone === true
+  );
+}
+
+export interface InstallPrompt {
+  /** Chromium's native install prompt is available (Android/desktop Chrome). */
+  canInstall: boolean;
+  /** iOS, not yet installed: show the manual "Add to Home Screen" hint. */
+  iosHint: boolean;
+  /** Trigger the native install prompt; no-op when unavailable. */
+  promptInstall: () => void;
+}
+
+/** React hook backing the in-app install affordance. On Chromium it captures
+ * `beforeinstallprompt` so a button can trigger the native prompt on demand; on
+ * iOS (which has no install API) it signals that a manual hint should show.
+ * Both are suppressed once the app is installed. */
+export function useInstallPrompt(): InstallPrompt {
+  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
+  const [iosHint, setIosHint] = useState(false);
+
+  useEffect(() => {
+    if (isStandalone()) return;
+    const onBeforeInstall = (e: Event) => {
+      // Stop Chrome's default mini-infobar so our own button drives the prompt.
+      e.preventDefault();
+      setDeferred(e as BeforeInstallPromptEvent);
+    };
+    const onInstalled = () => {
+      setDeferred(null);
+      setIosHint(false);
+    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onInstalled);
+    // iOS never fires beforeinstallprompt — decide the hint once on mount.
+    setIosHint(isIos());
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  const promptInstall = () => {
+    if (!deferred) return;
+    void deferred.prompt();
+    // The event can only be used once; drop it so the button hides afterwards.
+    setDeferred(null);
+  };
+
+  return { canInstall: deferred !== null, iosHint, promptInstall };
+}
+
 /** React hook tracking online/offline transitions so the UI can show an
  * unobtrusive "offline" notice. When the connection returns, the SSE stream
  * reconnects and the network-first caches refresh on their own. */

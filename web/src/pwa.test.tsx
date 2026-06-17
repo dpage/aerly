@@ -26,7 +26,13 @@ vi.mock('virtual:pwa-register/react', () => ({
   },
 }));
 
-import { useOnlineStatus, useServiceWorkerUpdate } from './pwa';
+import { useInstallPrompt, useOnlineStatus, useServiceWorkerUpdate } from './pwa';
+import { setMatchMedia } from './test/setup';
+
+const ORIGINAL_UA = navigator.userAgent;
+function setUserAgent(ua: string): void {
+  Object.defineProperty(navigator, 'userAgent', { configurable: true, value: ua });
+}
 
 beforeEach(() => {
   mock.needRefresh = false;
@@ -102,6 +108,63 @@ describe('useServiceWorkerUpdate', () => {
     } finally {
       Object.defineProperty(window, 'location', { configurable: true, value: orig });
     }
+  });
+});
+
+describe('useInstallPrompt', () => {
+  afterEach(() => {
+    setUserAgent(ORIGINAL_UA);
+    setMatchMedia(false);
+  });
+
+  it('captures the native prompt and triggers it on apply', () => {
+    const { result } = renderHook(() => useInstallPrompt());
+    expect(result.current.canInstall).toBe(false);
+
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const event = Object.assign(new Event('beforeinstallprompt'), { prompt });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(result.current.canInstall).toBe(true);
+
+    act(() => result.current.promptInstall());
+    expect(prompt).toHaveBeenCalled();
+    // The event is single-use, so the button hides afterwards.
+    expect(result.current.canInstall).toBe(false);
+    // A second apply with nothing captured is a safe no-op.
+    act(() => result.current.promptInstall());
+  });
+
+  it('hides the prompt once the app reports it was installed', () => {
+    const { result } = renderHook(() => useInstallPrompt());
+    const event = Object.assign(new Event('beforeinstallprompt'), {
+      prompt: vi.fn().mockResolvedValue(undefined),
+    });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(result.current.canInstall).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new Event('appinstalled'));
+    });
+    expect(result.current.canInstall).toBe(false);
+  });
+
+  it('shows the manual hint on iOS where there is no install API', () => {
+    setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari');
+    const { result } = renderHook(() => useInstallPrompt());
+    expect(result.current.iosHint).toBe(true);
+    expect(result.current.canInstall).toBe(false);
+  });
+
+  it('offers nothing when already installed (standalone)', () => {
+    setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari');
+    setMatchMedia(true); // display-mode: standalone
+    const { result } = renderHook(() => useInstallPrompt());
+    expect(result.current.iosHint).toBe(false);
+    expect(result.current.canInstall).toBe(false);
   });
 });
 

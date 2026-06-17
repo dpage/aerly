@@ -12,6 +12,7 @@ import type {
   User,
 } from '../api/types';
 import { errorMessage } from './helpers';
+import { clearOfflineCaches } from '../offline-cache';
 import type { StoreState } from './store';
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
@@ -209,11 +210,14 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
 
   async logout() {
     await api.logout();
+    // Drop cached account data so it can't be read offline after sign-out.
+    await clearOfflineCaches();
     set(anonymousReset());
   },
 
   async logoutAll() {
     await api.logoutAll();
+    await clearOfflineCaches();
     set(anonymousReset());
   },
 
