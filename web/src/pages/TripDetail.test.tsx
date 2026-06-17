@@ -10,17 +10,24 @@ const h = vi.hoisted(() => ({
   loadTrip: vi.fn(),
   clearCurrentTrip: vi.fn(),
   plansOutsideTripDates: vi.fn(() => false),
-  state: { currentTrip: null as Trip | null },
+  state: {
+    currentTrip: null as Trip | null,
+    currentTripStatus: 'loading' as 'loading' | 'loaded' | 'error',
+    online: true,
+  },
 }));
 
 vi.mock('../state/store', () => ({
   useStore: (sel: (s: Record<string, unknown>) => unknown) =>
     sel({
       currentTrip: h.state.currentTrip,
+      currentTripStatus: h.state.currentTripStatus,
       loadTrip: h.loadTrip,
       clearCurrentTrip: h.clearCurrentTrip,
     }),
 }));
+
+vi.mock('../pwa', () => ({ useOnlineStatus: () => h.state.online }));
 
 vi.mock('../lib/trip-format', () => ({
   plansOutsideTripDates: (...args: unknown[]) => h.plansOutsideTripDates(...args),
@@ -96,6 +103,8 @@ function renderDetail(path: string | { pathname: string; state?: unknown } = '/t
 beforeEach(() => {
   vi.clearAllMocks();
   h.state.currentTrip = null;
+  h.state.currentTripStatus = 'loading';
+  h.state.online = true;
   h.plansOutsideTripDates.mockReturnValue(false);
 });
 
@@ -107,15 +116,32 @@ describe('TripDetail', () => {
     expect(h.clearCurrentTrip).toHaveBeenCalled();
   });
 
-  it('shows a placeholder title before the trip loads', () => {
+  it('shows a spinner (no internal id) before the trip loads', () => {
     renderDetail();
-    expect(screen.getByText('Trip #7')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByText('Trip #7')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('outlet')).not.toBeInTheDocument();
   });
 
   it('does not load when the id is not a finite number', () => {
     renderDetail('/trips/not-a-number');
     expect(h.loadTrip).not.toHaveBeenCalled();
-    expect(screen.getByText('Trip #NaN')).toBeInTheDocument();
+    expect(screen.queryByText(/Trip #/)).not.toBeInTheDocument();
+  });
+
+  it('shows a clean message (no internal id) when an open trip cannot be loaded', () => {
+    h.state.currentTripStatus = 'error';
+    renderDetail('/trips/7');
+    expect(screen.getByText(/couldn't be loaded/i)).toBeInTheDocument();
+    expect(screen.queryByText('Trip #7')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('outlet')).not.toBeInTheDocument();
+  });
+
+  it('explains an uncached trip is unavailable offline', () => {
+    h.state.currentTripStatus = 'error';
+    h.state.online = false;
+    renderDetail('/trips/7');
+    expect(screen.getByText(/isn't saved for offline viewing/i)).toBeInTheDocument();
   });
 
   it('renders the loaded trip name and the Edit/Share/Subscribe actions for an owner', () => {
@@ -295,8 +321,9 @@ describe('TripDetail', () => {
   it('treats a different loaded trip id as not-yet-loaded', () => {
     h.state.currentTrip = trip({ id: 99 });
     renderDetail('/trips/7');
-    // currentTrip.id (99) !== route id (7) → placeholder title, no Edit/Share.
-    expect(screen.getByText('Trip #7')).toBeInTheDocument();
+    // currentTrip.id (99) !== route id (7) → still loading: spinner, no id, no Share.
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByText('Trip #7')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /share/i })).not.toBeInTheDocument();
   });
 });

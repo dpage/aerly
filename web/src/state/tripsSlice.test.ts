@@ -81,6 +81,27 @@ describe('listTrips', () => {
     await useStore.getState().listTrips();
     expect(useStore.getState().error).toBe('strerr');
   });
+
+  it('does not prefetch trip details when no service worker is present', async () => {
+    // jsdom has no navigator.serviceWorker, so the offline cache warm-up is a
+    // no-op and the list load makes no per-trip requests.
+    mockApi.listTrips.mockResolvedValue([trip({ id: 1 }), trip({ id: 2 })]);
+    await useStore.getState().listTrips();
+    expect(mockApi.getTrip).not.toHaveBeenCalled();
+  });
+
+  it('prefetches each trip detail to warm the offline cache when controlled and online', async () => {
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {} });
+    try {
+      mockApi.listTrips.mockResolvedValue([trip({ id: 1 }), trip({ id: 2 })]);
+      mockApi.getTrip.mockResolvedValue(tripWithPlans({ id: 1 }));
+      await useStore.getState().listTrips();
+      expect(mockApi.getTrip).toHaveBeenCalledWith(1);
+      expect(mockApi.getTrip).toHaveBeenCalledWith(2);
+    } finally {
+      delete (navigator as { serviceWorker?: unknown }).serviceWorker;
+    }
+  });
 });
 
 describe('loadTrip', () => {
@@ -88,12 +109,28 @@ describe('loadTrip', () => {
     mockApi.getTrip.mockResolvedValue(tripWithPlans({ id: 5 }));
     await useStore.getState().loadTrip(5);
     expect(useStore.getState().currentTrip?.id).toBe(5);
+    expect(useStore.getState().currentTripStatus).toBe('loaded');
   });
 
-  it('sets error on failure', async () => {
+  it('sets error and an error status on failure when online', async () => {
     mockApi.getTrip.mockRejectedValue(new Error('nope'));
     await useStore.getState().loadTrip(5);
     expect(useStore.getState().error).toBe('nope');
+    expect(useStore.getState().currentTripStatus).toBe('error');
+  });
+
+  it('marks the trip unavailable without a toast when offline', async () => {
+    const original = navigator.onLine;
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    try {
+      mockApi.getTrip.mockRejectedValue(new Error('Failed to fetch'));
+      await useStore.getState().loadTrip(5);
+      expect(useStore.getState().currentTripStatus).toBe('error');
+      // No noisy snackbar offline — the in-page message + offline banner suffice.
+      expect(useStore.getState().error).toBeNull();
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: original });
+    }
   });
 
   it('silently clears a current trip that 404s (e.g. just deleted), no error', async () => {

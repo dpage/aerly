@@ -50,6 +50,13 @@ export default defineConfig({
         // service-worker file to embed and cache-bust (see internal/handlers/spa.go).
         inlineWorkboxRuntime: true,
         cleanupOutdatedCaches: true,
+        // Take control of the page as soon as the worker activates (including
+        // its first install), so API responses are cached during that first
+        // session too. Without this the worker doesn't intercept fetches until
+        // the next load, so a trip opened right after install is never cached
+        // and isn't readable offline. skipWaiting stays off (the update prompt
+        // drives activation), which clientsClaim doesn't affect.
+        clientsClaim: true,
         // Client-side routes fall back to the precached index.html when offline,
         // EXCEPT the server APIs — those must hit the network (or their runtime
         // cache), never the SPA shell.
