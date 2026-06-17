@@ -2,9 +2,17 @@ package handlers
 
 import (
 	"io/fs"
+	"mime"
 	"net/http"
 	"strings"
 )
+
+func init() {
+	// Go's stdlib MIME table doesn't know .webmanifest; without this the PWA
+	// manifest is served as octet-stream and browsers ignore it. Best-effort:
+	// a registration failure leaves the default, which is no worse than today.
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
 
 // SPAHandler serves the Vite-built SPA. Requests for existing files (hashed
 // asset bundles, favicon, etc.) are served directly; everything else falls
@@ -21,9 +29,15 @@ func SPAHandler(spa fs.FS) http.Handler {
 			serveIndex(w, r, spa)
 			return
 		}
-		// Long-cache hashed asset bundles; everything else short-cache.
-		if strings.HasPrefix(r.URL.Path, "/assets/") {
+		// Long-cache hashed asset bundles; everything else short-cache. The
+		// service worker must never be long-cached or the browser won't notice
+		// new builds — serve it no-cache so each load can revalidate it (the
+		// same contract index.html gets above).
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/assets/"):
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		case r.URL.Path == "/sw.js" || r.URL.Path == "/registerSW.js":
+			w.Header().Set("Cache-Control", "no-cache")
 		}
 		fileServer.ServeHTTP(w, r)
 	})

@@ -17,9 +17,11 @@ import { errorMessage } from './state/helpers';
 import { connectSSE } from './sse';
 import { api } from './api/client';
 import { UI_COMMIT, useUpdateAvailable } from './version';
+import { useServiceWorkerUpdate, useOnlineStatus } from './pwa';
 import { createAppTheme, useThemeMode } from './theme';
 import Login from './components/Login';
 import Layout from './components/Layout';
+import InstallPrompt from './components/InstallPrompt';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
 import TripList from './pages/TripList';
@@ -50,10 +52,15 @@ export default function App() {
   const theme = useMemo(() => createAppTheme(mode), [mode]);
   const processedTokenRef = useRef<string | null>(null);
 
-  // Prompt a refresh once the server reports a newer build than this loaded UI
-  // (a deploy ships a new embedded bundle; a browser on the old one should
-  // reload). Only while signed in, and never for unstamped dev builds.
-  const updateAvailable = useUpdateAvailable(auth === 'authenticated', UI_COMMIT);
+  // Prompt a refresh once a newer build is available. Two independent signals
+  // feed the same prompt: the service worker has fetched a new bundle and is
+  // waiting to activate (installed PWA / cached browser), or the server reports
+  // a newer commit than this loaded UI. Either drives the snackbar; the Refresh
+  // button activates the waiting worker (falling back to a plain reload).
+  const { updateAvailable: swUpdate, applyUpdate } = useServiceWorkerUpdate();
+  const versionUpdate = useUpdateAvailable(auth === 'authenticated', UI_COMMIT);
+  const updateAvailable = swUpdate || versionUpdate;
+  const online = useOnlineStatus();
 
   useEffect(() => {
     void init();
@@ -242,7 +249,7 @@ export default function App() {
             severity="info"
             variant="filled"
             action={
-              <Button color="inherit" size="small" onClick={() => window.location.reload()}>
+              <Button color="inherit" size="small" onClick={applyUpdate}>
                 Refresh
               </Button>
             }
@@ -250,6 +257,16 @@ export default function App() {
             A new version of Aerly is available.
           </Alert>
         </Snackbar>
+        {/* Offline notice — anchored bottom-left so it doesn't fight the
+            centred error/notice/update snackbars. Persistent while offline;
+            cached trips and maps stay readable and reconnect refreshes on its
+            own when the network returns. */}
+        <Snackbar open={!online} anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}>
+          <Alert severity="warning" variant="filled">
+            You&apos;re offline — showing saved data.
+          </Alert>
+        </Snackbar>
+        <InstallPrompt />
       </LocalizationProvider>
     </ThemeProvider>
   );
