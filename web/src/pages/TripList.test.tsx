@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -122,6 +122,29 @@ describe('TripList', () => {
     expect(screen.getByRole('button', { name: /new trip/i })).toBeDisabled();
     // When disabled the Tooltip title becomes the button's accessible name.
     expect(screen.getByRole('button', { name: /import trips/i })).toBeDisabled();
+  });
+
+  it('does not import a file while offline even if the picker fires', () => {
+    pwa.online = false;
+    renderList('mine');
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'trip.ics')] } });
+    expect(mockImportTrip).not.toHaveBeenCalled();
+  });
+
+  it('disables Create if the connection drops while the New trip dialog is open', async () => {
+    const view = renderList('mine');
+    await userEvent.click(screen.getByRole('button', { name: /new trip/i }));
+    await userEvent.type(screen.getByLabelText(/name/i), 'Trip X');
+    expect(screen.getByRole('button', { name: /^create$/i })).toBeEnabled();
+    // Connection drops with the dialog still open → re-render reflects offline.
+    pwa.online = false;
+    view.rerender(
+      <MemoryRouter>
+        <TripList scope="mine" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: /^create$/i })).toBeDisabled();
   });
 
   it("scope='friends' shows only shared trips and has no New trip action", () => {

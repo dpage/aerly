@@ -61,7 +61,9 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const onImportFile = async (file?: File) => {
-    if (!file || importing) return;
+    // Guard the handler too, not just the button: the connection can drop after
+    // the file picker is already open.
+    if (!online || !file || importing) return;
     setImporting(true);
     try {
       const res = await api.importTrip(file);
@@ -221,7 +223,9 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
         </Stack>
       )}
 
-      {mine && <NewTripDialog open={createOpen} onClose={() => setCreateOpen(false)} />}
+      {mine && (
+        <NewTripDialog open={createOpen} onClose={() => setCreateOpen(false)} online={online} />
+      )}
     </Box>
   );
 }
@@ -380,7 +384,15 @@ function flagUrl(code?: string): { src: string; srcSet: string } | null {
   };
 }
 
-function NewTripDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function NewTripDialog({
+  open,
+  onClose,
+  online,
+}: {
+  open: boolean;
+  onClose: () => void;
+  online: boolean;
+}) {
   const navigate = useNavigate();
   const createTrip = useStore((s) => s.createTrip);
   const [name, setName] = useState('');
@@ -460,7 +472,11 @@ function NewTripDialog({ open, onClose }: { open: boolean; onClose: () => void }
         <Button onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => void submit()} disabled={!name.trim() || busy}>
+        <Button
+          variant="contained"
+          onClick={() => void submit()}
+          disabled={!online || !name.trim() || busy}
+        >
           Create
         </Button>
       </DialogActions>
