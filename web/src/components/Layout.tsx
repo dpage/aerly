@@ -39,6 +39,7 @@ import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import SettingsIcon from '@mui/icons-material/SettingsOutlined';
 
 import { useStore } from '../state/store';
+import { useOnlineStatus } from '../pwa';
 import { userInitial, userName } from '../lib/format';
 import { useThemeMode, type ThemePreference } from '../theme';
 import AboutDialog from './AboutDialog';
@@ -66,6 +67,10 @@ export default function Layout() {
   const unreadAlerts = useStore((s) => s.notifications.unread_alerts);
   const unreadShares = useStore((s) => s.notifications.unread_shares);
   const { preference: themePreference, setPreference: setThemePreference } = useThemeMode();
+  // Server-mutating actions (Friends, Preferences, calendar tokens, user admin)
+  // are disabled while offline — they can't reach the backend and would only
+  // raise a fetch error. Read/navigation stays available against cached data.
+  const online = useOnlineStatus();
   const location = useLocation();
   const theme = useTheme();
   // Below `sm` (≈phones, e.g. iPhone SE) the three nav labels won't fit beside
@@ -171,7 +176,12 @@ export default function Layout() {
           </Tooltip>
           {me?.is_superuser && (
             <Tooltip title="Manage users">
-              <IconButton size="small" onClick={() => setAdminOpen(true)} sx={{ mr: 1 }}>
+              <IconButton
+                size="small"
+                onClick={() => setAdminOpen(true)}
+                disabled={!online}
+                sx={{ mr: 1 }}
+              >
                 <AdminPanelSettingsIcon />
               </IconButton>
             </Tooltip>
@@ -234,6 +244,7 @@ export default function Layout() {
               </Box>
             </MenuItem>
             <MenuItem
+              disabled={!online}
               onClick={() => {
                 closeMenu();
                 setFriendsOpen(true);
@@ -264,6 +275,7 @@ export default function Layout() {
               Statistics…
             </MenuItem>
             <MenuItem
+              disabled={!online}
               onClick={() => {
                 closeMenu();
                 setSubscribeOpen(true);
@@ -278,6 +290,7 @@ export default function Layout() {
             <Divider />
             {sectionLabel('Settings')}
             <MenuItem
+              disabled={!online}
               onClick={() => {
                 closeMenu();
                 setPrefsOpen(true);
@@ -359,7 +372,9 @@ export default function Layout() {
 
       {isNarrow && (
         <Drawer anchor="left" open={navDrawerOpen} onClose={() => setNavDrawerOpen(false)}>
-          <Box sx={{ width: 260 }} role="presentation">
+          {/* Top padding clears the iOS status bar in standalone PWA mode (see
+              the AppBar above); a no-op in the browser and on Android. */}
+          <Box sx={{ width: 260, pt: 'env(safe-area-inset-top)' }} role="presentation">
             <List>
               {navItems.map(({ to, label, active, Icon }) => (
                 <ListItemButton

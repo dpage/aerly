@@ -62,6 +62,13 @@ export default function App() {
   const updateAvailable = swUpdate || versionUpdate;
   const online = useOnlineStatus();
 
+  // While offline, suppress the transient error toasts that background fetches
+  // raise (the persistent offline banner already explains it) and clear any
+  // pending one so a stale error doesn't resurface the moment we reconnect.
+  useEffect(() => {
+    if (!online) setError(null);
+  }, [online, setError]);
+
   useEffect(() => {
     void init();
   }, [init]);
@@ -220,7 +227,7 @@ export default function App() {
       <LocalizationProvider dateAdapter={AdapterDateFns}>
         <BrowserRouter>{body}</BrowserRouter>
         <Snackbar
-          open={error !== null}
+          open={error !== null && online}
           autoHideDuration={6000}
           onClose={() => setError(null)}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
@@ -242,9 +249,15 @@ export default function App() {
           ) : undefined}
         </Snackbar>
         {/* Persistent (no auto-hide) and anchored top-center so it never fights
-            the transient error/notice snackbars at the bottom. Stays until the
-            user reloads onto the new build. */}
-        <Snackbar open={updateAvailable} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+            the transient error/notice snackbars at the bottom. Offset by the
+            iOS status-bar height so the Refresh button isn't hidden behind the
+            clock/battery when installed as a PWA. Stays until the user reloads
+            onto the new build. */}
+        <Snackbar
+          open={updateAvailable}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+          sx={{ mt: 'env(safe-area-inset-top)' }}
+        >
           <Alert
             severity="info"
             variant="filled"

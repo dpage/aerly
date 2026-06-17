@@ -218,6 +218,22 @@ describe('App', () => {
     expect(state.setError).toHaveBeenCalledWith(null);
   });
 
+  it('suppresses and clears error toasts while offline', () => {
+    const originalOnLine = navigator.onLine;
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    try {
+      state.auth = 'authenticated';
+      state.error = 'Failed to fetch';
+      render(<App />);
+      // The transient error toast is hidden behind the persistent offline banner…
+      expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
+      // …and the pending error is cleared so it won't resurface on reconnect.
+      expect(state.setError).toHaveBeenCalledWith(null);
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: originalOnLine });
+    }
+  });
+
   it('renders PrivacyPolicy at /privacy without waiting for auth', () => {
     window.history.pushState({}, '', '/privacy');
     state.auth = 'loading';

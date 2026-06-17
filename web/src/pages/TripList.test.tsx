@@ -31,6 +31,9 @@ vi.mock('../state/store', () => ({
 
 vi.mock('../api/client', () => ({ api: { listTrips: vi.fn(), importTrip: vi.fn() } }));
 
+const pwa = vi.hoisted(() => ({ online: true }));
+vi.mock('../pwa', () => ({ useOnlineStatus: () => pwa.online }));
+
 import TripList from './TripList';
 import { api } from '../api/client';
 const mockApiListTrips = api.listTrips as unknown as ReturnType<typeof vi.fn>;
@@ -83,6 +86,7 @@ beforeEach(() => {
   state.tripsLoading = false;
   state.users = [];
   state.me = null;
+  pwa.online = true;
   mockApiListTrips.mockResolvedValue([]);
 });
 
@@ -109,6 +113,15 @@ describe('TripList', () => {
     expect(screen.queryByText('TheirTrip')).not.toBeInTheDocument();
     expect(screen.queryByText('EditTrip')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /new trip/i })).toBeInTheDocument();
+  });
+
+  it('disables New trip and Import while offline', () => {
+    pwa.online = false;
+    state.trips = [trip({ id: 1, name: 'MineTrip', my_role: 'owner' })];
+    renderList('mine');
+    expect(screen.getByRole('button', { name: /new trip/i })).toBeDisabled();
+    // When disabled the Tooltip title becomes the button's accessible name.
+    expect(screen.getByRole('button', { name: /import trips/i })).toBeDisabled();
   });
 
   it("scope='friends' shows only shared trips and has no New trip action", () => {

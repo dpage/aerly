@@ -25,6 +25,7 @@ import FileUploadIcon from '@mui/icons-material/FileUpload';
 import PlaceIcon from '@mui/icons-material/Place';
 
 import { useStore } from '../state/store';
+import { useOnlineStatus } from '../pwa';
 import { api } from '../api/client';
 import type { Trip } from '../api/types';
 import { userInitial, userName } from '../lib/format';
@@ -46,6 +47,8 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   const listTrips = useStore((s) => s.listTrips);
   const setError = useStore((s) => s.setError);
   const me = useStore((s) => s.me);
+  // Creating/importing trips writes to the server, so disable both while offline.
+  const online = useOnlineStatus();
 
   useEffect(() => {
     void listTrips();
@@ -142,7 +145,7 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
                 variant="outlined"
                 startIcon={<FileUploadIcon />}
                 onClick={() => fileRef.current?.click()}
-                disabled={importing}
+                disabled={importing || !online}
               >
                 Import .ics
               </Button>
@@ -154,7 +157,12 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
               accept=".ics,text/calendar"
               onChange={(e) => void onImportFile(e.target.files?.[0])}
             />
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setCreateOpen(true)}
+              disabled={!online}
+            >
               New trip
             </Button>
           </Stack>
