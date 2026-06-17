@@ -188,7 +188,7 @@ var validPlanTypes = map[string]bool{
 func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 	tripID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -201,7 +201,7 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validPlanTypes[in.Type] {
-		writeError(w, http.StatusBadRequest, "invalid plan type")
+		writeError(w, http.StatusBadRequest, "Invalid plan type.")
 		return
 	}
 	parts := make([]store.CreatePlanPartPayload, 0, len(in.Parts))
@@ -265,7 +265,7 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 func (a *API) updatePlan(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -304,7 +304,7 @@ func (a *API) updatePlan(w http.ResponseWriter, r *http.Request) {
 func (a *API) deletePlan(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -329,7 +329,7 @@ func (a *API) deletePlan(w http.ResponseWriter, r *http.Request) {
 func (a *API) addPlanPassenger(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -342,7 +342,7 @@ func (a *API) addPlanPassenger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.UserID == 0 {
-		writeError(w, http.StatusBadRequest, "user_id required")
+		writeError(w, http.StatusBadRequest, "Missing user_id.")
 		return
 	}
 	// A passenger becomes a trip viewer (via DB trigger), so they must be an
@@ -368,12 +368,12 @@ func (a *API) addPlanPassenger(w http.ResponseWriter, r *http.Request) {
 func (a *API) removePlanPassenger(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	uid, err := pathID(r, "userId")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad userId")
+		writeError(w, http.StatusBadRequest, "Invalid user ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -393,7 +393,7 @@ func (a *API) removePlanPassenger(w http.ResponseWriter, r *http.Request) {
 func (a *API) setPlanVisibility(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -412,7 +412,7 @@ func (a *API) setPlanVisibility(w http.ResponseWriter, r *http.Request) {
 	case "hidden_from", "only_visible_to":
 		// ok
 	default:
-		writeError(w, http.StatusBadRequest, "invalid visibility mode")
+		writeError(w, http.StatusBadRequest, "Invalid visibility mode.")
 		return
 	}
 	if err := a.Store.SetPlanVisibility(r.Context(), id, mode, in.UserIDs); err != nil {
@@ -433,7 +433,7 @@ func (a *API) setPlanVisibility(w http.ResponseWriter, r *http.Request) {
 func (a *API) movePlan(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	var in moveReq
@@ -442,7 +442,7 @@ func (a *API) movePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.TripID == 0 {
-		writeError(w, http.StatusBadRequest, "trip_id required")
+		writeError(w, http.StatusBadRequest, "Missing trip_id.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -483,7 +483,7 @@ func (a *API) movePlan(w http.ResponseWriter, r *http.Request) {
 func (a *API) linkPlans(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	var in linkReq
@@ -492,7 +492,7 @@ func (a *API) linkPlans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(in.PlanIDs) == 0 {
-		writeError(w, http.StatusBadRequest, "plan_ids required")
+		writeError(w, http.StatusBadRequest, "Missing plan_ids.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -517,10 +517,10 @@ func (a *API) linkPlans(w http.ResponseWriter, r *http.Request) {
 		// the body; everything else is a validation failure. Either way, don't
 		// echo raw store/DB errors to the client.
 		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "plan not found")
+			writeError(w, http.StatusNotFound, "Plan not found.")
 			return
 		}
-		writeError(w, http.StatusBadRequest, "cannot link the selected bookings")
+		writeError(w, http.StatusBadRequest, "Cannot link the selected bookings.")
 		return
 	}
 	dto, err := a.planDTO(r.Context(), id, me.ID)
@@ -541,7 +541,7 @@ func (a *API) linkPlans(w http.ResponseWriter, r *http.Request) {
 func (a *API) splitPlanPart(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -551,7 +551,7 @@ func (a *API) splitPlanPart(w http.ResponseWriter, r *http.Request) {
 	newID, parentID, err := a.Store.SplitPlanPart(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotSplittable) {
-			writeError(w, http.StatusBadRequest, "plan has only one part to split")
+			writeError(w, http.StatusBadRequest, "Plan has only one part to split.")
 			return
 		}
 		handleStoreErr(w, err)
@@ -570,7 +570,7 @@ func (a *API) splitPlanPart(w http.ResponseWriter, r *http.Request) {
 func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -768,7 +768,7 @@ func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRo
 func (a *API) dismissPlanPart(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -1215,7 +1215,7 @@ func (a *API) visiblePlanDTOs(r *http.Request, tripID int64, u *store.User) ([]a
 // requirePlanEdit gates a plan mutation on editor rights over the plan's trip.
 func (a *API) requirePlanEdit(ctx context.Context, planID int64, u *store.User, w http.ResponseWriter) error {
 	if u == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorised.")
 		return errors.New("unauthorized")
 	}
 	plan, err := a.Store.PlanByID(ctx, planID)
@@ -1232,7 +1232,7 @@ func (a *API) requirePlanEdit(ctx context.Context, planID int64, u *store.User, 
 		return err
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		writeError(w, http.StatusForbidden, "Forbidden.")
 		return errors.New("forbidden")
 	}
 	return nil
@@ -1242,7 +1242,7 @@ func (a *API) requirePlanEdit(ctx context.Context, planID int64, u *store.User, 
 // trip.
 func (a *API) requirePartEdit(ctx context.Context, partID int64, u *store.User, w http.ResponseWriter) error {
 	if u == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorised.")
 		return errors.New("unauthorized")
 	}
 	_, tripID, err := a.Store.PlanIDForPart(ctx, partID)
@@ -1259,7 +1259,7 @@ func (a *API) requirePartEdit(ctx context.Context, partID int64, u *store.User, 
 		return err
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		writeError(w, http.StatusForbidden, "Forbidden.")
 		return errors.New("forbidden")
 	}
 	return nil

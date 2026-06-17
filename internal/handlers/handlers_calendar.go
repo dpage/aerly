@@ -164,18 +164,18 @@ func (a *API) issueCalendarToken(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	var in issueCalendarTokenInput
 	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
 		return
 	}
 	scope := strings.TrimSpace(in.Scope)
 	switch scope {
 	case "me", "trip", "plan":
 	default:
-		writeError(w, http.StatusBadRequest, "invalid scope")
+		writeError(w, http.StatusBadRequest, "Invalid scope.")
 		return
 	}
 	if (scope == "trip" || scope == "plan") && in.ID <= 0 {
-		writeError(w, http.StatusBadRequest, "id required for trip/plan scope")
+		writeError(w, http.StatusBadRequest, "An ID is required for trip/plan scope.")
 		return
 	}
 	// Don't mint a token for a resource the caller can't actually see. The feed

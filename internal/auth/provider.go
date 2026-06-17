@@ -148,7 +148,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request, p *Provider) {
 		// crypto/rand failure is rare, but turn it into a clean 500 rather than
 		// a panic in the request path.
 		slog.Error("oauth: random state token", "err", err)
-		renderLoginError(w, http.StatusInternalServerError, "could not start sign-in")
+		renderLoginError(w, http.StatusInternalServerError, "Could not start sign-in.")
 		return
 	}
 	expires := time.Now().Add(StateTTL)
@@ -189,12 +189,12 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 	if code == "" || state == "" {
-		renderLoginError(w, http.StatusBadRequest, "missing code or state")
+		renderLoginError(w, http.StatusBadRequest, "Missing code or state.")
 		return
 	}
 	c, err := r.Cookie(StateCookie)
 	if err != nil {
-		renderLoginError(w, http.StatusBadRequest, "state cookie missing — try signing in again")
+		renderLoginError(w, http.StatusBadRequest, "State cookie missing; try signing in again.")
 		return
 	}
 	// Clear the state cookie regardless of outcome.
@@ -206,20 +206,20 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 	// Constant-time check that the cookie's signed, nonce-bound state matches
 	// the nonce echoed back as the `state` query param and has not expired.
 	if err := VerifyState(h.SessionKey, c.Value, state); err != nil {
-		renderLoginError(w, http.StatusBadRequest, "state mismatch or expired — try signing in again")
+		renderLoginError(w, http.StatusBadRequest, "State mismatch or expired; try signing in again.")
 		return
 	}
 
 	token, err := h.exchangeCode(r.Context(), p, code)
 	if err != nil {
 		slog.Error("oauth token exchange failed", "provider", p.Name, "err", err)
-		renderLoginError(w, http.StatusBadGateway, "could not complete sign-in")
+		renderLoginError(w, http.StatusBadGateway, "Could not complete sign-in.")
 		return
 	}
 	profile, err := p.FetchProfile(r.Context(), h.HTTP, token)
 	if err != nil {
 		slog.Error("oauth profile fetch failed", "provider", p.Name, "err", err)
-		renderLoginError(w, http.StatusBadGateway, "could not fetch "+p.Label+" profile")
+		renderLoginError(w, http.StatusBadGateway, "Could not fetch "+p.Label+" profile.")
 		return
 	}
 	// Defensive: providers must set this, but if a buggy impl leaves it
@@ -231,7 +231,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 	count, err := h.Store.CountUsers(r.Context())
 	if err != nil {
 		slog.Error("count users failed", "err", err)
-		renderLoginError(w, http.StatusInternalServerError, "database error")
+		renderLoginError(w, http.StatusInternalServerError, "Database error.")
 		return
 	}
 	user, outcome, err := h.Store.LinkLogin(r.Context(), profile, count == 0)
@@ -239,13 +239,13 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request, p *Provider) 
 		// LinkLogin returns ErrNotFound only when the matched account is
 		// deactivated; open signups create a fresh user otherwise. This is a
 		// genuine authorization denial — 403.
-		renderLoginError(w, http.StatusForbidden, "this account has been deactivated. "+
+		renderLoginError(w, http.StatusForbidden, "This account has been deactivated. "+
 			"Ask an administrator to re-enable it.")
 		return
 	}
 	if err != nil {
 		slog.Error("link login failed", "err", err)
-		renderLoginError(w, http.StatusInternalServerError, "database error")
+		renderLoginError(w, http.StatusInternalServerError, "Database error.")
 		return
 	}
 

@@ -32,11 +32,11 @@ func (a *API) setMyAutoShare(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	targetID, err := pathID(r, "userId")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	if targetID == me.ID {
-		writeError(w, http.StatusBadRequest, "cannot auto-share with yourself")
+		writeError(w, http.StatusBadRequest, "Cannot auto-share with yourself.")
 		return
 	}
 	var in setAutoShareReq
@@ -45,14 +45,14 @@ func (a *API) setMyAutoShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Role != "viewer" && in.Role != "editor" && in.Role != "passenger" {
-		writeError(w, http.StatusBadRequest, "role must be viewer, editor, or passenger")
+		writeError(w, http.StatusBadRequest, "Role must be viewer, editor, or passenger.")
 		return
 	}
 	// The target must exist — guard against dangling references and surface a
 	// clean 404 rather than a foreign-key error from the insert.
 	if _, err := a.Store.UserByID(r.Context(), targetID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
+			writeError(w, http.StatusNotFound, "User not found.")
 			return
 		}
 		handleStoreErr(w, err)
@@ -77,7 +77,7 @@ func (a *API) deleteMyAutoShare(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	targetID, err := pathID(r, "userId")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	if err := a.Store.RemoveAutoShare(r.Context(), me.ID, targetID); err != nil {

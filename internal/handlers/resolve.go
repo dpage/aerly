@@ -34,7 +34,7 @@ type resolvedFlightDTO struct {
 func (a *API) resolveFlight(w http.ResponseWriter, r *http.Request) {
 	if a.Resolver == nil {
 		writeError(w, http.StatusNotImplemented,
-			"no flight resolver is configured on this server")
+			"No flight resolver is configured on this server.")
 		return
 	}
 	var in resolveReq
@@ -43,12 +43,12 @@ func (a *API) resolveFlight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Ident == "" || in.Date == "" {
-		writeError(w, http.StatusBadRequest, "ident and date required")
+		writeError(w, http.StatusBadRequest, "Both ident and date are required.")
 		return
 	}
 	date, err := time.Parse("2006-01-02", in.Date)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "date must be YYYY-MM-DD")
+		writeError(w, http.StatusBadRequest, "Date must be in YYYY-MM-DD format.")
 		return
 	}
 	rf, err := a.Resolver.Resolve(r.Context(), in.Ident, date)
@@ -58,14 +58,14 @@ func (a *API) resolveFlight(w http.ResponseWriter, r *http.Request) {
 		// message rather than echoing the raw error to the client.
 		switch {
 		case errors.Is(err, providers.ErrFlightNotFound):
-			writeError(w, http.StatusUnprocessableEntity, "flight not found for that date")
+			writeError(w, http.StatusUnprocessableEntity, "Flight not found for that date.")
 		case errors.Is(err, providers.ErrFlightUnscheduled):
-			writeError(w, http.StatusUnprocessableEntity, "no published schedule for that flight/date yet")
+			writeError(w, http.StatusUnprocessableEntity, "No published schedule for that flight/date yet.")
 		default:
 			// Keep the 422 the client contract uses, but don't echo the raw
 			// error — it can carry provider URLs/quota detail; log it instead.
 			slog.Error("resolveFlight: resolver error", "err", err, "ident", in.Ident)
-			writeError(w, http.StatusUnprocessableEntity, "could not resolve that flight")
+			writeError(w, http.StatusUnprocessableEntity, "Could not resolve that flight.")
 		}
 		return
 	}

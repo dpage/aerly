@@ -95,17 +95,17 @@ func (a *API) createTrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Name == "" {
-		writeError(w, http.StatusBadRequest, "name required")
+		writeError(w, http.StatusBadRequest, "Name is required.")
 		return
 	}
 	starts, err := parseDate(in.StartsOn)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad starts_on")
+		writeError(w, http.StatusBadRequest, "Invalid starts_on.")
 		return
 	}
 	ends, err := parseDate(in.EndsOn)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad ends_on")
+		writeError(w, http.StatusBadRequest, "Invalid ends_on.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -133,7 +133,7 @@ func (a *API) createTrip(w http.ResponseWriter, r *http.Request) {
 func (a *API) getTrip(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -143,7 +143,7 @@ func (a *API) getTrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, "Not found.")
 		return
 	}
 	t, err := a.Store.TripByID(r.Context(), id)
@@ -171,7 +171,7 @@ func (a *API) getTrip(w http.ResponseWriter, r *http.Request) {
 func (a *API) updateTrip(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -185,12 +185,12 @@ func (a *API) updateTrip(w http.ResponseWriter, r *http.Request) {
 	}
 	starts, err := parseDate(in.StartsOn)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad starts_on")
+		writeError(w, http.StatusBadRequest, "Invalid starts_on.")
 		return
 	}
 	ends, err := parseDate(in.EndsOn)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad ends_on")
+		writeError(w, http.StatusBadRequest, "Invalid ends_on.")
 		return
 	}
 	t, err := a.Store.UpdateTrip(r.Context(), id, store.UpdateTripPayload{
@@ -220,7 +220,7 @@ func (a *API) updateTrip(w http.ResponseWriter, r *http.Request) {
 func (a *API) deleteTrip(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -241,7 +241,7 @@ func (a *API) deleteTrip(w http.ResponseWriter, r *http.Request) {
 func (a *API) addTripMember(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -255,11 +255,11 @@ func (a *API) addTripMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.UserID == 0 {
-		writeError(w, http.StatusBadRequest, "user_id required")
+		writeError(w, http.StatusBadRequest, "Missing user_id.")
 		return
 	}
 	if in.Role != "editor" && in.Role != "viewer" && in.Role != "owner" {
-		writeError(w, http.StatusBadRequest, "role must be owner, editor, or viewer")
+		writeError(w, http.StatusBadRequest, "Role must be owner, editor, or viewer.")
 		return
 	}
 	if err := a.requireFriendTarget(r.Context(), me, in.UserID, w); err != nil {
@@ -286,12 +286,12 @@ func (a *API) addTripMember(w http.ResponseWriter, r *http.Request) {
 func (a *API) removeTripMember(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	uid, err := pathID(r, "userId")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad userId")
+		writeError(w, http.StatusBadRequest, "Invalid user ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -317,7 +317,7 @@ type tripPassengerReq struct {
 func (a *API) addTripPassenger(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -327,7 +327,7 @@ func (a *API) addTripPassenger(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	} else if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		writeError(w, http.StatusForbidden, "Forbidden.")
 		return
 	}
 	var in tripPassengerReq
@@ -336,7 +336,7 @@ func (a *API) addTripPassenger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.UserID == 0 {
-		writeError(w, http.StatusBadRequest, "user_id required")
+		writeError(w, http.StatusBadRequest, "Missing user_id.")
 		return
 	}
 	if err := a.requireFriendTarget(r.Context(), me, in.UserID, w); err != nil {
@@ -365,17 +365,17 @@ func (a *API) addTripPassenger(w http.ResponseWriter, r *http.Request) {
 func (a *API) removeTripPassenger(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	uid, err := pathID(r, "userId")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad userId")
+		writeError(w, http.StatusBadRequest, "Invalid user ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
 	if me == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorised.")
 		return
 	}
 	if me.ID != uid {
@@ -394,7 +394,7 @@ func (a *API) removeTripPassenger(w http.ResponseWriter, r *http.Request) {
 func (a *API) setTripTags(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -498,7 +498,7 @@ func (a *API) canViewTrip(ctx context.Context, tripID int64, u *store.User) (boo
 
 func (a *API) requireTripEdit(ctx context.Context, tripID int64, u *store.User, w http.ResponseWriter) error {
 	if u == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorised.")
 		return errors.New("unauthorized")
 	}
 	if u.IsSuperuser {
@@ -510,7 +510,7 @@ func (a *API) requireTripEdit(ctx context.Context, tripID int64, u *store.User, 
 		return err
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden")
+		writeError(w, http.StatusForbidden, "Forbidden.")
 		return errors.New("forbidden")
 	}
 	return nil
@@ -518,7 +518,7 @@ func (a *API) requireTripEdit(ctx context.Context, tripID int64, u *store.User, 
 
 func (a *API) requireTripOwner(ctx context.Context, tripID int64, u *store.User, w http.ResponseWriter) error {
 	if u == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorised.")
 		return errors.New("unauthorized")
 	}
 	if u.IsSuperuser {
@@ -527,14 +527,14 @@ func (a *API) requireTripOwner(ctx context.Context, tripID int64, u *store.User,
 	role, err := a.Store.TripRole(ctx, tripID, u.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusForbidden, "forbidden")
+			writeError(w, http.StatusForbidden, "Forbidden.")
 			return err
 		}
 		handleStoreErr(w, err)
 		return err
 	}
 	if role != "owner" {
-		writeError(w, http.StatusForbidden, "forbidden")
+		writeError(w, http.StatusForbidden, "Forbidden.")
 		return errors.New("forbidden")
 	}
 	return nil
@@ -551,7 +551,7 @@ func (a *API) requireTripOwner(ctx context.Context, tripID int64, u *store.User,
 // check fails.
 func (a *API) requireFriendTarget(ctx context.Context, actor *store.User, target int64, w http.ResponseWriter) error {
 	if actor == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorised.")
 		return errors.New("unauthorized")
 	}
 	if actor.IsSuperuser || actor.ID == target {
@@ -565,7 +565,7 @@ func (a *API) requireFriendTarget(ctx context.Context, actor *store.User, target
 		return err
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "user must be a friend (or invited)")
+		writeError(w, http.StatusForbidden, "User must be a friend (or invited).")
 		return errors.New("not a friend")
 	}
 	return nil

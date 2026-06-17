@@ -43,7 +43,7 @@ func (a *API) setAlertPrefs(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	var in updateAlertPrefsInput
 	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
 		return
 	}
 	// Start from the current effective prefs (defaults when no row) so a
@@ -77,7 +77,7 @@ func (a *API) addPlanAlertOptin(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	planID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "Invalid plan ID.")
 		return
 	}
 	// A viewer may only opt in to a plan they can actually see (spec §4 gate);
@@ -88,7 +88,7 @@ func (a *API) addPlanAlertOptin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, "Not found.")
 		return
 	}
 	if err := a.Store.AddPlanAlertOptin(r.Context(), planID, me.ID); err != nil {
@@ -102,7 +102,7 @@ func (a *API) removePlanAlertOptin(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	planID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "Invalid plan ID.")
 		return
 	}
 	if err := a.Store.RemovePlanAlertOptin(r.Context(), planID, me.ID); err != nil {

@@ -64,7 +64,7 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
       await listTrips();
       navigate(`/trips/${res.trip.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not import that .ics');
+      setError(e instanceof Error ? e.message : 'Could not import that .ics.');
     } finally {
       setImporting(false);
       if (fileRef.current) fileRef.current.value = '';

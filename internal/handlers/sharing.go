@@ -24,7 +24,7 @@ type shareAllFriendsTripReq struct {
 func (a *API) setTripShareAllFriends(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -37,7 +37,7 @@ func (a *API) setTripShareAllFriends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Role != "" && in.Role != "viewer" && in.Role != "editor" {
-		writeError(w, http.StatusBadRequest, "role must be viewer, editor, or empty")
+		writeError(w, http.StatusBadRequest, "Role must be viewer, editor, or empty.")
 		return
 	}
 	if err := a.Store.SetTripShareAllFriends(r.Context(), id, in.Role); err != nil {
@@ -67,7 +67,7 @@ type shareAllFriendsPlanReq struct {
 func (a *API) setPlanShareAllFriends(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -97,12 +97,12 @@ func (a *API) setPlanShareAllFriends(w http.ResponseWriter, r *http.Request) {
 func parseShareEmail(w http.ResponseWriter, raw string) (string, bool) {
 	addr := strings.TrimSpace(raw)
 	if addr == "" {
-		writeError(w, http.StatusBadRequest, "email required")
+		writeError(w, http.StatusBadRequest, "Email address is required.")
 		return "", false
 	}
 	parsed, err := mail.ParseAddress(addr)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid email address")
+		writeError(w, http.StatusBadRequest, "Invalid email address.")
 		return "", false
 	}
 	return strings.ToLower(parsed.Address), true
@@ -128,7 +128,7 @@ type shareByEmailTripReq struct {
 func (a *API) shareTripByEmail(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -141,7 +141,7 @@ func (a *API) shareTripByEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Role != "viewer" && in.Role != "editor" {
-		writeError(w, http.StatusBadRequest, "role must be viewer or editor")
+		writeError(w, http.StatusBadRequest, "Role must be viewer or editor.")
 		return
 	}
 	addr, ok := parseShareEmail(w, in.Email)
@@ -161,7 +161,7 @@ type shareByEmailPlanReq struct {
 func (a *API) sharePlanByEmail(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -354,7 +354,7 @@ func (a *API) canSeeShared(ctx context.Context, uid, tripID, planID int64) (bool
 func (a *API) notifyTripShares(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -378,7 +378,7 @@ func (a *API) notifyTripShares(w http.ResponseWriter, r *http.Request) {
 func (a *API) notifyPlanShares(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())

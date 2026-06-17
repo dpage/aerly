@@ -33,7 +33,7 @@ func (a *API) setTripReminder(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	tripID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid trip id")
+		writeError(w, http.StatusBadRequest, "Invalid trip ID.")
 		return
 	}
 	// Use the superuser-aware visibility helper (mirrors getTrip) so a superuser
@@ -44,12 +44,12 @@ func (a *API) setTripReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, "Not found.")
 		return
 	}
 	var in reminderInput
 	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
 		return
 	}
 	if err := a.Store.SetTripReminder(r.Context(), tripID, me.ID, clampLead(in.LeadHours)); err != nil {
@@ -63,7 +63,7 @@ func (a *API) deleteTripReminder(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	tripID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid trip id")
+		writeError(w, http.StatusBadRequest, "Invalid trip ID.")
 		return
 	}
 	if err := a.Store.RemoveTripReminder(r.Context(), tripID, me.ID); err != nil {
@@ -77,7 +77,7 @@ func (a *API) setPlanReminder(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	planID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "Invalid plan ID.")
 		return
 	}
 	// A viewer may only set a reminder on a plan they can see (spec §4 gate);
@@ -88,12 +88,12 @@ func (a *API) setPlanReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, "Not found.")
 		return
 	}
 	var in reminderInput
 	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
 		return
 	}
 	if err := a.Store.SetPlanReminder(r.Context(), planID, me.ID, in.Enabled, clampLead(in.LeadHours)); err != nil {
@@ -107,7 +107,7 @@ func (a *API) deletePlanReminder(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	planID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid plan id")
+		writeError(w, http.StatusBadRequest, "Invalid plan ID.")
 		return
 	}
 	if err := a.Store.RemovePlanReminder(r.Context(), planID, me.ID); err != nil {

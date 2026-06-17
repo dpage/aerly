@@ -228,21 +228,21 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // can expose schema details) never reach the client.
 func serverError(w http.ResponseWriter, err error) {
 	slog.Error("request failed", "err", err)
-	writeError(w, http.StatusInternalServerError, "internal error")
+	writeError(w, http.StatusInternalServerError, "Internal error.")
 }
 
 func handleStoreErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, "Not found.")
 	case errors.Is(err, store.ErrLastOwner):
-		writeError(w, http.StatusConflict, "cannot remove the last owner of the trip")
+		writeError(w, http.StatusConflict, "Cannot remove the last owner of the trip.")
 	default:
 		// Never echo the raw store/SQL error to the client — it can expose
 		// schema, column and constraint names. Log it server-side and return
 		// a generic message.
 		slog.Error("store error", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "Internal error.")
 	}
 }
 

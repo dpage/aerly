@@ -80,12 +80,12 @@ func (a *API) inviteFriend(w http.ResponseWriter, r *http.Request) {
 	}
 	addr := strings.TrimSpace(in.Email)
 	if addr == "" {
-		writeError(w, http.StatusBadRequest, "email required")
+		writeError(w, http.StatusBadRequest, "Email address is required.")
 		return
 	}
 	parsed, err := mail.ParseAddress(addr)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid email address")
+		writeError(w, http.StatusBadRequest, "Invalid email address.")
 		return
 	}
 	addr = parsed.Address
@@ -216,7 +216,7 @@ func (a *API) sendFriendInviteEmail(ctx context.Context, inviter *store.User, to
 func (a *API) acceptFriend(w http.ResponseWriter, r *http.Request) {
 	otherID, err := pathID(r, "userId")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad user id")
+		writeError(w, http.StatusBadRequest, "Invalid user ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -236,7 +236,7 @@ func (a *API) acceptFriend(w http.ResponseWriter, r *http.Request) {
 func (a *API) removeFriend(w http.ResponseWriter, r *http.Request) {
 	otherID, err := pathID(r, "userId")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad user id")
+		writeError(w, http.StatusBadRequest, "Invalid user ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -268,12 +268,12 @@ func (a *API) cancelOutgoingInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	addr := strings.TrimSpace(in.Email)
 	if addr == "" {
-		writeError(w, http.StatusBadRequest, "email required")
+		writeError(w, http.StatusBadRequest, "Email address is required.")
 		return
 	}
 	parsed, err := mail.ParseAddress(addr)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid email address")
+		writeError(w, http.StatusBadRequest, "Invalid email address.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -297,25 +297,25 @@ type acceptFriendTokenResp struct {
 func (a *API) acceptFriendToken(w http.ResponseWriter, r *http.Request) {
 	var in acceptFriendTokenReq
 	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "bad request body")
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
 		return
 	}
 	if strings.TrimSpace(in.Token) == "" {
-		writeError(w, http.StatusBadRequest, "token required")
+		writeError(w, http.StatusBadRequest, "Token is required.")
 		return
 	}
 	recipientID, inviterID, err := auth.VerifyFriendAcceptToken(a.Config.SessionKey, in.Token)
 	switch {
 	case errors.Is(err, auth.ErrExpiredAcceptToken):
-		writeError(w, http.StatusGone, "invitation link expired — ask the sender to resend")
+		writeError(w, http.StatusGone, "Invitation link expired; ask the sender to resend it.")
 		return
 	case err != nil:
-		writeError(w, http.StatusBadRequest, "invalid invitation link")
+		writeError(w, http.StatusBadRequest, "Invalid invitation link.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
 	if me.ID != recipientID {
-		writeError(w, http.StatusForbidden, "this invitation isn't for your account")
+		writeError(w, http.StatusForbidden, "This invitation isn't for your account.")
 		return
 	}
 

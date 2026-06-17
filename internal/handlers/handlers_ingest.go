@@ -60,7 +60,7 @@ type ingestConfirmPlanReq struct {
 func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 	tripID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -84,7 +84,7 @@ func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 		text, docs = string(data), nil
 	}
 	if a.Extractor == nil {
-		writeError(w, http.StatusServiceUnavailable, "ingest is not configured (no LLM provider)")
+		writeError(w, http.StatusServiceUnavailable, "Ingest is not configured (no LLM provider).")
 		return
 	}
 	deps := planops.Deps{Store: a.Store, Extractor: a.Extractor, Resolver: a.Resolver}
@@ -93,7 +93,7 @@ func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 		// The error can wrap raw LLM/provider detail; log it and return a
 		// generic message rather than echoing it to the client.
 		slog.Error("ingest: propose failed", "err", err, "trip", tripID)
-		writeError(w, http.StatusBadGateway, "could not read that booking right now")
+		writeError(w, http.StatusBadGateway, "Could not read that booking right now.")
 		return
 	}
 	out := api.IngestResultDTO{Proposals: make([]api.ProposedPlanDTO, 0, len(proposals))}
@@ -257,7 +257,7 @@ func icalProposalDTO(in planops.ConfirmPlanInput) api.ProposedPlanDTO {
 func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 	tripID, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
@@ -272,7 +272,7 @@ func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 	plans := make([]planops.ConfirmPlanInput, 0, len(in.Plans))
 	for _, p := range in.Plans {
 		if !validPlanTypes[p.Type] {
-			writeError(w, http.StatusBadRequest, "invalid plan type")
+			writeError(w, http.StatusBadRequest, "Invalid plan type.")
 			return
 		}
 		plans = append(plans, toConfirmPlanInput(p))
@@ -284,7 +284,7 @@ func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 		// return a generic message. The FE already validates the inputs it
 		// sends, so a failure here is not normally user-actionable.
 		slog.Error("ingest: commit failed", "err", err, "trip", tripID)
-		writeError(w, http.StatusBadRequest, "could not save those bookings")
+		writeError(w, http.StatusBadRequest, "Could not save those bookings.")
 		return
 	}
 	out := make([]api.PlanDTO, 0, len(created))

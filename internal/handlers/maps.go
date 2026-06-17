@@ -20,17 +20,17 @@ type resolveMapsURLInput struct {
 func (a *API) resolveMapsURL(w http.ResponseWriter, r *http.Request) {
 	var in resolveMapsURLInput
 	if err := decode(r, &in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
 		return
 	}
 	rawURL := strings.TrimSpace(in.URL)
 	if rawURL == "" {
-		writeError(w, http.StatusBadRequest, "url is required")
+		writeError(w, http.StatusBadRequest, "A URL is required.")
 		return
 	}
 	lat, lon, ok, err := a.Maps.ResolveURL(r.Context(), rawURL)
 	if errors.Is(err, aerlymaps.ErrNotAllowed) {
-		writeError(w, http.StatusBadRequest, "not a supported Google Maps URL")
+		writeError(w, http.StatusBadRequest, "Not a supported Google Maps URL.")
 		return
 	}
 	if err != nil {
@@ -38,7 +38,7 @@ func (a *API) resolveMapsURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusUnprocessableEntity, "couldn't read a location from that link")
+		writeError(w, http.StatusUnprocessableEntity, "Could not read a location from that link.")
 		return
 	}
 	writeJSON(w, http.StatusOK, api.CoordsDTO{Lat: lat, Lon: lon})

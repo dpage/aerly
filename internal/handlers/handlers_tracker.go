@@ -182,7 +182,7 @@ func (a *API) trackerPartDTOs(ctx context.Context, parts []*store.PlanPart) ([]a
 func (a *API) getTrackerPart(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())

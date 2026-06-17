@@ -237,7 +237,7 @@ func TestCallbackUserCancelRedirectsHome(t *testing.T) {
 func TestCallbackMissingCodeOrState(t *testing.T) {
 	h, _ := newTestHandler(t)
 	w := callback(h, "github", url.Values{"code": {""}, "state": {""}}, nil)
-	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "missing code or state") {
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Missing code or state") {
 		t.Errorf("unexpected: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -245,7 +245,7 @@ func TestCallbackMissingCodeOrState(t *testing.T) {
 func TestCallbackMissingStateCookie(t *testing.T) {
 	h, _ := newTestHandler(t)
 	w := callback(h, "github", url.Values{"code": {"c"}, "state": {"s"}}, nil)
-	if !strings.Contains(w.Body.String(), "state cookie missing") {
+	if !strings.Contains(w.Body.String(), "State cookie missing") {
 		t.Errorf("unexpected: %s", w.Body.String())
 	}
 }
@@ -254,7 +254,7 @@ func TestCallbackStateMismatch(t *testing.T) {
 	h, _ := newTestHandler(t)
 	c, _ := stateCookie(h, false)
 	w := callback(h, "github", url.Values{"code": {"c"}, "state": {"WRONG"}}, c)
-	if !strings.Contains(w.Body.String(), "state mismatch") {
+	if !strings.Contains(w.Body.String(), "State mismatch") {
 		t.Errorf("unexpected: %s", w.Body.String())
 	}
 }
@@ -273,7 +273,7 @@ func TestCallbackTokenExchangeFails(t *testing.T) {
 	wireHTTP(t, h, ghServer(t, ghServerOpts{tokenStatus: 500, tokenBody: "boom"}))
 	c, state := stateCookie(h, false)
 	w := callback(h, "github", url.Values{"code": {"c"}, "state": {state}}, c)
-	if !strings.Contains(w.Body.String(), "could not complete sign-in") {
+	if !strings.Contains(w.Body.String(), "Could not complete sign-in") {
 		t.Errorf("unexpected: %s", w.Body.String())
 	}
 }
@@ -283,7 +283,7 @@ func TestCallbackTokenErrorJSON(t *testing.T) {
 	wireHTTP(t, h, ghServer(t, ghServerOpts{tokenBody: `{"error":"bad_verification_code","error_description":"nope"}`}))
 	c, state := stateCookie(h, false)
 	w := callback(h, "github", url.Values{"code": {"c"}, "state": {state}}, c)
-	if !strings.Contains(w.Body.String(), "could not complete sign-in") {
+	if !strings.Contains(w.Body.String(), "Could not complete sign-in") {
 		t.Errorf("unexpected: %s", w.Body.String())
 	}
 }
@@ -293,7 +293,7 @@ func TestCallbackEmptyAccessToken(t *testing.T) {
 	wireHTTP(t, h, ghServer(t, ghServerOpts{tokenBody: `{"access_token":""}`}))
 	c, state := stateCookie(h, false)
 	w := callback(h, "github", url.Values{"code": {"c"}, "state": {state}}, c)
-	if !strings.Contains(w.Body.String(), "could not complete sign-in") {
+	if !strings.Contains(w.Body.String(), "Could not complete sign-in") {
 		t.Errorf("unexpected: %s", w.Body.String())
 	}
 }
@@ -303,7 +303,7 @@ func TestCallbackProfileFetchFails(t *testing.T) {
 	wireHTTP(t, h, ghServer(t, ghServerOpts{userStatus: 401, userBody: "nope"}))
 	c, state := stateCookie(h, false)
 	w := callback(h, "github", url.Values{"code": {"c"}, "state": {state}}, c)
-	if !strings.Contains(w.Body.String(), "could not fetch GitHub profile") {
+	if !strings.Contains(w.Body.String(), "Could not fetch GitHub profile") {
 		t.Errorf("unexpected: %s", w.Body.String())
 	}
 }

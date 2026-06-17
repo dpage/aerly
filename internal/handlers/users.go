@@ -50,7 +50,7 @@ func (a *API) inviteUser(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case errors.Is(err, store.ErrUsernameTaken):
-		writeError(w, http.StatusConflict, "username already registered")
+		writeError(w, http.StatusConflict, "Username already registered.")
 		return
 	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -68,7 +68,7 @@ type updateUserReq struct {
 func (a *API) updateUser(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	var in updateUserReq
@@ -81,11 +81,11 @@ func (a *API) updateUser(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	if me != nil && me.ID == id {
 		if in.IsSuperuser != nil && !*in.IsSuperuser {
-			writeError(w, http.StatusBadRequest, "cannot remove superuser from yourself")
+			writeError(w, http.StatusBadRequest, "Cannot remove superuser from yourself.")
 			return
 		}
 		if in.IsActive != nil && !*in.IsActive {
-			writeError(w, http.StatusBadRequest, "cannot deactivate yourself")
+			writeError(w, http.StatusBadRequest, "Cannot deactivate yourself.")
 			return
 		}
 	}
@@ -104,12 +104,12 @@ func (a *API) updateUser(w http.ResponseWriter, r *http.Request) {
 func (a *API) deleteUser(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad id")
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
 		return
 	}
 	me := auth.UserFrom(r.Context())
 	if me != nil && me.ID == id {
-		writeError(w, http.StatusBadRequest, "cannot delete yourself")
+		writeError(w, http.StatusBadRequest, "Cannot delete yourself.")
 		return
 	}
 	if err := a.Store.DeleteUser(r.Context(), id); err != nil {

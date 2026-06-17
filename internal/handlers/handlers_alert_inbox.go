@@ -76,7 +76,7 @@ func (a *API) deleteAlert(w http.ResponseWriter, r *http.Request) {
 	me := auth.UserFrom(r.Context())
 	id, err := pathID(r, "id")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid alert id")
+		writeError(w, http.StatusBadRequest, "Invalid alert ID.")
 		return
 	}
 	switch r.PathValue("source") {
@@ -85,7 +85,7 @@ func (a *API) deleteAlert(w http.ResponseWriter, r *http.Request) {
 	case api.NotificationSourceShare:
 		err = a.Store.DeleteNotification(r.Context(), me.ID, id)
 	default:
-		writeError(w, http.StatusBadRequest, "invalid alert source")
+		writeError(w, http.StatusBadRequest, "Invalid alert source.")
 		return
 	}
 	if err != nil {

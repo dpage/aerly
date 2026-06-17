@@ -32,18 +32,18 @@ func (a *API) importTrip(w http.ResponseWriter, r *http.Request) {
 	}
 	data, ok := icalUpload(text, docs)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "no iCalendar (.ics) content found")
+		writeError(w, http.StatusBadRequest, "No iCalendar (.ics) content found.")
 		return
 	}
 	cal, err := tripitics.Parse(bytes.NewReader(data))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "could not parse the .ics")
+		writeError(w, http.StatusBadRequest, "Could not parse the .ics.")
 		return
 	}
 	mt, _, ok := tripitics.Map(cal)
 	if !ok {
 		writeError(w, http.StatusUnprocessableEntity,
-			"couldn't recognise this calendar as a supported source (currently TripIt)")
+			"Could not recognise this calendar as a supported source (currently TripIt).")
 		return
 	}
 
