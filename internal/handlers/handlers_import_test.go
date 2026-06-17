@@ -57,6 +57,49 @@ func TestImportICalCreatesTrip(t *testing.T) {
 	}
 }
 
+// TestImportKayakCreatesMultipleTrips imports a whole Kayak account feed: a
+// single .ics that holds many trips. Each is created separately from its
+// envelope, and its bookings land in it. Re-importing the same file is
+// idempotent: every trip is reused and every plan skipped as already-imported.
+func TestImportKayakCreatesMultipleTrips(t *testing.T) {
+	e := setup(t, nil, nil) // no extractor
+	owner := e.user(t, "owner", false)
+	body := map[string]any{"text": readICS(t, "kayak_trips.ics")}
+
+	w := e.req(t, "POST", "/api/trips/import", body, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("import = %d: %s", w.Code, w.Body.String())
+	}
+	res := decodeBody[api.ImportResultDTO](t, w)
+
+	// The feed carries 6 distinct trips, all created on first import.
+	if len(res.Trips) != 6 {
+		t.Fatalf("imported %d trips, want 6", len(res.Trips))
+	}
+	if res.Added == 0 || res.Skipped != 0 {
+		t.Fatalf("first import added=%d skipped=%d, want >0/0", res.Added, res.Skipped)
+	}
+	for _, tr := range res.Trips {
+		if tr.Name == "" {
+			t.Errorf("trip %d has empty name", tr.ID)
+		}
+	}
+
+	// Re-import the same feed → same trips, nothing added, everything skipped.
+	firstAdded := res.Added
+	w = e.req(t, "POST", "/api/trips/import", body, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("re-import = %d: %s", w.Code, w.Body.String())
+	}
+	res2 := decodeBody[api.ImportResultDTO](t, w)
+	if len(res2.Trips) != 6 {
+		t.Fatalf("re-import returned %d trips, want 6", len(res2.Trips))
+	}
+	if res2.Added != 0 || res2.Skipped != firstAdded {
+		t.Errorf("re-import added=%d skipped=%d, want 0/%d", res2.Added, res2.Skipped, firstAdded)
+	}
+}
+
 // TestImportRejectsNonICal: posting something that isn't iCal is a 400, not a
 // silently-empty trip.
 func TestImportRejectsNonICal(t *testing.T) {

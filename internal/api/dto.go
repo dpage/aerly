@@ -469,13 +469,15 @@ type IngestResultDTO struct {
 	Proposals []ProposedPlanDTO `json:"proposals"`
 }
 
-// ImportResultDTO is the response from importing a whole TripIt .ics: the trip
-// the plans landed in (created or reused), and how many plans were added vs
-// skipped as already-imported.
+// ImportResultDTO is the response from importing a whole .ics. A TripIt export
+// yields one trip; a Kayak feed yields several, so Trips lists them all (created
+// or reused) and Trip is the first for single-trip callers. Added/Skipped are
+// the totals across every trip: plans added vs skipped as already-imported.
 type ImportResultDTO struct {
-	Trip    TripDTO `json:"trip"`
-	Added   int     `json:"added"`
-	Skipped int     `json:"skipped"`
+	Trip    TripDTO   `json:"trip"`
+	Trips   []TripDTO `json:"trips"`
+	Added   int       `json:"added"`
+	Skipped int       `json:"skipped"`
 }
 
 // PlanVisibilityDTO carries the per-plan privacy mode and named users.

@@ -12,7 +12,7 @@ single-part plans is decided at capture time and is often wrong:
 - The **LLM capture path** (`planops.Propose` via the email/paste extractor) is
   *told* to emit "one booking = one plan", but it sometimes splits a round-trip
   into separate plans, or lumps unrelated flights together.
-- The **TripIt `.ics` path** (`tripitics`) always emits **one plan per leg** — it
+- The **TripIt `.ics` path** (`importics`) always emits **one plan per leg** — it
   has no booking-grouping signal at all, so every multi-leg itinerary imports as
   separate plans.
 

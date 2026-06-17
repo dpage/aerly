@@ -269,7 +269,7 @@ internal/
 ├── geotz/           IANA timezone lookup from coordinates (tzf).
 ├── providers/       External flight-data integrations: Tracker (Stub, OpenSky)
 │                    + Resolver (AeroDataBox) + DeadReckoner wrapper.
-├── tripitics/       TripIt .ics parsing into plans/parts.
+├── importics/       TripIt & Kayak .ics parsing into plans/parts.
 ├── emailingest/     Forwarded-email Maildir drain + LLM extraction + auto-reply.
 ├── planops/         Plan propose/commit pipeline incl. rebooking supersession.
 ├── mailer/          Outbound multipart email assembly (alerts, invites, replies).

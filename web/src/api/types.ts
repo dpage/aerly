@@ -656,11 +656,13 @@ export interface IngestResult {
   proposals: ProposedPlan[];
 }
 
-/** Result of importing a whole TripIt .ics (POST /api/trips/import): the trip
- * the plans landed in (created or reused) and how many were added vs skipped
- * as already-imported. */
+/** Result of importing a whole .ics (POST /api/trips/import). A TripIt export
+ * yields one trip; a Kayak feed yields several, so `trips` lists them all
+ * (created or reused) and `trip` is the first. `added`/`skipped` are totals
+ * across every trip: plans added vs skipped as already-imported. */
 export interface ImportResult {
   trip: Trip;
+  trips: Trip[];
   added: number;
   skipped: number;
 }

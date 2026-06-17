@@ -1,4 +1,4 @@
-package tripitics
+package importics
 
 import (
 	"regexp"
