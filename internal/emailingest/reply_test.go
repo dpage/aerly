@@ -30,7 +30,7 @@ func TestBuildReply_AllAdded(t *testing.T) {
 		"Content-Type: multipart/alternative; boundary=",
 		// plain part
 		"Content-Type: text/plain; charset=utf-8",
-		"TK1980 — 2026-06-12",
+		"TK1980: 2026-06-12",
 		// html part
 		"Content-Type: text/html; charset=utf-8",
 		"<!doctype html>",
@@ -122,10 +122,10 @@ func TestBuildReply_PartialFailure(t *testing.T) {
 		Failed: []ReplyFailure{{Label: "XX9999", Detail: "2026-06-13", Reason: "no schedule"}},
 	}
 	body := BuildReply(in)
-	if !strings.Contains(body, "TK1980 — 2026-06-12") {
+	if !strings.Contains(body, "TK1980: 2026-06-12") {
 		t.Error("missing success line")
 	}
-	if !strings.Contains(body, "XX9999 — 2026-06-13 — no schedule") {
+	if !strings.Contains(body, "XX9999: 2026-06-13 (no schedule)") {
 		t.Error("missing failure line")
 	}
 	// Trailing slash on PublicURL must not be doubled.
@@ -183,10 +183,10 @@ func TestBuildReply_ManualNote(t *testing.T) {
 		},
 	}
 	body := BuildReply(in)
-	if !strings.Contains(body, "TK1980 — 2026-06-12\r\n") {
+	if !strings.Contains(body, "TK1980: 2026-06-12\r\n") {
 		t.Errorf("resolver-driven line should NOT have manual suffix: %s", body)
 	}
-	if !strings.Contains(body, "TK1981 — 2026-06-13 (from the email — please verify the times)") {
+	if !strings.Contains(body, "TK1981: 2026-06-13 (from the email; please verify the times)") {
 		t.Errorf("manual line missing suffix: %s", body)
 	}
 	if !strings.Contains(body, "please check the departure and arrival times") {

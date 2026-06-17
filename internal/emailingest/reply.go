@@ -9,12 +9,12 @@ import (
 	"github.com/dpage/aerly/internal/mailer"
 )
 
-// ReplyItem is a booking that was added — a flight, hotel, train, taxi, etc.
+// ReplyItem is a booking that was added: a flight, hotel, train, taxi, etc.
 // Label is the headline (a flight ident, a hotel name…); Detail is the
 // secondary line (a flight date, or "Hotel · 12 Jun 2026").
 //
 // ManualNote is set when a flight was inserted from the email's own schedule
-// details rather than the airline's provider data — the reply tells the user to
+// details rather than the airline's provider data; the reply tells the user to
 // double-check the times in that case (flights only).
 type ReplyItem struct {
 	Label      string
@@ -40,8 +40,8 @@ type ReplyInput struct {
 	PublicURL string // for the "add manually" link
 }
 
-const manualSuffixText = " (from the email — please verify the times)"
-const manualTrailerText = "For flight(s) marked \"from the email\", the airline hadn't published a schedule yet, so I used the details from the email itself — please check the departure and arrival times in the app."
+const manualSuffixText = " (from the email; please verify the times)"
+const manualTrailerText = "For flight(s) marked \"from the email\", the airline hadn't published a schedule yet, so I used the details from the email itself; please check the departure and arrival times in the app."
 
 // BuildReply renders the reply as a multipart/alternative RFC822 message:
 // plain-text first for legacy clients, branded HTML last so MIME-aware
@@ -90,12 +90,12 @@ func anyManual(added []ReplyItem) bool {
 	return false
 }
 
-// itemLine formats one added/failed item as "Label — Detail", omitting either
+// itemLine formats one added/failed item as "Label: Detail", omitting either
 // half when empty.
 func itemLine(label, detail string) string {
 	switch {
 	case label != "" && detail != "":
-		return label + " — " + detail
+		return label + ": " + detail
 	case label != "":
 		return label
 	default:
@@ -130,20 +130,20 @@ func replyPlainBody(in ReplyInput, link string) string {
 		}
 		fmt.Fprintf(&sb, "\r\nI couldn't add %d booking(s):\r\n\r\n", len(in.Failed))
 		for _, l := range in.Failed {
-			fmt.Fprintf(&sb, "  - %s — %s\r\n", itemLine(l.Label, l.Detail), l.Reason)
+			fmt.Fprintf(&sb, "  - %s (%s)\r\n", itemLine(l.Label, l.Detail), l.Reason)
 		}
 		sb.WriteString(manualTrailer)
 		fmt.Fprintf(&sb, "\r\nPlease add the failed booking(s) manually at %s/ .\r\n", link)
 	case len(in.Failed) > 0:
 		sb.WriteString("I couldn't add any of the bookings from this email:\r\n\r\n")
 		for _, l := range in.Failed {
-			fmt.Fprintf(&sb, "  - %s — %s\r\n", itemLine(l.Label, l.Detail), l.Reason)
+			fmt.Fprintf(&sb, "  - %s (%s)\r\n", itemLine(l.Label, l.Detail), l.Reason)
 		}
 		fmt.Fprintf(&sb, "\r\nPlease add them manually at %s/ .\r\n", link)
 	default:
-		fmt.Fprintf(&sb, "I couldn't find any travel details in this email — please add it manually at %s/ .\r\n", link)
+		fmt.Fprintf(&sb, "I couldn't find any travel details in this email; please add it manually at %s/ .\r\n", link)
 	}
-	sb.WriteString("\r\n— Aerly\r\n")
+	sb.WriteString("\r\n- Aerly\r\n")
 	return sb.String()
 }
 
@@ -178,7 +178,7 @@ func replyHTMLBody(in ReplyInput, link string) string {
 		return `<p style="margin:0 0 12px;font-size:15px;">I couldn't add any of the bookings from this email:</p>` + failedHTML + manual
 	default:
 		return fmt.Sprintf(
-			`<p style="margin:0;font-size:15px;">I couldn't find any travel details in this email — please <a href="%s" style="%s">add it manually</a>.</p>`,
+			`<p style="margin:0;font-size:15px;">I couldn't find any travel details in this email; please <a href="%s" style="%s">add it manually</a>.</p>`,
 			safeLink, brandLinkStyle)
 	}
 }
@@ -193,7 +193,7 @@ func legsFromAdded(ls []ReplyItem) []legRow {
 	for i, l := range ls {
 		note := ""
 		if l.ManualNote {
-			note = "From the email — please verify the times in the app."
+			note = "From the email; please verify the times in the app."
 		}
 		out[i] = legRow{Label: l.Label, Detail: l.Detail, Note: note}
 	}
