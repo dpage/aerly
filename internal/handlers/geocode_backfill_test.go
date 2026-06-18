@@ -446,6 +446,81 @@ func TestDeriveTripDestinationAwayEndUnplottedHotel(t *testing.T) {
 	}
 }
 
+// TestDeriveTripCountryHotelBeforeOutboundFlight guards the FOSDEM/Brussels
+// regression: the destination hotel's nominal check-in (14:00) sorts ahead of
+// the same-day outbound flight (14:50), so the earliest plotted *endpoint* is
+// Brussels, not home. The journey origin must come from the first flight's
+// departure (LHR/GB) so the heavily-dwelt Brussels hotel keeps the flag — an
+// earlier "origin = first endpoint" rule mistook Brussels for home and handed
+// the flag to the London transit endpoints.
+func TestDeriveTripCountryHotelBeforeOutboundFlight(t *testing.T) {
+	e := setup(t, nil, nil)
+	const lhrLat, lhrLon = 51.4700, -0.4543 // GB
+	const bruLat, bruLon = 50.9014, 4.4844  // BE (airport)
+	const hotLat, hotLon = 50.8505, 4.3488  // BE (Brussels city)
+	e.api.Geocoder = fakeGeocoder{
+		byCoord: map[[2]float64]string{
+			{lhrLat, lhrLon}: "gb",
+			{bruLat, bruLon}: "be",
+			{hotLat, hotLon}: "be",
+		},
+	}
+	ctx := context.Background()
+	uid := e.user(t, "traveller", false)
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "FOSDEM/PGDay"}, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := func(f float64) *float64 { return &f }
+	// Hotel check-in sorts first (14:00), before the outbound flight (14:50);
+	// start and end coordinates are the same Brussels point, so it's a stay, not
+	// a movement, and must not define the origin.
+	checkin := time.Date(2026, 1, 28, 14, 0, 0, 0, time.UTC)
+	checkout := checkin.Add(114 * time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "hotel", Title: "Brussels Marriott",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartLabel: "Brussels Marriott", StartLat: p(hotLat), StartLon: p(hotLon),
+			EndLabel: "Brussels Marriott", EndLat: p(hotLat), EndLon: p(hotLon),
+			Hotel: &store.HotelDetail{PropertyName: "Brussels Marriott"},
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	out := time.Date(2026, 1, 28, 14, 50, 0, 0, time.UTC)
+	outEnd := out.Add(80 * time.Minute)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "flight", Title: "BA392 LHR to BRU",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: out, EndsAt: &outEnd,
+			StartLabel: "LHR", StartLat: p(lhrLat), StartLon: p(lhrLon),
+			EndLabel: "BRU", EndLat: p(bruLat), EndLon: p(bruLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	ret := checkout.Add(time.Hour)
+	retEnd := ret.Add(80 * time.Minute)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "flight", Title: "BA392 BRU to LHR",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: ret, EndsAt: &retEnd,
+			StartLabel: "BRU", StartLat: p(bruLat), StartLon: p(bruLon),
+			EndLabel: "LHR", EndLat: p(lhrLat), EndLon: p(lhrLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	e.api.BackfillTripCountries(ctx)
+
+	got, _ := e.store.TripByID(ctx, trip.ID)
+	if got.CountryCode != "be" {
+		t.Errorf("country = %q, want be (the dwelt Brussels hotel, not the gb transit endpoints)", got.CountryCode)
+	}
+}
+
 // TestReconcileTripPlacesUnfreezesFlag covers the frozen-flag bug: a trip whose
 // New York hotel is fully plotted, but whose country_code was derived early
 // (against half-geocoded plans) and frozen to the gb origin, must be re-derived

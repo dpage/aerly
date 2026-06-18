@@ -91,7 +91,7 @@ func (a *API) deriveTripCountryAsync(tripID int64) {
 type awayResult struct {
 	code   string     // winning country, lowercase ISO 3166-1 alpha-2
 	coord  [2]float64 // a representative coordinate within that country
-	origin string     // the trip's origin/home country (first plotted endpoint)
+	origin string     // the trip's origin/home country (first journey's departure)
 }
 
 func (a *API) tripAway(ctx context.Context, tripID int64) (awayResult, bool) {
@@ -114,13 +114,14 @@ func (a *API) tripAway(ctx context.Context, tripID int64) (awayResult, bool) {
 		if w <= 0 {
 			w = 1
 		}
-		for _, c := range d.Coords {
+		departCode := ""
+		for i, c := range d.Coords {
 			code, ok, gerr := a.Geocoder.ReverseCountry(ctx, c[0], c[1])
 			if gerr != nil || !ok || code == "" {
 				continue
 			}
-			if origin == "" {
-				origin = code
+			if i == 0 {
+				departCode = code
 			}
 			if weight[code] == 0 {
 				order = append(order, code)
@@ -133,9 +134,23 @@ func (a *API) tripAway(ctx context.Context, tripID int64) (awayResult, bool) {
 				repSec[code], repCoord[code] = w, c
 			}
 		}
+		// Origin is the departure of the first journey leg — a part with two
+		// distinct plotted endpoints (a flight or transfer), taken in
+		// chronological order. NOT merely the earliest plotted endpoint: a
+		// hotel's nominal check-in time can sort ahead of the outbound flight, so
+		// the earliest endpoint may be the destination, which would wrongly tip
+		// the away-end correction to a transit country.
+		if origin == "" && departCode != "" && len(d.Coords) == 2 && d.Coords[0] != d.Coords[1] {
+			origin = departCode
+		}
 	}
 	if len(order) == 0 {
 		return awayResult{}, false
+	}
+	// A trip with no movement leg (e.g. a lone hotel) has no journey origin; fall
+	// back to the first plotted endpoint so the dwell winner still stands.
+	if origin == "" {
+		origin = order[0]
 	}
 	best, bestW := "", 0.0
 	for _, code := range order {

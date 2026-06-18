@@ -1,0 +1,11 @@
+-- Re-run the place reconciliation against every trip.
+--
+-- The first away-end derivation took a trip's origin to be its earliest plotted
+-- endpoint, but a hotel's nominal check-in time can sort ahead of the outbound
+-- flight (e.g. a same-day departure), so the destination was mistaken for home
+-- and the away-end correction handed the flag to a transit country — a Brussels
+-- trip flew the British flag. The derivation now takes the origin from the first
+-- journey leg's departure instead. Clear the one-shot marker so ReconcileTripPlaces
+-- re-derives the flag (and any origin-biased destination) for all trips on the
+-- next start, with the corrected logic.
+UPDATE trips SET place_reconciled = FALSE;
