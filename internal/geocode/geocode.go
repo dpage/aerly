@@ -41,6 +41,12 @@ type Geocoder interface {
 	// ocean). More reliable than GeocodeCountry for plan endpoints, whose
 	// coordinates are already known but whose labels can be ambiguous.
 	ReverseCountry(ctx context.Context, lat, lon float64) (iso2 string, ok bool, err error)
+	// ReversePlace resolves a coordinate to a human "City, Country" label and its
+	// lowercase ISO country code. The city falls back through town/village/
+	// municipality/county; when only the country resolves, place is just the
+	// country name. ok is false when nothing resolves. Used to auto-fill a trip's
+	// destination from where its plans spend the most time.
+	ReversePlace(ctx context.Context, lat, lon float64) (place, iso2 string, ok bool, err error)
 }
 
 // Nominatim geocodes via an OpenStreetMap Nominatim server. It honours the
@@ -224,6 +230,79 @@ func (n *Nominatim) ReverseCountry(ctx context.Context, lat, lon float64) (strin
 	code := strings.ToLower(strings.TrimSpace(result.Address.CountryCode))
 	n.storeCountry(key, code)
 	return code, code != "", nil
+}
+
+// ReversePlace resolves a coordinate to a "City, Country" label and lowercase
+// ISO country code via Nominatim's /reverse endpoint at city zoom. Rate-limited
+// like the other lookups. Not cached: it's called at most once per trip
+// derivation, which is rare.
+func (n *Nominatim) ReversePlace(ctx context.Context, lat, lon float64) (string, string, bool, error) {
+	if err := n.throttle(ctx); err != nil {
+		return "", "", false, err
+	}
+	endpoint := n.BaseURL + "/reverse?" + url.Values{
+		"lat":            {strconv.FormatFloat(lat, 'f', -1, 64)},
+		"lon":            {strconv.FormatFloat(lon, 'f', -1, 64)},
+		"format":         {"json"},
+		"zoom":           {"10"}, // city/town level.
+		"addressdetails": {"1"},
+	}.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", "", false, err
+	}
+	req.Header.Set("User-Agent", n.UserAgent)
+	resp, err := n.HTTP.Do(req)
+	if err != nil {
+		return "", "", false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", false, fmt.Errorf("nominatim: status %d", resp.StatusCode)
+	}
+	var result struct {
+		Address struct {
+			City         string `json:"city"`
+			Town         string `json:"town"`
+			Village      string `json:"village"`
+			Municipality string `json:"municipality"`
+			County       string `json:"county"`
+			State        string `json:"state"`
+			Country      string `json:"country"`
+			CountryCode  string `json:"country_code"`
+		} `json:"address"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&result); err != nil {
+		return "", "", false, err
+	}
+	a := result.Address
+	code := strings.ToLower(strings.TrimSpace(a.CountryCode))
+	country := strings.TrimSpace(a.Country)
+	city := firstNonEmpty(a.City, a.Town, a.Village, a.Municipality, a.County, a.State)
+	place := joinPlace(city, country)
+	return place, code, place != "", nil
+}
+
+// firstNonEmpty returns the first trimmed non-empty string, or "".
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if t := strings.TrimSpace(v); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// joinPlace renders "City, Country", or whichever single part is known.
+func joinPlace(city, country string) string {
+	switch {
+	case city != "" && country != "":
+		return city + ", " + country
+	case country != "":
+		return country
+	default:
+		return city
+	}
 }
 
 func (n *Nominatim) cached(q string) (cached, bool) {

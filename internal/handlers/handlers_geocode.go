@@ -122,6 +122,115 @@ func (a *API) deriveTripCountry(ctx context.Context, t *store.Trip) (string, boo
 	return "", false
 }
 
+// deriveTripDestination picks the location where the trip spends the most time
+// in a single part — a multi-day hotel stay dwarfs the transfers around it — and
+// reverse-geocodes it to a "City, Country" label plus its ISO country code. The
+// same dwell signal that decides the flag, narrowed to the single longest stay
+// so the destination reads as one place. ok is false when no plotted part can be
+// ranked (the caller leaves the destination blank for a later sweep). A no-op
+// without a geocoder.
+func (a *API) deriveTripDestination(ctx context.Context, t *store.Trip) (string, string, bool) {
+	if a.Geocoder == nil {
+		return "", "", false
+	}
+	dwells, err := a.Store.TripPartDwells(ctx, t.ID)
+	if err != nil || len(dwells) == 0 {
+		return "", "", false
+	}
+	var best store.TripPartDwell
+	bestSec := -1.0
+	for _, d := range dwells {
+		if len(d.Coords) == 0 {
+			continue
+		}
+		if d.Seconds > bestSec {
+			bestSec, best = d.Seconds, d
+		}
+	}
+	if bestSec < 0 {
+		return "", "", false
+	}
+	// The arrival/last endpoint is where time is spent (a hotel's location, a
+	// transfer's destination).
+	c := best.Coords[len(best.Coords)-1]
+	place, code, ok, err := a.Geocoder.ReversePlace(ctx, c[0], c[1])
+	if err != nil || !ok {
+		return "", "", false
+	}
+	return place, code, true
+}
+
+// deriveAndStoreTripPlace fills a trip's destination (and, when blank, its flag
+// country) from where its plans spend their time. Best-effort; returns true if
+// it wrote anything so the caller can republish. The destination is set only
+// when currently blank, never clobbering a user-stated one (the conditional
+// UPDATE enforces this even against a concurrent edit). The flag is kept
+// consistent with the destination: when we derive a country it adopts it
+// (correcting an empty/stale/origin code); otherwise, when the flag is unset or
+// the "zz" unknown sentinel, it falls back to the per-country dwell aggregation.
+func (a *API) deriveAndStoreTripPlace(ctx context.Context, t *store.Trip) bool {
+	changed := false
+	dest, code, ok := a.deriveTripDestination(ctx, t)
+	if ok && strings.TrimSpace(t.Destination) == "" {
+		if set, err := a.Store.SetTripDestination(ctx, t.ID, dest); err == nil && set {
+			t.Destination = dest
+			changed = true
+		}
+	}
+	switch {
+	case code != "":
+		// Align the flag with the destination we display, correcting an empty,
+		// stale ("zz"), or origin country code.
+		if t.CountryCode != code {
+			if err := a.Store.SetTripCountry(ctx, t.ID, code); err == nil {
+				t.CountryCode = code
+				changed = true
+			}
+		}
+	case t.CountryCode == "" || t.CountryCode == tripCountryUnknown:
+		c := ""
+		if dc, dok := a.deriveTripCountry(ctx, t); dok {
+			c = dc
+		}
+		if c == "" {
+			c = tripCountryUnknown
+		}
+		if t.CountryCode != c {
+			if err := a.Store.SetTripCountry(ctx, t.ID, c); err == nil {
+				t.CountryCode = c
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+// BackfillTripDestinations fills a destination (and flag) for trips that have
+// none — e.g. imported from a calendar, whose feeds carry no destination field —
+// from where their plans spend the most time. Best-effort, idempotent, paced by
+// the geocoder; a no-op without one. Runs at startup after part coordinates are
+// backfilled, so the dwell locations are already plotted.
+func (a *API) BackfillTripDestinations(ctx context.Context) {
+	if a.Geocoder == nil {
+		return
+	}
+	trips, err := a.Store.TripsNeedingDestination(ctx)
+	if err != nil {
+		slog.Warn("destination backfill: query failed", "err", err)
+		return
+	}
+	var fixed int
+	for _, t := range trips {
+		if a.deriveAndStoreTripPlace(ctx, t) {
+			fixed++
+			a.publishTripUpdated(ctx, t.ID)
+		}
+	}
+	if fixed > 0 {
+		slog.Info("destination backfill: derived trip destinations", "trips", fixed)
+	}
+}
+
 // BackfillTripCountries derives the ISO country code for any trip that doesn't
 // have one yet (e.g. created before the flag feature, or via email ingest).
 // Best-effort, idempotent, paced by the geocoder's rate limit; a no-op without a

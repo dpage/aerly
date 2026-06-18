@@ -13,10 +13,11 @@ import (
 // fixed country code. byCoord, when set, drives ReverseCountry per-coordinate so
 // part-based country derivation can be exercised.
 type fakeGeocoder struct {
-	lat, lon float64
-	country  string
-	byCoord  map[[2]float64]string
-	resolves map[string][2]float64 // when set, Geocode answers per exact query
+	lat, lon     float64
+	country      string
+	byCoord      map[[2]float64]string
+	placeByCoord map[[2]float64]string // ReversePlace label per coordinate
+	resolves     map[string][2]float64 // when set, Geocode answers per exact query
 }
 
 func (f fakeGeocoder) Geocode(_ context.Context, q string) (float64, float64, bool, error) {
@@ -39,6 +40,23 @@ func (f fakeGeocoder) ReverseCountry(_ context.Context, lat, lon float64) (strin
 		return c, c != "", nil
 	}
 	return f.country, f.country != "", nil
+}
+
+func (f fakeGeocoder) ReversePlace(_ context.Context, lat, lon float64) (string, string, bool, error) {
+	code := f.country
+	if f.byCoord != nil {
+		code = f.byCoord[[2]float64{lat, lon}]
+	}
+	place := ""
+	if f.placeByCoord != nil {
+		place = f.placeByCoord[[2]float64{lat, lon}]
+	}
+	// Mirror the production country-only fallback: when no city label is mapped
+	// but a country code is, the real geocoder still returns the country name.
+	if place == "" && code != "" {
+		place = code
+	}
+	return place, code, place != "", nil
 }
 
 // TestBackfillPartCoordinates verifies the startup backfill geocodes an
@@ -197,6 +215,71 @@ func TestDeriveTripCountryFromParts(t *testing.T) {
 	got, _ := e.store.TripByID(ctx, trip.ID)
 	if got.CountryCode != "fr" {
 		t.Errorf("country = %q, want fr (from the French plans, not 'us' from the name)", got.CountryCode)
+	}
+}
+
+// TestBackfillTripDestinationsFromDwell covers the import fix: a trip with no
+// destination (a calendar import) gets one from where it spends the most time —
+// the multi-day French hotel, not the brief UK→FR transfer — reverse-geocoded to
+// a "City, Country" label, and the flag follows.
+func TestBackfillTripDestinationsFromDwell(t *testing.T) {
+	e := setup(t, nil, nil)
+	const folkLat, folkLon = 51.08169, 1.16734
+	const calaisLat, calaisLon = 50.95194, 1.85635
+	const hotelLat, hotelLon = 48.4618739, 1.5714336
+	e.api.Geocoder = fakeGeocoder{
+		byCoord: map[[2]float64]string{
+			{folkLat, folkLon}:     "gb",
+			{calaisLat, calaisLon}: "fr",
+			{hotelLat, hotelLon}:   "fr",
+		},
+		placeByCoord: map[[2]float64]string{
+			{hotelLat, hotelLon}: "Drouot-Saint-Basle, France",
+		},
+	}
+	ctx := context.Background()
+	uid := e.user(t, "traveller", false)
+
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "France Fishing"}, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := func(f float64) *float64 { return &f }
+	at := time.Date(2026, 7, 4, 9, 0, 0, 0, time.UTC)
+	end := at.Add(time.Hour)
+	// A brief UK→FR transfer.
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "train", Title: "LeShuttle Folkestone to Calais",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: at, EndsAt: &end,
+			StartLabel: "Folkestone Terminal", StartLat: p(folkLat), StartLon: p(folkLon),
+			EndLabel: "Calais Terminal", EndLat: p(calaisLat), EndLon: p(calaisLon),
+			Train: &store.TrainDetail{Operator: "LeShuttle"},
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	// A week-long French hotel — the longest dwell, so the destination.
+	checkout := at.Add(7 * 24 * time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "hotel", Title: "Fishing at Belenos Lake",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: at, EndsAt: &checkout,
+			StartLabel: "Belenos Lake", StartLat: p(hotelLat), StartLon: p(hotelLon),
+			Hotel: &store.HotelDetail{PropertyName: "Belenos Lake"},
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	e.api.BackfillTripDestinations(ctx)
+
+	got, _ := e.store.TripByID(ctx, trip.ID)
+	if got.Destination != "Drouot-Saint-Basle, France" {
+		t.Errorf("destination = %q, want the French hotel's city,country", got.Destination)
+	}
+	if got.CountryCode != "fr" {
+		t.Errorf("country = %q, want fr (follows the destination)", got.CountryCode)
 	}
 }
 

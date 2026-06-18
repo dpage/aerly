@@ -196,6 +196,48 @@ func (s *Store) SetTripCountry(ctx context.Context, tripID int64, code string) e
 	return err
 }
 
+// SetTripDestination sets the auto-derived destination text, but only while the
+// trip has none — so a concurrent user edit is never clobbered by a background
+// derivation. Returns whether the row was updated. Does not bump updated_at, so
+// it doesn't reorder the trip list.
+func (s *Store) SetTripDestination(ctx context.Context, tripID int64, destination string) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE trips SET destination = $2 WHERE id = $1 AND destination = ''`, tripID, destination)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// TripsNeedingDestination returns trips with no destination set that have at
+// least one geocoded plan endpoint, so a destination can be derived from where
+// the trip spends its time. Used by the startup backfill.
+func (s *Store) TripsNeedingDestination(ctx context.Context) ([]*Trip, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+tripColumns+`, COALESCE(share_all_friends_role, '') FROM trips t
+		 WHERE t.destination = ''
+		   AND EXISTS (
+		     SELECT 1 FROM plans pl
+		       JOIN plan_parts part ON part.plan_id = pl.id
+		      WHERE pl.trip_id = t.id AND part.dismissed_at IS NULL
+		        AND (part.start_lat IS NOT NULL OR part.end_lat IS NOT NULL))
+		 ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Trip
+	for rows.Next() {
+		var t Trip
+		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.ShareAllFriendsRole); err != nil {
+			return nil, err
+		}
+		out = append(out, &t)
+	}
+	return out, rows.Err()
+}
+
 // TripsNeedingCountry returns trips whose country hasn't been derived yet but
 // which have something to geocode (a destination or at least a name). Used by
 // the startup backfill.
