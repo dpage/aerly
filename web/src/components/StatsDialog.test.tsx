@@ -53,7 +53,7 @@ function trip(over: Partial<Trip> = {}): Trip {
     destination: '',
     starts_on: '2000-01-01',
     ends_on: '2000-01-05',
-    passenger_ids: [1],
+    members: [{ user_id: 1, role: 'owner' }],
     country_code: 'gb',
     ...over,
   } as Trip;

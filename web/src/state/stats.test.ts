@@ -13,7 +13,7 @@ function trip(over: Partial<Trip> = {}): Trip {
     destination: '',
     starts_on: '2000-01-01',
     ends_on: '2000-01-05',
-    passenger_ids: [ME],
+    members: [{ user_id: ME, role: 'owner' }],
     country_code: 'gb',
     ...over,
   } as Trip;
@@ -267,10 +267,10 @@ describe('computeStats', () => {
     expect(s.countries).toBe(1); // only gb
   });
 
-  it('ignores trips with no country code or where I am not a passenger', () => {
+  it('ignores trips with no country code or where I am not a member', () => {
     const trips = [
       trip({ id: 1, country_code: undefined }),
-      trip({ id: 2, country_code: 'fr', passenger_ids: [OTHER] }),
+      trip({ id: 2, country_code: 'fr', members: [{ user_id: OTHER, role: 'owner' }] }),
       trip({ id: 3, country_code: 'gb' }),
     ];
     const s = computeStats([], ME, trips);

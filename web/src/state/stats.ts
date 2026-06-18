@@ -105,13 +105,17 @@ export function computeStats(flights: Flight[], meId: number, trips: Trip[] = []
  * trip classifier so "visited" means a trip that's happening now or already
  * past — an upcoming trip doesn't count, as you haven't been there yet. Trips
  * without a derivable span classify as upcoming (the app-wide convention), so
- * date-less trips are excluded too. Only trips the user is a passenger on are
- * considered. */
+ * date-less trips are excluded too.
+ *
+ * Inclusion is by trip membership, not the passenger list: the `trip_passengers`
+ * model is all but unused for trips (unlike flights), whereas every trip the
+ * user owns or was added to carries a `trip_members` row for them. Pure
+ * friend-shared trips the user merely views are correctly left out. */
 function countriesVisited(trips: Trip[], meId: number, now: number = Date.now()): number {
   const seen = new Set<string>();
   for (const t of trips) {
     if (!t.country_code) continue;
-    if (!t.passenger_ids.includes(meId)) continue;
+    if (!t.members.some((m) => m.user_id === meId)) continue;
     if (classifyTrip(tripSpan(t), now) === 'upcoming') continue;
     seen.add(t.country_code.toLowerCase());
   }
