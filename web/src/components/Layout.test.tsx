@@ -29,8 +29,11 @@ const h = vi.hoisted(() => ({
       message: string;
       created_at: string;
     }>,
+    online: true,
   },
 }));
+
+vi.mock('../pwa', () => ({ useOnlineStatus: () => h.state.online }));
 
 vi.mock('../state/store', () => ({
   useStore: (sel: (s: Record<string, unknown>) => unknown) =>
@@ -116,9 +119,22 @@ beforeEach(() => {
   h.state.capabilities = { email_ingest_enabled: false };
   h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 };
   h.state.alerts = [];
+  h.state.online = true;
 });
 
 describe('Layout', () => {
+  it('disables server-mutating account actions while offline', async () => {
+    h.state.me = user({ is_superuser: true });
+    h.state.online = false;
+    renderLayout();
+    // The superuser "Manage users" toolbar button is disabled.
+    expect(screen.getByRole('button', { name: /manage users/i })).toBeDisabled();
+    await openMenu();
+    for (const label of ['Friends…', 'Preferences…', 'Subscribe to calendar…']) {
+      expect(screen.getByText(label).closest('li')).toHaveAttribute('aria-disabled', 'true');
+    }
+  });
+
   it('renders the chrome and routed outlet', () => {
     renderLayout();
     expect(screen.getByText('Aerly')).toBeInTheDocument();

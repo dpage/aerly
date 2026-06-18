@@ -153,6 +153,17 @@ describe('TripDetail', () => {
     expect(screen.getByRole('button', { name: /subscribe/i })).toBeInTheDocument();
   });
 
+  it('hides the server-mutating actions when offline', () => {
+    h.state.currentTrip = trip();
+    h.state.online = false;
+    renderDetail();
+    expect(screen.getByRole('heading', { name: 'Lisbon' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /new plan/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /share/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+  });
+
   it('shows destination and from/to dates beside the trip name', () => {
     h.state.currentTrip = trip({
       destination: 'Portugal',

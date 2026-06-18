@@ -115,7 +115,7 @@ export default function TripDetail() {
               <Typography variant="h5" noWrap sx={{ flexGrow: 1, minWidth: 0 }}>
                 {title}
               </Typography>
-              {loaded && canEdit && (
+              {loaded && canEdit && online && (
                 <Button
                   variant="contained"
                   size="small"
@@ -126,7 +126,7 @@ export default function TripDetail() {
                   New plan
                 </Button>
               )}
-              {loaded && (
+              {loaded && online && (
                 <>
                   <Tooltip title="More actions">
                     <IconButton
@@ -206,7 +206,7 @@ export default function TripDetail() {
               </Typography>
             )}
           </Box>
-          {loaded && canEdit && (
+          {loaded && canEdit && online && (
             <Button
               variant="contained"
               size="small"
@@ -216,17 +216,17 @@ export default function TripDetail() {
               New plan
             </Button>
           )}
-          {loaded && canEdit && (
+          {loaded && canEdit && online && (
             <Button size="small" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
               Edit
             </Button>
           )}
-          {loaded && (
+          {loaded && online && (
             <Button size="small" startIcon={<PeopleIcon />} onClick={() => setShareOpen(true)}>
               Share
             </Button>
           )}
-          {loaded && (
+          {loaded && online && (
             <Button
               size="small"
               startIcon={<CalendarMonthIcon />}
