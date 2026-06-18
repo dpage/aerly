@@ -141,10 +141,22 @@ func (a *API) geocodeAndDeriveImportedTripAsync(tripID int64, planIDs []int64) {
 		// while; allow a few minutes.
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
+		geocodeFailed := false
 		for _, planID := range planIDs {
-			if changed, err := geocode.PlanParts(ctx, a.Store, a.Geocoder, planID); err == nil && changed {
+			changed, err := geocode.PlanParts(ctx, a.Store, a.Geocoder, planID)
+			if err != nil {
+				// A hard geocode failure (not a best-effort miss) means some parts
+				// aren't plotted; deriving now could pick a partial destination, so
+				// leave it for the startup backfill to retry once.
+				geocodeFailed = true
+				continue
+			}
+			if changed {
 				a.publishPlanUpdated(ctx, tripID, planID)
 			}
+		}
+		if geocodeFailed {
+			return
 		}
 		t, err := a.Store.TripByID(ctx, tripID)
 		if err != nil {

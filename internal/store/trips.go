@@ -196,11 +196,17 @@ func (s *Store) SetTripCountry(ctx context.Context, tripID int64, code string) e
 	return err
 }
 
-// SetTripDestination sets the auto-derived destination text (does not bump
-// updated_at, so a background derivation doesn't reorder the trip list).
-func (s *Store) SetTripDestination(ctx context.Context, tripID int64, destination string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE trips SET destination = $2 WHERE id = $1`, tripID, destination)
-	return err
+// SetTripDestination sets the auto-derived destination text, but only while the
+// trip has none — so a concurrent user edit is never clobbered by a background
+// derivation. Returns whether the row was updated. Does not bump updated_at, so
+// it doesn't reorder the trip list.
+func (s *Store) SetTripDestination(ctx context.Context, tripID int64, destination string) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE trips SET destination = $2 WHERE id = $1 AND destination = ''`, tripID, destination)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // TripsNeedingDestination returns trips with no destination set that have at

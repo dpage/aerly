@@ -163,31 +163,43 @@ func (a *API) deriveTripDestination(ctx context.Context, t *store.Trip) (string,
 // deriveAndStoreTripPlace fills a trip's destination (and, when blank, its flag
 // country) from where its plans spend their time. Best-effort; returns true if
 // it wrote anything so the caller can republish. The destination is set only
-// when currently blank, never clobbering a user-stated one. The country falls
-// back to the broader per-country dwell aggregation and then the (possibly
-// just-set) destination, mirroring deriveTripCountryAsync.
+// when currently blank, never clobbering a user-stated one (the conditional
+// UPDATE enforces this even against a concurrent edit). The flag is kept
+// consistent with the destination: when we derive a country it adopts it
+// (correcting an empty/stale/origin code); otherwise, when the flag is unset or
+// the "zz" unknown sentinel, it falls back to the per-country dwell aggregation.
 func (a *API) deriveAndStoreTripPlace(ctx context.Context, t *store.Trip) bool {
 	changed := false
 	dest, code, ok := a.deriveTripDestination(ctx, t)
 	if ok && strings.TrimSpace(t.Destination) == "" {
-		if err := a.Store.SetTripDestination(ctx, t.ID, dest); err == nil {
+		if set, err := a.Store.SetTripDestination(ctx, t.ID, dest); err == nil && set {
 			t.Destination = dest
 			changed = true
 		}
 	}
-	if t.CountryCode == "" {
-		c := code
-		if c == "" {
-			if dc, dok := a.deriveTripCountry(ctx, t); dok {
-				c = dc
+	switch {
+	case code != "":
+		// Align the flag with the destination we display, correcting an empty,
+		// stale ("zz"), or origin country code.
+		if t.CountryCode != code {
+			if err := a.Store.SetTripCountry(ctx, t.ID, code); err == nil {
+				t.CountryCode = code
+				changed = true
 			}
+		}
+	case t.CountryCode == "" || t.CountryCode == tripCountryUnknown:
+		c := ""
+		if dc, dok := a.deriveTripCountry(ctx, t); dok {
+			c = dc
 		}
 		if c == "" {
 			c = tripCountryUnknown
 		}
-		if err := a.Store.SetTripCountry(ctx, t.ID, c); err == nil {
-			t.CountryCode = c
-			changed = true
+		if t.CountryCode != c {
+			if err := a.Store.SetTripCountry(ctx, t.ID, c); err == nil {
+				t.CountryCode = c
+				changed = true
+			}
 		}
 	}
 	return changed

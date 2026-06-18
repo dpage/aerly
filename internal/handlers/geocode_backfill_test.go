@@ -51,6 +51,11 @@ func (f fakeGeocoder) ReversePlace(_ context.Context, lat, lon float64) (string,
 	if f.placeByCoord != nil {
 		place = f.placeByCoord[[2]float64{lat, lon}]
 	}
+	// Mirror the production country-only fallback: when no city label is mapped
+	// but a country code is, the real geocoder still returns the country name.
+	if place == "" && code != "" {
+		place = code
+	}
 	return place, code, place != "", nil
 }
 
