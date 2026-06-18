@@ -14,6 +14,7 @@ package flightcoord
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -39,15 +40,26 @@ type Backfiller interface {
 }
 
 // Fill resolves any NULL coordinate columns on a single flight part. It tries
-// the embedded airports table first (free, in-memory), then the resolver for
-// whatever the table couldn't satisfy — but only when a resolver is configured
-// and the row's last_resolved_at throttle allows it. It returns whether the row
-// actually changed, so the caller can decide to republish over SSE.
+// the embedded airports table first (free, in-memory), then two provider
+// fallbacks for whatever the table couldn't satisfy — but only when a provider
+// is configured and the row's last_resolved_at throttle allows it:
+//
+//   - the flight lookup (resolver) maps ident+date to a whole flight, enriching
+//     the row with airframe / gates / terminals as a bonus, but is bounded to
+//     the provider's ±180-day schedule window;
+//   - the airport lookup (airportResolver) maps a bare IATA code straight to
+//     coordinates, with no date window — so it plots off-table airports on
+//     flights too old or too far ahead for the flight lookup (e.g. an imported
+//     KBP-ARN from last year). It only fires for a leg the table missed and the
+//     flight lookup didn't already fill.
+//
+// It returns whether the row actually changed, so the caller can decide to
+// republish over SSE.
 //
 // Best-effort per row: a resolve failure is logged (and the throttle still
 // bumped, so an unreachable flight doesn't burn quota every tick), and only a
 // backfill *write* error propagates to the caller.
-func Fill(ctx context.Context, st Backfiller, resolver providers.Resolver, f *store.Flight, now time.Time) (bool, error) {
+func Fill(ctx context.Context, st Backfiller, resolver providers.Resolver, airportResolver providers.AirportResolver, f *store.Flight, now time.Time) (bool, error) {
 	var update store.BackfillPayload
 	changed := false
 	var originNeedsResolver, destNeedsResolver bool
@@ -70,55 +82,94 @@ func Fill(ctx context.Context, st Backfiller, resolver providers.Resolver, f *st
 		}
 	}
 
-	// Resolver slow path — only when something the table can't satisfy remains,
-	// a resolver is configured, and the throttle allows it.
-	if (originNeedsResolver || destNeedsResolver) && resolver != nil && throttleAllowed(f, now) {
-		rf, rerr := resolver.Resolve(ctx, f.Ident, f.ScheduledOut)
-		if rerr == nil {
-			// Merge only the legs the table couldn't fill. A table-derived coord
-			// on a satisfied leg must NOT be clobbered: BackfillFlightPart's
-			// "only fill empty columns" rule short-circuits a leg whose payload
-			// lat+lon are both zero, so a resolver returning zero coords for a
-			// table-known leg would otherwise lose the table value.
-			if originNeedsResolver {
-				update.OriginIATA = rf.OriginIATA
-				update.OriginLat, update.OriginLon = rf.OriginLat, rf.OriginLon
-			}
-			if destNeedsResolver {
-				update.DestIATA = rf.DestIATA
-				update.DestLat, update.DestLon = rf.DestLat, rf.DestLon
-			}
-			update.ICAO24, update.Callsign = rf.ICAO24, rf.Callsign
-			update.Notes = rf.Notes
-			update.OriginTerminal, update.DestTerminal = rf.OriginTerminal, rf.DestTerminal
-			changed = true
+	// Provider slow path — only when something the table can't satisfy remains,
+	// at least one provider is configured, and the throttle allows it.
+	if (originNeedsResolver || destNeedsResolver) && (resolver != nil || airportResolver != nil) && throttleAllowed(f, now) {
+		var originName, destName string
+		resolvedAny := false
 
-			// The provider has a record: flip resolved and upgrade the part's
-			// bare IATA labels to the friendly "Name (CODE)" form (preserving any
-			// hand-edited label). Use the resolver's code for a leg it filled, so
-			// a leg whose stored code was blank still gets a sensible label.
-			effOrigin, effDest := f.OriginIATA, f.DestIATA
-			if originNeedsResolver && rf.OriginIATA != "" {
-				effOrigin = rf.OriginIATA
+		// Flight lookup. Merges only the legs the table couldn't fill: a
+		// table-derived coord on a satisfied leg must NOT be clobbered, since
+		// BackfillFlightPart's "only fill empty columns" rule short-circuits a
+		// leg whose payload lat+lon are both zero, so a resolver returning zero
+		// coords for a table-known leg would otherwise lose the table value.
+		var flightErr error
+		if resolver != nil {
+			rf, rerr := resolver.Resolve(ctx, f.Ident, f.ScheduledOut)
+			flightErr = rerr
+			if rerr == nil {
+				if originNeedsResolver {
+					update.OriginIATA = rf.OriginIATA
+					update.OriginLat, update.OriginLon = rf.OriginLat, rf.OriginLon
+					originName = rf.OriginName
+				}
+				if destNeedsResolver {
+					update.DestIATA = rf.DestIATA
+					update.DestLat, update.DestLon = rf.DestLat, rf.DestLon
+					destName = rf.DestName
+				}
+				update.ICAO24, update.Callsign = rf.ICAO24, rf.Callsign
+				update.Notes = rf.Notes
+				update.OriginTerminal, update.DestTerminal = rf.OriginTerminal, rf.DestTerminal
+				changed = true
+				resolvedAny = true
+			} else {
+				slog.Warn("flightcoord: resolve failed", "ident", f.Ident, "id", f.ID, "err", rerr)
 			}
-			if destNeedsResolver && rf.DestIATA != "" {
-				effDest = rf.DestIATA
+		}
+
+		// Airport fallback for any leg still without coordinates. Skipped after a
+		// transient flight-lookup error (e.g. a 429), which the airport endpoint
+		// would likely hit too — but run when the flight lookup was absent,
+		// succeeded but left a leg unfilled, or returned not-found (which is what
+		// an out-of-window old flight reports).
+		if airportResolver != nil && (resolver == nil || flightErr == nil || errors.Is(flightErr, providers.ErrFlightNotFound)) {
+			if originNeedsResolver && update.OriginLat == 0 && update.OriginLon == 0 && f.OriginIATA != "" {
+				if ap, aerr := airportResolver.ResolveAirport(ctx, f.OriginIATA); aerr == nil {
+					update.OriginIATA = ap.IATA
+					update.OriginLat, update.OriginLon = ap.Lat, ap.Lon
+					originName = ap.Name
+					changed, resolvedAny = true, true
+				} else if !errors.Is(aerr, providers.ErrAirportNotFound) {
+					slog.Warn("flightcoord: airport resolve failed", "iata", f.OriginIATA, "id", f.ID, "err", aerr)
+				}
+			}
+			if destNeedsResolver && update.DestLat == 0 && update.DestLon == 0 && f.DestIATA != "" {
+				if ap, aerr := airportResolver.ResolveAirport(ctx, f.DestIATA); aerr == nil {
+					update.DestIATA = ap.IATA
+					update.DestLat, update.DestLon = ap.Lat, ap.Lon
+					destName = ap.Name
+					changed, resolvedAny = true, true
+				} else if !errors.Is(aerr, providers.ErrAirportNotFound) {
+					slog.Warn("flightcoord: airport resolve failed", "iata", f.DestIATA, "id", f.ID, "err", aerr)
+				}
+			}
+		}
+
+		// A provider returned a record for at least one leg: flip resolved and
+		// upgrade the part's bare IATA labels to the friendly "Name (CODE)" form
+		// (preserving any hand-edited label). Use the resolved code for a leg we
+		// filled, so a leg whose stored code was blank still gets a sensible label.
+		if resolvedAny {
+			effOrigin, effDest := f.OriginIATA, f.DestIATA
+			if originNeedsResolver && update.OriginIATA != "" {
+				effOrigin = update.OriginIATA
+			}
+			if destNeedsResolver && update.DestIATA != "" {
+				effDest = update.DestIATA
 			}
 			if merr := st.MarkFlightPartResolved(ctx, f.ID,
-				f.OriginIATA, airports.Label(effOrigin, rf.OriginName),
-				f.DestIATA, airports.Label(effDest, rf.DestName)); merr != nil {
+				f.OriginIATA, airports.Label(effOrigin, originName),
+				f.DestIATA, airports.Label(effDest, destName)); merr != nil {
 				slog.Error("flightcoord: mark resolved", "id", f.ID, "err", merr)
 			}
-		} else {
-			slog.Warn("flightcoord: resolve failed", "ident", f.Ident, "id", f.ID, "err", rerr)
 		}
+
 		// Always bump last_resolved_at so unreachable flights don't burn API
-		// quota on every attempt. Empty strings mean "don't overwrite airframe".
-		icao24, callsign := "", ""
-		if rerr == nil {
-			icao24, callsign = rf.ICAO24, rf.Callsign
-		}
-		if terr := st.RefreshFlightPartAirframe(ctx, f.ID, icao24, callsign); terr != nil {
+		// quota on every attempt. Empty strings mean "don't overwrite airframe";
+		// only the flight lookup supplies airframe data, so an airport-only fill
+		// leaves these blank.
+		if terr := st.RefreshFlightPartAirframe(ctx, f.ID, update.ICAO24, update.Callsign); terr != nil {
 			slog.Error("flightcoord: bump last_resolved_at", "id", f.ID, "err", terr)
 		}
 	}

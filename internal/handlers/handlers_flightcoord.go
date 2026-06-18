@@ -35,7 +35,7 @@ func (a *API) resolveFlightCoordsAsync(tripID, planID int64) {
 		now := time.Now()
 		var changed bool
 		for _, f := range parts {
-			ok, ferr := flightcoord.Fill(ctx, a.Store, a.Resolver, f, now)
+			ok, ferr := flightcoord.Fill(ctx, a.Store, a.Resolver, a.AirportResolver, f, now)
 			if ferr != nil {
 				slog.Warn("flight backfill: fill failed", "plan", planID, "part", f.ID, "err", ferr)
 				continue

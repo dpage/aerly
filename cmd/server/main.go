@@ -98,6 +98,13 @@ func run() error {
 		slog.Info("resolver: aerodatabox (cached, ttl=24h; poller uses uncached)")
 	}
 	api := handlers.New(s, authH, hub, cfg, resolver)
+	// Airport lookups go straight to the upstream client (not the cached/raw
+	// flight resolver): the endpoint is date-free and its data is static, so it
+	// backfills off-table airports on flights outside the ±180-day flight window.
+	// nil adb (no key) leaves the fallback disabled.
+	if adb != nil {
+		api.AirportResolver = adb
+	}
 	// Geocode part addresses (hotels, taxis, …) into map coordinates via the
 	// public OSM Nominatim service. The User-Agent identifies us per policy.
 	api.Geocoder = geocode.NewNominatim("aerly (+" + cfg.PublicURL + ")")
@@ -144,6 +151,11 @@ func run() error {
 	// fresh AeroDataBox state (last_resolved_at handles throttling). Falls
 	// back to the cached one when no upstream is configured (i.e. nil).
 	p.Resolver = rawResolver
+	// The date-free airport fallback for the coord sweep (off-table airports on
+	// flights outside the ±180-day flight window). nil adb leaves it disabled.
+	if adb != nil {
+		p.AirportResolver = adb
+	}
 	// Flight-alert email config (spec §9). Empty MailFromAddress disables the
 	// email channel; in-app alerts still publish over the hub.
 	p.MailFromAddress = cfg.MailFromAddress

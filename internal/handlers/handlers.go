@@ -27,6 +27,10 @@ type API struct {
 	Hub      *sse.Hub
 	Config   *config.Config
 	Resolver providers.Resolver // may be nil if no resolver is configured
+	// AirportResolver is the date-free IATA→coords fallback used by the
+	// post-ingest coord backfill for off-table airports on flights outside the
+	// resolver's ±180-day window. May be nil.
+	AirportResolver providers.AirportResolver
 
 	// Extractor backs the paste/upload ingest endpoints (the LLM seam). May
 	// be nil when no LLM provider is configured — the ingest endpoints then
