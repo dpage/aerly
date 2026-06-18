@@ -1,10 +1,23 @@
 import { describe, it, expect } from 'vitest';
 
-import type { Flight, FlightStatus } from '../api/types';
+import type { Flight, FlightStatus, Trip } from '../api/types';
 import { computeStats } from './stats';
 
 const ME = 1;
 const OTHER = 2;
+
+function trip(over: Partial<Trip> = {}): Trip {
+  return {
+    id: 1,
+    name: 'Trip',
+    destination: '',
+    starts_on: '2000-01-01',
+    ends_on: '2000-01-05',
+    passenger_ids: [ME],
+    country_code: 'gb',
+    ...over,
+  } as Trip;
+}
 
 function f(over: Partial<Flight> = {}): Flight {
   return {
@@ -35,7 +48,9 @@ describe('computeStats', () => {
     expect(s.highlight.longest).toBeNull();
     expect(s.highlight.mostVisited).toBeNull();
     expect(s.highlight.distinctAirlines).toBe(0);
+    expect(s.highlight.mostAirline).toBeNull();
     expect(s.highlight.earthLaps).toBe(0);
+    expect(s.countries).toBe(0);
     expect(s.excluded).toBe(0);
   });
 
@@ -199,6 +214,67 @@ describe('computeStats', () => {
     ];
     const s = computeStats(flights, ME);
     expect(s.highlight.distinctAirlines).toBe(3); // BA, EZY, UA
+  });
+
+  it('picks the most-used airline by flight count', () => {
+    const flights = [
+      f({ id: 1, ident: 'BA286' }),
+      f({ id: 2, ident: 'BA999' }),
+      f({ id: 3, ident: 'BA111' }),
+      f({ id: 4, ident: 'UA1' }),
+      f({ id: 5, ident: 'EZY2823' }),
+    ];
+    const s = computeStats(flights, ME);
+    expect(s.highlight.mostAirline).toEqual({ code: 'BA', count: 3 });
+  });
+
+  it('breaks most-used airline ties alphabetically', () => {
+    const flights = [
+      f({ id: 1, ident: 'UA1' }),
+      f({ id: 2, ident: 'BA286' }),
+    ];
+    const s = computeStats(flights, ME);
+    expect(s.highlight.mostAirline).toEqual({ code: 'BA', count: 1 });
+  });
+
+  it('counts most-used airline from flown flights only', () => {
+    const flights = [
+      f({ id: 1, status: 'Arrived', ident: 'BA286' }),
+      f({ id: 2, status: 'Scheduled', ident: 'UA1' }),
+      f({ id: 3, status: 'Scheduled', ident: 'UA2' }),
+    ];
+    const s = computeStats(flights, ME);
+    expect(s.highlight.mostAirline).toEqual({ code: 'BA', count: 1 });
+  });
+
+  it('counts distinct visited countries from past/ongoing trips', () => {
+    const trips = [
+      trip({ id: 1, country_code: 'gb' }),
+      trip({ id: 2, country_code: 'GB' }), // same country, different case
+      trip({ id: 3, country_code: 'fr' }),
+    ];
+    const s = computeStats([], ME, trips);
+    expect(s.countries).toBe(2); // gb, fr
+  });
+
+  it('ignores upcoming and date-less trips when counting countries', () => {
+    const trips = [
+      trip({ id: 1, country_code: 'gb' }), // past
+      trip({ id: 2, country_code: 'fr', starts_on: '2999-01-01', ends_on: '2999-01-05' }),
+      trip({ id: 3, country_code: 'de', starts_on: undefined, ends_on: undefined }),
+    ];
+    const s = computeStats([], ME, trips);
+    expect(s.countries).toBe(1); // only gb
+  });
+
+  it('ignores trips with no country code or where I am not a passenger', () => {
+    const trips = [
+      trip({ id: 1, country_code: undefined }),
+      trip({ id: 2, country_code: 'fr', passenger_ids: [OTHER] }),
+      trip({ id: 3, country_code: 'gb' }),
+    ];
+    const s = computeStats([], ME, trips);
+    expect(s.countries).toBe(1); // only gb
   });
 
   it('returns the raw earth-laps ratio (compute), 0 when nothing flown', () => {

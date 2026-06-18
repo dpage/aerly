@@ -9,6 +9,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Paper,
   Stack,
   Tab,
   Tabs,
@@ -16,7 +17,7 @@ import {
 } from '@mui/material';
 
 import { api } from '../api/client';
-import type { Flight } from '../api/types';
+import type { Flight, Trip } from '../api/types';
 import { useStore } from '../state/store';
 import { computeStats, type Bucket, type Stats } from '../state/stats';
 
@@ -30,6 +31,7 @@ type TabKey = 'flown' | 'upcoming';
 export default function StatsDialog({ open, onClose }: Props) {
   const me = useStore((s) => s.me);
   const [flights, setFlights] = useState<Flight[] | null>(null);
+  const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>('flown');
@@ -37,6 +39,7 @@ export default function StatsDialog({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) {
       setFlights(null);
+      setTrips([]);
       setError(null);
       setTab('flown');
       return;
@@ -44,10 +47,18 @@ export default function StatsDialog({ open, onClose }: Props) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api
-      .listFlights({ showOld: true })
-      .then((rows) => {
-        if (!cancelled) setFlights(rows);
+    // Flights are the primary data; trips only feed the "countries visited"
+    // highlight, so a trips failure shouldn't sink the whole dialog — fall
+    // back to an empty list and carry on.
+    Promise.all([
+      api.listFlights({ showOld: true }),
+      api.listTrips().catch(() => [] as Trip[]),
+    ])
+      .then(([flightRows, tripRows]) => {
+        if (!cancelled) {
+          setFlights(flightRows);
+          setTrips(tripRows);
+        }
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(errorMessage(err));
@@ -62,15 +73,15 @@ export default function StatsDialog({ open, onClose }: Props) {
 
   const stats: Stats | null = useMemo(() => {
     if (!flights || !me) return null;
-    return computeStats(flights, me.id);
-  }, [flights, me]);
+    return computeStats(flights, me.id, trips);
+  }, [flights, trips, me]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Statistics</DialogTitle>
       <DialogContent dividers>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-          Includes all flights, current and archived.
+          Your travel so far, current and archived.
         </Typography>
         {loading && (
           <Box sx={{ display: 'grid', placeItems: 'center', minHeight: 200 }}>
@@ -84,18 +95,31 @@ export default function StatsDialog({ open, onClose }: Props) {
         )}
         {stats && !loading && !error && (
           <>
-            <Tabs value={tab} onChange={(_, v) => setTab(v as TabKey)} sx={{ mb: 2 }}>
-              <Tab label="Flown" value="flown" />
+            <Tabs
+              value={tab}
+              onChange={(_, v) => setTab(v as TabKey)}
+              sx={{ borderBottom: 1, borderColor: 'divider' }}
+            >
+              <Tab label="Past" value="flown" />
               <Tab label="Upcoming" value="upcoming" />
             </Tabs>
-            <BucketTiles
-              bucket={tab === 'flown' ? stats.flown : stats.upcoming}
-              upcoming={tab === 'upcoming'}
-            />
+            {/* The bucket tiles share a border with the tabs so they read as a
+                single tabbed panel, distinct from the Highlights card below. */}
+            <Paper
+              variant="outlined"
+              sx={{ p: 2, borderTop: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
+            >
+              <BucketTiles
+                bucket={tab === 'flown' ? stats.flown : stats.upcoming}
+                upcoming={tab === 'upcoming'}
+              />
+            </Paper>
             <Typography variant="overline" sx={{ display: 'block', mt: 3, mb: 1 }}>
               Highlights
             </Typography>
-            <HighlightTiles stats={stats} />
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <HighlightTiles stats={stats} />
+            </Paper>
             {stats.excluded > 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3 }}>
                 {stats.excluded} cancelled/diverted flight{stats.excluded === 1 ? '' : 's'} not
@@ -127,9 +151,10 @@ function BucketTiles({ bucket, upcoming }: { bucket: Bucket; upcoming: boolean }
 }
 
 function HighlightTiles({ stats }: { stats: Stats }) {
-  const { longest, mostVisited, distinctAirlines, earthLaps } = stats.highlight;
+  const { longest, mostVisited, distinctAirlines, mostAirline, earthLaps } = stats.highlight;
   return (
     <Stack spacing={1.5}>
+      <Tile label="Countries visited" value={String(stats.countries)} />
       <Tile
         label="Longest flight"
         value={
@@ -141,6 +166,14 @@ function HighlightTiles({ stats }: { stats: Stats }) {
       <Tile
         label="Most-visited airport"
         value={mostVisited ? `${mostVisited.iata} (${mostVisited.count} visits)` : '—'}
+      />
+      <Tile
+        label="Most-used airline"
+        value={
+          mostAirline
+            ? `${mostAirline.code} (${mostAirline.count} flight${mostAirline.count === 1 ? '' : 's'})`
+            : '—'
+        }
       />
       <Tile label="Distinct airlines" value={String(distinctAirlines)} />
       {earthLaps >= 0.1 && (

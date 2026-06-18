@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { Flight } from '../api/types';
+import type { Flight, Trip } from '../api/types';
 
 const h = vi.hoisted(() => ({
   api: {
     listFlights: vi.fn(),
+    listTrips: vi.fn(),
   },
   setError: vi.fn(),
   me: { id: 1, username: 'alice', is_superuser: false } as {
@@ -45,9 +46,23 @@ function flight(over: Partial<Flight> = {}): Flight {
   } as Flight;
 }
 
+function trip(over: Partial<Trip> = {}): Trip {
+  return {
+    id: 1,
+    name: 'Trip',
+    destination: '',
+    starts_on: '2000-01-01',
+    ends_on: '2000-01-05',
+    passenger_ids: [1],
+    country_code: 'gb',
+    ...over,
+  } as Trip;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   h.api.listFlights.mockResolvedValue([]);
+  h.api.listTrips.mockResolvedValue([]);
 });
 
 describe('StatsDialog', () => {
@@ -59,7 +74,8 @@ describe('StatsDialog', () => {
   it('fetches with showOld=true when opened and renders zeros for an empty list', async () => {
     render(<StatsDialog open onClose={() => {}} />);
     await waitFor(() => expect(h.api.listFlights).toHaveBeenCalledWith({ showOld: true }));
-    expect(screen.getByText(/includes all flights/i)).toBeInTheDocument();
+    expect(screen.getByText(/your travel so far/i)).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /past/i })).toBeInTheDocument();
     expect(screen.getByText('Flights').nextSibling?.textContent).toBe('0');
   });
 
@@ -124,6 +140,30 @@ describe('StatsDialog', () => {
     expect(await screen.findByText('Longest flight')).toBeInTheDocument();
     expect(screen.getByText('Most-visited airport')).toBeInTheDocument();
     expect(screen.getByText('Distinct airlines').nextSibling?.textContent).toBe('1');
+    // Both flown flights are BA, so it's the most-used airline.
+    expect(screen.getByText('Most-used airline').nextSibling?.textContent).toBe('BA (2 flights)');
+  });
+
+  it('counts distinct visited countries from trips', async () => {
+    h.api.listFlights.mockResolvedValue([flight()]);
+    h.api.listTrips.mockResolvedValue([
+      trip({ id: 1, country_code: 'gb' }),
+      trip({ id: 2, country_code: 'fr' }),
+    ]);
+    render(<StatsDialog open onClose={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByText('Countries visited').nextSibling?.textContent).toBe('2');
+    });
+  });
+
+  it('still renders flight stats when the trips fetch fails', async () => {
+    h.api.listFlights.mockResolvedValue([flight()]);
+    h.api.listTrips.mockRejectedValueOnce(new Error('trips boom'));
+    render(<StatsDialog open onClose={() => {}} />);
+    // No error alert — the trips failure is swallowed — and countries fall to 0.
+    expect(await screen.findByText('Countries visited')).toBeInTheDocument();
+    expect(screen.getByText('Countries visited').nextSibling?.textContent).toBe('0');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('hides the Around the Earth tile when the ratio is < 0.1', async () => {

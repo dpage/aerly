@@ -1,5 +1,6 @@
-import type { Flight } from '../api/types';
+import type { Flight, Trip } from '../api/types';
 import { greatCircleMiles } from '../lib/great-circle';
+import { classifyTrip, tripSpan } from '../lib/trip-format';
 
 export type Bucket = {
   count: number;
@@ -12,6 +13,7 @@ export type Highlight = {
   longest: { ident: string; origin: string; dest: string; miles: number } | null;
   mostVisited: { iata: string; count: number } | null;
   distinctAirlines: number;
+  mostAirline: { code: string; count: number } | null;
   earthLaps: number; // raw ratio; UI hides tile when < 0.1
 };
 
@@ -19,6 +21,8 @@ export type Stats = {
   flown: Bucket;
   upcoming: Bucket;
   highlight: Highlight;
+  /** Distinct countries the user has actually visited, derived from trips. */
+  countries: number;
   excluded: number;
 };
 
@@ -62,7 +66,7 @@ function addToBucket(b: Bucket, f: Flight, airports: Set<string>): void {
   if (f.dest_iata) airports.add(f.dest_iata);
 }
 
-export function computeStats(flights: Flight[], meId: number): Stats {
+export function computeStats(flights: Flight[], meId: number, trips: Trip[] = []): Stats {
   const flown = emptyBucket();
   const upcoming = emptyBucket();
   const flownAirports = new Set<string>();
@@ -91,15 +95,36 @@ export function computeStats(flights: Flight[], meId: number): Stats {
     flown,
     upcoming,
     highlight: computeHighlight(flownFlights, flown.miles),
+    countries: countriesVisited(trips, meId),
     excluded,
   };
 }
 
+/** Count the distinct countries the user has actually been to. We lean on the
+ * geocoded `country_code` the server attaches to each trip, and on the shared
+ * trip classifier so "visited" means a trip that's happening now or already
+ * past — an upcoming trip doesn't count, as you haven't been there yet. Trips
+ * without a derivable span classify as upcoming (the app-wide convention), so
+ * date-less trips are excluded too. Only trips the user is a passenger on are
+ * considered. */
+function countriesVisited(trips: Trip[], meId: number, now: number = Date.now()): number {
+  const seen = new Set<string>();
+  for (const t of trips) {
+    if (!t.country_code) continue;
+    if (!t.passenger_ids.includes(meId)) continue;
+    if (classifyTrip(tripSpan(t), now) === 'upcoming') continue;
+    seen.add(t.country_code.toLowerCase());
+  }
+  return seen.size;
+}
+
 function computeHighlight(flown: Flight[], totalMiles: number): Highlight {
+  const airlines = airlineStats(flown);
   return {
     longest: longestFlight(flown),
     mostVisited: mostVisitedAirport(flown),
-    distinctAirlines: distinctAirlines(flown),
+    distinctAirlines: airlines.distinct,
+    mostAirline: airlines.most,
     earthLaps: totalMiles / EARTH_CIRCUMFERENCE_MI,
   };
 }
@@ -142,11 +167,26 @@ function mostVisitedAirport(flown: Flight[]): Highlight['mostVisited'] {
   return winner;
 }
 
-function distinctAirlines(flown: Flight[]): number {
-  const codes = new Set<string>();
+/** Tally airline codes parsed from flight idents in a single pass, returning
+ * both the number of distinct airlines and the most-used one. Ties on count
+ * break alphabetically so the result is stable. We only ever have the IATA
+ * code (e.g. "BA"), not the carrier's name, so the UI shows the code. */
+function airlineStats(flown: Flight[]): {
+  distinct: number;
+  most: { code: string; count: number } | null;
+} {
+  const counts = new Map<string, number>();
   for (const f of flown) {
     const m = AIRLINE_RE.exec(f.ident);
-    if (m) codes.add(m[1].toUpperCase());
+    if (!m) continue;
+    const code = m[1].toUpperCase();
+    counts.set(code, (counts.get(code) ?? 0) + 1);
   }
-  return codes.size;
+  let most: { code: string; count: number } | null = null;
+  for (const [code, count] of counts) {
+    if (most === null || count > most.count || (count === most.count && code < most.code)) {
+      most = { code, count };
+    }
+  }
+  return { distinct: counts.size, most };
 }
