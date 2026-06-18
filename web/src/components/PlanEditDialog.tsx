@@ -18,6 +18,7 @@ import {
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import { api } from '../api/client';
 import { useStore } from '../state/store';
+import { useOnlineStatus } from '../pwa';
 import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
 import {
   coordsFromText,
@@ -198,6 +199,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const splitPlanPart = useStore((s) => s.splitPlanPart);
   const setError = useStore((s) => s.setError);
   const setNotice = useStore((s) => s.setNotice);
+  // Offline: the dialog still opens so you can read a plan's full details (more
+  // than the timeline tile shows), but every control is read-only and Save is
+  // disabled — editing needs the server.
+  const readOnly = !useOnlineStatus();
 
   const [title, setTitle] = useState(plan.title);
   const [confRef, setConfRef] = useState(plan.confirmation_ref);
@@ -417,191 +422,205 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Edit plan</DialogTitle>
       <DialogContent dividers>
-        <Stack spacing={2} sx={{ mt: 0.5 }}>
-          <TextField
-            label="Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-            fullWidth
-          />
-          <TextField
-            label="Confirmation ref"
-            value={confRef}
-            onChange={(e) => setConfRef(e.target.value)}
-            fullWidth
-          />
-          <TextField
-            label="Ticket number"
-            value={ticketNumber}
-            onChange={(e) => setTicketNumber(e.target.value)}
-            fullWidth
-          />
-          <Stack direction="row" spacing={1}>
+        {readOnly && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            You&apos;re offline — viewing only. Reconnect to edit.
+          </Alert>
+        )}
+        {/* A disabled fieldset makes every nested control read-only in one go,
+            so an offline transition can't slip an edit through. Reset the
+            element's native border/spacing so layout is unchanged. */}
+        <Box
+          component="fieldset"
+          disabled={readOnly}
+          sx={{ border: 0, m: 0, p: 0, minInlineSize: 0 }}
+        >
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
             <TextField
-              label="Cost"
-              type="number"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
-              slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
-              sx={{ flex: 2 }}
+              label="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              fullWidth
             />
             <TextField
-              label="Currency"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              placeholder="GBP"
-              slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
-              sx={{ flex: 1 }}
+              label="Confirmation ref"
+              value={confRef}
+              onChange={(e) => setConfRef(e.target.value)}
+              fullWidth
             />
-          </Stack>
-          <TextField
-            label="Supplier"
-            value={supplierName}
-            onChange={(e) => setSupplierName(e.target.value)}
-            placeholder="Who the booking is with, e.g. British Airways"
-            fullWidth
-          />
-          <TextField
-            label="Contact email"
-            type="email"
-            value={contactEmail}
-            onChange={(e) => setContactEmail(e.target.value)}
-            fullWidth
-          />
-          <TextField
-            label="Contact phone"
-            type="tel"
-            value={contactPhone}
-            onChange={(e) => setContactPhone(e.target.value)}
-            fullWidth
-          />
-          <TextField
-            label="Website"
-            type="url"
-            value={website}
-            onChange={(e) => setWebsite(e.target.value)}
-            placeholder="https://…"
-            fullWidth
-          />
-          <TextField
-            label="Notes"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            fullWidth
-            multiline
-            minRows={2}
-          />
+            <TextField
+              label="Ticket number"
+              value={ticketNumber}
+              onChange={(e) => setTicketNumber(e.target.value)}
+              fullWidth
+            />
+            <Stack direction="row" spacing={1}>
+              <TextField
+                label="Cost"
+                type="number"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+                slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                sx={{ flex: 2 }}
+              />
+              <TextField
+                label="Currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                placeholder="GBP"
+                slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+                sx={{ flex: 1 }}
+              />
+            </Stack>
+            <TextField
+              label="Supplier"
+              value={supplierName}
+              onChange={(e) => setSupplierName(e.target.value)}
+              placeholder="Who the booking is with, e.g. British Airways"
+              fullWidth
+            />
+            <TextField
+              label="Contact email"
+              type="email"
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Contact phone"
+              type="tel"
+              value={contactPhone}
+              onChange={(e) => setContactPhone(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Website"
+              type="url"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              placeholder="https://…"
+              fullWidth
+            />
+            <TextField
+              label="Notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              fullWidth
+              multiline
+              minRows={2}
+            />
 
-          {editableParts.map((part, i) => {
-            const form = forms[part.id];
-            if (!form) return null;
-            const withEnd = hasEnd(part);
-            return (
-              <Box key={part.id}>
-                <Divider sx={{ mb: 1.5 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {planTypeLabel(part.type)}
-                    {editableParts.length > 1 ? ` ${i + 1}` : ''}
-                  </Typography>
-                </Divider>
-                {canSplit && (
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-                    <Button
-                      size="small"
-                      color="inherit"
-                      onClick={() => void handleSplit(part.id)}
-                      disabled={busy}
-                    >
-                      Split out
-                    </Button>
-                  </Box>
-                )}
-                <EndFields
-                  heading={withEnd && isTransferType(part.type) ? 'From' : 'Where'}
-                  form={form.start}
-                  onChange={(f, v) => patchEnd(part.id, 'start', f, v)}
-                  unlocated={startUnlocated(part)}
-                  onResolveCoords={() => void resolveCoords(part.id, 'start')}
-                  coordsResolving={!!coordsBusy[coordsKey(part.id, 'start')]}
-                  coordsError={coordsErr[coordsKey(part.id, 'start')] ?? ''}
-                />
-                {withEnd && (
-                  <Box sx={{ mt: 1.5 }}>
-                    <EndFields
-                      heading={isTransferType(part.type) ? 'To' : 'Until'}
-                      form={form.end}
-                      onChange={(f, v) => patchEnd(part.id, 'end', f, v)}
-                      // A non-transfer's "end" is the same place (a hotel's
-                      // check-out), so only its time is editable — no second
-                      // Place/Address.
-                      timeOnly={!isTransferType(part.type)}
-                      unlocated={endUnlocated(part)}
-                      onResolveCoords={() => void resolveCoords(part.id, 'end')}
-                      coordsResolving={!!coordsBusy[coordsKey(part.id, 'end')]}
-                      coordsError={coordsErr[coordsKey(part.id, 'end')] ?? ''}
-                    />
-                  </Box>
-                )}
-                {form.flight && (
-                  <Box sx={{ mt: 1.5 }}>
-                    <FlightFields
-                      form={form.flight}
-                      onChange={(f, v) => patchFlight(part.id, f, v)}
-                    />
-                  </Box>
-                )}
-              </Box>
-            );
-          })}
+            {editableParts.map((part, i) => {
+              const form = forms[part.id];
+              if (!form) return null;
+              const withEnd = hasEnd(part);
+              return (
+                <Box key={part.id}>
+                  <Divider sx={{ mb: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {planTypeLabel(part.type)}
+                      {editableParts.length > 1 ? ` ${i + 1}` : ''}
+                    </Typography>
+                  </Divider>
+                  {canSplit && (
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                      <Button
+                        size="small"
+                        color="inherit"
+                        onClick={() => void handleSplit(part.id)}
+                        disabled={busy}
+                      >
+                        Split out
+                      </Button>
+                    </Box>
+                  )}
+                  <EndFields
+                    heading={withEnd && isTransferType(part.type) ? 'From' : 'Where'}
+                    form={form.start}
+                    onChange={(f, v) => patchEnd(part.id, 'start', f, v)}
+                    unlocated={startUnlocated(part)}
+                    onResolveCoords={() => void resolveCoords(part.id, 'start')}
+                    coordsResolving={!!coordsBusy[coordsKey(part.id, 'start')]}
+                    coordsError={coordsErr[coordsKey(part.id, 'start')] ?? ''}
+                  />
+                  {withEnd && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <EndFields
+                        heading={isTransferType(part.type) ? 'To' : 'Until'}
+                        form={form.end}
+                        onChange={(f, v) => patchEnd(part.id, 'end', f, v)}
+                        // A non-transfer's "end" is the same place (a hotel's
+                        // check-out), so only its time is editable — no second
+                        // Place/Address.
+                        timeOnly={!isTransferType(part.type)}
+                        unlocated={endUnlocated(part)}
+                        onResolveCoords={() => void resolveCoords(part.id, 'end')}
+                        coordsResolving={!!coordsBusy[coordsKey(part.id, 'end')]}
+                        coordsError={coordsErr[coordsKey(part.id, 'end')] ?? ''}
+                      />
+                    </Box>
+                  )}
+                  {form.flight && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <FlightFields
+                        form={form.flight}
+                        onChange={(f, v) => patchFlight(part.id, f, v)}
+                      />
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
 
-          {moveTargets.length > 0 && (
-            <Box>
-              <Divider sx={{ mb: 1.5 }} />
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Move to another trip
-              </Typography>
-              <Stack direction="row" spacing={1} alignItems="flex-start">
-                <TextField
-                  select
-                  size="small"
-                  label="Move to another trip"
-                  fullWidth
-                  value={moveTarget === '' ? '' : String(moveTarget)}
-                  onChange={(e) =>
-                    setMoveTarget(e.target.value === '' ? '' : Number(e.target.value))
-                  }
-                  helperText="Takes the plan and its parts to another trip you can edit."
-                  slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-                >
-                  <MenuItem value="" disabled>
-                    Choose a trip…
-                  </MenuItem>
-                  {moveTargets.map((t) => (
-                    <MenuItem key={t.id} value={String(t.id)}>
-                      {t.name}
+            {moveTargets.length > 0 && (
+              <Box>
+                <Divider sx={{ mb: 1.5 }} />
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  Move to another trip
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="flex-start">
+                  <TextField
+                    select
+                    size="small"
+                    label="Move to another trip"
+                    fullWidth
+                    value={moveTarget === '' ? '' : String(moveTarget)}
+                    onChange={(e) =>
+                      setMoveTarget(e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                    helperText="Takes the plan and its parts to another trip you can edit."
+                    slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+                  >
+                    <MenuItem value="" disabled>
+                      Choose a trip…
                     </MenuItem>
-                  ))}
-                </TextField>
-                <Button
-                  variant="outlined"
-                  onClick={() => void handleMove()}
-                  disabled={busy || moveTarget === ''}
-                  sx={{ mt: 0.5 }}
-                >
-                  Move
-                </Button>
-              </Stack>
-            </Box>
-          )}
-        </Stack>
+                    {moveTargets.map((t) => (
+                      <MenuItem key={t.id} value={String(t.id)}>
+                        {t.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Button
+                    variant="outlined"
+                    onClick={() => void handleMove()}
+                    disabled={busy || moveTarget === ''}
+                    sx={{ mt: 0.5 }}
+                  >
+                    Move
+                  </Button>
+                </Stack>
+              </Box>
+            )}
+          </Stack>
+        </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{readOnly ? 'Close' : 'Cancel'}</Button>
         <Button
           variant="contained"
           onClick={() => void handleSave()}
-          disabled={busy || !title.trim()}
+          disabled={busy || !title.trim() || readOnly}
         >
           Save
         </Button>

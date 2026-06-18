@@ -109,6 +109,23 @@ function render_(p: Plan = plan()) {
 }
 
 describe('PlanEditDialog', () => {
+  it('opens read-only with Save disabled while offline', () => {
+    const original = navigator.onLine;
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    try {
+      render_();
+      // Still opens so the full details (beyond the tile) are visible…
+      expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue('BA123');
+      // …but it's read-only: a notice, disabled fields, no Save, Cancel→Close.
+      expect(screen.getByText(/viewing only/i)).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: /title/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: original });
+    }
+  });
+
   it('prefills the fields from the plan', () => {
     render_();
     expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue('BA123');
