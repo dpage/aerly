@@ -3,6 +3,7 @@ package flightcoord
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +55,27 @@ func (r *fakeResolver) Resolve(_ context.Context, _ string, _ time.Time) (*provi
 	return &c, nil
 }
 
+// fakeAirportResolver returns a fixed airport per IATA code (or an error) and
+// counts calls, standing in for the date-free airport lookup.
+type fakeAirportResolver struct {
+	byCode map[string]*providers.Airport
+	err    error
+	calls  int
+}
+
+func (r *fakeAirportResolver) ResolveAirport(_ context.Context, iata string) (*providers.Airport, error) {
+	r.calls++
+	if r.err != nil {
+		return nil, r.err
+	}
+	ap, ok := r.byCode[iata]
+	if !ok {
+		return nil, providers.ErrAirportNotFound
+	}
+	c := *ap
+	return &c, nil
+}
+
 func ptr(f float64) *float64 { return &f }
 
 // BRS (Bristol) is in the embedded airports table; ZZZ is not.
@@ -62,7 +84,7 @@ func TestFill_TableFillsKnownLeg_NoResolverNeeded(t *testing.T) {
 	r := &fakeResolver{} // present, but should stay untouched
 	f := &store.Flight{ID: 1, Ident: "EZY1", OriginIATA: "BRS", DestIATA: "BRS"}
 
-	changed, err := Fill(context.Background(), st, r, f, time.Now())
+	changed, err := Fill(context.Background(), st, r, nil, f, time.Now())
 	if err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
@@ -85,7 +107,7 @@ func TestFill_ResolverFillsOffTableLeg(t *testing.T) {
 	}}
 	f := &store.Flight{ID: 2, Ident: "FR9226", OriginIATA: "BRS", DestIATA: "ZZZ"}
 
-	changed, err := Fill(context.Background(), st, r, f, time.Now())
+	changed, err := Fill(context.Background(), st, r, nil, f, time.Now())
 	if err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
@@ -119,7 +141,7 @@ func TestFill_ResolveErrorDoesNotMarkResolved(t *testing.T) {
 	st := &fakeBackfiller{}
 	r := &fakeResolver{err: errors.New("not found")}
 	f := &store.Flight{ID: 7, Ident: "FR9226", OriginIATA: "BRS", OriginLat: ptr(51.0), DestIATA: "ZZZ"}
-	if _, err := Fill(context.Background(), st, r, f, time.Now()); err != nil {
+	if _, err := Fill(context.Background(), st, r, nil, f, time.Now()); err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
 	if st.resolved != 0 {
@@ -138,7 +160,7 @@ func TestFill_DoesNotClobberTableLegWithResolver(t *testing.T) {
 	// Origin BRS is table-known; only dest ZZZ needs the resolver.
 	f := &store.Flight{ID: 3, Ident: "FR9226", OriginIATA: "BRS", DestIATA: "ZZZ"}
 
-	if _, err := Fill(context.Background(), st, r, f, time.Now()); err != nil {
+	if _, err := Fill(context.Background(), st, r, nil, f, time.Now()); err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
 	if st.backfilled == nil {
@@ -160,7 +182,7 @@ func TestFill_ThrottleBlocksResolver(t *testing.T) {
 	// the row was resolved just now so the throttle blocks the lookup.
 	f := &store.Flight{ID: 4, Ident: "FR9226", OriginIATA: "BRS", OriginLat: ptr(51.0), DestIATA: "ZZZ", LastResolvedAt: &recent}
 
-	changed, err := Fill(context.Background(), st, r, f, recent.Add(time.Minute))
+	changed, err := Fill(context.Background(), st, r, nil, f, recent.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
@@ -176,7 +198,7 @@ func TestFill_NoResolverConfiguredOffTableLegStaysNull(t *testing.T) {
 	st := &fakeBackfiller{}
 	f := &store.Flight{ID: 5, Ident: "FR9226", OriginIATA: "ZZZ", DestIATA: "QQQ"}
 
-	changed, err := Fill(context.Background(), st, nil, f, time.Now())
+	changed, err := Fill(context.Background(), st, nil, nil, f, time.Now())
 	if err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
@@ -192,7 +214,7 @@ func TestFill_ResolveErrorBumpsThrottleButLeavesCoords(t *testing.T) {
 	// which fails — so no coords change, but the throttle is still bumped.
 	f := &store.Flight{ID: 6, Ident: "FR9226", OriginIATA: "BRS", OriginLat: ptr(51.0), DestIATA: "ZZZ"}
 
-	changed, err := Fill(context.Background(), st, r, f, time.Now())
+	changed, err := Fill(context.Background(), st, r, nil, f, time.Now())
 	if err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
@@ -204,5 +226,111 @@ func TestFill_ResolveErrorBumpsThrottleButLeavesCoords(t *testing.T) {
 	}
 	if r.calls != 1 {
 		t.Errorf("resolver calls=%d, want 1", r.calls)
+	}
+}
+
+// An imported flight whose date is outside the provider's ±180-day window
+// (the flight lookup returns ErrFlightNotFound) still gets its off-table
+// airport plotted via the date-free airport lookup.
+func TestFill_AirportFallbackResolvesOutOfWindowOffTableLeg(t *testing.T) {
+	st := &fakeBackfiller{}
+	// Wrap the sentinel like the real resolver does, so the fallback's
+	// errors.Is check is exercised rather than direct equality.
+	r := &fakeResolver{err: fmt.Errorf("outside provider window: %w", providers.ErrFlightNotFound)}
+	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{
+		"KBP": {IATA: "KBP", Name: "Boryspil International", Lat: 50.345, Lon: 30.8947},
+	}}
+	// Origin BRS is table-known; dest KBP is off-table and the flight itself is
+	// unresolvable (old import) — so only the airport lookup can fill it.
+	f := &store.Flight{ID: 10, Ident: "PS786", OriginIATA: "BRS", DestIATA: "KBP"}
+
+	changed, err := Fill(context.Background(), st, r, ar, f, time.Now())
+	if err != nil {
+		t.Fatalf("Fill: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true (airport fallback fills KBP)")
+	}
+	if ar.calls != 1 {
+		t.Errorf("airport resolver calls=%d, want 1 (dest only)", ar.calls)
+	}
+	if st.backfilled == nil || st.backfilled.DestLat != 50.345 || st.backfilled.DestLon != 30.8947 {
+		t.Errorf("expected KBP coords from airport lookup, got %+v", st.backfilled)
+	}
+	// The airport name upgrades the bare label, and the part is marked resolved.
+	if st.resolved != 1 {
+		t.Errorf("expected MarkFlightPartResolved called once, got %d", st.resolved)
+	}
+	if st.endLabel != "Boryspil International (KBP)" {
+		t.Errorf("dest label should use the airport name, got %q", st.endLabel)
+	}
+	if st.airframe != 1 {
+		t.Errorf("throttle should be bumped, got %d", st.airframe)
+	}
+}
+
+// The airport fallback must NOT fire when the flight lookup fails with a
+// transient (non-not-found) error — the airport endpoint would likely hit the
+// same throttle/outage, so we save the call for the next sweep.
+func TestFill_AirportFallbackSkippedOnTransientFlightError(t *testing.T) {
+	st := &fakeBackfiller{}
+	r := &fakeResolver{err: errors.New("aerodatabox rate limit")}
+	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{
+		"KBP": {IATA: "KBP", Name: "Boryspil International", Lat: 50.345, Lon: 30.8947},
+	}}
+	f := &store.Flight{ID: 11, Ident: "PS786", OriginIATA: "BRS", OriginLat: ptr(51.0), DestIATA: "KBP"}
+
+	changed, err := Fill(context.Background(), st, r, ar, f, time.Now())
+	if err != nil {
+		t.Fatalf("Fill: %v", err)
+	}
+	if ar.calls != 0 {
+		t.Errorf("airport resolver should be skipped on a transient flight error; calls=%d", ar.calls)
+	}
+	if changed || st.backfilled != nil {
+		t.Errorf("nothing should be filled, got changed=%v", changed)
+	}
+}
+
+// When the flight lookup succeeds and fills the off-table leg itself, the
+// airport fallback is unnecessary and must not be called.
+func TestFill_AirportFallbackNotCalledWhenFlightFillsLeg(t *testing.T) {
+	st := &fakeBackfiller{}
+	r := &fakeResolver{rf: &providers.ResolvedFlight{
+		OriginIATA: "BRS", DestIATA: "KBP", DestLat: 50.345, DestLon: 30.8947,
+		DestName: "Kyiv Boryspil",
+	}}
+	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{}}
+	f := &store.Flight{ID: 12, Ident: "PS786", OriginIATA: "BRS", DestIATA: "KBP"}
+
+	if _, err := Fill(context.Background(), st, r, ar, f, time.Now()); err != nil {
+		t.Fatalf("Fill: %v", err)
+	}
+	if ar.calls != 0 {
+		t.Errorf("airport resolver should not be called when the flight lookup fills the leg; calls=%d", ar.calls)
+	}
+	if st.backfilled == nil || st.backfilled.DestLat != 50.345 {
+		t.Errorf("expected flight-lookup dest coords, got %+v", st.backfilled)
+	}
+}
+
+// With no flight resolver configured at all, the airport lookup alone still
+// backfills an off-table leg.
+func TestFill_AirportFallbackWithoutFlightResolver(t *testing.T) {
+	st := &fakeBackfiller{}
+	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{
+		"KBP": {IATA: "KBP", Name: "Boryspil International", Lat: 50.345, Lon: 30.8947},
+	}}
+	f := &store.Flight{ID: 13, Ident: "PS786", OriginIATA: "BRS", DestIATA: "KBP"}
+
+	changed, err := Fill(context.Background(), st, nil, ar, f, time.Now())
+	if err != nil {
+		t.Fatalf("Fill: %v", err)
+	}
+	if !changed || st.backfilled == nil || st.backfilled.DestLat != 50.345 {
+		t.Errorf("airport lookup should fill KBP with no flight resolver, got %+v", st.backfilled)
+	}
+	if ar.calls != 1 {
+		t.Errorf("airport resolver calls=%d, want 1", ar.calls)
 	}
 }

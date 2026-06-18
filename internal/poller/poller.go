@@ -22,8 +22,12 @@ type Poller struct {
 	Store    *store.Store
 	Tracker  providers.Tracker
 	Resolver providers.Resolver // optional; when set, backfills missing metadata
-	Hub      *sse.Hub
-	Interval time.Duration
+	// AirportResolver is the date-free IATA→coords fallback used by the coord
+	// sweep for off-table airports on flights outside the resolver's ±180-day
+	// window. Optional; nil disables the fallback.
+	AirportResolver providers.AirportResolver
+	Hub             *sse.Hub
+	Interval        time.Duration
 
 	// Email-alert config (spec §9). When MailFromAddress is empty the email
 	// channel is skipped (in-app alerts still fire). SendAlertEmail defaults

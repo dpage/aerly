@@ -247,6 +247,78 @@ func (a *AeroDataBox) doOne(ctx context.Context, ident, date string) (
 	return buildResolved(&pick, ident), resp.StatusCode, retry, body, nil
 }
 
+// ResolveAirport looks a single airport up by IATA code via
+// GET /airports/iata/{iata}. Unlike Resolve it has no date dimension and so no
+// ±180-day window: it answers for an airport regardless of when (or whether)
+// a flight touches it. That makes it the path that plots off-table airports on
+// imported flights too old or too far ahead for the flight-number lookup —
+// e.g. a KBP-ARN leg from last year, where KBP isn't in the embedded table and
+// the flight itself is long outside the resolvable window.
+//
+// Returns ErrAirportNotFound when the upstream has no record of the code, or a
+// record without usable coordinates (which is no better than a miss for the
+// caller's purpose of plotting the airport).
+func (a *AeroDataBox) ResolveAirport(ctx context.Context, iata string) (*Airport, error) {
+	code := strings.ToUpper(strings.TrimSpace(iata))
+	if len(code) != 3 {
+		return nil, fmt.Errorf("iata code must be 3 characters, got %q", iata)
+	}
+	u := fmt.Sprintf("%s/airports/iata/%s", a.BaseURL, url.PathEscape(code))
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-RapidAPI-Key", a.APIKey)
+	req.Header.Set("X-RapidAPI-Host", a.Host)
+	req.Header.Set("Accept", "application/json")
+
+	if a.Limiter != nil {
+		if err := a.Limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
+	}
+	resp, err := a.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<18))
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// fall through to parse
+	case http.StatusNotFound, http.StatusNoContent:
+		slog.Info("aerodatabox airport not found", "iata", code, "status", resp.StatusCode)
+		return nil, ErrAirportNotFound
+	default:
+		slog.Warn("aerodatabox airport non-200", "iata", code,
+			"status", resp.StatusCode, "body", truncate(body, 200))
+		return nil, fmt.Errorf("aerodatabox airport %d: %s", resp.StatusCode, body)
+	}
+
+	var info adbAirportInfo
+	if err := json.Unmarshal(body, &info); err != nil {
+		return nil, fmt.Errorf("aerodatabox: bad airport JSON: %w", err)
+	}
+	out := &Airport{
+		IATA: strings.ToUpper(strings.TrimSpace(orFallback(info.IATA, code))),
+		// Prefer the concise shortName ("Boryspil International"), falling back to
+		// the verbose name / fullName across AeroDataBox response versions.
+		Name: strings.TrimSpace(orFallback(info.ShortName, orFallback(info.Name, info.FullName))),
+		TZ:   strings.TrimSpace(info.TimeZone),
+	}
+	if info.Location != nil {
+		out.Lat, out.Lon = info.Location.Lat, info.Location.Lon
+	}
+	if out.Lat == 0 && out.Lon == 0 {
+		slog.Info("aerodatabox airport has no coordinates", "iata", code)
+		return nil, ErrAirportNotFound
+	}
+	slog.Info("aerodatabox airport resolved", "iata", out.IATA,
+		"name", out.Name, "lat", out.Lat, "lon", out.Lon)
+	return out, nil
+}
+
 // upstreamMessage extracts AeroDataBox's "message" field from a JSON error
 // body when present, returning "" otherwise. The shape is:
 //
@@ -461,6 +533,20 @@ type adbLocation struct {
 	Lon float64 `json:"lon"`
 }
 
+// adbAirportInfo is the GET /airports/iata/{code} response shape (just the
+// fields we use). Name fields vary across AeroDataBox versions — shortName is
+// the concise form, name/fullName the verbose one — so we parse all three and
+// pick whichever is populated.
+type adbAirportInfo struct {
+	IATA      string       `json:"iata"`
+	ICAO      string       `json:"icao"`
+	Name      string       `json:"name"`
+	FullName  string       `json:"fullName"`
+	ShortName string       `json:"shortName"`
+	Location  *adbLocation `json:"location,omitempty"`
+	TimeZone  string       `json:"timeZone"`
+}
+
 type adbAircraft struct {
 	Reg   string `json:"reg"`
 	ModeS string `json:"modeS"`
@@ -473,5 +559,8 @@ type adbAirline struct {
 	ICAO string `json:"icao"`
 }
 
-// Compile-time check that AeroDataBox satisfies Resolver.
-var _ Resolver = (*AeroDataBox)(nil)
+// Compile-time check that AeroDataBox satisfies both provider interfaces.
+var (
+	_ Resolver        = (*AeroDataBox)(nil)
+	_ AirportResolver = (*AeroDataBox)(nil)
+)

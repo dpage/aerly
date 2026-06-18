@@ -25,6 +25,12 @@ import (
 // pad-length variants of the same ident before giving up.
 var ErrFlightNotFound = errors.New("flight not found")
 
+// ErrAirportNotFound is returned by AirportResolver.ResolveAirport when the
+// upstream has no record (or no usable coordinates) for the requested IATA
+// code. Callers treat it like a table miss — the airport simply stays
+// unplotted — rather than a hard error.
+var ErrAirportNotFound = errors.New("airport not found")
+
 // ErrFlightUnscheduled is returned when the upstream knows the flight
 // number for the requested date but has not published a schedule for it
 // yet (or returned schedule fields we can't parse). Distinct from
@@ -102,4 +108,25 @@ type ResolvedFlight struct {
 // could slot in here too).
 type Resolver interface {
 	Resolve(ctx context.Context, ident string, date time.Time) (*ResolvedFlight, error)
+}
+
+// Airport is the provider's view of a single airport, keyed by IATA code. It
+// carries just what the coordinate backfill needs — coordinates plus a display
+// name — for airports the embedded table doesn't cover.
+type Airport struct {
+	IATA string
+	Name string // human-readable airport name, for "Name (CODE)" labels
+	Lat  float64
+	Lon  float64
+	TZ   string // IANA timezone, when the provider reports one; else ""
+}
+
+// AirportResolver maps a bare IATA code to its coordinates and name. It is
+// deliberately separate from Resolver: a flight-number lookup is bounded to the
+// provider's ±180-day schedule window, but an airport's location is static, so
+// the airport endpoint answers for a flight of any age. This is what backfills
+// off-table airports on imported flights too old (or too far ahead) for the
+// flight lookup to touch. AeroDataBox satisfies both interfaces.
+type AirportResolver interface {
+	ResolveAirport(ctx context.Context, iata string) (*Airport, error)
 }

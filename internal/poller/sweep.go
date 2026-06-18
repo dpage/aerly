@@ -64,7 +64,7 @@ func (p *Poller) Sweep(ctx context.Context) {
 // resolver couldn't satisfy last time. The fill logic is shared with the
 // post-ingest backfill in flightcoord.Fill.
 func (p *Poller) sweepOne(ctx context.Context, f *store.Flight, now time.Time) {
-	changed, err := flightcoord.Fill(ctx, p.Store, p.Resolver, f, now)
+	changed, err := flightcoord.Fill(ctx, p.Store, p.Resolver, p.AirportResolver, f, now)
 	if err != nil {
 		slog.Error("sweep: backfill", "id", f.ID, "err", err)
 		return
