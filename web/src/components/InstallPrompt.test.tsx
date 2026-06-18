@@ -49,4 +49,63 @@ describe('InstallPrompt', () => {
     await userEvent.click(screen.getByRole('button', { name: /close/i }));
     expect(screen.queryByText(/Add to Home Screen/)).not.toBeInTheDocument();
   });
+
+  it('remembers a dismissed iOS hint across visits', async () => {
+    mock.state = { canInstall: false, iosHint: true, promptInstall: vi.fn() };
+    const first = render(<InstallPrompt />);
+    await userEvent.click(screen.getByRole('button', { name: /close/i }));
+    first.unmount();
+
+    // A fresh mount (a later visit) must not show the hint again.
+    render(<InstallPrompt />);
+    expect(screen.queryByText(/Add to Home Screen/)).not.toBeInTheDocument();
+  });
+
+  it('remembers a dismissed Android install prompt across visits', async () => {
+    mock.state = { canInstall: true, iosHint: false, promptInstall: vi.fn() };
+    const first = render(<InstallPrompt />);
+    await userEvent.click(screen.getByRole('button', { name: 'Later' }));
+    first.unmount();
+
+    render(<InstallPrompt />);
+    expect(screen.queryByText('Install Aerly on your device.')).not.toBeInTheDocument();
+  });
+
+  it('does not resurface after the user acts on the native install prompt', async () => {
+    mock.state = { canInstall: true, iosHint: false, promptInstall: vi.fn() };
+    const first = render(<InstallPrompt />);
+    await userEvent.click(screen.getByRole('button', { name: 'Install' }));
+    first.unmount();
+
+    render(<InstallPrompt />);
+    expect(screen.queryByText('Install Aerly on your device.')).not.toBeInTheDocument();
+  });
+
+  // Some privacy modes / SSR shims throw on every localStorage access: reading
+  // falls back to "not dismissed" (so the hint still shows) and writing is a
+  // best-effort no-op (so closing still hides it for this visit).
+  it('swallows localStorage errors and still shows/closes the hint', async () => {
+    const original = window.localStorage;
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: () => {
+          throw new Error('blocked');
+        },
+        setItem: () => {
+          throw new Error('blocked');
+        },
+        removeItem: () => {},
+      },
+    });
+    try {
+      mock.state = { canInstall: false, iosHint: true, promptInstall: vi.fn() };
+      render(<InstallPrompt />);
+      expect(screen.getByText(/Add to Home Screen/)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /close/i }));
+      expect(screen.queryByText(/Add to Home Screen/)).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'localStorage', { configurable: true, value: original });
+    }
+  });
 });
