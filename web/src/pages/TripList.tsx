@@ -261,9 +261,12 @@ function groupTrips(trips: Trip[]): Record<TripBucket, Trip[]> {
 function TripGroup({ label, trips }: { label: string; trips: Trip[] }) {
   return (
     <Box>
-      <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-        {label}
-      </Typography>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+        <Typography variant="overline" color="text.secondary">
+          {label}
+        </Typography>
+        <Chip label={trips.length} size="small" sx={{ height: 18, fontSize: '0.7rem', '& .MuiChip-label': { px: 0.75 } }} />
+      </Stack>
       <Stack spacing={1.5}>
         {trips.map((trip) => (
           <TripCard key={trip.id} trip={trip} />
