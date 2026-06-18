@@ -70,6 +70,13 @@ export interface CoreSlice {
    * Non-superusers see the flag stay false; the server ignores show_all for
    * them in any case. */
   showAll: boolean;
+  /** Friends'-trips superuser diagnostic toggles ("All friends' trips" / "All
+   * trips"). Lifted out of the TripList page so they survive opening a trip and
+   * tapping Back — the page unmounts on navigation, which would otherwise reset
+   * them to their defaults. In-memory only: a reload clears them, matching their
+   * throwaway diagnostic nature. */
+  friendsShowAllFriends: boolean;
+  friendsShowAllTrips: boolean;
   error: string | null;
   notifications: Notifications;
   notice: { message: string; severity: 'success' | 'info' } | null;
@@ -91,6 +98,8 @@ export interface CoreSlice {
   /** Sign out of every session (this device and all others). */
   logoutAll: () => Promise<void>;
   setShowAll: (v: boolean) => Promise<void>;
+  setFriendsShowAllFriends: (v: boolean) => void;
+  setFriendsShowAllTrips: (v: boolean) => void;
   setError: (msg: string | null) => void;
   refreshNotifications: () => Promise<void>;
   applyNotificationsUpdate: (n: Notifications) => void;
@@ -123,6 +132,8 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
   friendships: [],
   autoShares: [],
   showAll: loadShowAll(),
+  friendsShowAllFriends: false,
+  friendsShowAllTrips: false,
   error: null,
   notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
   notice: null,
@@ -227,6 +238,14 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
     // The SSE connection is re-established by App.tsx because showAll is in its
     // useEffect dependency list, so the new visibility scope takes effect on
     // the event stream immediately.
+  },
+
+  setFriendsShowAllFriends(v) {
+    set({ friendsShowAllFriends: v });
+  },
+
+  setFriendsShowAllTrips(v) {
+    set({ friendsShowAllTrips: v });
   },
 
   setError(msg) {

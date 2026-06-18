@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link as RouterLink, Outlet, useLocation } from 'react-router-dom';
 import {
   AppBar,
@@ -51,6 +51,7 @@ import StatsDialog from './StatsDialog';
 import CalendarSubscribeDialog from './CalendarSubscribeDialog';
 import PreferencesDialog from './PreferencesDialog';
 import AerlyLogo from './AerlyLogo';
+import { useScrollRestoration } from '../lib/useScrollRestoration';
 
 /** The authenticated app chrome for the trip-planning redesign (spec §11).
  *
@@ -86,6 +87,12 @@ export default function Layout() {
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+
+  // The shared scroll container is reused across every routed page, so restore
+  // each route's scroll offset when returning to it (e.g. a trip list after
+  // opening a trip and tapping Back).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useScrollRestoration(scrollRef);
 
   const closeMenu = () => setMenuAnchor(null);
   const onTracker = location.pathname.startsWith('/tracker');
@@ -397,7 +404,7 @@ export default function Layout() {
         </Drawer>
       )}
 
-      <Box sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
+      <Box ref={scrollRef} sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
         <Outlet />
       </Box>
 
