@@ -1,0 +1,149 @@
+{
+  "tripEvents" : [ {
+    "id" : 1001,
+    "UIDescription" : "Bus",
+    "confirmationNumber" : "AAA111",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "AAA111"
+    },
+    "legs" : [ {
+      "segments" : [ {
+        "number" : "100100",
+        "departureDate" : "2026-04-01 14:45:00.0",
+        "departureTimeZoneID" : "Europe/Vienna",
+        "arrivalDate" : "2026-04-01 15:50:00.0",
+        "arrivalTimeZoneID" : "Europe/Vienna",
+        "carrier" : "Sample Lines Express",
+        "departureAddress" : {
+          "city" : "Vienna",
+          "country" : "Austria",
+          "rawAddress" : "Central Bus Station, Vienna, Austria"
+        },
+        "arrivalAddress" : {
+          "city" : "Vienna",
+          "country" : "Austria",
+          "rawAddress" : "Vienna Intl Airport, Vienna, Austria"
+        }
+      } ]
+    } ]
+  }, {
+    "id" : 1002,
+    "UIDescription" : "Flight",
+    "confirmationNumber" : "BBB222",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "BBB222"
+    },
+    "legs" : [ {
+      "segments" : [ {
+        "number" : "3537",
+        "departureDate" : "2026-04-01 18:05:00.0",
+        "departureTimeZoneID" : "Europe/Vienna",
+        "arrivalDate" : "2026-04-01 19:25:00.0",
+        "arrivalTimeZoneID" : "Europe/Zurich",
+        "carrier" : "LX",
+        "stops" : 0,
+        "departureAddress" : {
+          "rawAddress" : "VIE (VIE)"
+        },
+        "arrivalAddress" : {
+          "rawAddress" : "ZRH (ZRH)"
+        }
+      }, {
+        "number" : "282",
+        "departureDate" : "2026-04-01 20:30:00.0",
+        "departureTimeZoneID" : "Europe/Zurich",
+        "arrivalDate" : "2026-04-02 07:20:00.0",
+        "arrivalTimeZoneID" : "Africa/Johannesburg",
+        "carrier" : "LX",
+        "stops" : 0,
+        "departureAddress" : {
+          "rawAddress" : "ZRH (ZRH)"
+        },
+        "arrivalAddress" : {
+          "rawAddress" : "JNB (JNB)"
+        }
+      } ]
+    }, {
+      "segments" : [ {
+        "number" : "579",
+        "departureDate" : "2026-04-11 06:45:00.0",
+        "departureTimeZoneID" : "Africa/Johannesburg",
+        "arrivalDate" : "2026-04-11 17:10:00.0",
+        "arrivalTimeZoneID" : "Europe/Berlin",
+        "carrier" : "LH",
+        "stops" : 0,
+        "departureAddress" : {
+          "rawAddress" : "JNB (JNB)"
+        },
+        "arrivalAddress" : {
+          "rawAddress" : "MUC (MUC)"
+        }
+      }, {
+        "number" : "6326",
+        "departureDate" : "2026-04-11 19:40:00.0",
+        "departureTimeZoneID" : "Europe/Berlin",
+        "arrivalDate" : "2026-04-11 20:45:00.0",
+        "arrivalTimeZoneID" : "Europe/Vienna",
+        "carrier" : "LH",
+        "stops" : 0,
+        "departureAddress" : {
+          "rawAddress" : "MUC (MUC)"
+        },
+        "arrivalAddress" : {
+          "rawAddress" : "VIE (VIE)"
+        }
+      } ]
+    } ]
+  }, {
+    "id" : 1003,
+    "UIDescription" : "Hotel",
+    "confirmationNumber" : "CCC333",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "CCC333"
+    },
+    "address" : {
+      "locationName" : "Sample Lodge Sandton",
+      "address1" : "1 Example Drive",
+      "city" : "Sandton",
+      "country" : "South Africa",
+      "phoneNumber" : "+27 00 000 0000",
+      "latitude" : -26.043703,
+      "longitude" : 28.091442
+    },
+    "venueStartDate" : "2026-04-02 14:00:00.0",
+    "venueStartTimeZoneID" : "Africa/Johannesburg",
+    "venueEndDate" : "2026-04-11 11:30:00.0",
+    "venueEndTimeZoneID" : "Africa/Johannesburg"
+  }, {
+    "id" : 1004,
+    "UIDescription" : "Bus",
+    "confirmationNumber" : "DDD444",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "DDD444"
+    },
+    "legs" : [ {
+      "segments" : [ {
+        "number" : "100100",
+        "departureDate" : "2026-04-11 21:59:00.0",
+        "departureTimeZoneID" : "Europe/Vienna",
+        "arrivalDate" : "2026-04-11 22:54:00.0",
+        "arrivalTimeZoneID" : "Europe/Vienna",
+        "carrier" : "Sample Lines",
+        "departureAddress" : {
+          "city" : "Vienna",
+          "country" : "Austria",
+          "rawAddress" : "Vienna Intl Airport, Vienna, Austria"
+        },
+        "arrivalAddress" : {
+          "city" : "Vienna",
+          "country" : "Austria",
+          "rawAddress" : "Central Bus Station, Vienna, Austria"
+        }
+      } ]
+    } ]
+  } ],
+  "name" : "Sample Flights 2026",
+  "tripID" : "SA0001",
+  "startDate" : "2026-04-01 00:00:00.0",
+  "endDate" : "2026-04-12 00:54:00.0"
+}

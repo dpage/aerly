@@ -1,0 +1,90 @@
+{
+  "tripEvents" : [ {
+    "id" : 3001,
+    "UIDescription" : "Car",
+    "confirmationNumber" : "FFF666",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "FFF666"
+    },
+    "agencyName" : "SampleRent",
+    "carType" : "Sample Car or similar Automatic",
+    "pickup" : "2025-11-05 08:00:00.0",
+    "pickupTimeZoneID" : "Europe/Vienna",
+    "dropoff" : "2025-11-06 08:00:00.0",
+    "dropoffTimeZoneID" : "Europe/Vienna",
+    "pickupAddress" : {
+      "address1" : "2 Example Road",
+      "city" : "Sampleton",
+      "country" : "Austria",
+      "rawAddress" : "2 Example Road, Sampleton, Austria"
+    },
+    "dropoffAddress" : {
+      "address1" : "2 Example Road",
+      "city" : "Sampleton",
+      "country" : "Austria",
+      "rawAddress" : "2 Example Road, Sampleton, Austria"
+    }
+  }, {
+    "id" : 3002,
+    "UIDescription" : "Other",
+    "confirmationNumber" : "",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : ""
+    },
+    "placeDescription" : "Sample Meeting",
+    "address" : {
+      "address1" : "3 Example Street",
+      "city" : "Sampleburg",
+      "country" : "Sampleland",
+      "rawAddress" : "3 Example Street, Sampleburg, Sampleland"
+    },
+    "venueStartDate" : "2025-11-05 10:00:00.0",
+    "venueStartTimeZoneID" : "Europe/Vienna",
+    "venueEndDate" : "2025-11-05 17:00:00.0",
+    "venueEndTimeZoneID" : "Europe/Vienna"
+  }, {
+    "id" : 3003,
+    "UIDescription" : "Restaurant",
+    "confirmationNumber" : "",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : ""
+    },
+    "placeDescription" : "Sample Bistro",
+    "address" : {
+      "address1" : "4 Example Avenue",
+      "city" : "Sampleburg",
+      "country" : "Sampleland",
+      "latitude" : 48.2,
+      "longitude" : 16.3,
+      "rawAddress" : "4 Example Avenue, Sampleburg, Sampleland"
+    },
+    "venueStartDate" : "2025-11-05 19:00:00.0",
+    "venueStartTimeZoneID" : "Europe/Vienna",
+    "venueEndDate" : "2025-11-05 21:00:00.0",
+    "venueEndTimeZoneID" : "Europe/Vienna"
+  }, {
+    "id" : 3004,
+    "UIDescription" : "Hotel",
+    "confirmationNumber" : "GGG777",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "GGG777"
+    },
+    "address" : {
+      "locationName" : "Sample City Hotel",
+      "address1" : "5 Example Lane",
+      "city" : "Sampletown",
+      "country" : "Sampleland",
+      "phoneNumber" : "+43 1 000 0000",
+      "latitude" : 48.2085,
+      "longitude" : 16.3721
+    },
+    "venueStartDate" : "2025-11-05 15:00:00.0",
+    "venueStartTimeZoneID" : "Europe/Vienna",
+    "venueEndDate" : "2025-11-06 11:00:00.0",
+    "venueEndTimeZoneID" : "Europe/Vienna"
+  } ],
+  "name" : "Sample City 2025",
+  "tripID" : "HQ0003",
+  "startDate" : "2025-11-05 08:00:00.0",
+  "endDate" : "2025-11-06 08:00:00.0"
+}

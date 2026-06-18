@@ -1,0 +1,79 @@
+{
+  "tripEvents" : [ {
+    "id" : 2001,
+    "UIDescription" : "Train",
+    "confirmationNumber" : "",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : ""
+    },
+    "legs" : [ {
+      "segments" : [ {
+        "number" : "1048",
+        "departureDate" : "2025-06-18 12:26:00.0",
+        "departureTimeZoneID" : "Europe/Bratislava",
+        "arrivalDate" : "2025-06-18 16:39:00.0",
+        "arrivalTimeZoneID" : "Europe/Prague",
+        "carrier" : "RJ",
+        "departureAddress" : {
+          "city" : "Bratislava",
+          "country" : "Slovakia",
+          "rawAddress" : "Bratislava, hl.n, Slovakia"
+        },
+        "arrivalAddress" : {
+          "city" : "Praha 2",
+          "country" : "Czechia",
+          "rawAddress" : "Praha, hl.n, Czechia"
+        }
+      } ]
+    } ]
+  }, {
+    "id" : 2002,
+    "UIDescription" : "Other",
+    "confirmationNumber" : "EEE555",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "EEE555"
+    },
+    "placeDescription" : "1x Sample Show / Sample Theatre",
+    "address" : {
+      "address1" : "1 Example Square",
+      "city" : "Praha",
+      "country" : "Czechia",
+      "rawAddress" : "1 Example Square, Praha, Czechia"
+    },
+    "venueStartDate" : "2025-06-18 19:00:00.0",
+    "venueStartTimeZoneID" : "Europe/Prague",
+    "venueEndDate" : "2025-06-18 21:00:00.0",
+    "venueEndTimeZoneID" : "Europe/Prague"
+  }, {
+    "id" : 2003,
+    "UIDescription" : "Bus",
+    "confirmationNumber" : "",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : ""
+    },
+    "legs" : [ {
+      "segments" : [ {
+        "number" : "",
+        "departureDate" : "2025-06-18 21:00:00.0",
+        "departureTimeZoneID" : "Europe/Prague",
+        "arrivalDate" : "2025-06-19 03:15:00.0",
+        "arrivalTimeZoneID" : "Europe/Bratislava",
+        "carrier" : "RegioJet",
+        "departureAddress" : {
+          "city" : "Praha 8",
+          "country" : "Czechia",
+          "rawAddress" : "Praha, ÚAN Florenc, Czechia"
+        },
+        "arrivalAddress" : {
+          "city" : "Bratislava",
+          "country" : "Slovakia",
+          "rawAddress" : "Bratislava, Autobusová stanica Nivy, Slovakia"
+        }
+      } ]
+    } ]
+  } ],
+  "name" : "Sample Rail 2025",
+  "tripID" : "JA0002",
+  "startDate" : "2025-06-18 12:26:00.0",
+  "endDate" : "2025-06-19 03:15:00.0"
+}

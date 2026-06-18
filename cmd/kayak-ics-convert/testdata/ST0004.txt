@@ -1,0 +1,53 @@
+{
+  "tripEvents" : [ {
+    "id" : 4001,
+    "UIDescription" : "Flight",
+    "confirmationNumber" : "HHH888",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "HHH888"
+    },
+    "legs" : [ {
+      "segments" : [ {
+        "number" : "100",
+        "departureDate" : "2025-12-28 10:00:00.0",
+        "departureTimeZoneID" : "Europe/Vienna",
+        "arrivalDate" : "2025-12-28 11:30:00.0",
+        "arrivalTimeZoneID" : "Europe/Berlin",
+        "carrier" : "AB",
+        "departureAddress" : {
+          "rawAddress" : "VIE (VIE)"
+        },
+        "arrivalAddress" : {
+          "rawAddress" : "BER (BER)"
+        }
+      } ]
+    } ]
+  }, {
+    "id" : 4002,
+    "UIDescription" : "Flight",
+    "confirmationNumber" : "HHH888",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "HHH888"
+    },
+    "legs" : [ {
+      "segments" : [ {
+        "number" : "101",
+        "departureDate" : "2026-01-03 14:00:00.0",
+        "departureTimeZoneID" : "Europe/Berlin",
+        "arrivalDate" : "2026-01-03 15:30:00.0",
+        "arrivalTimeZoneID" : "Europe/Vienna",
+        "carrier" : "AB",
+        "departureAddress" : {
+          "rawAddress" : "BER (BER)"
+        },
+        "arrivalAddress" : {
+          "rawAddress" : "VIE (VIE)"
+        }
+      } ]
+    } ]
+  } ],
+  "name" : "Sample Straddle 2025",
+  "tripID" : "ST0004",
+  "startDate" : "2025-12-28 10:00:00.0",
+  "endDate" : "2026-01-03 15:30:00.0"
+}

@@ -1,0 +1,30 @@
+{
+  "tripEvents" : [ {
+    "id" : 5001,
+    "UIDescription" : "Flight",
+    "confirmationNumber" : "III999",
+    "bookingDetail" : {
+      "bookingReferenceNumber" : "III999"
+    },
+    "legs" : [ {
+      "segments" : [ {
+        "number" : "200",
+        "departureDate" : "2027-03-10 09:00:00.0",
+        "departureTimeZoneID" : "Europe/Vienna",
+        "arrivalDate" : "2027-03-10 11:00:00.0",
+        "arrivalTimeZoneID" : "Europe/London",
+        "carrier" : "XY",
+        "departureAddress" : {
+          "rawAddress" : "VIE (VIE)"
+        },
+        "arrivalAddress" : {
+          "rawAddress" : "LHR (LHR)"
+        }
+      } ]
+    } ]
+  } ],
+  "name" : "Sample Future 2027",
+  "tripID" : "FU0005",
+  "startDate" : "2027-03-10 09:00:00.0",
+  "endDate" : "2027-03-15 11:00:00.0"
+}
