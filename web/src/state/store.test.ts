@@ -284,6 +284,17 @@ describe('logout / setError', () => {
     useStore.getState().setError(null);
     expect(useStore.getState().error).toBeNull();
   });
+
+  it('persists the Friends-trips diagnostic toggles', () => {
+    useStore.getState().setFriendsShowAllFriends(true);
+    expect(useStore.getState().friendsShowAllFriends).toBe(true);
+    useStore.getState().setFriendsShowAllTrips(true);
+    expect(useStore.getState().friendsShowAllTrips).toBe(true);
+    useStore.getState().setFriendsShowAllFriends(false);
+    useStore.getState().setFriendsShowAllTrips(false);
+    expect(useStore.getState().friendsShowAllFriends).toBe(false);
+    expect(useStore.getState().friendsShowAllTrips).toBe(false);
+  });
 });
 
 describe('notifications + notice slice', () => {

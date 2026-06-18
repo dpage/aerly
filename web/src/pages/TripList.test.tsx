@@ -20,6 +20,10 @@ const state = {
   tripsLoading: false,
   users: [] as User[],
   me: null as User | null,
+  friendsShowAllFriends: false,
+  friendsShowAllTrips: false,
+  setFriendsShowAllFriends: vi.fn(),
+  setFriendsShowAllTrips: vi.fn(),
   listTrips,
   createTrip,
   setError,
@@ -86,6 +90,8 @@ beforeEach(() => {
   state.tripsLoading = false;
   state.users = [];
   state.me = null;
+  state.friendsShowAllFriends = false;
+  state.friendsShowAllTrips = false;
   pwa.online = true;
   mockApiListTrips.mockResolvedValue([]);
 });
@@ -209,13 +215,24 @@ describe('TripList', () => {
     expect(screen.queryByLabelText(/All friends' trips/i)).not.toBeInTheDocument();
   });
 
-  it('fetches all trips via the API when the superuser enables "All trips"', async () => {
+  it('fetches all trips via the API when "All trips" is enabled', async () => {
     state.me = user({ id: 1, is_superuser: true });
+    // The toggles persist in the store (so they survive opening a trip and
+    // tapping Back); seed the persisted flag as if it were already on.
+    state.friendsShowAllTrips = true;
     mockApiListTrips.mockResolvedValue([trip({ id: 50, name: 'StrangerTrip', my_role: 'viewer' })]);
     renderList('friends');
-    await userEvent.click(screen.getByLabelText(/All trips/i));
     await waitFor(() => expect(mockApiListTrips).toHaveBeenCalledWith('all'));
     expect(await screen.findByText('StrangerTrip')).toBeInTheDocument();
+  });
+
+  it('persists the diagnostic toggles to the store so they survive navigation', async () => {
+    state.me = user({ id: 1, is_superuser: true });
+    renderList('friends');
+    await userEvent.click(screen.getByLabelText(/All trips/i));
+    expect(state.setFriendsShowAllTrips).toHaveBeenCalledWith(true);
+    await userEvent.click(screen.getByLabelText(/All friends' trips/i));
+    expect(state.setFriendsShowAllFriends).toHaveBeenCalledWith(true);
   });
 
   it('renders a flag image for a trip with a country code', () => {

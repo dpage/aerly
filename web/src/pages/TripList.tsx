@@ -83,10 +83,13 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   const mine = scope === 'mine';
   const isSuper = !mine && !!me?.is_superuser;
 
-  // Superuser-only diagnostic toggles on the Friends' trips tab. Deliberately
-  // local state (no persistence): each must be re-enabled on every visit.
-  const [showAllFriends, setShowAllFriends] = useState(false);
-  const [showAllTrips, setShowAllTrips] = useState(false);
+  // Superuser-only diagnostic toggles on the Friends' trips tab. Held in the
+  // store (not local state) so they survive opening a trip and tapping Back —
+  // the page unmounts on navigation, which would otherwise reset them.
+  const showAllFriends = useStore((s) => s.friendsShowAllFriends);
+  const showAllTrips = useStore((s) => s.friendsShowAllTrips);
+  const setShowAllFriends = useStore((s) => s.setFriendsShowAllFriends);
+  const setShowAllTrips = useStore((s) => s.setFriendsShowAllTrips);
   // "All trips" subsumes "all friends' trips".
   const include: 'friends' | 'all' | undefined = !isSuper
     ? undefined
