@@ -218,6 +218,15 @@ describe('App', () => {
     expect(state.setError).toHaveBeenCalledWith(null);
   });
 
+  it('suppresses connectivity-error toasts even when nominally online', () => {
+    // navigator.onLine reads true (jsdom default), but the message is a network
+    // failure — e.g. a request that rejected just as the device reconnected.
+    state.auth = 'authenticated';
+    state.error = 'FetchEvent.respondWith received an error: no-response';
+    render(<App />);
+    expect(screen.queryByText(/respondWith received an error/i)).not.toBeInTheDocument();
+  });
+
   it('suppresses and clears error toasts while offline', () => {
     const originalOnLine = navigator.onLine;
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });

@@ -13,7 +13,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
 
 import { useStore } from './state/store';
-import { errorMessage } from './state/helpers';
+import { errorMessage, isNetworkError } from './state/helpers';
 import { connectSSE } from './sse';
 import { api } from './api/client';
 import { UI_COMMIT, useUpdateAvailable } from './version';
@@ -226,8 +226,11 @@ export default function App() {
       <CssBaseline />
       <LocalizationProvider dateAdapter={AdapterDateFns}>
         <BrowserRouter>{body}</BrowserRouter>
+        {/* Suppress connectivity errors entirely: while offline, and also the
+            transient fetch failures that fire right around a reconnect (when
+            navigator.onLine already reads "online"). Real app errors still show. */}
         <Snackbar
-          open={error !== null && online}
+          open={error !== null && online && !isNetworkError(error)}
           autoHideDuration={6000}
           onClose={() => setError(null)}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}

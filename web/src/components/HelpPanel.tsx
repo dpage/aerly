@@ -52,7 +52,16 @@ export default function HelpPanel() {
       onClose={closeHelp}
       slotProps={{ paper: { sx: { width: { xs: '100%', sm: 400 }, maxWidth: '100%' } } }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Top padding clears the iOS status bar in standalone PWA mode (the
+          full-height panel runs under it); a no-op in the browser/Android. */}
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          pt: 'env(safe-area-inset-top)',
+        }}
+      >
         {/* Header: back + breadcrumbs + close */}
         <Box
           sx={{
