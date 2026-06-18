@@ -238,30 +238,30 @@ func TestFill_AirportFallbackResolvesOutOfWindowOffTableLeg(t *testing.T) {
 	// errors.Is check is exercised rather than direct equality.
 	r := &fakeResolver{err: fmt.Errorf("outside provider window: %w", providers.ErrFlightNotFound)}
 	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{
-		"KBP": {IATA: "KBP", Name: "Boryspil International", Lat: 50.345, Lon: 30.8947},
+		"ZZZ": {IATA: "ZZZ", Name: "Off-table Airport", Lat: 50.345, Lon: 30.8947},
 	}}
-	// Origin BRS is table-known; dest KBP is off-table and the flight itself is
+	// Origin BRS is table-known; dest ZZZ is off-table and the flight itself is
 	// unresolvable (old import) — so only the airport lookup can fill it.
-	f := &store.Flight{ID: 10, Ident: "PS786", OriginIATA: "BRS", DestIATA: "KBP"}
+	f := &store.Flight{ID: 10, Ident: "PS786", OriginIATA: "BRS", DestIATA: "ZZZ"}
 
 	changed, err := Fill(context.Background(), st, r, ar, f, time.Now())
 	if err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
 	if !changed {
-		t.Fatal("expected changed=true (airport fallback fills KBP)")
+		t.Fatal("expected changed=true (airport fallback fills ZZZ)")
 	}
 	if ar.calls != 1 {
 		t.Errorf("airport resolver calls=%d, want 1 (dest only)", ar.calls)
 	}
 	if st.backfilled == nil || st.backfilled.DestLat != 50.345 || st.backfilled.DestLon != 30.8947 {
-		t.Errorf("expected KBP coords from airport lookup, got %+v", st.backfilled)
+		t.Errorf("expected ZZZ coords from airport lookup, got %+v", st.backfilled)
 	}
 	// The airport name upgrades the bare label, and the part is marked resolved.
 	if st.resolved != 1 {
 		t.Errorf("expected MarkFlightPartResolved called once, got %d", st.resolved)
 	}
-	if st.endLabel != "Boryspil International (KBP)" {
+	if st.endLabel != "Off-table Airport (ZZZ)" {
 		t.Errorf("dest label should use the airport name, got %q", st.endLabel)
 	}
 	if st.airframe != 1 {
@@ -276,9 +276,9 @@ func TestFill_AirportFallbackSkippedOnTransientFlightError(t *testing.T) {
 	st := &fakeBackfiller{}
 	r := &fakeResolver{err: errors.New("aerodatabox rate limit")}
 	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{
-		"KBP": {IATA: "KBP", Name: "Boryspil International", Lat: 50.345, Lon: 30.8947},
+		"ZZZ": {IATA: "ZZZ", Name: "Off-table Airport", Lat: 50.345, Lon: 30.8947},
 	}}
-	f := &store.Flight{ID: 11, Ident: "PS786", OriginIATA: "BRS", OriginLat: ptr(51.0), DestIATA: "KBP"}
+	f := &store.Flight{ID: 11, Ident: "PS786", OriginIATA: "BRS", OriginLat: ptr(51.0), DestIATA: "ZZZ"}
 
 	changed, err := Fill(context.Background(), st, r, ar, f, time.Now())
 	if err != nil {
@@ -297,11 +297,11 @@ func TestFill_AirportFallbackSkippedOnTransientFlightError(t *testing.T) {
 func TestFill_AirportFallbackNotCalledWhenFlightFillsLeg(t *testing.T) {
 	st := &fakeBackfiller{}
 	r := &fakeResolver{rf: &providers.ResolvedFlight{
-		OriginIATA: "BRS", DestIATA: "KBP", DestLat: 50.345, DestLon: 30.8947,
-		DestName: "Kyiv Boryspil",
+		OriginIATA: "BRS", DestIATA: "ZZZ", DestLat: 50.345, DestLon: 30.8947,
+		DestName: "Off-table Airport",
 	}}
 	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{}}
-	f := &store.Flight{ID: 12, Ident: "PS786", OriginIATA: "BRS", DestIATA: "KBP"}
+	f := &store.Flight{ID: 12, Ident: "PS786", OriginIATA: "BRS", DestIATA: "ZZZ"}
 
 	if _, err := Fill(context.Background(), st, r, ar, f, time.Now()); err != nil {
 		t.Fatalf("Fill: %v", err)
@@ -319,16 +319,16 @@ func TestFill_AirportFallbackNotCalledWhenFlightFillsLeg(t *testing.T) {
 func TestFill_AirportFallbackWithoutFlightResolver(t *testing.T) {
 	st := &fakeBackfiller{}
 	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{
-		"KBP": {IATA: "KBP", Name: "Boryspil International", Lat: 50.345, Lon: 30.8947},
+		"ZZZ": {IATA: "ZZZ", Name: "Off-table Airport", Lat: 50.345, Lon: 30.8947},
 	}}
-	f := &store.Flight{ID: 13, Ident: "PS786", OriginIATA: "BRS", DestIATA: "KBP"}
+	f := &store.Flight{ID: 13, Ident: "PS786", OriginIATA: "BRS", DestIATA: "ZZZ"}
 
 	changed, err := Fill(context.Background(), st, nil, ar, f, time.Now())
 	if err != nil {
 		t.Fatalf("Fill: %v", err)
 	}
 	if !changed || st.backfilled == nil || st.backfilled.DestLat != 50.345 {
-		t.Errorf("airport lookup should fill KBP with no flight resolver, got %+v", st.backfilled)
+		t.Errorf("airport lookup should fill ZZZ with no flight resolver, got %+v", st.backfilled)
 	}
 	if ar.calls != 1 {
 		t.Errorf("airport resolver calls=%d, want 1", ar.calls)
