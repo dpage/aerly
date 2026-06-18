@@ -3,6 +3,7 @@ package flightcoord
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -233,7 +234,9 @@ func TestFill_ResolveErrorBumpsThrottleButLeavesCoords(t *testing.T) {
 // airport plotted via the date-free airport lookup.
 func TestFill_AirportFallbackResolvesOutOfWindowOffTableLeg(t *testing.T) {
 	st := &fakeBackfiller{}
-	r := &fakeResolver{err: providers.ErrFlightNotFound}
+	// Wrap the sentinel like the real resolver does, so the fallback's
+	// errors.Is check is exercised rather than direct equality.
+	r := &fakeResolver{err: fmt.Errorf("outside provider window: %w", providers.ErrFlightNotFound)}
 	ar := &fakeAirportResolver{byCode: map[string]*providers.Airport{
 		"KBP": {IATA: "KBP", Name: "Boryspil International", Lat: 50.345, Lon: 30.8947},
 	}}

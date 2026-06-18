@@ -113,6 +113,11 @@ func Fill(ctx context.Context, st Backfiller, resolver providers.Resolver, airpo
 				update.OriginTerminal, update.DestTerminal = rf.OriginTerminal, rf.DestTerminal
 				changed = true
 				resolvedAny = true
+			} else if errors.Is(rerr, providers.ErrFlightNotFound) {
+				// Expected for an unknown ident or an off-window (old/far-future)
+				// flight — the airport fallback below still plots the airports, so
+				// this is routine, not a warning.
+				slog.Info("flightcoord: flight not found, trying airport fallback", "ident", f.Ident, "id", f.ID)
 			} else {
 				slog.Warn("flightcoord: resolve failed", "ident", f.Ident, "id", f.ID, "err", rerr)
 			}
