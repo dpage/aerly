@@ -130,7 +130,13 @@ describe('Layout', () => {
     // The superuser "Manage users" toolbar button is disabled.
     expect(screen.getByRole('button', { name: /manage users/i })).toBeDisabled();
     await openMenu();
-    for (const label of ['Friends…', 'Preferences…', 'Subscribe to calendar…']) {
+    for (const label of [
+      'Friends…',
+      'Statistics…',
+      'Subscribe to calendar…',
+      'Preferences…',
+      'About Aerly…',
+    ]) {
       expect(screen.getByText(label).closest('li')).toHaveAttribute('aria-disabled', 'true');
     }
   });

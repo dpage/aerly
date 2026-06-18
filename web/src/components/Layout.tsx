@@ -264,6 +264,7 @@ export default function Layout() {
             <Divider />
             {sectionLabel('Your travel')}
             <MenuItem
+              disabled={!online}
               onClick={() => {
                 closeMenu();
                 setStatsOpen(true);
@@ -303,6 +304,7 @@ export default function Layout() {
             </MenuItem>
             {me?.is_superuser && (
               <MenuItem
+                disabled={!online}
                 onClick={() => {
                   closeMenu();
                   setAboutOpen(true);
