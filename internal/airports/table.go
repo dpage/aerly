@@ -84,6 +84,12 @@ var table = map[string]Entry{
 	"BEG": {44.8184, 20.3091, "Belgrade", "Europe/Belgrade", "Belgrade"},
 	"ZAG": {45.7430, 16.0688, "Zagreb", "Europe/Zagreb", "Zagreb"},
 	"LJU": {46.2237, 14.4576, "Ljubljana", "Europe/Ljubljana", "Ljubljana"},
+	"CFU": {39.6019, 19.9117, "Corfu", "Europe/Athens", "Corfu"},
+	"CRL": {50.4592, 4.4528, "Brussels Charleroi", "Europe/Brussels", "Brussels"},
+	"LEJ": {51.4324, 12.2161, "Leipzig Halle", "Europe/Berlin", "Leipzig"},
+	"MLA": {35.8574, 14.4775, "Malta", "Europe/Malta", "Malta"},
+	"TXL": {52.5597, 13.2877, "Berlin Tegel", "Europe/Berlin", "Berlin"},
+	"WMI": {52.4511, 20.6518, "Warsaw Modlin", "Europe/Warsaw", "Warsaw"},
 	"TLL": {59.4133, 24.8328, "Tallinn", "Europe/Tallinn", "Tallinn"},
 	"RIX": {56.9236, 23.9711, "Riga", "Europe/Riga", "Riga"},
 	"VNO": {54.6341, 25.2858, "Vilnius", "Europe/Vilnius", "Vilnius"},
@@ -93,6 +99,10 @@ var table = map[string]Entry{
 	"SVO": {55.9726, 37.4146, "Moscow Sheremetyevo", "Europe/Moscow", "Moscow"},
 	"DME": {55.4088, 37.9061, "Moscow Domodedovo", "Europe/Moscow", "Moscow"},
 	"LED": {59.8003, 30.2625, "St Petersburg", "Europe/Moscow", "St Petersburg"},
+	"KBP": {50.3450, 30.8947, "Kyiv Boryspil", "Europe/Kyiv", "Kyiv"},
+	"IEV": {50.4018, 30.4494, "Kyiv Sikorsky", "Europe/Kyiv", "Kyiv"},
+	"LWO": {49.8125, 23.9561, "Lviv", "Europe/Kyiv", "Lviv"},
+	"IFO": {48.8842, 24.6861, "Ivano-Frankivsk", "Europe/Kyiv", "Ivano-Frankivsk"},
 
 	// United States
 	"JFK": {40.6413, -73.7781, "New York JFK", "America/New_York", "New York"},
