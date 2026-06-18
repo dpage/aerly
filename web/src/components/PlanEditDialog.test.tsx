@@ -121,6 +121,8 @@ describe('PlanEditDialog', () => {
       expect(screen.getByRole('textbox', { name: /title/i })).toBeDisabled();
       expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
       expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument();
+      // The move-target picker is disabled offline, so we skip refreshing trips.
+      expect(h.listTrips).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(navigator, 'onLine', { configurable: true, value: original });
     }

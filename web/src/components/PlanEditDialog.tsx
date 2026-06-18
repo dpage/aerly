@@ -249,7 +249,9 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     setInitial(snap);
     setCoordsErr({});
     setCoordsBusy({});
-    void listTrips();
+    // Only needed to populate the "move to another trip" picker, which is
+    // disabled offline — skip the fetch (and its avoidable error churn) then.
+    if (!readOnly) void listTrips();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only on (re)open / plan switch
   }, [open, plan.id]);
 
