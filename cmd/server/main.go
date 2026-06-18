@@ -109,6 +109,9 @@ func run() error {
 		api.BackfillPartCoordinates(context.Background())
 		api.BackfillPartTimezones(context.Background())
 		api.BackfillTripCountries(context.Background())
+		// After coordinates exist, fill a destination (and flag) for trips that
+		// lack one — notably calendar imports, whose feeds carry no destination.
+		api.BackfillTripDestinations(context.Background())
 	}()
 
 	// Pick the upstream tracker. OpenSky if credentials are configured (or

@@ -29,6 +29,10 @@ func (f fakeGeocoder) GeocodeCountry(context.Context, string) (string, bool, err
 	return "", false, nil
 }
 
+func (f fakeGeocoder) ReversePlace(context.Context, float64, float64) (string, string, bool, error) {
+	return "", "", false, nil
+}
+
 func (f fakeGeocoder) ReverseCountry(context.Context, float64, float64) (string, bool, error) {
 	return "", false, nil
 }

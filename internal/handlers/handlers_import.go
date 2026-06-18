@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
+	"github.com/dpage/aerly/internal/geocode"
+	"github.com/dpage/aerly/internal/importics"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
-	"github.com/dpage/aerly/internal/importics"
 )
 
 // importTrip imports a whole .ics from a recognised source (TripIt or Kayak)
@@ -58,13 +60,17 @@ func (a *API) importTrip(w http.ResponseWriter, r *http.Request) {
 			handleStoreErr(w, err)
 			return
 		}
-		added, skipped, err := a.commitImportedPlans(r, deps, trip.ID, me.ID, mt.Plans)
+		added, skipped, planIDs, err := a.commitImportedPlans(r, deps, trip.ID, me.ID, mt.Plans)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 		totalAdded += added
 		totalSkipped += skipped
+		// Plot the imported plans, then auto-fill the trip's destination (and
+		// flag) from where it spends the most time — calendars carry no
+		// destination field of their own.
+		a.geocodeAndDeriveImportedTripAsync(trip.ID, planIDs)
 
 		dto, err := a.tripDTO(r, trip, me.ID)
 		if err != nil {
@@ -85,14 +91,16 @@ func (a *API) importTrip(w http.ResponseWriter, r *http.Request) {
 
 // commitImportedPlans commits one trip's mapped plans, skipping any already
 // imported (matched on their source event UID), and returns the added/skipped
-// counts. Each committed plan is published and queued for async geocode /
-// flight-coordinate resolution.
-func (a *API) commitImportedPlans(r *http.Request, deps planops.Deps, tripID, userID int64, plans []planops.ConfirmPlanInput) (added, skipped int, err error) {
+// counts plus the IDs of the newly-created plans. Flight-coordinate resolution
+// is queued per plan; address geocoding and destination derivation are driven
+// together at the trip level by the caller (see geocodeAndDeriveImportedTripAsync)
+// so the destination is picked only once every plan is plotted.
+func (a *API) commitImportedPlans(r *http.Request, deps planops.Deps, tripID, userID int64, plans []planops.ConfirmPlanInput) (added, skipped int, planIDs []int64, err error) {
 	for _, plan := range plans {
 		if plan.TripItUID != "" {
 			exists, err := a.Store.PlanExistsByTripItUID(r.Context(), tripID, plan.TripItUID)
 			if err != nil {
-				return added, skipped, err
+				return added, skipped, planIDs, err
 			}
 			if exists {
 				skipped++
@@ -103,21 +111,49 @@ func (a *API) commitImportedPlans(r *http.Request, deps planops.Deps, tripID, us
 		plan.PassengerIDs = []int64{userID}
 		created, err := planops.Commit(r.Context(), deps, tripID, userID, []planops.ConfirmPlanInput{plan})
 		if err != nil {
-			return added, skipped, err
+			return added, skipped, planIDs, err
 		}
 		added++
 		for _, pl := range created {
 			a.publishPlanUpdated(r.Context(), tripID, pl.ID)
-			// Plot the newly-imported plan: geocode addressed parts (hotels,
-			// transfers) and resolve flight legs whose airports aren't in the
-			// embedded table (e.g. NQY/FAO). Both are async + best-effort, so a
-			// missing geocoder/resolver simply leaves the parts for the next
-			// startup backfill / sweep.
-			a.geocodePlanAsync(tripID, pl.ID)
+			// Resolve flight legs whose airports aren't in the embedded table
+			// (e.g. NQY/FAO); async + best-effort. Address geocoding is handled
+			// at the trip level afterwards.
 			a.resolveFlightCoordsAsync(tripID, pl.ID)
+			planIDs = append(planIDs, pl.ID)
 		}
 	}
-	return added, skipped, nil
+	return added, skipped, planIDs, nil
+}
+
+// geocodeAndDeriveImportedTripAsync geocodes a freshly-imported trip's plan
+// parts, then derives its destination (and flag) from where it spends the most
+// time. The two run in one ordered background task — geocode first, derive after
+// — so the destination is chosen from fully-plotted plans rather than racing the
+// per-plan geocode (which lets the fastest endpoint, usually the origin, win).
+// A no-op without a geocoder; the startup backfill is the safety net.
+func (a *API) geocodeAndDeriveImportedTripAsync(tripID int64, planIDs []int64) {
+	if a.Geocoder == nil {
+		return
+	}
+	go func() {
+		// Geocoding several plans at ~1 req/s plus the reverse lookups can take a
+		// while; allow a few minutes.
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		for _, planID := range planIDs {
+			if changed, err := geocode.PlanParts(ctx, a.Store, a.Geocoder, planID); err == nil && changed {
+				a.publishPlanUpdated(ctx, tripID, planID)
+			}
+		}
+		t, err := a.Store.TripByID(ctx, tripID)
+		if err != nil {
+			return
+		}
+		if a.deriveAndStoreTripPlace(ctx, t) {
+			a.publishTripUpdated(ctx, tripID)
+		}
+	}()
 }
 
 // findOrCreateImportTrip reuses the caller's trip previously imported from the
