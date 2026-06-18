@@ -491,15 +491,17 @@ type TripPartDwell struct {
 // TripPartDwells returns the duration and geocoded endpoints of a trip's live
 // (non-dismissed) plan parts. Used to derive the trip's country from where its
 // plans actually spend time — a week-long hotel stay outweighs the brief
-// transfers at either end — rather than from a freeform name. Order is by part
-// so the derivation's tie-breaking is deterministic.
+// transfers at either end — rather than from a freeform name. Ordered
+// chronologically (earliest part first, id as a deterministic tie-break) so the
+// derivation can treat the first plotted endpoint as the trip's origin and
+// break weight ties toward the earliest part.
 func (s *Store) TripPartDwells(ctx context.Context, tripID int64) ([]TripPartDwell, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT part.starts_at, part.ends_at, part.start_lat, part.start_lon, part.end_lat, part.end_lon
 		   FROM plan_parts part
 		   JOIN plans pl ON pl.id = part.plan_id
 		  WHERE pl.trip_id = $1 AND part.dismissed_at IS NULL
-		  ORDER BY part.id`, tripID)
+		  ORDER BY part.starts_at NULLS LAST, part.id`, tripID)
 	if err != nil {
 		return nil, err
 	}

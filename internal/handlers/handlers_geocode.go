@@ -68,51 +68,109 @@ func (a *API) deriveTripCountryAsync(tripID int64) {
 	}()
 }
 
-// deriveTripCountry picks a trip's flag country. It prefers the country the trip
-// spends the most time in: a week in a Tallinn hotel outweighs the brief UK cab
-// rides and the connecting flights at either end, so a there-and-back trip flies
-// the destination's flag and not the origin's. (A plain endpoint count gets this
-// wrong — a UK→Estonia round trip has more UK endpoints, the home pickup, the
-// airport, and both again on the way back, than Estonian ones — so we weight each
-// reverse-geocoded endpoint by the owning part's duration; the country with the
-// most dwell time wins, ties broken by earliest part. Parts with no duration
-// still count by presence, so a trip of instantaneous markers degrades to a
-// simple majority.) When nothing's plotted it falls back to the user-stated
+// tripAway weighs a trip's plotted plan-part endpoints by dwell time to decide
+// where it actually goes. Each reverse-geocoded endpoint votes for its country,
+// weighted by the owning part's duration: a week in a Tallinn hotel outweighs
+// the brief UK cab rides and connecting flights at either end, so a there-and-
+// back trip flies the destination's flag and not the origin's. Parts with no
+// duration still count by presence (a one-second floor), so a trip of
+// instantaneous markers degrades to a simple majority; ties break toward the
+// earliest part (dwells arrive chronologically).
+//
+// One correction makes round trips robust when the real destination is
+// unplottable — a hotel imported without an address has no coordinate, so it
+// casts no vote, leaving only the flights and home↔airport transfers, which pile
+// up at the origin and tie toward home. So when the heaviest country is also the
+// trip's origin (the first plotted endpoint) and some other country is present,
+// the heaviest *non-origin* country wins instead: the away end of the journey.
+//
+// It also returns a representative coordinate for the winning country (from that
+// country's single longest stay) so a caller can reverse-geocode a "City,
+// Country" label, and the origin country (for the destination-repair heuristic).
+// ok is false when nothing is plotted.
+type awayResult struct {
+	code   string     // winning country, lowercase ISO 3166-1 alpha-2
+	coord  [2]float64 // a representative coordinate within that country
+	origin string     // the trip's origin/home country (first plotted endpoint)
+}
+
+func (a *API) tripAway(ctx context.Context, tripID int64) (awayResult, bool) {
+	if a.Geocoder == nil {
+		return awayResult{}, false
+	}
+	dwells, err := a.Store.TripPartDwells(ctx, tripID)
+	if err != nil || len(dwells) == 0 {
+		return awayResult{}, false
+	}
+	weight := map[string]float64{}
+	repCoord := map[string][2]float64{}
+	repSec := map[string]float64{}
+	var order []string
+	origin := ""
+	for _, d := range dwells {
+		// A one-second floor so a part with no duration still registers its
+		// presence; real multi-hour/day stays dwarf it and decide the winner.
+		w := d.Seconds
+		if w <= 0 {
+			w = 1
+		}
+		for _, c := range d.Coords {
+			code, ok, gerr := a.Geocoder.ReverseCountry(ctx, c[0], c[1])
+			if gerr != nil || !ok || code == "" {
+				continue
+			}
+			if origin == "" {
+				origin = code
+			}
+			if weight[code] == 0 {
+				order = append(order, code)
+			}
+			weight[code] += w
+			// Keep a coordinate from each country's longest single stay, so a
+			// reverse-geocoded label names where time was actually spent rather
+			// than a fly-through.
+			if w > repSec[code] {
+				repSec[code], repCoord[code] = w, c
+			}
+		}
+	}
+	if len(order) == 0 {
+		return awayResult{}, false
+	}
+	best, bestW := "", 0.0
+	for _, code := range order {
+		if weight[code] > bestW {
+			best, bestW = code, weight[code]
+		}
+	}
+	if best == origin {
+		// The origin only wins when the real destination is unplotted; prefer the
+		// heaviest country that isn't home.
+		altBest, altW := "", 0.0
+		for _, code := range order {
+			if code == origin {
+				continue
+			}
+			if weight[code] > altW {
+				altBest, altW = code, weight[code]
+			}
+		}
+		if altBest != "" {
+			best = altBest
+		}
+	}
+	return awayResult{code: best, coord: repCoord[best], origin: origin}, true
+}
+
+// deriveTripCountry picks a trip's flag country from where it spends the most
+// time (see tripAway). When nothing's plotted it falls back to the user-stated
 // destination, and deliberately NEVER geocodes the trip name: a freeform name
 // like "50's, Hopefully" matches a spurious place (a road in Oregon), flying the
-// wrong flag. ok is false when nothing resolved (caller stores the "zz"
-// sentinel so it isn't re-queried forever).
+// wrong flag. ok is false when nothing resolved (caller stores the "zz" sentinel
+// so it isn't re-queried forever).
 func (a *API) deriveTripCountry(ctx context.Context, t *store.Trip) (string, bool) {
-	if dwells, err := a.Store.TripPartDwells(ctx, t.ID); err == nil && len(dwells) > 0 {
-		weight := map[string]float64{}
-		var order []string
-		for _, d := range dwells {
-			// A one-second floor so a part with no duration still registers its
-			// presence; real multi-hour/day stays dwarf it and decide the winner.
-			w := d.Seconds
-			if w <= 0 {
-				w = 1
-			}
-			for _, c := range d.Coords {
-				code, ok, gerr := a.Geocoder.ReverseCountry(ctx, c[0], c[1])
-				if gerr != nil || !ok || code == "" {
-					continue
-				}
-				if weight[code] == 0 {
-					order = append(order, code)
-				}
-				weight[code] += w
-			}
-		}
-		best, bestW := "", 0.0
-		for _, code := range order {
-			if weight[code] > bestW {
-				best, bestW = code, weight[code]
-			}
-		}
-		if best != "" {
-			return best, true
-		}
+	if away, ok := a.tripAway(ctx, t.ID); ok && away.code != "" {
+		return away.code, true
 	}
 	if dest := strings.TrimSpace(t.Destination); dest != "" {
 		if code, ok, err := a.Geocoder.GeocodeCountry(ctx, dest); err == nil && ok {
@@ -122,38 +180,17 @@ func (a *API) deriveTripCountry(ctx context.Context, t *store.Trip) (string, boo
 	return "", false
 }
 
-// deriveTripDestination picks the location where the trip spends the most time
-// in a single part — a multi-day hotel stay dwarfs the transfers around it — and
-// reverse-geocodes it to a "City, Country" label plus its ISO country code. The
-// same dwell signal that decides the flag, narrowed to the single longest stay
-// so the destination reads as one place. ok is false when no plotted part can be
-// ranked (the caller leaves the destination blank for a later sweep). A no-op
-// without a geocoder.
+// deriveTripDestination reverse-geocodes the trip's away end (see tripAway) to a
+// "City, Country" label plus its ISO country code, so the destination and the
+// flag are derived from the same place and always agree. ok is false when no
+// plotted part can be ranked (the caller leaves the destination blank for a
+// later sweep). A no-op without a geocoder.
 func (a *API) deriveTripDestination(ctx context.Context, t *store.Trip) (string, string, bool) {
-	if a.Geocoder == nil {
+	away, ok := a.tripAway(ctx, t.ID)
+	if !ok {
 		return "", "", false
 	}
-	dwells, err := a.Store.TripPartDwells(ctx, t.ID)
-	if err != nil || len(dwells) == 0 {
-		return "", "", false
-	}
-	var best store.TripPartDwell
-	bestSec := -1.0
-	for _, d := range dwells {
-		if len(d.Coords) == 0 {
-			continue
-		}
-		if d.Seconds > bestSec {
-			bestSec, best = d.Seconds, d
-		}
-	}
-	if bestSec < 0 {
-		return "", "", false
-	}
-	// The arrival/last endpoint is where time is spent (a hotel's location, a
-	// transfer's destination).
-	c := best.Coords[len(best.Coords)-1]
-	place, code, ok, err := a.Geocoder.ReversePlace(ctx, c[0], c[1])
+	place, code, ok, err := a.Geocoder.ReversePlace(ctx, away.coord[0], away.coord[1])
 	if err != nil || !ok {
 		return "", "", false
 	}
@@ -228,6 +265,71 @@ func (a *API) BackfillTripDestinations(ctx context.Context) {
 	}
 	if fixed > 0 {
 		slog.Info("destination backfill: derived trip destinations", "trips", fixed)
+	}
+}
+
+// ReconcileTripPlaces re-derives the flag of trips whose place was settled
+// before the away-end derivation existed — when a flag could be computed against
+// half-geocoded plans (e.g. before a hotel's address geocoded) and then frozen,
+// because the country/destination backfills only ever touch trips whose field is
+// still blank. It runs once per trip (gated by place_reconciled) so restarts
+// don't re-geocode the whole history.
+//
+// The flag (country_code) is only ever machine-derived, so it's re-derived and
+// overwritten freely. The destination is user-editable, so it's only rewritten
+// in the one unambiguous bug case: the stored destination resolves to the trip's
+// own origin country (e.g. "Greater London" on a London→Dublin→London trip)
+// while the away end places the trip elsewhere. A correct or hand-edited
+// destination is left untouched. Best-effort, paced by the geocoder; a no-op
+// without one. Runs at startup after coordinates, countries and destinations are
+// backfilled, so the dwell data is complete.
+func (a *API) ReconcileTripPlaces(ctx context.Context) {
+	if a.Geocoder == nil {
+		return
+	}
+	trips, err := a.Store.TripsNeedingPlaceReconcile(ctx)
+	if err != nil {
+		slog.Warn("place reconcile: query failed", "err", err)
+		return
+	}
+	var flags, dests int
+	for _, t := range trips {
+		away, ok := a.tripAway(ctx, t.ID)
+		if !ok || away.code == "" {
+			// Nothing resolved this pass; leave it unmarked to retry once its
+			// parts plot, rather than freezing an underived flag.
+			continue
+		}
+		changed := false
+		if away.code != t.CountryCode {
+			if err := a.Store.SetTripCountry(ctx, t.ID, away.code); err == nil {
+				t.CountryCode = away.code
+				flags++
+				changed = true
+			}
+		}
+		// Repair only an origin-biased destination: it resolves to the origin
+		// country while the trip clearly goes elsewhere.
+		if dest := strings.TrimSpace(t.Destination); dest != "" && away.origin != "" && away.code != away.origin {
+			if cur, ok, err := a.Geocoder.GeocodeCountry(ctx, dest); err == nil && ok && cur == away.origin {
+				if place, _, ok, err := a.Geocoder.ReversePlace(ctx, away.coord[0], away.coord[1]); err == nil && ok && place != "" && place != dest {
+					if err := a.Store.OverwriteTripDestination(ctx, t.ID, place); err == nil {
+						t.Destination = place
+						dests++
+						changed = true
+					}
+				}
+			}
+		}
+		if err := a.Store.MarkTripPlaceReconciled(ctx, t.ID); err != nil {
+			slog.Warn("place reconcile: mark failed", "err", err, "trip", t.ID)
+		}
+		if changed {
+			a.publishTripUpdated(ctx, t.ID)
+		}
+	}
+	if flags > 0 || dests > 0 {
+		slog.Info("place reconcile: corrected trips", "flags", flags, "destinations", dests)
 	}
 }
 

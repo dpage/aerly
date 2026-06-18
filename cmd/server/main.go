@@ -112,6 +112,10 @@ func run() error {
 		// After coordinates exist, fill a destination (and flag) for trips that
 		// lack one — notably calendar imports, whose feeds carry no destination.
 		api.BackfillTripDestinations(context.Background())
+		// Finally, correct trips whose flag/destination were derived before all
+		// their plans were plotted (a frozen wrong country, or a destination that
+		// points back at the origin). One-shot per trip.
+		api.ReconcileTripPlaces(context.Background())
 	}()
 
 	// Pick the upstream tracker. OpenSky if credentials are configured (or

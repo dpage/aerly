@@ -1,0 +1,13 @@
+-- A one-shot marker for the place-reconciliation startup pass.
+--
+-- A trip's flag (country_code) is machine-derived from where its plans spend
+-- their time. Early on that derivation could run before a trip's plans were
+-- fully geocoded — e.g. a hotel imported without an address is geocoded later —
+-- which froze a wrong country_code: the country backfill only ever touches
+-- trips whose code is still blank, so a set-but-wrong flag was never revisited.
+--
+-- ReconcileTripPlaces re-derives the flag (and repairs the specific
+-- origin-biased destination) once per trip, then sets this marker so the work
+-- isn't repeated on every restart. New trips start unreconciled and are swept
+-- once after their parts are plotted; thereafter the candidate set is empty.
+ALTER TABLE trips ADD COLUMN place_reconciled BOOLEAN NOT NULL DEFAULT FALSE;

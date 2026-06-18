@@ -209,6 +209,57 @@ func (s *Store) SetTripDestination(ctx context.Context, tripID int64, destinatio
 	return tag.RowsAffected() == 1, nil
 }
 
+// OverwriteTripDestination replaces a trip's destination unconditionally. Unlike
+// SetTripDestination it does not require the destination to be blank: it's used
+// only by the place-reconciliation pass, and only for the narrow, unambiguous
+// case where a previously auto-derived destination pointed back at the trip's
+// own origin country (the origin-bias bug). Does not bump updated_at, so it
+// doesn't reorder the trip list.
+func (s *Store) OverwriteTripDestination(ctx context.Context, tripID int64, destination string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE trips SET destination = $2 WHERE id = $1`, tripID, destination)
+	return err
+}
+
+// TripsNeedingPlaceReconcile returns trips not yet swept by the
+// place-reconciliation pass that have at least one geocoded plan endpoint, so
+// their flag (and a possibly origin-biased destination) can be re-derived from
+// where they spend their time. The marker (place_reconciled) keeps this a
+// one-shot per trip, so restarts don't re-geocode the whole history.
+func (s *Store) TripsNeedingPlaceReconcile(ctx context.Context) ([]*Trip, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+tripColumns+`, COALESCE(share_all_friends_role, '') FROM trips t
+		 WHERE NOT t.place_reconciled
+		   AND EXISTS (
+		     SELECT 1 FROM plans pl
+		       JOIN plan_parts part ON part.plan_id = pl.id
+		      WHERE pl.trip_id = t.id AND part.dismissed_at IS NULL
+		        AND (part.start_lat IS NOT NULL OR part.end_lat IS NOT NULL))
+		 ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Trip
+	for rows.Next() {
+		var t Trip
+		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.ShareAllFriendsRole); err != nil {
+			return nil, err
+		}
+		out = append(out, &t)
+	}
+	return out, rows.Err()
+}
+
+// MarkTripPlaceReconciled records that the place-reconciliation pass has
+// processed a trip, so it isn't reprocessed on the next restart.
+func (s *Store) MarkTripPlaceReconciled(ctx context.Context, tripID int64) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE trips SET place_reconciled = TRUE WHERE id = $1`, tripID)
+	return err
+}
+
 // TripsNeedingDestination returns trips with no destination set that have at
 // least one geocoded plan endpoint, so a destination can be derived from where
 // the trip spends its time. Used by the startup backfill.

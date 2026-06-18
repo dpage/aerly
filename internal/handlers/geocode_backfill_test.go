@@ -13,11 +13,12 @@ import (
 // fixed country code. byCoord, when set, drives ReverseCountry per-coordinate so
 // part-based country derivation can be exercised.
 type fakeGeocoder struct {
-	lat, lon     float64
-	country      string
-	byCoord      map[[2]float64]string
-	placeByCoord map[[2]float64]string // ReversePlace label per coordinate
-	resolves     map[string][2]float64 // when set, Geocode answers per exact query
+	lat, lon       float64
+	country        string
+	byCoord        map[[2]float64]string
+	placeByCoord   map[[2]float64]string // ReversePlace label per coordinate
+	resolves       map[string][2]float64 // when set, Geocode answers per exact query
+	countryByQuery map[string]string     // when set, GeocodeCountry answers per exact query
 }
 
 func (f fakeGeocoder) Geocode(_ context.Context, q string) (float64, float64, bool, error) {
@@ -30,7 +31,11 @@ func (f fakeGeocoder) Geocode(_ context.Context, q string) (float64, float64, bo
 	return f.lat, f.lon, true, nil
 }
 
-func (f fakeGeocoder) GeocodeCountry(context.Context, string) (string, bool, error) {
+func (f fakeGeocoder) GeocodeCountry(_ context.Context, q string) (string, bool, error) {
+	if f.countryByQuery != nil {
+		c := f.countryByQuery[q]
+		return c, c != "", nil
+	}
 	return f.country, f.country != "", nil
 }
 
@@ -358,5 +363,246 @@ func TestDeriveTripCountryByDwellTime(t *testing.T) {
 	got, _ := e.store.TripByID(ctx, trip.ID)
 	if got.CountryCode != "ee" {
 		t.Errorf("country = %q, want ee (the stated destination, not 'gb' from the UK endpoints)", got.CountryCode)
+	}
+}
+
+// TestDeriveTripDestinationAwayEndUnplottedHotel covers the addressless-hotel
+// bug: a there-and-back LHR↔DUB trip whose week-long Dublin hotel was imported
+// without an address (so it has no coordinate and casts no dwell vote) must
+// still fly the Irish flag and read "Dublin, Ireland". With only the two flights
+// plotted, a plain dwell tally ties GB/IE and breaks toward the London origin,
+// and a "longest plotted part" rule picks the slightly longer return flight's
+// London arrival; the away-end correction pins it to the non-origin end instead.
+func TestDeriveTripDestinationAwayEndUnplottedHotel(t *testing.T) {
+	e := setup(t, nil, nil)
+	const lhrLat, lhrLon = 51.4775, -0.4614 // GB
+	const dubLat, dubLon = 53.4264, -6.2499 // IE
+	e.api.Geocoder = fakeGeocoder{
+		byCoord: map[[2]float64]string{
+			{lhrLat, lhrLon}: "gb",
+			{dubLat, dubLon}: "ie",
+		},
+		placeByCoord: map[[2]float64]string{
+			{dubLat, dubLon}: "Dublin, Ireland",
+		},
+	}
+	ctx := context.Background()
+	uid := e.user(t, "traveller", false)
+
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "PGConf Dublin"}, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := func(f float64) *float64 { return &f }
+	out := time.Date(2025, 5, 1, 8, 0, 0, 0, time.UTC)
+	outEnd := out.Add(time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "flight", Title: "BA836 LHR to DUB",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: out, EndsAt: &outEnd,
+			StartLabel: "LHR", StartLat: p(lhrLat), StartLon: p(lhrLon),
+			EndLabel: "DUB", EndLat: p(dubLat), EndLon: p(dubLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	// Return is slightly longer, so a "longest plotted part" rule would wrongly
+	// pick its London arrival.
+	ret := out.Add(7 * 24 * time.Hour)
+	retEnd := ret.Add(90 * time.Minute)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "flight", Title: "BA837 DUB to LHR",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: ret, EndsAt: &retEnd,
+			StartLabel: "DUB", StartLat: p(dubLat), StartLon: p(dubLon),
+			EndLabel: "LHR", EndLat: p(lhrLat), EndLon: p(lhrLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	// The week where the time is actually spent, imported without an address —
+	// no coordinate, so it casts no dwell vote.
+	checkin := out.Add(2 * time.Hour)
+	checkout := ret.Add(-2 * time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "hotel", Title: "Conrad Hotels & Resorts",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartLabel: "Conrad Hotels & Resorts",
+			Hotel:      &store.HotelDetail{PropertyName: "Conrad Hotels & Resorts"},
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	e.api.BackfillTripDestinations(ctx)
+
+	got, _ := e.store.TripByID(ctx, trip.ID)
+	if got.CountryCode != "ie" {
+		t.Errorf("country = %q, want ie (the away end, not the gb origin)", got.CountryCode)
+	}
+	if got.Destination != "Dublin, Ireland" {
+		t.Errorf("destination = %q, want Dublin, Ireland", got.Destination)
+	}
+}
+
+// TestReconcileTripPlacesUnfreezesFlag covers the frozen-flag bug: a trip whose
+// New York hotel is fully plotted, but whose country_code was derived early
+// (against half-geocoded plans) and frozen to the gb origin, must be re-derived
+// to us. Its destination is already correct (resolves to us, not the origin), so
+// it must be left untouched, and the trip must drop out of the candidate set.
+func TestReconcileTripPlacesUnfreezesFlag(t *testing.T) {
+	e := setup(t, nil, nil)
+	const lhrLat, lhrLon = 51.4775, -0.4614  // GB
+	const ewrLat, ewrLon = 40.6895, -74.1745 // US
+	const nycLat, nycLon = 40.7128, -74.0060 // US
+	e.api.Geocoder = fakeGeocoder{
+		byCoord: map[[2]float64]string{
+			{lhrLat, lhrLon}: "gb",
+			{ewrLat, ewrLon}: "us",
+			{nycLat, nycLon}: "us",
+		},
+		placeByCoord: map[[2]float64]string{
+			{nycLat, nycLon}: "New York, United States",
+		},
+		countryByQuery: map[string]string{
+			"New York, United States": "us",
+		},
+	}
+	ctx := context.Background()
+	uid := e.user(t, "traveller", false)
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{
+		Name: "NYC PGConf", Destination: "New York, United States",
+	}, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A wrong flag frozen before the hotel geocoded.
+	if err := e.store.SetTripCountry(ctx, trip.ID, "gb"); err != nil {
+		t.Fatal(err)
+	}
+	p := func(f float64) *float64 { return &f }
+	out := time.Date(2014, 9, 1, 8, 0, 0, 0, time.UTC)
+	outEnd := out.Add(8 * time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "flight", Title: "BA185 LHR to EWR",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: out, EndsAt: &outEnd,
+			StartLabel: "LHR", StartLat: p(lhrLat), StartLon: p(lhrLon),
+			EndLabel: "EWR", EndLat: p(ewrLat), EndLon: p(ewrLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	checkin := out.Add(10 * time.Hour)
+	checkout := checkin.Add(96 * time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "hotel", Title: "New York Marriott Downtown",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartLabel: "Marriott", StartLat: p(nycLat), StartLon: p(nycLon),
+			Hotel: &store.HotelDetail{PropertyName: "New York Marriott Downtown"},
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	e.api.ReconcileTripPlaces(ctx)
+
+	got, _ := e.store.TripByID(ctx, trip.ID)
+	if got.CountryCode != "us" {
+		t.Errorf("country = %q, want us (re-derived from the plotted NY hotel)", got.CountryCode)
+	}
+	if got.Destination != "New York, United States" {
+		t.Errorf("destination = %q, want it left untouched (already correct)", got.Destination)
+	}
+	// One-shot: no longer a reconcile candidate.
+	cand, _ := e.store.TripsNeedingPlaceReconcile(ctx)
+	for _, c := range cand {
+		if c.ID == trip.ID {
+			t.Errorf("trip still a reconcile candidate after the pass")
+		}
+	}
+}
+
+// TestReconcileTripPlacesRepairsOriginBiasedDestination covers the targeted
+// destination repair: a Dublin trip with an addressless hotel whose destination
+// was auto-filled to its London origin ("Greater London, United Kingdom") gets
+// both the flag and the misleading label corrected to the away end. A
+// destination that does NOT resolve to the origin is never touched (covered by
+// TestReconcileTripPlacesUnfreezesFlag).
+func TestReconcileTripPlacesRepairsOriginBiasedDestination(t *testing.T) {
+	e := setup(t, nil, nil)
+	const lhrLat, lhrLon = 51.4775, -0.4614 // GB
+	const dubLat, dubLon = 53.4264, -6.2499 // IE
+	e.api.Geocoder = fakeGeocoder{
+		byCoord: map[[2]float64]string{
+			{lhrLat, lhrLon}: "gb",
+			{dubLat, dubLon}: "ie",
+		},
+		placeByCoord: map[[2]float64]string{
+			{dubLat, dubLon}: "Dublin, Ireland",
+		},
+		countryByQuery: map[string]string{
+			"Greater London, United Kingdom": "gb",
+		},
+	}
+	ctx := context.Background()
+	uid := e.user(t, "traveller", false)
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{
+		Name: "PGConf EU 2013", Destination: "Greater London, United Kingdom",
+	}, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.SetTripCountry(ctx, trip.ID, "gb"); err != nil {
+		t.Fatal(err)
+	}
+	p := func(f float64) *float64 { return &f }
+	out := time.Date(2013, 10, 28, 8, 0, 0, 0, time.UTC)
+	outEnd := out.Add(time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "flight", Title: "BA836 LHR to DUB",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: out, EndsAt: &outEnd,
+			StartLabel: "LHR", StartLat: p(lhrLat), StartLon: p(lhrLon),
+			EndLabel: "DUB", EndLat: p(dubLat), EndLon: p(dubLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	ret := out.Add(5 * 24 * time.Hour)
+	retEnd := ret.Add(time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "flight", Title: "BA837 DUB to LHR",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: ret, EndsAt: &retEnd,
+			StartLabel: "DUB", StartLat: p(dubLat), StartLon: p(dubLon),
+			EndLabel: "LHR", EndLat: p(lhrLat), EndLon: p(lhrLon),
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+	checkin := out.Add(2 * time.Hour)
+	checkout := ret.Add(-2 * time.Hour)
+	if _, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip.ID, Type: "hotel", Title: "Conrad Hotels & Resorts",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartLabel: "Conrad Hotels & Resorts",
+			Hotel:      &store.HotelDetail{PropertyName: "Conrad Hotels & Resorts"},
+		}},
+	}, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	e.api.ReconcileTripPlaces(ctx)
+
+	got, _ := e.store.TripByID(ctx, trip.ID)
+	if got.CountryCode != "ie" {
+		t.Errorf("country = %q, want ie", got.CountryCode)
+	}
+	if got.Destination != "Dublin, Ireland" {
+		t.Errorf("destination = %q, want Dublin, Ireland (origin-biased label repaired)", got.Destination)
 	}
 }
