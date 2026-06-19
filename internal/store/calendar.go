@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -216,11 +217,35 @@ func scanCalendarEvents(rows pgx.Rows) ([]*CalendarEvent, error) {
 	return out, rows.Err()
 }
 
-// CalendarEventsForUser returns every plan_part the viewer may see across all
-// their trips — the "me" feed.
+// calendarMineExpr restricts the "me" feed to the trips/plans on the viewer's
+// own "My trips" list (issue #76): trips they created, plus plans/trips they are
+// travelling on as a passenger. Without this, the personal feed surfaced every
+// plan merely *visible* to the viewer — including friends' trips shared with
+// them — which is what leaked friends' trips into the subscribed calendar. The
+// §4 visibility gate in calendarEventSelect still applies on top, so a hidden
+// plan on an owned/passenger trip is never exposed.
+//
+// {P}=plans alias, {T}=trips alias, {V}=viewer placeholder. Mirrors the
+// frontend "My trips" filter (owner || viewer_is_passenger) and the passenger
+// check in IsTripPassenger.
+func calendarMineExpr(plan, trip, viewer string) string {
+	return strings.NewReplacer("{P}", plan, "{T}", trip, "{V}", viewer).Replace(`(
+	       {T}.created_by = {V}
+	    OR EXISTS (SELECT 1 FROM plan_passengers pp
+	               WHERE pp.plan_id = {P}.id AND pp.user_id = {V})
+	    OR EXISTS (SELECT 1 FROM trip_passengers tp
+	               WHERE tp.trip_id = {T}.id AND tp.user_id = {V})
+	)`)
+}
+
+// CalendarEventsForUser returns the plan_parts on the viewer's own trips — the
+// "me" feed. "Own" means trips they created plus plans/trips they're a passenger
+// on (issue #76); friends' trips merely shared with the viewer are excluded so
+// the personal calendar matches the app's "Your trips" tab.
 func (s *Store) CalendarEventsForUser(ctx context.Context, viewerID int64) ([]*CalendarEvent, error) {
 	rows, err := s.pool.Query(ctx,
-		calendarEventSelect+` ORDER BY part.starts_at ASC, part.id ASC`, viewerID)
+		calendarEventSelect+` AND `+calendarMineExpr("pl", "t", "$1")+
+			` ORDER BY part.starts_at ASC, part.id ASC`, viewerID)
 	if err != nil {
 		return nil, err
 	}
