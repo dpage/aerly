@@ -56,7 +56,6 @@ type Config struct {
 	EmailIngestAddress         string
 	EmailIngestPollInterval    time.Duration
 	EmailIngestRequireDKIM     bool
-	EmailIngestRequireSPF      bool
 	EmailIngestDKIMAuthServID  string
 	EmailIngestRateLimitPerDay int
 	EmailIngestMaxBodyBytes    int
@@ -163,21 +162,13 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 		cfg.EmailIngestRequireDKIM = dkimReq
-		// SPF enforcement defaults to whatever DKIM does, so an operator who
-		// enables (or disables) sender authentication gets both checks without
-		// setting a second flag; EMAIL_INGEST_REQUIRE_SPF overrides independently.
-		spfReq, err := parseBool01("EMAIL_INGEST_REQUIRE_SPF", cfg.EmailIngestRequireDKIM)
-		if err != nil {
-			return nil, err
-		}
-		cfg.EmailIngestRequireSPF = spfReq
 		cfg.EmailIngestDKIMAuthServID = strings.TrimSpace(os.Getenv("EMAIL_INGEST_DKIM_AUTHSERV_ID"))
-		// DKIM/SPF enforcement is meaningless unless we know which authserv-id our
+		// DKIM enforcement is meaningless unless we know which authserv-id our
 		// own MTA stamps: otherwise any Authentication-Results header the sender
 		// injected would be trusted. Fail closed at startup rather than ship a
 		// spoofable trust check.
-		if (cfg.EmailIngestRequireDKIM || cfg.EmailIngestRequireSPF) && cfg.EmailIngestDKIMAuthServID == "" {
-			return nil, fmt.Errorf("EMAIL_INGEST_REQUIRE_DKIM/SPF requires EMAIL_INGEST_DKIM_AUTHSERV_ID (the authserv-id your boundary MTA stamps on Authentication-Results)")
+		if cfg.EmailIngestRequireDKIM && cfg.EmailIngestDKIMAuthServID == "" {
+			return nil, fmt.Errorf("EMAIL_INGEST_REQUIRE_DKIM requires EMAIL_INGEST_DKIM_AUTHSERV_ID (the authserv-id your boundary MTA stamps on Authentication-Results)")
 		}
 		cfg.EmailIngestRateLimitPerDay = 50
 		if v := os.Getenv("EMAIL_INGEST_RATE_LIMIT_PER_DAY"); v != "" {

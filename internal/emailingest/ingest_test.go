@@ -559,48 +559,6 @@ func TestIngest_GeocodesAndPublishes(t *testing.T) {
 	}
 }
 
-// goodMessageSPF mirrors goodMessage but its trusted Authentication-Results
-// header also asserts SPF alignment for the From domain.
-const goodMessageSPF = "From: alice@example.com\r\n" +
-	"To: flights@flights.example\r\n" +
-	"Subject: x\r\n" +
-	"Message-ID: <spf@x>\r\n" +
-	"Authentication-Results: ml; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=example.com\r\n" +
-	"Content-Type: text/plain\r\n\r\n" +
-	"body text"
-
-func TestIngest_SPFRequired_FailPoison(t *testing.T) {
-	// goodMessage has dkim=pass but no spf=pass; with SPF required it's rejected
-	// before the LLM even though DKIM is satisfied.
-	h := newHarness(t, `{"plans":[]}`, nil, true)
-	h.svc.Cfg.RequireSPF = true
-	ctx := context.Background()
-	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
-	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
-		t.Fatal(err)
-	}
-	writeMessage(t, h.maildir, "60", goodMessage)
-	if state := h.runUntilProcessed(t, "60", 5*time.Second); state != "failed" {
-		t.Errorf("expected .failed/ (SPF not aligned), got %s", state)
-	}
-}
-
-func TestIngest_SPFRequired_PassAccepted(t *testing.T) {
-	h := newHarness(t,
-		flightPlanResp("TK1980", time.Now().AddDate(0, 1, 0).Format("2006-01-02")),
-		nil, true)
-	h.svc.Cfg.RequireSPF = true
-	ctx := context.Background()
-	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
-	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
-		t.Fatal(err)
-	}
-	writeMessage(t, h.maildir, "61", goodMessageSPF)
-	if state := h.runUntilProcessed(t, "61", 5*time.Second); state != "removed" {
-		t.Errorf("expected removed (SPF aligned), got %s", state)
-	}
-}
-
 func TestIngest_RateLimit_OverCapPoison(t *testing.T) {
 	h := newHarness(t, `{"plans":[]}`, nil, true)
 	h.svc.Cfg.RateLimitPerDay = 3

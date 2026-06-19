@@ -48,8 +48,8 @@ func Parse(raw []byte) (*Parsed, error) {
 	out.MessageID = strings.TrimSpace(msg.Header.Get("Message-ID"))
 	out.Subject = decodeRFC2047(msg.Header.Get("Subject"))
 	// Keep every Authentication-Results header value separately, in message
-	// order (topmost first), so DKIMPass/SPFPass can trust only the leading run
-	// stamped by our boundary MTA and ignore any the sender injected below it.
+	// order (topmost first), so DKIMPass can trust only the leading run stamped
+	// by our boundary MTA and ignore any the sender injected below it.
 	out.AuthResults = msg.Header["Authentication-Results"]
 
 	ct := msg.Header.Get("Content-Type")

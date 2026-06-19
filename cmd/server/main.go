@@ -208,7 +208,6 @@ func run() error {
 				MaildirPath:     cfg.EmailIngestMaildir,
 				PollInterval:    cfg.EmailIngestPollInterval,
 				RequireDKIM:     cfg.EmailIngestRequireDKIM,
-				RequireSPF:      cfg.EmailIngestRequireSPF,
 				DKIMAuthServID:  cfg.EmailIngestDKIMAuthServID,
 				RateLimitPerDay: cfg.EmailIngestRateLimitPerDay,
 				MaxBodyBytes:    cfg.EmailIngestMaxBodyBytes,
