@@ -277,6 +277,72 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 	}
 }
 
+// TestExportTripICS: the session-authed one-shot export downloads the viewer's
+// visible plans as an .ics attachment, hides plans the viewer can't see, names
+// the file after the trip, and 404s a trip the caller can't view.
+func TestExportTripICS(t *testing.T) {
+	e := setup(t, nil, calCfg())
+	owner := e.user(t, "exp-owner", false)
+	member := e.user(t, "exp-member", false)
+	stranger := e.user(t, "exp-stranger", false)
+
+	trip := seedTrip(t, e, owner)
+	// Give the trip a recognisable name for the filename assertion.
+	if _, err := e.pool.Exec(context.Background(),
+		`UPDATE trips SET name = 'Paris 2026!' WHERE id = $1`, trip); err != nil {
+		t.Fatalf("rename trip: %v", err)
+	}
+	seedMember(t, e, trip, member)
+	e.befriend(t, owner, member)
+	pub := seedPlan(t, e, trip, owner, "Public Flight")
+	seedPart(t, e, pub)
+	hid := seedPlan(t, e, trip, owner, "Hidden Flight")
+	seedPart(t, e, hid)
+	hidePlanFrom(t, e, hid, member)
+
+	// Owner export: both plans, attachment disposition, trip-named file.
+	w := e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.ics", nil, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("owner export = %d %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/calendar") {
+		t.Errorf("content-type = %q, want text/calendar", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); cd != `attachment; filename="Paris-2026.ics"` {
+		t.Errorf("content-disposition = %q", cd)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Public Flight") || !strings.Contains(body, "Hidden Flight") {
+		t.Errorf("owner export missing a plan:\n%s", body)
+	}
+
+	// Member export: the hidden plan must not leak.
+	w = e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.ics", nil, member)
+	if w.Code != http.StatusOK {
+		t.Fatalf("member export = %d %s", w.Code, w.Body.String())
+	}
+	memberBody := w.Body.String()
+	if !strings.Contains(memberBody, "Public Flight") {
+		t.Errorf("member export missing public plan:\n%s", memberBody)
+	}
+	if strings.Contains(memberBody, "Hidden Flight") {
+		t.Errorf("member export LEAKED hidden plan:\n%s", memberBody)
+	}
+
+	// A stranger can't view the trip → 404.
+	if w := e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.ics", nil, stranger); w.Code != http.StatusNotFound {
+		t.Errorf("stranger export = %d, want 404", w.Code)
+	}
+	// Export requires a session.
+	if w := e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.ics", nil, 0); w.Code != http.StatusUnauthorized {
+		t.Errorf("anon export = %d, want 401", w.Code)
+	}
+	// Bad id → 400.
+	if w := e.req(t, "GET", "/api/trips/abc/export.ics", nil, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("bad id export = %d, want 400", w.Code)
+	}
+}
+
 // TestCalendarFeedUpdatesReflectPartChanges: a delayed part re-renders (the
 // single-plan feed stays live — re-fetch shows the new time and LAST-MODIFIED).
 func TestCalendarFeedUpdatesReflectPartChanges(t *testing.T) {

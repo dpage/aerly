@@ -9,6 +9,7 @@ import {
   ListItemIcon,
   Menu,
   MenuItem,
+  Snackbar,
   Tab,
   Tabs,
   Tooltip,
@@ -22,7 +23,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PeopleIcon from '@mui/icons-material/PeopleOutline';
 import EditIcon from '@mui/icons-material/EditOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import FileDownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 
+import { api } from '../api/client';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
@@ -64,9 +67,17 @@ export default function TripDetail() {
   // On phones the four toolbar buttons crowd the trip name off-screen, so the
   // secondary actions collapse into an overflow (⋮) menu; New plan stays primary.
   const [actionsAnchor, setActionsAnchor] = useState<HTMLElement | null>(null);
+  // Surfaces a failure if the .ics export download can't be fetched.
+  const [exportError, setExportError] = useState<string | null>(null);
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
   const closeActions = () => setActionsAnchor(null);
+
+  const exportIcs = () => {
+    void api.exportTripIcs(tripId).catch((err: unknown) => {
+      setExportError(err instanceof Error ? err.message : String(err));
+    });
+  };
 
   useEffect(() => {
     if (!Number.isFinite(tripId)) return;
@@ -180,6 +191,17 @@ export default function TripDetail() {
                       </ListItemIcon>
                       Subscribe
                     </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        closeActions();
+                        exportIcs();
+                      }}
+                    >
+                      <ListItemIcon>
+                        <FileDownloadIcon fontSize="small" />
+                      </ListItemIcon>
+                      Export .ics
+                    </MenuItem>
                   </Menu>
                 </>
               )}
@@ -233,6 +255,11 @@ export default function TripDetail() {
               onClick={() => setSubscribeOpen(true)}
             >
               Subscribe
+            </Button>
+          )}
+          {loaded && online && (
+            <Button size="small" startIcon={<FileDownloadIcon />} onClick={exportIcs}>
+              Export .ics
             </Button>
           )}
         </Box>
@@ -313,6 +340,16 @@ export default function TripDetail() {
         id={tripId}
         title={title}
       />
+      <Snackbar
+        open={exportError !== null}
+        autoHideDuration={6000}
+        onClose={() => setExportError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setExportError(null)} sx={{ width: '100%' }}>
+          Couldn&apos;t export this trip: {exportError}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

@@ -10,11 +10,16 @@ const h = vi.hoisted(() => ({
   loadTrip: vi.fn(),
   clearCurrentTrip: vi.fn(),
   plansOutsideTripDates: vi.fn(() => false),
+  exportTripIcs: vi.fn(() => Promise.resolve()),
   state: {
     currentTrip: null as Trip | null,
     currentTripStatus: 'loading' as 'loading' | 'loaded' | 'error',
     online: true,
   },
+}));
+
+vi.mock('../api/client', () => ({
+  api: { exportTripIcs: (id: number) => h.exportTripIcs(id) },
 }));
 
 vi.mock('../state/store', () => ({
@@ -144,13 +149,29 @@ describe('TripDetail', () => {
     expect(screen.getByText(/isn't saved for offline viewing/i)).toBeInTheDocument();
   });
 
-  it('renders the loaded trip name and the Edit/Share/Subscribe actions for an owner', () => {
+  it('renders the loaded trip name and the Edit/Share/Subscribe/Export actions for an owner', () => {
     h.state.currentTrip = trip();
     renderDetail();
     expect(screen.getByRole('heading', { name: 'Lisbon' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /share/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /subscribe/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /export \.ics/i })).toBeInTheDocument();
+  });
+
+  it('downloads the trip .ics when Export is clicked', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /export \.ics/i }));
+    expect(h.exportTripIcs).toHaveBeenCalledWith(7);
+  });
+
+  it('surfaces an error when the .ics export fails', async () => {
+    h.exportTripIcs.mockRejectedValueOnce(new Error('Not found.'));
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /export \.ics/i }));
+    expect(await screen.findByText(/couldn't export this trip: not found/i)).toBeInTheDocument();
   });
 
   it('hides the server-mutating actions when offline', () => {
@@ -367,6 +388,15 @@ describe('TripDetail (narrow / mobile)', () => {
     expect(screen.getByRole('menuitem', { name: /edit/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /share/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /subscribe/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /export \.ics/i })).toBeInTheDocument();
+  });
+
+  it('exports the trip .ics from the overflow menu', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /export \.ics/i }));
+    expect(h.exportTripIcs).toHaveBeenCalledWith(7);
   });
 
   it('opens the edit dialog from the overflow menu', async () => {

@@ -83,6 +83,46 @@ async function requestMultipart<T>(method: string, path: string, form: FormData)
   return handleResponse<T>(res);
 }
 
+// downloadFile fetches a file response (session cookie included) and triggers a
+// browser save. The filename comes from the Content-Disposition header when the
+// server supplies one, otherwise the caller's fallback. Errors surface as
+// ApiError, matching request()'s contract, so callers can toast on failure.
+async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const res = await fetch(path, { credentials: 'include' });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) msg = j.error;
+    } catch {
+      // non-JSON body; keep status-only message.
+    }
+    throw new ApiError(res.status, msg);
+  }
+  const blob = await res.blob();
+  const name = filenameFromDisposition(res.headers.get('Content-Disposition')) ?? fallbackName;
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// filenameFromDisposition pulls the filename out of a Content-Disposition
+// header (e.g. `attachment; filename="Paris-2026.ics"`). Returns null when the
+// header is absent or carries no filename.
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
@@ -225,6 +265,11 @@ export const api = {
   // The single-trip payload carries the timeline data (plans + parts) so the
   // detail view can render without further fetches.
   getTrip: (id: number) => request<Trip & { plans: Plan[] }>('GET', `/api/trips/${id}`),
+  // Downloads the trip's visible plans as a single .ics file (the inverse of
+  // the TripIt/Kayak import). Session-authed; the server renders only the plans
+  // this user can see and marks the response as an attachment, so we read it as
+  // a blob and trigger a save with the server-supplied filename.
+  exportTripIcs: (id: number) => downloadFile(`/api/trips/${id}/export.ics`, 'trip.ics'),
   createTrip: (input: CreateTripInput) => request<Trip>('POST', '/api/trips', input),
   updateTrip: (id: number, patch: UpdateTripInput) =>
     request<Trip>('PATCH', `/api/trips/${id}`, patch),

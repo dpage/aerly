@@ -128,6 +128,73 @@ func writeICS(w http.ResponseWriter, calName string, events []*store.CalendarEve
 	_, _ = w.Write([]byte(body))
 }
 
+// --- One-shot trip export (session-authed download) ---
+
+// exportTrip serves the visible plans of one trip as a downloadable .ics file —
+// the inverse of the TripIt/Kayak import. Unlike the subscribe feeds it's
+// session-authed (no token), renders as the logged-in viewer with the §4
+// visibility predicate, and is marked as an attachment so the browser saves it
+// rather than handing it to a calendar client as a live subscription.
+func (a *API) exportTrip(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	ok, err := a.canViewTrip(r.Context(), id, me)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, "Not found.")
+		return
+	}
+	trip, err := a.Store.TripByID(r.Context(), id)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	events, err := a.Store.CalendarEventsForTrip(r.Context(), me.ID, id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	body := renderICS(trip.Name, events)
+	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
+	w.Header().Set("Content-Disposition",
+		`attachment; filename="`+icsFilename(trip.Name)+`"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
+}
+
+// icsFilename turns a trip name into a safe ASCII download filename ending in
+// .ics. Anything outside [A-Za-z0-9-_] collapses to a hyphen so the value is
+// safe to drop unquoted-ish into the Content-Disposition header and onto any
+// filesystem; an empty/blank name falls back to "trip".
+func icsFilename(name string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, r := range name {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevDash = false
+		default:
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		slug = "trip"
+	}
+	return slug + ".ics"
+}
+
 // --- Token-management handlers (session-authed) ---
 //
 // Shapes match the frontend contract in web/src/api/client.ts + types.ts:
