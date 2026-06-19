@@ -70,23 +70,61 @@ func TestRenderItineraryPDFStructure(t *testing.T) {
 	}
 }
 
-// A single-location plan (hotel) shows one "Address" line rather than From/To.
+// A hotel carries the same place in start_* and end_*; the itinerary must show
+// it once (one Address line, no "X -> X" route, no duplicated From/To) and must
+// not repeat the place label when it just echoes the title.
 func TestRenderItineraryPDFSingleAddress(t *testing.T) {
-	at := mustTime(t, "2026-06-15T15:00:00Z")
+	in := mustTime(t, "2026-07-20T16:00:00Z")
+	out := mustTime(t, "2026-07-23T12:00:00Z")
+	name := "Courtyard by Marriott Pittsburgh University Center"
+	addr := "100 Lytton Avenue, Pittsburgh, Pennsylvania 15213, USA"
 	trip := &store.Trip{Name: "Stay"}
 	plans := []api.PlanDTO{{
-		Type: "hotel", Title: "Hôtel de Ville",
+		Type: "hotel", Title: name, ConfirmationRef: "97703742",
 		Parts: []api.PlanPartDTO{{
-			StartsAt: at, StartTZ: "Europe/Paris", StartLabel: "Hôtel de Ville",
-			StartAddress: "1 Rue de Rivoli, Paris",
+			StartsAt: in, EndsAt: &out, StartTZ: "America/New_York", EndTZ: "America/New_York",
+			StartLabel: name, EndLabel: name, StartAddress: addr, EndAddress: addr,
 		}},
 	}}
 	s := string(renderItineraryPDF(trip, plans, "a4"))
-	if !strings.Contains(s, "Address: 1 Rue de Rivoli, Paris") {
-		t.Errorf("single-location plan should use an Address line:\n%s", s)
+	if !strings.Contains(s, "Address: "+addr) {
+		t.Errorf("hotel should show one Address line:\n%s", s)
 	}
-	if strings.Contains(s, "From: 1 Rue de Rivoli") {
-		t.Errorf("single-location plan should not use From/To")
+	if strings.Contains(s, "From: ") || strings.Contains(s, "To: ") {
+		t.Errorf("hotel must not render From/To addresses")
+	}
+	if strings.Contains(s, name+" -> "+name) {
+		t.Errorf("hotel must not render a redundant X -> X route")
+	}
+	// The place label repeats the title, so it must not also appear as its own
+	// detail line. In the content stream the title renders as "(Hotel: <name>)"
+	// while a stray label line would render as the bare "(<name>)".
+	if strings.Contains(s, "("+name+")") {
+		t.Errorf("the place label should not repeat as a line when it echoes the title")
+	}
+	if !strings.Contains(s, "(Hotel: "+name+")") {
+		t.Errorf("the title should still name the hotel")
+	}
+}
+
+// A single-location plan whose place label differs from the title still shows
+// the place (and address) as detail lines.
+func TestRenderItineraryPDFSingleLocationLabel(t *testing.T) {
+	at := mustTime(t, "2026-06-15T19:30:00Z")
+	trip := &store.Trip{Name: "Trip"}
+	plans := []api.PlanDTO{{
+		Type: "dining", Title: "Anniversary dinner",
+		Parts: []api.PlanPartDTO{{
+			StartsAt: at, StartTZ: "America/Los_Angeles",
+			StartLabel: "The French Laundry", StartAddress: "6640 Washington St, Yountville, CA",
+		}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, "a4"))
+	if !strings.Contains(s, "(The French Laundry)") {
+		t.Errorf("a place label distinct from the title should be shown:\n%s", s)
+	}
+	if !strings.Contains(s, "Address: 6640 Washington St, Yountville, CA") {
+		t.Errorf("single-location dining should show its address")
 	}
 }
 
@@ -202,6 +240,30 @@ func TestDateSpan(t *testing.T) {
 	}
 	if got := dateSpan(nil, nil); got != "" {
 		t.Errorf("none = %q, want empty", got)
+	}
+}
+
+func TestSingleLocation(t *testing.T) {
+	// Stationary types are always single-location, even if end_* is populated.
+	for _, ty := range []string{"hotel", "dining", "excursion"} {
+		pt := &api.PlanPartDTO{StartLabel: "X", EndLabel: "Y", StartAddress: "a", EndAddress: "b"}
+		if !singleLocation(ty, pt) {
+			t.Errorf("%s should be single-location", ty)
+		}
+	}
+	// A journey with distinct ends is not single-location.
+	journey := &api.PlanPartDTO{StartLabel: "LHR", EndLabel: "PIT"}
+	if singleLocation("flight", journey) {
+		t.Errorf("a flight with distinct ends should not be single-location")
+	}
+	// A non-stationary type collapses when its ends coincide (or are blank).
+	same := &api.PlanPartDTO{StartLabel: "Office", EndLabel: "Office", StartAddress: "1 St", EndAddress: "1 St"}
+	if !singleLocation("ground", same) {
+		t.Errorf("a part whose ends coincide should be single-location")
+	}
+	blank := &api.PlanPartDTO{StartLabel: "Park"}
+	if !singleLocation("ground", blank) {
+		t.Errorf("a part with a blank end should be single-location")
 	}
 }
 
