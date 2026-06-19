@@ -669,6 +669,33 @@ describe('TripList', () => {
     });
   });
 
+  it('toggles year section via keyboard (Enter/Space) for accessibility', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Recent Trip', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+    ];
+    renderList();
+
+    // Initially, 2023 section is collapsed (old trip not visible)
+    expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+
+    const yearButton = screen.getByText('2023').closest('[role="button"]') as HTMLElement;
+    expect(yearButton).toHaveAttribute('tabindex', '0');
+
+    // Enter expands
+    yearButton.focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.getByText('Old Trip')).toBeInTheDocument();
+    });
+
+    // Space collapses
+    await userEvent.keyboard(' ');
+    await waitFor(() => {
+      expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+    });
+  });
+
   it('shows expand/collapse all button when multiple years exist', () => {
     state.trips = [
       trip({ id: 1, name: 'Trip A', starts_on: '2024-06-15', ends_on: '2024-06-20' }),

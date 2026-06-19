@@ -149,16 +149,18 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   const [filter, setFilter] = useState('');
   const filterRef = useRef<HTMLInputElement>(null);
 
-  // Activate on "/" (vi/less style) when not already in a text field.
+  // Activate on "/" (vi/less style) when not already in a text field. Only when
+  // the filter bar is actually rendered (i.e. there are trips), so we don't
+  // swallow "/" on an empty list where there's nothing to focus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/') return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable)
         return;
-      if (e.key === '/') {
-        e.preventDefault();
-        filterRef.current?.focus();
-      }
+      if (!filterRef.current) return;
+      e.preventDefault();
+      filterRef.current.focus();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -378,7 +380,6 @@ function PastTripGroup({ trips }: { trips: Trip[] }) {
     prevYearsRef.current = next;
   }, [yearGroups]);
 
-  const allCollapsed = collapsedYears.size === yearGroups.length;
   const allExpanded = collapsedYears.size === 0;
 
   const toggleYear = useCallback((year: number) => {
@@ -414,23 +415,19 @@ function PastTripGroup({ trips }: { trips: Trip[] }) {
         />
         <Box sx={{ flex: 1 }} />
         {yearGroups.length > 1 && (
-          <>
-            <Tooltip title={allExpanded ? 'Collapse all years' : 'Expand all years'}>
-              <IconButton
-                size="small"
-                onClick={allExpanded ? collapseAll : expandAll}
-                aria-label={allExpanded ? 'Collapse all years' : 'Expand all years'}
-              >
-                {allExpanded ? (
-                  <UnfoldLessIcon fontSize="small" />
-                ) : allCollapsed ? (
-                  <UnfoldMoreIcon fontSize="small" />
-                ) : (
-                  <UnfoldMoreIcon fontSize="small" />
-                )}
-              </IconButton>
-            </Tooltip>
-          </>
+          <Tooltip title={allExpanded ? 'Collapse all years' : 'Expand all years'}>
+            <IconButton
+              size="small"
+              onClick={allExpanded ? collapseAll : expandAll}
+              aria-label={allExpanded ? 'Collapse all years' : 'Expand all years'}
+            >
+              {allExpanded ? (
+                <UnfoldLessIcon fontSize="small" />
+              ) : (
+                <UnfoldMoreIcon fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
         )}
       </Stack>
 
@@ -453,7 +450,14 @@ function PastTripGroup({ trips }: { trips: Trip[] }) {
                   userSelect: 'none',
                 }}
                 onClick={() => toggleYear(year)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleYear(year);
+                  }
+                }}
                 role="button"
+                tabIndex={0}
                 aria-expanded={!isCollapsed}
               >
                 {isCollapsed ? (
