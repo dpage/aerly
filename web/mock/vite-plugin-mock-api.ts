@@ -9,8 +9,8 @@
  *   GET  /api/config      → capabilities
  *   GET  /api/version     → build info
  *   GET  /api/trips       → 100 past + now + upcoming mock trips
- *   GET  /api/me/friends  → empty
- *   GET  /api/me/notifications → zero counts
+ *   GET  /api/friends     → empty
+ *   GET  /api/notifications → zero counts
  *   GET  /auth/providers  → empty (no OAuth buttons)
  *   GET  /auth/dev-info   → { enabled: true }  (shows dev-login form)
  *   GET  /auth/dev-login  → sets a fake session cookie, redirects to /
@@ -20,7 +20,7 @@
 
 import type { Plugin, ViteDevServer } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { generateMockTrips } from './trips.js';
+import { generateMockTrips } from './trips';
 
 function json(res: ServerResponse, body: unknown, status = 200) {
   const data = JSON.stringify(body);
@@ -78,7 +78,6 @@ export default function mockApiPlugin(): Plugin {
         const url = req.url?.split('?')[0] ?? '';
         const method = req.method ?? 'GET';
 
-
         if (method === 'GET' && url === '/api/me') {
           return json(res, MOCK_USER);
         }
@@ -91,13 +90,10 @@ export default function mockApiPlugin(): Plugin {
         if (method === 'GET' && url === '/api/trips') {
           return json(res, MOCK_TRIPS);
         }
-        if (method === 'GET' && url === '/api/me/friends') {
-          return json(res, []);
-        }
         if (method === 'GET' && url === '/api/friends') {
           return json(res, []);
         }
-        if (method === 'GET' && url === '/api/me/notifications') {
+        if (method === 'GET' && url === '/api/notifications') {
           return json(res, { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 });
         }
         if (method === 'GET' && url.startsWith('/api/me/auto-shares')) {
@@ -109,7 +105,6 @@ export default function mockApiPlugin(): Plugin {
         if (method === 'GET' && url.startsWith('/api/users')) {
           return json(res, []);
         }
-
 
         if (method === 'GET' && url === '/auth/providers') {
           return json(res, { providers: [] });

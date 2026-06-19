@@ -4,6 +4,8 @@
  * TripList layout (all three buckets) is exercised.
  */
 
+import type { Trip } from '../src/api/types';
+
 const DESTINATIONS = [
   { name: 'Stockholm, Sweden',        code: 'se', tags: ['ARN', 'Nordic'] },
   { name: 'Athens, Greece',           code: 'gr', tags: ['ATH', 'Arnack', 'Mediterranean'] },
@@ -48,17 +50,17 @@ function makeTrip(
   startsOn: string,
   endsOn: string,
   tags: string[],
-) {
+): Trip {
   return {
     id,
     name,
     destination,
     starts_on: startsOn,
     ends_on: endsOn,
-    my_role: 'owner' as const,
+    my_role: 'owner',
     viewer_is_passenger: false,
-    members: [{ user_id: 1, role: 'owner' as const, accepted: true }],
-    passenger_ids: [] as number[],
+    members: [{ user_id: 1, role: 'owner' }],
+    passenger_ids: [],
     tags,
     country_code: countryCode,
     reminder_opted_in: false,
@@ -68,8 +70,8 @@ function makeTrip(
   };
 }
 
-export function generateMockTrips() {
-  const trips = [];
+export function generateMockTrips(): Trip[] {
+  const trips: Trip[] = [];
   const now = new Date();
   let id = 1;
 
