@@ -228,10 +228,12 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 		t.Errorf("owner feed missing a plan:\n%s", ownerFeed)
 	}
 
-	// Member's me feed has only the public plan — the hidden one must not leak.
+	// Member's me feed is empty: the member is neither the owner nor a passenger
+	// on this trip, just a shared viewer — so a friend's trip must NOT appear on
+	// their personal feed (issue #76). The hidden plan must of course stay absent.
 	memberFeed := feed("/api/calendar/me.ics?token=" + memberTok.Token)
-	if !strings.Contains(memberFeed, "Public Flight") {
-		t.Errorf("member feed missing public plan:\n%s", memberFeed)
+	if strings.Contains(memberFeed, "Public Flight") {
+		t.Errorf("member me feed LEAKED a friend's trip (issue #76):\n%s", memberFeed)
 	}
 	if strings.Contains(memberFeed, "Hidden Flight") {
 		t.Errorf("member feed LEAKED hidden plan:\n%s", memberFeed)

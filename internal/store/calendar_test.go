@@ -276,6 +276,58 @@ func TestCalendarEventsVisibility(t *testing.T) {
 	}
 }
 
+// TestCalendarMeFeedScopedToOwnTrips: the "me" feed contains only the viewer's
+// own trips — ones they created plus plans they're a passenger on — and excludes
+// a friend's trip merely shared with them (issue #76).
+func TestCalendarMeFeedScopedToOwnTrips(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	viewer := mkUser(t, s)
+	friend := mkUser(t, s)
+	befriendStore(t, s, viewer, friend)
+
+	now := time.Now().UTC()
+
+	// 1) A trip the viewer owns → its plan should be on the me feed.
+	ownTrip := mkTrip(t, s, viewer)
+	ownPlan := mkTypedPlan(t, s, ownTrip, viewer, "flight", "Own Flight", "", "")
+	mkPart(t, s, ownPlan, now, nil, "Europe/London", "", "LHR")
+
+	// 2) A friend's trip the viewer can see (default-visible, shared via
+	//    membership + friendship) but is NOT travelling on → must be excluded.
+	sharedTrip := mkTrip(t, s, friend)
+	addMember(t, s, sharedTrip, viewer, "viewer")
+	sharedPlan := mkTypedPlan(t, s, sharedTrip, friend, "hotel", "Friend Hotel", "", "")
+	mkPart(t, s, sharedPlan, now.Add(24*time.Hour), nil, "Europe/Paris", "", "Hotel")
+
+	// 3) A friend's trip where the viewer IS a passenger on a plan → that plan
+	//    should be on the me feed (they're travelling on it).
+	paxTrip := mkTrip(t, s, friend)
+	paxPlan := mkTypedPlan(t, s, paxTrip, friend, "flight", "Pax Flight", "", "")
+	mkPart(t, s, paxPlan, now.Add(48*time.Hour), nil, "Europe/London", "", "CDG")
+	addPlanPassenger(t, s, paxPlan, viewer)
+
+	ev, err := s.CalendarEventsForUser(ctx, viewer)
+	if err != nil {
+		t.Fatalf("CalendarEventsForUser: %v", err)
+	}
+	got := map[int64]bool{}
+	for _, e := range ev {
+		got[e.PlanID] = true
+	}
+	if !got[ownPlan] {
+		t.Errorf("me feed missing the viewer's own plan %d", ownPlan)
+	}
+	if !got[paxPlan] {
+		t.Errorf("me feed missing the passenger plan %d", paxPlan)
+	}
+	if got[sharedPlan] {
+		t.Errorf("me feed LEAKED a friend's shared-only trip plan %d (issue #76)", sharedPlan)
+	}
+}
+
 // TestCalendarEventsExcludeDismissed: a superseded/dismissed part is omitted.
 func TestCalendarEventsExcludeDismissed(t *testing.T) {
 	s := newStore(t)
