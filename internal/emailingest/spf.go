@@ -8,14 +8,13 @@ import "strings"
 // to smtp.helo) has the same domain, exact and case-insensitive, with no
 // subdomain allowance.
 //
-// As with DKIMPass, only Authentication-Results headers whose authserv-id
-// equals trustedAuthServID — the ones stamped by our own boundary MTA — are
-// trusted; any header a sender injected carries a different authserv-id and is
-// ignored. Plain SPF only proves a server may send for the *envelope* domain,
-// which a spoofer can set freely, so we additionally require that domain to
-// match the From header: otherwise an SPF "pass" for the attacker's own
-// envelope domain would vouch for a forged From and let their bookings land in
-// the victim's account.
+// As with DKIMPass, only the leading run of Authentication-Results headers
+// stamped by our own boundary MTA (authserv-id == trustedAuthServID) is trusted
+// — see boundaryAuthResults. Plain SPF only proves a server may send for the
+// *envelope* domain, which a spoofer can set freely, so we additionally require
+// that domain to match the From header: otherwise an SPF "pass" for the
+// attacker's own envelope domain would vouch for a forged From and let their
+// bookings land in the victim's account.
 //
 // An empty trustedAuthServID or domain fails closed.
 func SPFPass(headers []string, trustedAuthServID, domain string) bool {
@@ -24,10 +23,7 @@ func SPFPass(headers []string, trustedAuthServID, domain string) bool {
 	if domain == "" || want == "" {
 		return false
 	}
-	for _, header := range headers {
-		if !authServMatches(header, want) {
-			continue
-		}
+	for _, header := range boundaryAuthResults(headers, want) {
 		for _, line := range strings.Split(header, "\n") {
 			if spfLineMatches(line, domain) {
 				return true

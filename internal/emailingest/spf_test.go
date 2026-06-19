@@ -71,9 +71,39 @@ func TestSPFPass_IgnoresUntrustedAuthServID(t *testing.T) {
 	if SPFPass(h, trustedID, "example.com") {
 		t.Error("a header not stamped by the trusted authserv-id must not be trusted")
 	}
-	h = append(h, "mail.example; spf=pass smtp.mailfrom=example.com")
+	// The genuine trusted header, stamped on top by our boundary MTA, still
+	// authenticates even with a foreign-id header injected below it.
+	h = []string{
+		"mail.example; spf=pass smtp.mailfrom=example.com",
+		"attacker.invalid; spf=pass smtp.mailfrom=example.com",
+	}
 	if !SPFPass(h, trustedID, "example.com") {
-		t.Error("the trusted MTA's header should still authenticate")
+		t.Error("the trusted MTA's topmost header should authenticate")
+	}
+}
+
+func TestSPFPass_IgnoresTrustedIDBelowForeignHeader(t *testing.T) {
+	// Only the leading run of boundary-stamped headers is trusted: a header
+	// bearing our authserv-id below a foreign-id header is sender-injected.
+	h := []string{
+		"attacker.invalid; spf=pass smtp.mailfrom=example.com",
+		"mail.example; spf=pass smtp.mailfrom=example.com",
+	}
+	if SPFPass(h, trustedID, "example.com") {
+		t.Error("a trusted-id header below a foreign-id header must be ignored as sender-injected")
+	}
+}
+
+func TestSPFPass_IgnoresInjectedTrustedHeaderBelowGenuineFail(t *testing.T) {
+	// Genuine spf=fail on top; forged spf=pass below a foreign-id header must
+	// not override it.
+	h := []string{
+		"mail.example; spf=fail smtp.mailfrom=example.com",
+		"attacker.invalid; whatever",
+		"mail.example; spf=pass smtp.mailfrom=example.com",
+	}
+	if SPFPass(h, trustedID, "example.com") {
+		t.Error("a forged trusted-id pass below a foreign-id header must not override the genuine fail")
 	}
 }
 
