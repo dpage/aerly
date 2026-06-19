@@ -8,8 +8,14 @@ export interface User {
   has_logged_in: boolean;
   /** Free-text home address, used as ingest context (e.g. "taxi from home"). */
   home_address: string;
+  /** Preferred page size for the PDF itinerary download. Only present on the
+   * signed-in user's own record (/api/me); absent for other viewers. */
+  paper_size?: PaperSize;
   last_login_at?: string;
 }
+
+/** Page size for the downloadable PDF itinerary. A4 is the default. */
+export type PaperSize = 'a4' | 'letter';
 
 export interface AuthProvider {
   /** URL-safe identifier, used in /auth/{name}/login. */

@@ -101,6 +101,15 @@ func TestUpdateUser(t *testing.T) {
 	if upd.Name != "Final" || !upd.IsSuperuser {
 		t.Errorf("partial update lost fields: %+v", upd)
 	}
+	// Paper size defaults to a4 and updates independently of the other fields.
+	if upd.PaperSize != "a4" {
+		t.Errorf("default paper_size = %q, want a4", upd.PaperSize)
+	}
+	letter := "letter"
+	upd, _ = s.UpdateUser(ctx, u.ID, UpdateUserPayload{PaperSize: &letter})
+	if upd.PaperSize != "letter" || upd.Name != "Final" {
+		t.Errorf("paper_size update wrong: %+v", upd)
+	}
 	if _, err := s.UpdateUser(ctx, 99999, UpdateUserPayload{Name: &name}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("update missing user → ErrNotFound, got %v", err)
 	}

@@ -29,14 +29,15 @@ var (
 )
 
 const userColumns = `id, username, name, avatar_url,
-	is_superuser, is_active, last_login_at, created_at, updated_at, home_address, session_version`
+	is_superuser, is_active, last_login_at, created_at, updated_at, home_address, session_version,
+	paper_size`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	if err := row.Scan(
 		&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-		&u.SessionVersion,
+		&u.SessionVersion, &u.PaperSize,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -143,6 +144,10 @@ type UpdateUserPayload struct {
 	IsSuperuser *bool
 	IsActive    *bool
 	HomeAddress *string
+	// PaperSize, when non-nil, sets the PDF itinerary page size. The DB CHECK
+	// constraint rejects anything other than "a4"/"letter"; the handler
+	// validates first so a bad value is a clean 400 rather than a 500.
+	PaperSize *string
 }
 
 func (s *Store) UpdateUser(ctx context.Context, id int64, in UpdateUserPayload) (*User, error) {
@@ -152,10 +157,11 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, in UpdateUserPayload) 
 			is_superuser = COALESCE($3, is_superuser),
 			is_active = COALESCE($4, is_active),
 			home_address = COALESCE($5, home_address),
+			paper_size = COALESCE($6, paper_size),
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING `+userColumns,
-		id, in.Name, in.IsSuperuser, in.IsActive, in.HomeAddress))
+		id, in.Name, in.IsSuperuser, in.IsActive, in.HomeAddress, in.PaperSize))
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
@@ -375,7 +381,8 @@ func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperu
 			RETURNING `+userColumns,
 			u.ID, p.Name, p.AvatarURL,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
+			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
+			&u.SessionVersion, &u.PaperSize)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -464,7 +471,8 @@ func insertNewUserTx(ctx context.Context, tx pgx.Tx, p OAuthProfile, bootstrapAs
 			RETURNING `+userColumns,
 			candidate, p.Name, p.AvatarURL, bootstrapAsSuperuser,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
+			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
+			&u.SessionVersion, &u.PaperSize)
 		if err == nil {
 			if _, e := tx.Exec(ctx, `RELEASE SAVEPOINT user_insert`); e != nil {
 				return nil, e
@@ -495,7 +503,8 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 		WHERE i.provider = $1 AND i.provider_user_id = $2`,
 		p.Provider, p.ProviderUserID,
 	).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
+		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
+		&u.SessionVersion, &u.PaperSize)
 	if err == nil {
 		return u, findStepIdentityMatch, nil
 	}
@@ -514,7 +523,8 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 			LIMIT 1`,
 			p.Email,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
+			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
+			&u.SessionVersion, &u.PaperSize)
 		if err == nil {
 			return u, findStepEmailMatch, nil
 		}
@@ -535,7 +545,8 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 			  AND NOT EXISTS (SELECT 1 FROM user_identities WHERE user_id = users.id)`,
 			p.Username,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
-			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress, &u.SessionVersion)
+			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
+			&u.SessionVersion, &u.PaperSize)
 		if err == nil {
 			return u, findStepInviteeMatch, nil
 		}

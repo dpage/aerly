@@ -34,6 +34,18 @@ func TestToUserDTOOmitsHomeAddress(t *testing.T) {
 	}
 }
 
+func TestSelfUserDTOCarriesPaperSize(t *testing.T) {
+	u := &store.User{ID: 1, Username: "octocat", PaperSize: "letter"}
+	// The page-size preference is a self-only field, like home_address: the
+	// shared projection omits it; the /api/me path carries it.
+	if d := ToUserDTO(u); d.PaperSize != "" {
+		t.Errorf("ToUserDTO leaked paper_size = %q, want empty", d.PaperSize)
+	}
+	if d := ToSelfUserDTO(u); d.PaperSize != "letter" {
+		t.Errorf("ToSelfUserDTO paper_size = %q, want letter", d.PaperSize)
+	}
+}
+
 func TestToUserDTONeverLoggedIn(t *testing.T) {
 	u := &store.User{ID: 2, Username: "invitee"} // LastLoginAt nil
 	d := ToUserDTO(u)

@@ -5,6 +5,7 @@ import { useStore } from '../state/store';
 import AlertPrefsSection from './AlertPrefsSection';
 import AutoShareSection from './AutoShareSection';
 import HomeAddressSection from './HomeAddressSection';
+import PaperSizeSection from './PaperSizeSection';
 import EmailsSection from './EmailsSection';
 import PushSection from './PushSection';
 
@@ -35,6 +36,7 @@ export default function PreferencesDialog({ open, onClose }: Props) {
     { label: 'Push', render: () => <PushSection /> },
     { label: 'Sharing', render: () => <AutoShareSection /> },
     { label: 'Home', render: () => <HomeAddressSection /> },
+    { label: 'Itinerary', render: () => <PaperSizeSection /> },
     ...(emailEnabled ? [{ label: 'Emails', render: () => <EmailsSection /> }] : []),
   ];
   const current = Math.min(tab, tabs.length - 1);

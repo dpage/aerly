@@ -281,6 +281,13 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(last()[1]?.body).toBe(JSON.stringify({ home_address: '1 Main St' }));
   });
 
+  it('updateMe with paper_size', async () => {
+    await api.updateMe({ paper_size: 'letter' });
+    expect(last()[0]).toBe('/api/me');
+    expect(last()[1]?.method).toBe('PATCH');
+    expect(last()[1]?.body).toBe(JSON.stringify({ paper_size: 'letter' }));
+  });
+
   it('listMyAutoShares', async () => {
     await api.listMyAutoShares();
     expect(last()[0]).toBe('/api/me/auto-shares');
@@ -786,6 +793,21 @@ describe('exportTripIcs (file download)', () => {
     });
     await api.exportTripIcs(7);
     expect(savedName).toBe('trip.ics');
+  });
+
+  it('exportTripPdf hits the .pdf endpoint and falls back to trip.pdf', async () => {
+    const spy = mockFetch(() => fileResponse(null));
+    let savedName = '';
+    vi.spyOn(HTMLAnchorElement.prototype, 'download', 'set').mockImplementation(function (
+      this: HTMLAnchorElement,
+      v: string,
+    ) {
+      savedName = v;
+    });
+    await api.exportTripPdf(9);
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/9/export.pdf');
+    expect(spy.mock.calls[0][1]?.credentials).toBe('include');
+    expect(savedName).toBe('trip.pdf');
   });
 
   it('throws the server error message on a non-ok response', async () => {

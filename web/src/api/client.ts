@@ -24,6 +24,7 @@ import type {
   NotificationItem,
   NotifySharesInput,
   Notifications,
+  PaperSize,
   Plan,
   PlanPart,
   PlanVisibility,
@@ -144,7 +145,8 @@ export const api = {
   },
 
   getMe: () => request<User>('GET', '/api/me'),
-  updateMe: (patch: { home_address?: string }) => request<User>('PATCH', '/api/me', patch),
+  updateMe: (patch: { home_address?: string; paper_size?: PaperSize }) =>
+    request<User>('PATCH', '/api/me', patch),
   getConfig: () => request<Capabilities>('GET', '/api/config'),
   getVersion: () => request<VersionInfo>('GET', '/api/version'),
 
@@ -270,6 +272,10 @@ export const api = {
   // this user can see and marks the response as an attachment, so we read it as
   // a blob and trigger a save with the server-supplied filename.
   exportTripIcs: (id: number) => downloadFile(`/api/trips/${id}/export.ics`, 'trip.ics'),
+  // Downloads the trip's visible plans as a printable PDF itinerary, formatted
+  // for the user's stored A4/US-Letter page size. Same session-auth + blob-save
+  // path as the .ics export.
+  exportTripPdf: (id: number) => downloadFile(`/api/trips/${id}/export.pdf`, 'trip.pdf'),
   createTrip: (input: CreateTripInput) => request<Trip>('POST', '/api/trips', input),
   updateTrip: (id: number, patch: UpdateTripInput) =>
     request<Trip>('PATCH', `/api/trips/${id}`, patch),

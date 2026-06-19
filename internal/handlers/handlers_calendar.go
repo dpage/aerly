@@ -164,16 +164,55 @@ func (a *API) exportTrip(w http.ResponseWriter, r *http.Request) {
 	body := renderICS(trip.Name, events)
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.Header().Set("Content-Disposition",
-		`attachment; filename="`+icsFilename(trip.Name)+`"`)
+		`attachment; filename="`+downloadFilename(trip.Name, "ics")+`"`)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(body))
 }
 
-// icsFilename turns a trip name into a safe ASCII download filename ending in
-// .ics. Anything outside [A-Za-z0-9-_] collapses to a hyphen so the value is
-// safe to drop unquoted-ish into the Content-Disposition header and onto any
-// filesystem; an empty/blank name falls back to "trip".
-func icsFilename(name string) string {
+// exportTripPDF serves the visible plans of one trip as a downloadable PDF
+// itinerary (issue #90). Like exportTrip it is session-authed and scoped to the
+// viewer's §4 visibility, so hidden plans never leak; it differs only in the
+// rendered format and in honouring the caller's A4/US-Letter page-size
+// preference.
+func (a *API) exportTripPDF(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
+		return
+	}
+	me := auth.UserFrom(r.Context())
+	ok, err := a.canViewTrip(r.Context(), id, me)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound, "Not found.")
+		return
+	}
+	trip, err := a.Store.TripByID(r.Context(), id)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	events, err := a.Store.CalendarEventsForTrip(r.Context(), me.ID, id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	body := renderItineraryPDF(trip, events, me.PaperSize)
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition",
+		`attachment; filename="`+downloadFilename(trip.Name, "pdf")+`"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
+// downloadFilename turns a trip name into a safe ASCII download filename with
+// the given extension. Anything outside [A-Za-z0-9] collapses to a hyphen so the
+// value is safe to drop unquoted-ish into the Content-Disposition header and
+// onto any filesystem; an empty/blank name falls back to "trip".
+func downloadFilename(name, ext string) string {
 	var b strings.Builder
 	prevDash := false
 	for _, r := range name {
@@ -192,7 +231,7 @@ func icsFilename(name string) string {
 	if slug == "" {
 		slug = "trip"
 	}
-	return slug + ".ics"
+	return slug + "." + ext
 }
 
 // --- Token-management handlers (session-authed) ---

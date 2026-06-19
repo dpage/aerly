@@ -19,6 +19,7 @@ vi.mock('../api/client', async () => {
       inviteUser: vi.fn(),
       updateUser: vi.fn(),
       deleteUser: vi.fn(),
+      updateMe: vi.fn(),
       getNotifications: vi.fn(),
       logout: vi.fn(),
     },
@@ -258,6 +259,30 @@ describe('user mutations', () => {
     mockApi.deleteUser.mockResolvedValue(undefined);
     await useStore.getState().deleteUser(1);
     expect(useStore.getState().users.map((u) => u.id)).toEqual([2]);
+  });
+
+  it('setHomeAddress updates me and the users list', async () => {
+    useStore.setState({
+      users: [user({ id: 1, home_address: '' })],
+      me: user({ id: 1, home_address: '' }),
+    });
+    mockApi.updateMe.mockResolvedValue(user({ id: 1, home_address: '1 Main St' }));
+    await useStore.getState().setHomeAddress('1 Main St');
+    expect(mockApi.updateMe).toHaveBeenCalledWith({ home_address: '1 Main St' });
+    expect(useStore.getState().me?.home_address).toBe('1 Main St');
+    expect(useStore.getState().users[0].home_address).toBe('1 Main St');
+  });
+
+  it('setPaperSize updates me and the users list', async () => {
+    useStore.setState({
+      users: [user({ id: 1, paper_size: 'a4' })],
+      me: user({ id: 1, paper_size: 'a4' }),
+    });
+    mockApi.updateMe.mockResolvedValue(user({ id: 1, paper_size: 'letter' }));
+    await useStore.getState().setPaperSize('letter');
+    expect(mockApi.updateMe).toHaveBeenCalledWith({ paper_size: 'letter' });
+    expect(useStore.getState().me?.paper_size).toBe('letter');
+    expect(useStore.getState().users[0].paper_size).toBe('letter');
   });
 });
 
