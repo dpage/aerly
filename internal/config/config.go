@@ -37,6 +37,17 @@ type Config struct {
 	MailFromAddress string
 	SendmailPath    string
 
+	// Web Push (optional). The VAPID key pair authenticates Aerly to the
+	// browser push services; the public half is handed to clients so they can
+	// subscribe, the private half signs each push and is a secret. Both empty
+	// disables push end-to-end (the endpoints report disabled, the sender
+	// no-ops, the UI hides the toggle). WebPushSubject is the VAPID "subject"
+	// (a mailto: or https: URL identifying this deployment), defaulting to
+	// PublicURL when WEBPUSH_VAPID_SUBJECT is unset.
+	WebPushVAPIDPublic  string
+	WebPushVAPIDPrivate string
+	WebPushSubject      string
+
 	// Email ingest (optional). All EmailIngest* fields are zero when
 	// EmailIngestEnabled is false. When enabled, the rest are populated
 	// from env vars with the defaults documented in README.
@@ -84,6 +95,10 @@ func Load() (*Config, error) {
 		SendmailPath:    getenv("MAIL_SENDMAIL_PATH", "/usr/sbin/sendmail"),
 	}
 
+	cfg.WebPushVAPIDPublic = strings.TrimSpace(os.Getenv("WEBPUSH_VAPID_PUBLIC_KEY"))
+	cfg.WebPushVAPIDPrivate = strings.TrimSpace(os.Getenv("WEBPUSH_VAPID_PRIVATE_KEY"))
+	cfg.WebPushSubject = getenv("WEBPUSH_VAPID_SUBJECT", cfg.PublicURL)
+
 	sessKey := os.Getenv("SESSION_KEY")
 	if len(sessKey) < 32 {
 		return nil, fmt.Errorf("SESSION_KEY must be set to at least 32 chars (got %d)", len(sessKey))
@@ -105,6 +120,12 @@ func Load() (*Config, error) {
 	}
 	if (cfg.GoogleID == "") != (cfg.GoogleSecret == "") {
 		problems = append(problems, "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together")
+	}
+	// Web Push is optional, but a half-configured key pair would let a client
+	// subscribe (public key present) against a server that can't sign a push
+	// (private key absent), or vice versa — fail closed at startup instead.
+	if (cfg.WebPushVAPIDPublic == "") != (cfg.WebPushVAPIDPrivate == "") {
+		problems = append(problems, "WEBPUSH_VAPID_PUBLIC_KEY and WEBPUSH_VAPID_PRIVATE_KEY must be set together")
 	}
 	if !cfg.DevAuthBypass && cfg.GitHubID == "" && cfg.GoogleID == "" {
 		problems = append(problems, "at least one OAuth provider must be configured "+
@@ -204,6 +225,13 @@ func Load() (*Config, error) {
 // for email ingest).
 func (c *Config) LLMConfigured() bool {
 	return c.LLMAPIKey != "" || c.LLMProvider == "ollama"
+}
+
+// WebPushEnabled reports whether Web Push is configured: both halves of the
+// VAPID key pair are present. When false the push endpoints report disabled,
+// the sender no-ops, and the UI hides the enable-push toggle.
+func (c *Config) WebPushEnabled() bool {
+	return c.WebPushVAPIDPublic != "" && c.WebPushVAPIDPrivate != ""
 }
 
 // UseOpenSky reports whether the OpenSky tracker should be used. We turn it

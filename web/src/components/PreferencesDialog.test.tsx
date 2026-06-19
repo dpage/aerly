@@ -13,6 +13,7 @@ vi.mock('./AlertPrefsSection', () => ({ default: () => <div data-testid="sec-ale
 vi.mock('./AutoShareSection', () => ({ default: () => <div data-testid="sec-sharing" /> }));
 vi.mock('./HomeAddressSection', () => ({ default: () => <div data-testid="sec-home" /> }));
 vi.mock('./EmailsSection', () => ({ default: () => <div data-testid="sec-emails" /> }));
+vi.mock('./PushSection', () => ({ default: () => <div data-testid="sec-push" /> }));
 
 import PreferencesDialog from './PreferencesDialog';
 
@@ -37,6 +38,12 @@ describe('PreferencesDialog', () => {
     render(<PreferencesDialog open onClose={() => {}} />);
     await userEvent.click(screen.getByRole('tab', { name: 'Sharing' }));
     expect(screen.getByTestId('sec-sharing')).toBeInTheDocument();
+  });
+
+  it('switches to the Push tab', async () => {
+    render(<PreferencesDialog open onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Push' }));
+    expect(screen.getByTestId('sec-push')).toBeInTheDocument();
   });
 
   it('hides the Emails tab when ingest is disabled', () => {

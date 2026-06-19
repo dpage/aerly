@@ -727,3 +727,46 @@ describe('notifyPlanShares', () => {
     expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ user_ids: [3], emails: [] }));
   });
 });
+
+describe('web push', () => {
+  it('GET /api/push/vapid-key', async () => {
+    const spy = mockFetch(() => jsonResponse({ enabled: true, public_key: 'k' }));
+    const out = await api.getPushVapidKey();
+    expect(spy.mock.calls[0][0]).toBe('/api/push/vapid-key');
+    expect(out).toEqual({ enabled: true, public_key: 'k' });
+  });
+
+  it('POST /api/push/subscriptions with endpoint + keys', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.subscribePush({ endpoint: 'https://push/x', keys: { p256dh: 'p', auth: 'a' } });
+    expect(spy.mock.calls[0][0]).toBe('/api/push/subscriptions');
+    expect(spy.mock.calls[0][1]?.method).toBe('POST');
+    expect(spy.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({ endpoint: 'https://push/x', keys: { p256dh: 'p', auth: 'a' } }),
+    );
+  });
+
+  it('DELETE /api/push/subscriptions with endpoint', async () => {
+    const spy = mockFetch(() => jsonResponse(undefined, 204));
+    await api.unsubscribePush('https://push/x');
+    expect(spy.mock.calls[0][0]).toBe('/api/push/subscriptions');
+    expect(spy.mock.calls[0][1]?.method).toBe('DELETE');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ endpoint: 'https://push/x' }));
+  });
+
+  it('GET /api/push/prefs', async () => {
+    const spy = mockFetch(() => jsonResponse({ kinds: { alert: true, share: false } }));
+    const out = await api.getPushPrefs();
+    expect(spy.mock.calls[0][0]).toBe('/api/push/prefs');
+    expect(out).toEqual({ kinds: { alert: true, share: false } });
+  });
+
+  it('PATCH /api/push/prefs with kind + enabled', async () => {
+    const spy = mockFetch(() => jsonResponse({ kinds: { alert: false, share: true } }));
+    const out = await api.updatePushPref('alert', false);
+    expect(spy.mock.calls[0][0]).toBe('/api/push/prefs');
+    expect(spy.mock.calls[0][1]?.method).toBe('PATCH');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ kind: 'alert', enabled: false }));
+    expect(out).toEqual({ kinds: { alert: false, share: true } });
+  });
+});

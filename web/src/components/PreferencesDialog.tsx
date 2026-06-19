@@ -6,6 +6,7 @@ import AlertPrefsSection from './AlertPrefsSection';
 import AutoShareSection from './AutoShareSection';
 import HomeAddressSection from './HomeAddressSection';
 import EmailsSection from './EmailsSection';
+import PushSection from './PushSection';
 
 interface Props {
   open: boolean;
@@ -31,6 +32,7 @@ export default function PreferencesDialog({ open, onClose }: Props) {
   // space when ingest is disabled.
   const tabs = [
     { label: 'Alerts', render: () => <AlertPrefsSection /> },
+    { label: 'Push', render: () => <PushSection /> },
     { label: 'Sharing', render: () => <AutoShareSection /> },
     { label: 'Home', render: () => <HomeAddressSection /> },
     ...(emailEnabled ? [{ label: 'Emails', render: () => <EmailsSection /> }] : []),

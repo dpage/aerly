@@ -161,6 +161,9 @@ func run() error {
 	p.MailFromAddress = cfg.MailFromAddress
 	p.SendmailPath = cfg.SendmailPath
 	p.PublicURL = cfg.PublicURL
+	// Web Push is the third alert channel. Reuse the API's Sender (stateless and
+	// concurrency-safe); a no-op unless VAPID keys are configured.
+	p.Push = api.Push
 
 	// Operational quota/rate-limit alerts: when an upstream data provider
 	// returns a 429, email the admins (superusers with a verified address) so

@@ -14,6 +14,7 @@ import (
 	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -36,6 +37,18 @@ type Poller struct {
 	SendmailPath    string
 	PublicURL       string
 	SendAlertEmail  func(ctx context.Context, sendmailPath, envelopeSender, message string) error
+
+	// Push delivers flight-change alerts to subscribed devices as a third
+	// channel alongside in-app and email. nil (or a disabled Sender) skips the
+	// push channel; the other channels are unaffected.
+	Push pusher
+}
+
+// pusher is the slice of *push.Sender the poller needs, as an interface so the
+// alert tests can substitute a fake that records what would have been pushed.
+type pusher interface {
+	Enabled() bool
+	Send(ctx context.Context, userIDs []int64, p push.Payload)
 }
 
 // sseAlertEvent builds the user-private alert.created SSE event for a single

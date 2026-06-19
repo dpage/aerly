@@ -40,6 +40,10 @@ import type {
   UpdateUserInput,
   User,
   UserEmail,
+  VapidKey,
+  PushSubscriptionInput,
+  PushPrefs,
+  PushKind,
   VersionInfo,
 } from './types';
 
@@ -362,6 +366,20 @@ export const api = {
     request<void>('POST', `/api/trips/${tripId}/notify-shares`, input).then(() => undefined),
   notifyPlanShares: (planId: number, input: NotifySharesInput) =>
     request<void>('POST', `/api/plans/${planId}/notify-shares`, input).then(() => undefined),
+
+  // -------------------------------------------------------------------------
+  // Web Push (PWA push notifications). vapid-key reports whether push is
+  // configured server-side and returns the public key needed to subscribe;
+  // subscriptions register/unregister this device; prefs are per-kind toggles.
+  // -------------------------------------------------------------------------
+  getPushVapidKey: () => request<VapidKey>('GET', '/api/push/vapid-key'),
+  subscribePush: (sub: PushSubscriptionInput) =>
+    request<void>('POST', '/api/push/subscriptions', sub).then(() => undefined),
+  unsubscribePush: (endpoint: string) =>
+    request<void>('DELETE', '/api/push/subscriptions', { endpoint }).then(() => undefined),
+  getPushPrefs: () => request<PushPrefs>('GET', '/api/push/prefs'),
+  updatePushPref: (kind: PushKind, enabled: boolean) =>
+    request<PushPrefs>('PATCH', '/api/push/prefs', { kind, enabled }),
 };
 
 export { ApiError };

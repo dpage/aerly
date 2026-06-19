@@ -43,6 +43,10 @@ export default defineConfig({
         'src/test/**',
         'src/**/*.test.{ts,tsx}',
         '**/*.config.*',
+        // The service worker shell can only run in a ServiceWorkerGlobalScope
+        // (it references `self` and imports Workbox), so it can't be unit-tested
+        // here; its logic lives in src/swLogic.ts, which is covered.
+        'src/sw.ts',
       ],
       thresholds: {
         perFile: true,

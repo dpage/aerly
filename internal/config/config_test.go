@@ -22,6 +22,9 @@ func base(t *testing.T) {
 	t.Setenv("OPENSKY_ENABLED", "")
 	t.Setenv("AERODATABOX_RAPIDAPI_KEY", "")
 	t.Setenv("DEV_AUTH_BYPASS", "")
+	t.Setenv("WEBPUSH_VAPID_PUBLIC_KEY", "")
+	t.Setenv("WEBPUSH_VAPID_PRIVATE_KEY", "")
+	t.Setenv("WEBPUSH_VAPID_SUBJECT", "")
 }
 
 func TestLoadSuccessDefaults(t *testing.T) {
@@ -118,6 +121,64 @@ func TestLoadHalfConfiguredProviderRejected(t *testing.T) {
 			_, err := Load()
 			if err == nil || !strings.Contains(err.Error(), "must be set together") {
 				t.Fatalf("expected half-configured error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadWebPushDisabledByDefault(t *testing.T) {
+	base(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.WebPushEnabled() {
+		t.Error("WebPushEnabled() = true with no VAPID keys set")
+	}
+}
+
+func TestLoadWebPushEnabledWithKeyPair(t *testing.T) {
+	base(t)
+	t.Setenv("WEBPUSH_VAPID_PUBLIC_KEY", "pub")
+	t.Setenv("WEBPUSH_VAPID_PRIVATE_KEY", "priv")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.WebPushEnabled() {
+		t.Error("WebPushEnabled() = false with both keys set")
+	}
+	// Subject defaults to PublicURL when WEBPUSH_VAPID_SUBJECT is unset.
+	if cfg.WebPushSubject != "https://flights.example.com" {
+		t.Errorf("WebPushSubject = %q, want PublicURL default", cfg.WebPushSubject)
+	}
+}
+
+func TestLoadWebPushSubjectOverride(t *testing.T) {
+	base(t)
+	t.Setenv("WEBPUSH_VAPID_PUBLIC_KEY", "pub")
+	t.Setenv("WEBPUSH_VAPID_PRIVATE_KEY", "priv")
+	t.Setenv("WEBPUSH_VAPID_SUBJECT", "mailto:ops@example.com")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.WebPushSubject != "mailto:ops@example.com" {
+		t.Errorf("WebPushSubject = %q, want override", cfg.WebPushSubject)
+	}
+}
+
+func TestLoadWebPushHalfConfiguredRejected(t *testing.T) {
+	for _, c := range []struct{ name, setVar string }{
+		{"public only", "WEBPUSH_VAPID_PUBLIC_KEY"},
+		{"private only", "WEBPUSH_VAPID_PRIVATE_KEY"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			base(t)
+			t.Setenv(c.setVar, "x")
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "WEBPUSH_VAPID") {
+				t.Fatalf("expected half-configured WebPush error, got %v", err)
 			}
 		})
 	}

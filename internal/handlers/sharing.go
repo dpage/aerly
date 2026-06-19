@@ -318,6 +318,7 @@ func (a *API) notifyShares(ctx context.Context, actor *store.User, in notifyShar
 		}
 		a.publishNotifications(ctx, uid)
 		a.emailUser(ctx, uid, label, itemName, path)
+		a.pushShare(ctx, uid, label, itemName, path)
 	}
 	if len(in.Emails) == 0 {
 		return

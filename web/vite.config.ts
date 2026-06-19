@@ -16,7 +16,16 @@ export default defineConfig({
     // "A new version is available — Refresh" snackbar (src/App.tsx) drives the
     // update instead of a surprise auto-reload. injectRegister is off because we
     // register through the React hook in src/pwa.ts.
+    //
+    // `injectManifest` (rather than generateSW): we own the worker source at
+    // src/sw.ts so it can carry a Web Push handler alongside the offline caching
+    // — the caching routes there are a faithful port of the workbox config that
+    // used to live in this file. inlineWorkboxRuntime keeps it a single sw.js
+    // (spa.go embeds and cache-busts one file).
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'prompt',
       injectRegister: false,
       // Don't run the service worker under `npm run dev`; it caches aggressively
@@ -45,64 +54,12 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
-        // Keep the Workbox runtime inlined into a single sw.js so there's one
-        // service-worker file to embed and cache-bust (see internal/handlers/spa.go).
-        inlineWorkboxRuntime: true,
-        cleanupOutdatedCaches: true,
-        // Take control of the page as soon as the worker activates (including
-        // its first install), so API responses are cached during that first
-        // session too. Without this the worker doesn't intercept fetches until
-        // the next load, so a trip opened right after install is never cached
-        // and isn't readable offline. skipWaiting stays off (the update prompt
-        // drives activation), which clientsClaim doesn't affect.
-        clientsClaim: true,
-        // Client-side routes fall back to the precached index.html when offline,
-        // EXCEPT the server APIs — those must hit the network (or their runtime
-        // cache), never the SPA shell.
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/auth/, /^\/healthz/],
+      // injectManifest only controls what gets precached + injected into
+      // src/sw.ts (as self.__WB_MANIFEST). The runtime caching, navigation
+      // fallback, cleanupOutdatedCaches and clientsClaim that used to live here
+      // now live in src/sw.ts, ported verbatim.
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
-        runtimeCaching: [
-          {
-            // Itinerary + account data: serve fresh when online, fall back to the
-            // last response offline. The live SSE stream (/api/events) is excluded
-            // so the service worker never buffers and stalls it.
-            urlPattern: ({ url, request, sameOrigin }) =>
-              sameOrigin &&
-              request.method === 'GET' &&
-              url.pathname.startsWith('/api/') &&
-              url.pathname !== '/api/events',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'aerly-api',
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
-              cacheableResponse: { statuses: [200] },
-            },
-          },
-          {
-            // OpenStreetMap raster tiles — cache-first so recently viewed maps
-            // render offline; bounded so the cache can't grow without limit.
-            urlPattern: ({ url }) => url.hostname === 'tile.openstreetmap.org',
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'aerly-map-tiles',
-              expiration: { maxEntries: 500, maxAgeSeconds: 30 * 24 * 60 * 60 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-          {
-            // MapLibre glyph/sprite assets for the base style.
-            urlPattern: ({ url }) => url.hostname === 'demotiles.maplibre.org',
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'aerly-map-assets',
-              expiration: { maxEntries: 100, maxAgeSeconds: 30 * 24 * 60 * 60 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-        ],
       },
     }),
   ],

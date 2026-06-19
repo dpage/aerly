@@ -10,6 +10,7 @@ import (
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/mailer"
+	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -296,7 +297,37 @@ func (p *Poller) dispatchAlert(
 		if r.Email && r.EmailAddr != "" {
 			p.sendAlertEmail(ctx, r.EmailAddr, cur.Ident, kind, detail)
 		}
+		p.pushAlert(ctx, r.UserID, tp, cur.Ident, msg)
 	}
+}
+
+// pushAlert delivers the change to the recipient's subscribed devices as a Web
+// Push, gated on the user's 'alert' push-kind pref (default on). Threshold and
+// dedupe filtering have already happened in dispatchAlert, so reaching here
+// means the alert is worth pushing. Best-effort: a disabled Sender, a user with
+// push off, or one with no subscriptions is a silent no-op, and the Sender
+// itself never blocks or errors out of this path.
+func (p *Poller) pushAlert(ctx context.Context, userID int64, tp *store.TrackerPart, ident, msg string) {
+	if p.Push == nil || !p.Push.Enabled() {
+		return
+	}
+	on, err := p.Store.PushKindEnabled(ctx, userID, "alert")
+	if err != nil {
+		slog.Error("alert: push kind pref", "user", userID, "err", err)
+		return
+	}
+	if !on {
+		return
+	}
+	p.Push.Send(ctx, []int64{userID}, push.Payload{
+		Title: "Aerly flight alert",
+		Body:  msg,
+		// Deep-link to the flight's trip; the SW focuses/opens this on click.
+		URL: fmt.Sprintf("/trips/%d", tp.TripID),
+		// Collapse successive updates to the same flight into one notification.
+		Tag:  "alert-" + ident,
+		Kind: "alert",
+	})
 }
 
 // publishAlert persists the alert for the recipient, then pushes a single-user,

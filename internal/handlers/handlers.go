@@ -17,6 +17,7 @@ import (
 	aerlymaps "github.com/dpage/aerly/internal/maps"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/providers"
+	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -31,6 +32,11 @@ type API struct {
 	// post-ingest coord backfill for off-table airports on flights outside the
 	// resolver's ±180-day window. May be nil.
 	AirportResolver providers.AirportResolver
+
+	// Push delivers Web Push notifications. Always non-nil (New sets it), but
+	// a no-op unless VAPID keys are configured (Push.Enabled()). Typed as an
+	// interface so tests can substitute a fake that records what was pushed.
+	Push pusher
 
 	// Extractor backs the paste/upload ingest endpoints (the LLM seam). May
 	// be nil when no LLM provider is configured — the ingest endpoints then
@@ -58,6 +64,7 @@ func New(s *store.Store, a *auth.Handler, hub *sse.Hub, cfg *config.Config, r pr
 	api := &API{Store: s, Auth: a, Hub: hub, Config: cfg, Resolver: r, StartedAt: time.Now()}
 	api.SendVerifyEmail = api.defaultSendVerifyEmail
 	api.Maps = aerlymaps.NewResolver()
+	api.Push = push.NewSender(s, cfg.WebPushVAPIDPublic, cfg.WebPushVAPIDPrivate, cfg.WebPushSubject)
 	return api
 }
 
@@ -98,6 +105,15 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/flights/resolve", req(http.HandlerFunc(a.resolveFlight)))
 
 	mux.Handle("POST /api/maps/resolve", req(http.HandlerFunc(a.resolveMapsURL)))
+
+	// Web Push (PWA push notifications). vapid-key is what the client needs to
+	// subscribe; subscriptions register/unregister a device; prefs are the
+	// per-kind toggles. All no-ops/disabled responses when VAPID is unset.
+	mux.Handle("GET /api/push/vapid-key", req(http.HandlerFunc(a.getPushVAPIDKey)))
+	mux.Handle("POST /api/push/subscriptions", req(http.HandlerFunc(a.subscribePush)))
+	mux.Handle("DELETE /api/push/subscriptions", req(http.HandlerFunc(a.unsubscribePush)))
+	mux.Handle("GET /api/push/prefs", req(http.HandlerFunc(a.getPushPrefs)))
+	mux.Handle("PATCH /api/push/prefs", req(http.HandlerFunc(a.setPushPref)))
 
 	mux.Handle("GET /api/notifications", req(http.HandlerFunc(a.getNotifications)))
 	mux.Handle("GET /api/alerts", req(http.HandlerFunc(a.listAlerts)))

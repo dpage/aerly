@@ -755,3 +755,25 @@ export interface UpdateAlertPrefsInput {
   email?: boolean;
   min_delay_min?: number;
 }
+
+// --- Web Push (PWA push notifications) ---
+
+/** GET /api/push/vapid-key response. public_key is present only when enabled. */
+export interface VapidKey {
+  enabled: boolean;
+  public_key?: string;
+}
+
+/** POST body for registering a device, mirroring PushSubscription.toJSON(). */
+export interface PushSubscriptionInput {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+/** The notification kinds a user can independently toggle for push. */
+export type PushKind = 'alert' | 'share';
+
+/** GET/PATCH /api/push/prefs response: each known kind mapped to on/off. */
+export interface PushPrefs {
+  kinds: Record<PushKind, boolean>;
+}
