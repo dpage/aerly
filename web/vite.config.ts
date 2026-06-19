@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import mockApiPlugin from './mock/vite-plugin-mock-api';
 
 // Vite dev server proxies /api, /auth, /healthz to the Go server on :8080.
 // In production the Go binary serves the built SPA directly, so the proxy is
@@ -8,6 +9,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
   plugins: [
     react(),
+    // MOCK=1 npm run dev serves the UI from in-memory fixtures (no Go backend):
+    // the plugin must come before the /api proxy so its middleware answers first.
+    // Only registered when MOCK=1, so a normal `npm run dev` is untouched.
+    ...(process.env.MOCK === '1' ? [mockApiPlugin()] : []),
     // Progressive Web App: precaches the built shell so Aerly installs to the
     // home screen on iOS and Android and opens offline, and runtime-caches the
     // itinerary API + map tiles so trips stay readable with no connection.
