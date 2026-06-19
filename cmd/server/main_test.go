@@ -47,14 +47,14 @@ func TestRunConfigError(t *testing.T) {
 	t.Setenv("GITHUB_CLIENT_SECRET", "")
 	t.Setenv("DEV_AUTH_BYPASS", "")
 	t.Setenv("POLL_INTERVAL", "")
-	if err := run(); err == nil {
+	if err := run(""); err == nil {
 		t.Fatal("expected run() to fail with an invalid config")
 	}
 }
 
 func TestRunBadDatabaseURL(t *testing.T) {
 	devEnv(t, "::::not-a-valid-dsn", "127.0.0.1:0")
-	if err := run(); err == nil {
+	if err := run(""); err == nil {
 		t.Fatal("expected run() to fail opening an invalid DATABASE_URL")
 	}
 }
@@ -75,7 +75,7 @@ func TestRunMigrateError(t *testing.T) {
 	conn.Close(context.Background())
 
 	devEnv(t, dbURL, "127.0.0.1:0")
-	if err := run(); err == nil {
+	if err := run(""); err == nil {
 		t.Fatal("expected run() to fail when migrations conflict")
 	}
 }
@@ -93,7 +93,7 @@ func TestRunListenError(t *testing.T) {
 	defer l.Close()
 
 	devEnv(t, dbURL, l.Addr().String())
-	if err := run(); err == nil {
+	if err := run(""); err == nil {
 		t.Fatal("expected run() to surface a ListenAndServe error")
 	}
 }

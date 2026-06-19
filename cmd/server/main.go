@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -38,18 +39,33 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
-	if err := run(); err != nil {
+	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	configPath := fs.String("config", "", "path to a YAML config file (must be mode 0400); "+
+		"its keys are env-var names and environment variables override it")
+	// Ignore the error: ExitOnError already prints usage and exits on a bad flag.
+	_ = fs.Parse(os.Args[1:])
+
+	if err := run(*configPath); err != nil {
 		slog.Error("server failed", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(configPath string) error {
 	// Load .env from the current working directory if present, so we don't
 	// have to depend on the shell parsing values that contain quotes, $, etc.
 	// godotenv's parser handles single-quoted values literally.
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Warn(".env present but failed to parse", "err", err)
+	}
+	// An optional --config YAML file fills in any settings the environment (and
+	// .env) hasn't already set; env vars take precedence. The file must be
+	// 0400 since it may carry secrets, and LoadFile refuses to start otherwise.
+	if configPath != "" {
+		if err := config.LoadFile(configPath); err != nil {
+			return err
+		}
+		slog.Info("config file loaded", "path", configPath)
 	}
 	cfg, err := config.Load()
 	if err != nil {

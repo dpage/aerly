@@ -48,7 +48,35 @@ in-app even when email is not configured.
 
 ## Configuration
 
-All configuration is via environment variables (see `.env.example`).
+Configuration is via environment variables (see `.env.example`), optionally
+backed by a YAML config file.
+
+### Config file
+
+Pass `--config /path/to/aerly.yaml` to the server to read settings from a
+YAML file. Its keys are the same environment-variable names listed below, so
+the file is a drop-in alternative to setting them in the environment:
+
+```yaml
+# /etc/aerly/aerly.yaml
+LISTEN_ADDR: ":8080"
+DATABASE_URL: "postgres://aerly@localhost/aerly"
+SESSION_KEY: "…at least 32 random chars…"
+GITHUB_CLIENT_ID: "…"
+GITHUB_CLIENT_SECRET: "…"
+DEV_AUTH_BYPASS: false   # booleans map to the 0/1 the loader expects
+POLL_INTERVAL: 60s
+```
+
+Environment variables (and a `.env`) **override** file values, so the file
+supplies defaults that a deployment can still tweak via the environment.
+
+Because the file typically holds secrets (`DATABASE_URL`, OAuth client
+secrets, `SESSION_KEY`), it **must** have `0400` permissions
+(`chmod 400 aerly.yaml`) — read-only by its owner. The server refuses to
+start if the file is any more permissive.
+
+### Environment variables
 
 | Variable                   | Required | Default                       | Notes                                                                                  |
 |----------------------------|----------|-------------------------------|----------------------------------------------------------------------------------------|
