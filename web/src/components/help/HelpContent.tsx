@@ -373,10 +373,18 @@ export const HELP_PAGES: HelpPage[] = [
           title="Export a trip as .ics"
           description="Use Export .ics on a trip to download a one-off calendar file of the plans you can see — the inverse of importing a TripIt or Kayak .ics. Unlike a subscription it's a fixed snapshot, handy for importing into another calendar or sharing a copy."
         />
+        <FeatureItem
+          title="Download a PDF itinerary"
+          description="Use Download PDF on a trip to save a printable itinerary of the plans you can see, grouped by day with times, routes and confirmation references. It's formatted for your chosen paper size — set A4 or US Letter on the Itinerary preferences tab."
+        />
         <SectionTitle>Preferences</SectionTitle>
         <FeatureItem
           title="Home address"
           description="On the Home tab, set your home address once so plans captured from text (e.g. “taxi from home to the airport”) know where home is. It's only ever visible to you."
+        />
+        <FeatureItem
+          title="Itinerary paper size"
+          description="On the Itinerary tab, choose A4 or US Letter for the PDF itinerary you download from a trip. A4 is the default."
         />
         <FeatureItem
           title="Email addresses"

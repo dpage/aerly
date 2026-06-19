@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   clearCurrentTrip: vi.fn(),
   plansOutsideTripDates: vi.fn(() => false),
   exportTripIcs: vi.fn(() => Promise.resolve()),
+  exportTripPdf: vi.fn(() => Promise.resolve()),
   state: {
     currentTrip: null as Trip | null,
     currentTripStatus: 'loading' as 'loading' | 'loaded' | 'error',
@@ -19,7 +20,10 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('../api/client', () => ({
-  api: { exportTripIcs: (id: number) => h.exportTripIcs(id) },
+  api: {
+    exportTripIcs: (id: number) => h.exportTripIcs(id),
+    exportTripPdf: (id: number) => h.exportTripPdf(id),
+  },
 }));
 
 vi.mock('../state/store', () => ({
@@ -157,6 +161,7 @@ describe('TripDetail', () => {
     expect(screen.getByRole('button', { name: /share/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /subscribe/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /export \.ics/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /download pdf/i })).toBeInTheDocument();
   });
 
   it('downloads the trip .ics when Export is clicked', async () => {
@@ -166,12 +171,39 @@ describe('TripDetail', () => {
     expect(h.exportTripIcs).toHaveBeenCalledWith(7);
   });
 
+  it('downloads the trip PDF when Download PDF is clicked', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /download pdf/i }));
+    expect(h.exportTripPdf).toHaveBeenCalledWith(7);
+  });
+
   it('surfaces an error when the .ics export fails', async () => {
     h.exportTripIcs.mockRejectedValueOnce(new Error('Not found.'));
     h.state.currentTrip = trip();
     renderDetail();
     await userEvent.click(screen.getByRole('button', { name: /export \.ics/i }));
-    expect(await screen.findByText(/couldn't export this trip: not found/i)).toBeInTheDocument();
+    expect(await screen.findByText(/couldn't download this trip: not found/i)).toBeInTheDocument();
+  });
+
+  it('surfaces an error when the PDF export fails', async () => {
+    h.exportTripPdf.mockRejectedValueOnce(new Error('Boom.'));
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /download pdf/i }));
+    expect(await screen.findByText(/couldn't download this trip: boom/i)).toBeInTheDocument();
+  });
+
+  it('dismisses the export error alert via its close button', async () => {
+    h.exportTripIcs.mockRejectedValueOnce(new Error('Nope.'));
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /export \.ics/i }));
+    expect(await screen.findByText(/couldn't download this trip: nope/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /close/i }));
+    await waitFor(() =>
+      expect(screen.queryByText(/couldn't download this trip: nope/i)).not.toBeInTheDocument(),
+    );
   });
 
   it('hides the server-mutating actions when offline', () => {
@@ -389,6 +421,7 @@ describe('TripDetail (narrow / mobile)', () => {
     expect(screen.getByRole('menuitem', { name: /share/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /subscribe/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /export \.ics/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /download pdf/i })).toBeInTheDocument();
   });
 
   it('exports the trip .ics from the overflow menu', async () => {
@@ -397,6 +430,14 @@ describe('TripDetail (narrow / mobile)', () => {
     await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
     await userEvent.click(screen.getByRole('menuitem', { name: /export \.ics/i }));
     expect(h.exportTripIcs).toHaveBeenCalledWith(7);
+  });
+
+  it('downloads the trip PDF from the overflow menu', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /download pdf/i }));
+    expect(h.exportTripPdf).toHaveBeenCalledWith(7);
   });
 
   it('opens the edit dialog from the overflow menu', async () => {

@@ -8,6 +8,7 @@ import type {
   Friendship,
   InviteUserInput,
   Notifications,
+  PaperSize,
   UpdateUserInput,
   User,
 } from '../api/types';
@@ -91,6 +92,7 @@ export interface CoreSlice {
   deleteUser: (id: number) => Promise<void>;
 
   setHomeAddress: (address: string) => Promise<void>;
+  setPaperSize: (paperSize: PaperSize) => Promise<void>;
   refreshAutoShares: () => Promise<void>;
   setAutoShare: (userId: number, role: AutoShareRole) => Promise<void>;
   removeAutoShare: (userId: number) => Promise<void>;
@@ -196,6 +198,14 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
 
   async setHomeAddress(address) {
     const updated = await api.updateMe({ home_address: address });
+    set((s) => ({
+      me: updated,
+      users: s.users.map((u) => (u.id === updated.id ? updated : u)),
+    }));
+  },
+
+  async setPaperSize(paperSize) {
+    const updated = await api.updateMe({ paper_size: paperSize });
     set((s) => ({
       me: updated,
       users: s.users.map((u) => (u.id === updated.id ? updated : u)),

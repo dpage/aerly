@@ -17,14 +17,18 @@ type CoordsDTO struct {
 }
 
 type UserDTO struct {
-	ID          int64      `json:"id"`
-	Username    string     `json:"username"`
-	Name        string     `json:"name"`
-	AvatarURL   string     `json:"avatar_url"`
-	IsSuperuser bool       `json:"is_superuser"`
-	IsActive    bool       `json:"is_active"`
-	HasLoggedIn bool       `json:"has_logged_in"`
-	HomeAddress string     `json:"home_address"`
+	ID          int64  `json:"id"`
+	Username    string `json:"username"`
+	Name        string `json:"name"`
+	AvatarURL   string `json:"avatar_url"`
+	IsSuperuser bool   `json:"is_superuser"`
+	IsActive    bool   `json:"is_active"`
+	HasLoggedIn bool   `json:"has_logged_in"`
+	HomeAddress string `json:"home_address"`
+	// PaperSize is the PDF-itinerary page-size preference ("a4"/"letter"). Like
+	// HomeAddress it is only populated by ToSelfUserDTO — other viewers have no
+	// use for it and never receive it.
+	PaperSize   string     `json:"paper_size,omitempty"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 }
 
@@ -54,6 +58,7 @@ func ToUserDTO(u *store.User) UserDTO {
 func ToSelfUserDTO(u *store.User) UserDTO {
 	dto := ToUserDTO(u)
 	dto.HomeAddress = u.HomeAddress
+	dto.PaperSize = u.PaperSize
 	return dto
 }
 

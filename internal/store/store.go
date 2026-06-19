@@ -28,6 +28,10 @@ type User struct {
 	IsSuperuser bool
 	IsActive    bool
 	HomeAddress string
+	// PaperSize is the user's preferred page size for the PDF itinerary export,
+	// either "a4" (the default) or "letter". Stored per-user so the formatter
+	// can pick page dimensions without prompting on every download.
+	PaperSize   string
 	LastLoginAt *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dpage/aerly/internal/config"
+	"github.com/dpage/aerly/internal/store"
 )
 
 // rawGet issues an anonymous GET (no session cookie) and returns the recorder —
@@ -341,6 +342,89 @@ func TestExportTripICS(t *testing.T) {
 	}
 	// Bad id → 400.
 	if w := e.req(t, "GET", "/api/trips/abc/export.ics", nil, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("bad id export = %d, want 400", w.Code)
+	}
+}
+
+// TestExportTripPDF: the session-authed PDF itinerary downloads the viewer's
+// visible plans as a PDF attachment, hides plans the viewer can't see, names the
+// file after the trip, honours the caller's A4/Letter preference, and 404s a
+// trip the caller can't view.
+func TestExportTripPDF(t *testing.T) {
+	e := setup(t, nil, calCfg())
+	owner := e.user(t, "pdf-owner", false)
+	member := e.user(t, "pdf-member", false)
+	stranger := e.user(t, "pdf-stranger", false)
+
+	trip := seedTrip(t, e, owner)
+	if _, err := e.pool.Exec(context.Background(),
+		`UPDATE trips SET name = 'Berlin 2026!' WHERE id = $1`, trip); err != nil {
+		t.Fatalf("rename trip: %v", err)
+	}
+	seedMember(t, e, trip, member)
+	e.befriend(t, owner, member)
+	pub := seedPlan(t, e, trip, owner, "Public Flight")
+	seedPart(t, e, pub)
+	hid := seedPlan(t, e, trip, owner, "Hidden Flight")
+	seedPart(t, e, hid)
+	hidePlanFrom(t, e, hid, member)
+
+	// Owner export: PDF attachment, trip-named file, both plans, default A4.
+	w := e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.pdf", nil, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("owner export = %d %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
+		t.Errorf("content-type = %q, want application/pdf", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); cd != `attachment; filename="Berlin-2026.pdf"` {
+		t.Errorf("content-disposition = %q", cd)
+	}
+	body := w.Body.String()
+	if !strings.HasPrefix(body, "%PDF-1.4") {
+		t.Errorf("owner export is not a PDF: %q", body[:min(16, len(body))])
+	}
+	if !strings.Contains(body, "Public Flight") || !strings.Contains(body, "Hidden Flight") {
+		t.Errorf("owner export missing a plan")
+	}
+	if !strings.Contains(body, "595.28 841.89") {
+		t.Errorf("owner export should default to A4 dimensions")
+	}
+
+	// Member export: the hidden plan must not leak.
+	w = e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.pdf", nil, member)
+	if w.Code != http.StatusOK {
+		t.Fatalf("member export = %d %s", w.Code, w.Body.String())
+	}
+	memberBody := w.Body.String()
+	if !strings.Contains(memberBody, "Public Flight") {
+		t.Errorf("member export missing public plan")
+	}
+	if strings.Contains(memberBody, "Hidden Flight") {
+		t.Errorf("member export LEAKED hidden plan")
+	}
+
+	// The page-size preference is honoured: switch to US Letter, re-export.
+	letter := "letter"
+	if _, err := e.store.UpdateUser(context.Background(), owner,
+		store.UpdateUserPayload{PaperSize: &letter}); err != nil {
+		t.Fatalf("set paper size: %v", err)
+	}
+	w = e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.pdf", nil, owner)
+	if !strings.Contains(w.Body.String(), "612.00 792.00") {
+		t.Errorf("letter preference not reflected in MediaBox")
+	}
+
+	// A stranger can't view the trip → 404.
+	if w := e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.pdf", nil, stranger); w.Code != http.StatusNotFound {
+		t.Errorf("stranger export = %d, want 404", w.Code)
+	}
+	// Export requires a session.
+	if w := e.req(t, "GET", "/api/trips/"+itoa(trip)+"/export.pdf", nil, 0); w.Code != http.StatusUnauthorized {
+		t.Errorf("anon export = %d, want 401", w.Code)
+	}
+	// Bad id → 400.
+	if w := e.req(t, "GET", "/api/trips/abc/export.pdf", nil, owner); w.Code != http.StatusBadRequest {
 		t.Errorf("bad id export = %d, want 400", w.Code)
 	}
 }
