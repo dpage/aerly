@@ -3,9 +3,11 @@ package handlers
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -122,11 +124,45 @@ func typeLabel(t string) string {
 	}
 }
 
-// renderItineraryPDF lays out the trip's visible events as a printable PDF and
-// returns the encoded file. events are expected pre-sorted by start time (as
-// CalendarEventsForTrip returns them); they are grouped under a header per
-// local day. paper is the user's page-size preference.
-func renderItineraryPDF(trip *store.Trip, events []*store.CalendarEvent, paper string) []byte {
+// itinPart pairs a visible plan_part with its owning plan, the unit the
+// itinerary renders one row per. The plan carries the booking-level details
+// (confirmation, ticket, supplier, contact); the part carries the leg's times,
+// labels and addresses.
+type itinPart struct {
+	plan *api.PlanDTO
+	part *api.PlanPartDTO
+}
+
+// flattenPlans expands the trip's plans into time-ordered itinerary rows, one
+// per non-dismissed part, sorted by start time (then part id for stable
+// ordering of parts that share an instant).
+func flattenPlans(plans []api.PlanDTO) []itinPart {
+	var items []itinPart
+	for i := range plans {
+		pl := &plans[i]
+		for j := range pl.Parts {
+			pt := &pl.Parts[j]
+			if pt.DismissedAt != nil {
+				continue // superseded/tidied-away leg, as the calendar feed omits
+			}
+			items = append(items, itinPart{plan: pl, part: pt})
+		}
+	}
+	sort.SliceStable(items, func(a, b int) bool {
+		ai, bi := items[a].part, items[b].part
+		if !ai.StartsAt.Equal(bi.StartsAt) {
+			return ai.StartsAt.Before(bi.StartsAt)
+		}
+		return ai.ID < bi.ID
+	})
+	return items
+}
+
+// renderItineraryPDF lays out the trip's visible plans as a printable PDF and
+// returns the encoded file. Parts are grouped under a header per local day, in
+// time order, each with its route, addresses, booking references and contact
+// details. paper is the user's page-size preference.
+func renderItineraryPDF(trip *store.Trip, plans []api.PlanDTO, paper string) []byte {
 	l := newPDFLayout(paper)
 
 	// Title block: trip name, then destination/date meta, then a rule.
@@ -144,16 +180,17 @@ func renderItineraryPDF(trip *store.Trip, events []*store.CalendarEvent, paper s
 	l.hrule(0.75)
 	l.y -= 18
 
-	if len(events) == 0 {
+	items := flattenPlans(plans)
+	if len(items) == 0 {
 		l.text(l.margin, l.y, "F1", 11, 0.4, "No plans to show.")
 		l.y -= 16
 	}
 
 	bodyX := l.margin + 64
 	var lastDay string
-	for _, e := range events {
-		loc := eventLoc(e.StartTZ)
-		start := e.StartsAt.In(loc)
+	for _, it := range items {
+		loc := eventLoc(it.part.StartTZ)
+		start := it.part.StartsAt.In(loc)
 		day := start.Format("Monday, 2 January 2006")
 		if day != lastDay {
 			l.ensure(34)
@@ -163,15 +200,15 @@ func renderItineraryPDF(trip *store.Trip, events []*store.CalendarEvent, paper s
 			lastDay = day
 		}
 
-		// Each event: a bold time in the left column, the title beside it, then
+		// Each row: a bold time in the left column, the title beside it, then
 		// indented detail lines. Keep the time+title pair together on a page.
 		l.ensure(28)
 		l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
-		title := typeLabel(e.Type) + ": " + nonEmpty(e.Title, typeLabel(e.Type))
+		title := typeLabel(it.plan.Type) + ": " + nonEmpty(it.plan.Title, typeLabel(it.plan.Type))
 		l.text(bodyX, l.y, "F2", 11, 0.1, title)
 		l.y -= 16
 
-		for _, d := range eventDetails(e, loc) {
+		for _, d := range partDetails(it) {
 			l.line(bodyX, "F1", 9.5, 0.4, 13, d)
 		}
 		l.y -= 8
@@ -208,25 +245,78 @@ func dateSpan(start, end *time.Time) string {
 	}
 }
 
-// eventDetails builds the indented detail lines under an event: the
-// from→to route, the full time range, a confirmation reference, a cancelled
-// flag, and any notes. Empty parts are skipped.
-func eventDetails(e *store.CalendarEvent, loc *time.Location) []string {
+// partDetails builds the indented detail lines under one itinerary row: the
+// from→to route, the departure/arrival (or single) address, the full time
+// range, the booking references (confirmation + ticket), the supplier contact
+// block, a cancelled flag, and any notes. Empty fields are skipped.
+func partDetails(it itinPart) []string {
+	pl, pt := it.plan, it.part
 	var out []string
-	if route := routeLine(e.StartLabel, e.EndLabel); route != "" {
+
+	if route := routeLine(pt.StartLabel, pt.EndLabel); route != "" {
 		out = append(out, route)
 	}
-	out = append(out, timeRange(e, loc))
-	if e.ConfirmationRef != "" {
-		out = append(out, "Confirmation: "+e.ConfirmationRef)
+	// Addresses. A part with a destination (a journey: flight/train/transfer)
+	// labels them From/To; a single-location plan (hotel/dining/excursion) shows
+	// one "Address" line.
+	twoEnded := pt.EndLabel != "" || pt.EndAddress != ""
+	if pt.StartAddress != "" {
+		if twoEnded {
+			out = append(out, "From: "+oneLine(pt.StartAddress))
+		} else {
+			out = append(out, "Address: "+oneLine(pt.StartAddress))
+		}
 	}
-	if e.Status == "cancelled" {
+	if pt.EndAddress != "" {
+		out = append(out, "To: "+oneLine(pt.EndAddress))
+	}
+
+	out = append(out, timeRange(pt.StartsAt, pt.EndsAt, pt.StartTZ, pt.EndTZ))
+
+	if refs := joinNonEmpty("   ", labelled("Confirmation", pl.ConfirmationRef),
+		labelled("Ticket", pl.TicketNumber)); refs != "" {
+		out = append(out, refs)
+	}
+	if contact := joinNonEmpty("   ", labelled("Booked with", pl.SupplierName),
+		labelled("Tel", pl.ContactPhone), labelled("Email", pl.ContactEmail)); contact != "" {
+		out = append(out, contact)
+	}
+	if pl.Website != "" {
+		out = append(out, oneLine(pl.Website))
+	}
+	if pt.Status == "cancelled" {
 		out = append(out, "Status: cancelled")
 	}
-	if e.Notes != "" {
-		out = append(out, e.Notes)
+	if pl.Notes != "" {
+		out = append(out, oneLine(pl.Notes))
 	}
 	return out
+}
+
+// labelled returns "label: value" when value is non-blank, else "".
+func labelled(label, value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return label + ": " + value
+}
+
+// joinNonEmpty joins the non-empty parts with sep.
+func joinNonEmpty(sep string, parts ...string) string {
+	kept := parts[:0]
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, sep)
+}
+
+// oneLine collapses any internal newlines and runs of whitespace in free text
+// (addresses, notes) into single spaces so it flows through the wrapper as one
+// paragraph rather than breaking the layout.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // routeLine joins a start and end label with an arrow, tolerating either being
@@ -244,19 +334,19 @@ func routeLine(from, to string) string {
 	}
 }
 
-// timeRange renders an event's local time span, e.g. "Mon 2 Jan, 14:30 – 16:45"
-// or, across days, with the end's date too. End-less events show just the start.
-func timeRange(e *store.CalendarEvent, loc *time.Location) string {
-	start := e.StartsAt.In(loc)
+// timeRange renders a part's local time span, e.g. "Mon 2 Jan, 14:30 – 16:45"
+// or, across days, with the end's date too. End-less parts show just the start.
+func timeRange(startsAt time.Time, endsAt *time.Time, startTZ, endTZ string) string {
+	start := startsAt.In(eventLoc(startTZ))
 	s := start.Format("Mon 2 Jan, 15:04")
-	if e.EndsAt == nil {
+	if endsAt == nil {
 		return s
 	}
-	endLoc := loc
-	if e.EndTZ != "" {
-		endLoc = eventLoc(e.EndTZ)
+	endLoc := eventLoc(startTZ)
+	if endTZ != "" {
+		endLoc = eventLoc(endTZ)
 	}
-	end := e.EndsAt.In(endLoc)
+	end := endsAt.In(endLoc)
 	if sameDay(start, end) {
 		return s + " – " + end.Format("15:04")
 	}

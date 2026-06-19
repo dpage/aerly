@@ -46,7 +46,17 @@ export default function PreferencesDialog({ open, onClose }: Props) {
       <DialogTitle>Preferences</DialogTitle>
       <DialogContent dividers>
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-          <Tabs value={current} onChange={(_, v) => setTab(v as number)} variant="fullWidth">
+          {/* Scrollable, not fullWidth: with five or six tabs the row is wider
+              than the sm dialog, and a non-scrollable variant clips the overflow
+              off the right edge (hiding the last tabs, e.g. Itinerary/Emails)
+              with no way to reach them. */}
+          <Tabs
+            value={current}
+            onChange={(_, v) => setTab(v as number)}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+          >
             {tabs.map((t) => (
               <Tab key={t.label} label={t.label} />
             ))}

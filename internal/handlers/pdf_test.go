@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -23,17 +24,21 @@ func TestRenderItineraryPDFStructure(t *testing.T) {
 	start := mustTime(t, "2026-06-15T12:30:00Z")
 	end := mustTime(t, "2026-06-15T14:45:00Z")
 	trip := &store.Trip{Name: "Paris (2026)", Destination: "Paris", StartsOn: &start, EndsOn: &end}
-	events := []*store.CalendarEvent{
+	plans := []api.PlanDTO{
 		{
-			Type: "flight", Title: "BA303", ConfirmationRef: "ABC123",
-			StartsAt: start, EndsAt: &end, StartTZ: "Europe/London", EndTZ: "Europe/Paris",
-			StartLabel: "London Heathrow T5", EndLabel: "Paris CDG", Status: "confirmed",
-			Notes: "Seat 14A, window.",
+			Type: "flight", Title: "BA303", ConfirmationRef: "ABC123", TicketNumber: "125-4567",
+			SupplierName: "British Airways", ContactPhone: "+44 20 1234", ContactEmail: "help@ba.com",
+			Website: "https://ba.com", Notes: "Seat 14A,\nwindow.",
+			Parts: []api.PlanPartDTO{{
+				StartsAt: start, EndsAt: &end, StartTZ: "Europe/London", EndTZ: "Europe/Paris",
+				StartLabel: "London Heathrow T5", EndLabel: "Paris CDG",
+				StartAddress: "Heathrow Airport, Longford TW6 1QG",
+				EndAddress:   "95731 Roissy-en-France, France", Status: "confirmed",
+			}},
 		},
 	}
 
-	out := renderItineraryPDF(trip, events, "a4")
-	s := string(out)
+	s := string(renderItineraryPDF(trip, plans, "a4"))
 
 	if !strings.HasPrefix(s, "%PDF-1.4") {
 		t.Errorf("missing PDF header: %q", s[:min(16, len(s))])
@@ -50,7 +55,10 @@ func TestRenderItineraryPDFStructure(t *testing.T) {
 	// PDF string escaping for parentheses).
 	for _, want := range []string{
 		`Paris \(2026\)`, "Paris", "Flight: BA303", "London Heathrow T5 -> Paris CDG",
-		"Confirmation: ABC123", "Seat 14A, window.", "Monday, 15 June 2026", "Page 1 of",
+		"From: Heathrow Airport, Longford TW6 1QG", "To: 95731 Roissy-en-France, France",
+		"Confirmation: ABC123", "Ticket: 125-4567", "Booked with: British Airways",
+		"Tel: +44 20 1234", "Email: help@ba.com", "https://ba.com",
+		"Seat 14A, window.", "Monday, 15 June 2026", "Page 1 of",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("PDF content missing %q", want)
@@ -59,6 +67,26 @@ func TestRenderItineraryPDFStructure(t *testing.T) {
 	// A4 media box dimensions.
 	if !strings.Contains(s, "595.28 841.89") {
 		t.Errorf("A4 MediaBox missing from:\n%s", s)
+	}
+}
+
+// A single-location plan (hotel) shows one "Address" line rather than From/To.
+func TestRenderItineraryPDFSingleAddress(t *testing.T) {
+	at := mustTime(t, "2026-06-15T15:00:00Z")
+	trip := &store.Trip{Name: "Stay"}
+	plans := []api.PlanDTO{{
+		Type: "hotel", Title: "Hôtel de Ville",
+		Parts: []api.PlanPartDTO{{
+			StartsAt: at, StartTZ: "Europe/Paris", StartLabel: "Hôtel de Ville",
+			StartAddress: "1 Rue de Rivoli, Paris",
+		}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, "a4"))
+	if !strings.Contains(s, "Address: 1 Rue de Rivoli, Paris") {
+		t.Errorf("single-location plan should use an Address line:\n%s", s)
+	}
+	if strings.Contains(s, "From: 1 Rue de Rivoli") {
+		t.Errorf("single-location plan should not use From/To")
 	}
 }
 
@@ -74,41 +102,65 @@ func TestRenderItineraryPDFLetterAndEmpty(t *testing.T) {
 	}
 }
 
-// A trip with no name and a single cancelled, end-less event still renders, and
+// A trip with no name and a single cancelled, end-less part still renders, and
 // the cancelled flag and fallback title appear.
 func TestRenderItineraryPDFFallbacks(t *testing.T) {
 	at := mustTime(t, "2026-01-02T08:00:00Z")
 	trip := &store.Trip{} // no name, no destination, no dates
-	events := []*store.CalendarEvent{
-		{Type: "", Title: "", StartsAt: at, StartTZ: "", Status: "cancelled"},
-	}
-	s := string(renderItineraryPDF(trip, events, ""))
+	plans := []api.PlanDTO{{
+		Type: "", Title: "",
+		Parts: []api.PlanPartDTO{{StartsAt: at, StartTZ: "", Status: "cancelled"}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, ""))
 	if !strings.Contains(s, "Plan: Plan") {
-		t.Errorf("untyped/untitled event should fall back to Plan: Plan")
+		t.Errorf("untyped/untitled plan should fall back to Plan: Plan")
 	}
 	if !strings.Contains(s, "Status: cancelled") {
 		t.Errorf("cancelled status should be shown")
 	}
 }
 
-// Many events force pagination; the page tree Count and footers must reflect it.
+// Many plans force pagination; the page tree Count and footers must reflect it.
 func TestRenderItineraryPDFPaginates(t *testing.T) {
 	trip := &store.Trip{Name: "Long"}
-	var events []*store.CalendarEvent
+	var plans []api.PlanDTO
 	base := mustTime(t, "2026-03-01T09:00:00Z")
 	for i := 0; i < 60; i++ {
 		ts := base.Add(time.Duration(i) * 24 * time.Hour)
-		events = append(events, &store.CalendarEvent{
-			Type: "hotel", Title: "Stay", StartsAt: ts, StartTZ: "UTC",
+		plans = append(plans, api.PlanDTO{
+			Type: "hotel", Title: "Stay",
 			Notes: strings.Repeat("A long note that should wrap across the body column width. ", 4),
+			Parts: []api.PlanPartDTO{{StartsAt: ts, StartTZ: "UTC"}},
 		})
 	}
-	s := string(renderItineraryPDF(trip, events, "a4"))
+	s := string(renderItineraryPDF(trip, plans, "a4"))
 	if strings.Contains(s, "/Count 1 ") {
 		t.Errorf("expected multiple pages, got a single-page tree")
 	}
 	if !strings.Contains(s, "Page 2 of") {
 		t.Errorf("expected a second page footer")
+	}
+}
+
+// flattenPlans drops dismissed parts and orders the rest by start time.
+func TestFlattenPlans(t *testing.T) {
+	t1 := mustTime(t, "2026-03-01T09:00:00Z")
+	t2 := mustTime(t, "2026-03-01T12:00:00Z")
+	t3 := mustTime(t, "2026-03-02T08:00:00Z")
+	dismissed := t2
+	plans := []api.PlanDTO{
+		{Type: "hotel", Parts: []api.PlanPartDTO{
+			{ID: 3, StartsAt: t3},
+			{ID: 2, StartsAt: t2, DismissedAt: &dismissed}, // tidied away → skipped
+		}},
+		{Type: "flight", Parts: []api.PlanPartDTO{{ID: 1, StartsAt: t1}}},
+	}
+	items := flattenPlans(plans)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 live items, got %d", len(items))
+	}
+	if items[0].part.ID != 1 || items[1].part.ID != 3 {
+		t.Errorf("not ordered by start time: %d then %d", items[0].part.ID, items[1].part.ID)
 	}
 }
 
@@ -169,22 +221,39 @@ func TestRouteLine(t *testing.T) {
 }
 
 func TestTimeRange(t *testing.T) {
-	loc, _ := time.LoadLocation("UTC")
 	start := mustTime(t, "2026-06-15T08:00:00Z")
 	endSame := mustTime(t, "2026-06-15T10:30:00Z")
 	endNext := mustTime(t, "2026-06-16T07:00:00Z")
 
-	noEnd := &store.CalendarEvent{StartsAt: start}
-	if got := timeRange(noEnd, loc); got != "Mon 15 Jun, 08:00" {
+	if got := timeRange(start, nil, "UTC", ""); got != "Mon 15 Jun, 08:00" {
 		t.Errorf("no end = %q", got)
 	}
-	same := &store.CalendarEvent{StartsAt: start, EndsAt: &endSame}
-	if got := timeRange(same, loc); got != "Mon 15 Jun, 08:00 – 10:30" {
+	if got := timeRange(start, &endSame, "UTC", ""); got != "Mon 15 Jun, 08:00 – 10:30" {
 		t.Errorf("same day = %q", got)
 	}
-	cross := &store.CalendarEvent{StartsAt: start, EndsAt: &endNext, EndTZ: "UTC"}
-	if got := timeRange(cross, loc); got != "Mon 15 Jun, 08:00 – Tue 16 Jun, 07:00" {
+	if got := timeRange(start, &endNext, "UTC", "UTC"); got != "Mon 15 Jun, 08:00 – Tue 16 Jun, 07:00" {
 		t.Errorf("cross day = %q", got)
+	}
+}
+
+func TestLabelledAndJoin(t *testing.T) {
+	if got := labelled("Confirmation", "X1"); got != "Confirmation: X1" {
+		t.Errorf("labelled = %q", got)
+	}
+	if got := labelled("Confirmation", "   "); got != "" {
+		t.Errorf("blank value should yield empty, got %q", got)
+	}
+	if got := joinNonEmpty("   ", "", "a", "", "b"); got != "a   b" {
+		t.Errorf("joinNonEmpty = %q", got)
+	}
+	if got := joinNonEmpty(" · ", "", ""); got != "" {
+		t.Errorf("all-empty join = %q", got)
+	}
+}
+
+func TestOneLine(t *testing.T) {
+	if got := oneLine("a\nb   c\n\n d "); got != "a b c d" {
+		t.Errorf("oneLine = %q", got)
 	}
 }
 
