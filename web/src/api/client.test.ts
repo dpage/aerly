@@ -728,6 +728,87 @@ describe('notifyPlanShares', () => {
   });
 });
 
+describe('exportTripIcs (file download)', () => {
+  // jsdom has no URL.createObjectURL / blob plumbing; stub what downloadFile uses
+  // and capture the synthesised <a> so we can assert href + download filename.
+  let createSpy: ReturnType<typeof vi.fn>;
+  let revokeSpy: ReturnType<typeof vi.fn>;
+  let clickSpy: ReturnType<typeof vi.fn>;
+
+  function fileResponse(disposition: string | null, status = 200): Response {
+    return {
+      status,
+      ok: status >= 200 && status < 300,
+      headers: { get: (h: string) => (h === 'Content-Disposition' ? disposition : null) },
+      blob: async () => new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar' }),
+      json: async () => ({ error: 'nope' }),
+    } as unknown as Response;
+  }
+
+  beforeEach(() => {
+    // jsdom doesn't implement these, so define them outright rather than spy.
+    createSpy = vi.fn(() => 'blob:mock');
+    revokeSpy = vi.fn();
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = createSpy;
+    (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = revokeSpy;
+    clickSpy = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(clickSpy);
+  });
+
+  it('downloads with the server filename and includes the session cookie', async () => {
+    const spy = mockFetch(() => fileResponse('attachment; filename="Paris-2026.ics"'));
+    let savedName = '';
+    vi.spyOn(HTMLAnchorElement.prototype, 'download', 'set').mockImplementation(function (
+      this: HTMLAnchorElement,
+      v: string,
+    ) {
+      savedName = v;
+    });
+
+    await api.exportTripIcs(7);
+
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/7/export.ics');
+    expect(spy.mock.calls[0][1]?.credentials).toBe('include');
+    expect(savedName).toBe('Paris-2026.ics');
+    expect(clickSpy).toHaveBeenCalled();
+    expect(createSpy).toHaveBeenCalled();
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock');
+  });
+
+  it('falls back to trip.ics when the response carries no filename', async () => {
+    mockFetch(() => fileResponse(null));
+    let savedName = '';
+    vi.spyOn(HTMLAnchorElement.prototype, 'download', 'set').mockImplementation(function (
+      this: HTMLAnchorElement,
+      v: string,
+    ) {
+      savedName = v;
+    });
+    await api.exportTripIcs(7);
+    expect(savedName).toBe('trip.ics');
+  });
+
+  it('throws the server error message on a non-ok response', async () => {
+    mockFetch(() => fileResponse('', 404));
+    await expect(api.exportTripIcs(7)).rejects.toMatchObject({ status: 404, message: 'nope' });
+  });
+
+  it('keeps a status-only message when the error body is not JSON', async () => {
+    mockFetch(
+      () =>
+        ({
+          status: 500,
+          ok: false,
+          headers: { get: () => null },
+          json: async () => {
+            throw new Error('not json');
+          },
+        }) as unknown as Response,
+    );
+    await expect(api.exportTripIcs(7)).rejects.toMatchObject({ status: 500, message: 'HTTP 500' });
+  });
+});
+
 describe('web push', () => {
   it('GET /api/push/vapid-key', async () => {
     const spy = mockFetch(() => jsonResponse({ enabled: true, public_key: 'k' }));

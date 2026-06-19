@@ -369,6 +369,10 @@ export const HELP_PAGES: HelpPage[] = [
           title="Private iCal feeds"
           description="Get a private subscription link — your whole schedule, a single trip, or one plan — to add to Apple Calendar, Google Calendar or Outlook. It always shows exactly what you can see in the app. Regenerate the link to revoke the old one."
         />
+        <FeatureItem
+          title="Export a trip as .ics"
+          description="Use Export .ics on a trip to download a one-off calendar file of the plans you can see — the inverse of importing a TripIt or Kayak .ics. Unlike a subscription it's a fixed snapshot, handy for importing into another calendar or sharing a copy."
+        />
         <SectionTitle>Preferences</SectionTitle>
         <FeatureItem
           title="Home address"
