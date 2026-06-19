@@ -6,6 +6,14 @@
 #     on a single upstream — nginx only does TLS termination and forwarding.
 #   - proxy_buffering must be off for /api/events so Server-Sent Events flush
 #     to the client immediately.
+#   - Security headers (Content-Security-Policy, X-Frame-Options,
+#     X-Content-Type-Options, Referrer-Policy, and HSTS for HTTPS deployments)
+#     are emitted by the Go application itself, so there is no add_header block
+#     here. Don't re-add Content-Security-Policy at the nginx layer: a second
+#     CSP header is combined with the app's by the browser (intersection of the
+#     two policies), which silently tightens it and tends to break the map and
+#     avatars. If you must set headers at the edge, do it instead of the app's,
+#     not in addition.
 
 server {
     listen 443 ssl http2;

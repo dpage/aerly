@@ -255,8 +255,10 @@ func run() error {
 	mux.Handle("/", handlers.SPAHandler(spa))
 
 	srv := &http.Server{
-		Addr:              cfg.ListenAddr,
-		Handler:           mux,
+		Addr: cfg.ListenAddr,
+		// Wrap the whole mux so every response — SPA, API, OAuth, SSE — carries
+		// the hardening headers. HSTS is emitted only for an HTTPS deployment.
+		Handler:           handlers.SecurityHeaders(mux, cfg.HTTPS()),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
