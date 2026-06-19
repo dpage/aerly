@@ -161,3 +161,37 @@ func TestReadEncoded_BadBase64(t *testing.T) {
 		t.Error("expected base64 decode error")
 	}
 }
+
+// TestParse_AuthResultsInMessageOrder pins the invariant the DKIM/SPF
+// boundary-trust check rests on: AuthResults must come back in message order,
+// topmost first. boundaryAuthResults trusts only the leading run of
+// boundary-MTA-stamped headers, so if Parse ever reordered (or de-duplicated
+// into a map) the headers, a sender-injected header could end up ahead of the
+// genuine one and re-open the spoofing gap. This test fails loudly if that
+// ordering guarantee is ever lost.
+func TestParse_AuthResultsInMessageOrder(t *testing.T) {
+	raw := "From: a@example.com\r\n" +
+		"Authentication-Results: mail.example; dkim=pass header.d=example.com\r\n" +
+		"Authentication-Results: attacker.invalid; dkim=pass header.d=example.com\r\n" +
+		"Authentication-Results: relay.example; spf=pass smtp.mailfrom=example.com\r\n" +
+		"Subject: x\r\n" +
+		"\r\n" +
+		"body\r\n"
+	p, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := []string{
+		"mail.example; dkim=pass header.d=example.com",
+		"attacker.invalid; dkim=pass header.d=example.com",
+		"relay.example; spf=pass smtp.mailfrom=example.com",
+	}
+	if len(p.AuthResults) != len(want) {
+		t.Fatalf("AuthResults = %q, want %q", p.AuthResults, want)
+	}
+	for i := range want {
+		if p.AuthResults[i] != want[i] {
+			t.Errorf("AuthResults[%d] = %q, want %q", i, p.AuthResults[i], want[i])
+		}
+	}
+}
