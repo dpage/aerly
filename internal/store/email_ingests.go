@@ -11,7 +11,6 @@ type EmailIngestPayload struct {
 	FromAddress   string
 	Subject       string
 	DKIMPass      bool
-	SPFPass       bool
 	UserID        *int64
 	Status        string
 	FlightsAdded  int
@@ -25,11 +24,11 @@ func (s *Store) InsertEmailIngest(ctx context.Context, in EmailIngestPayload) (i
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO email_ingests
-			(message_id, from_address, subject, dkim_pass, spf_pass, user_id, status,
+			(message_id, from_address, subject, dkim_pass, user_id, status,
 			 flights_added, flights_failed, error)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
-		in.MessageID, in.FromAddress, in.Subject, in.DKIMPass, in.SPFPass, in.UserID,
+		in.MessageID, in.FromAddress, in.Subject, in.DKIMPass, in.UserID,
 		in.Status, in.FlightsAdded, in.FlightsFailed, in.Error,
 	).Scan(&id)
 	return id, err

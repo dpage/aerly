@@ -31,7 +31,6 @@ func TestInsertEmailIngest_FullFields(t *testing.T) {
 		FromAddress:   "alice@example.com",
 		Subject:       "Your booking",
 		DKIMPass:      true,
-		SPFPass:       true,
 		UserID:        &u.ID,
 		Status:        "accepted",
 		FlightsAdded:  2,
@@ -47,18 +46,14 @@ func TestInsertEmailIngest_FullFields(t *testing.T) {
 
 	// Verify the row landed with the expected user link.
 	var gotUser *int64
-	var gotSPF bool
 	var gotAdded, gotFailed int
 	if err := s.pool.QueryRow(ctx,
-		`SELECT user_id, spf_pass, flights_added, flights_failed FROM email_ingests WHERE id = $1`, id,
-	).Scan(&gotUser, &gotSPF, &gotAdded, &gotFailed); err != nil {
+		`SELECT user_id, flights_added, flights_failed FROM email_ingests WHERE id = $1`, id,
+	).Scan(&gotUser, &gotAdded, &gotFailed); err != nil {
 		t.Fatalf("verify row: %v", err)
 	}
 	if gotUser == nil || *gotUser != u.ID {
 		t.Errorf("user_id = %v, want %d", gotUser, u.ID)
-	}
-	if !gotSPF {
-		t.Error("spf_pass = false, want true")
 	}
 	if gotAdded != 2 || gotFailed != 1 {
 		t.Errorf("added/failed = %d/%d, want 2/1", gotAdded, gotFailed)

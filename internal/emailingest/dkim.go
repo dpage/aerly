@@ -98,6 +98,23 @@ func dkimLineMatches(line, domain string) bool {
 	return rest == domain
 }
 
+// hasAuthResultToken reports whether want (e.g. "dkim=pass") appears in line as
+// a complete token — delimited by whitespace or ';' per RFC 8601 — rather than
+// as a substring of another field's value. Without this, a real dkim=fail
+// result could be spoofed by an attacker-controlled identity such as
+// header.i=foo+dkim=pass@example.com, whose value contains the literal
+// "dkim=pass". Callers must lower-case line first.
+func hasAuthResultToken(line, want string) bool {
+	for _, tok := range strings.FieldsFunc(line, func(r rune) bool {
+		return r == ';' || r == ' ' || r == '\t' || r == '\r' || r == '\n'
+	}) {
+		if tok == want {
+			return true
+		}
+	}
+	return false
+}
+
 // FromDomain extracts the domain part of an email address, lowercased.
 // Returns "" if the input doesn't look like an address.
 func FromDomain(addr string) string {

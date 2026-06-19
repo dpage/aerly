@@ -88,8 +88,9 @@ verified** address on sign-in.
 2. The server watches the Maildir; for each new message it:
    - Looks up the sender by `From:` against the user's verified email
      addresses (the one fetched from GitHub OAuth at sign-in).
-   - Requires a DKIM pass on the sender's domain (configurable), and —
-     by default — an SPF-aligned envelope sender for the same domain.
+   - Requires a DKIM pass aligned with the sender's domain (configurable).
+     DKIM is the sole sender-authentication check: it survives forwarding
+     because the signing domain aligns with the `From:` header.
    - Enforces a per-user rolling-24h ingestion cap (default 50) before
      the LLM runs, so a compromised account or prompt-injection can't
      drive unbounded LLM spend or fan plans into the database.
@@ -106,7 +107,7 @@ verified** address on sign-in.
      flight is added from the email's own data and the reply asks the
      user to double-check the times in the app.
 3. The server replies with a summary of what was added or skipped. If the
-   sender isn't recognised, DKIM/SPF fails, or the sender is over their
+   sender isn't recognised, DKIM fails, or the sender is over their
    rate limit, the message is moved to a `.failed/` Maildir subdirectory
    and **no reply is sent** (we don't want to confirm to a potential
    spoofer that the address is live, or amplify a flood with bounces).
@@ -123,11 +124,10 @@ newaliases
 ```
 
 The `aerly` local user must own a Maildir at the configured
-path. opendkim/opendmarc (or equivalent) must be in postfix's
-`smtpd_milters` chain and must stamp `Authentication-Results:` headers
-(with both `dkim=` and `spf=` results) on inbound mail, otherwise
-`EMAIL_INGEST_REQUIRE_DKIM=1` / `EMAIL_INGEST_REQUIRE_SPF=1` will reject
-every message. The boundary MTA must also strip any inbound
+path. opendkim (or equivalent) must be in postfix's `smtpd_milters`
+chain and must stamp `Authentication-Results:` headers (with a `dkim=`
+result) on inbound mail, otherwise `EMAIL_INGEST_REQUIRE_DKIM=1` will
+reject every message. The boundary MTA must also strip any inbound
 `Authentication-Results:` headers and re-stamp its own, so a sender
 can't forge a pass (this is what `EMAIL_INGEST_DKIM_AUTHSERV_ID` keys
 trust on).
@@ -140,9 +140,8 @@ trust on).
 | `EMAIL_INGEST_MAILDIR` | (required if enabled) | Maildir path. |
 | `EMAIL_INGEST_ADDRESS` | (required if enabled) | Address users forward to. |
 | `EMAIL_INGEST_POLL_INTERVAL` | `30s` | Maildir scan cadence. |
-| `EMAIL_INGEST_REQUIRE_DKIM` | `1` | Require DKIM pass for the sender's domain. |
-| `EMAIL_INGEST_REQUIRE_SPF` | (follows `REQUIRE_DKIM`) | Require an SPF-aligned envelope sender for the From domain. Defaults to whatever `REQUIRE_DKIM` is; set `0`/`1` to override. |
-| `EMAIL_INGEST_DKIM_AUTHSERV_ID` | (required if DKIM/SPF on) | The authserv-id your boundary MTA stamps on `Authentication-Results`. Only headers bearing it are trusted. |
+| `EMAIL_INGEST_REQUIRE_DKIM` | `1` | Require a DKIM pass aligned with the sender's domain. |
+| `EMAIL_INGEST_DKIM_AUTHSERV_ID` | (required if DKIM on) | The authserv-id your boundary MTA stamps on `Authentication-Results`. Only headers bearing it are trusted. |
 | `EMAIL_INGEST_RATE_LIMIT_PER_DAY` | `50` | Max messages per verified user in a rolling 24h. `0` disables. |
 | `EMAIL_INGEST_MAX_BODY_BYTES` | `1048576` | Truncation guard before LLM call. |
 | `EMAIL_INGEST_SENDMAIL` | `/usr/sbin/sendmail` | Path used for reply mail. |

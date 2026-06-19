@@ -24,14 +24,10 @@ type Config struct {
 	MaildirPath  string
 	PollInterval time.Duration
 	RequireDKIM  bool
-	// RequireSPF gates SPF enforcement the same way RequireDKIM gates DKIM: when
-	// set, a message whose From domain isn't SPF-aligned (via a trusted
-	// Authentication-Results header) is rejected before it reaches the LLM.
-	RequireSPF bool
 	// DKIMAuthServID is the authserv-id our boundary MTA stamps onto the
 	// Authentication-Results header it adds (e.g. the mail host). Only headers
-	// bearing this id are trusted for DKIM/SPF evaluation; sender-injected ones
-	// are ignored. Empty means trust no header (DKIM/SPF never pass).
+	// bearing this id are trusted for DKIM evaluation; sender-injected ones are
+	// ignored. Empty means trust no header (DKIM never passes).
 	DKIMAuthServID string
 	// RateLimitPerDay caps how many messages a single verified user may have
 	// ingested in the trailing 24h. A sender over the cap is rejected before the
@@ -165,7 +161,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	parsed, err := Parse(raw)
 	if err != nil {
 		slog.Info("emailingest: unparseable, poison", "err", err)
-		s.logIngest(ctx, "", "", "", false, false, nil, "parse_error", 0, 0, err.Error())
+		s.logIngest(ctx, "", "", "", false, nil, "parse_error", 0, 0, err.Error())
 		return outcome{kind: outcomePoison}
 	}
 
@@ -174,7 +170,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	// through to a misleading "no verified user" outcome.
 	if parsed.From == "" {
 		slog.Info("emailingest: missing/unparseable From, poison")
-		s.logIngest(ctx, parsed.MessageID, "", parsed.Subject, false, false, nil, "no_from", 0, 0, "")
+		s.logIngest(ctx, parsed.MessageID, "", parsed.Subject, false, nil, "no_from", 0, 0, "")
 		return outcome{kind: outcomePoison}
 	}
 
@@ -186,15 +182,9 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 
 	fromDomain := FromDomain(parsed.From)
 	dkimOK := DKIMPass(parsed.AuthResults, s.Cfg.DKIMAuthServID, fromDomain)
-	spfOK := SPFPass(parsed.AuthResults, s.Cfg.DKIMAuthServID, fromDomain)
 	if s.Cfg.RequireDKIM && !dkimOK {
 		slog.Info("emailingest: DKIM not pass, poison", "from", parsed.From)
-		s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, spfOK, nil, "dkim_failed", 0, 0, "")
-		return outcome{kind: outcomePoison}
-	}
-	if s.Cfg.RequireSPF && !spfOK {
-		slog.Info("emailingest: SPF not pass, poison", "from", parsed.From)
-		s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, spfOK, nil, "spf_failed", 0, 0, "")
+		s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, nil, "dkim_failed", 0, 0, "")
 		return outcome{kind: outcomePoison}
 	}
 
@@ -202,7 +192,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			slog.Info("emailingest: no verified user for sender, poison", "from", parsed.From)
-			s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, spfOK, nil, "no_user", 0, 0, "")
+			s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, nil, "no_user", 0, 0, "")
 			return outcome{kind: outcomePoison}
 		}
 		slog.Warn("emailingest: user lookup transient", "err", err)
@@ -224,7 +214,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 		if n >= limit {
 			slog.Info("emailingest: per-user rate limit exceeded, poison",
 				"from", parsed.From, "user", u.ID, "count", n, "limit", limit)
-			s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, spfOK, &u.ID, "rate_limited", 0, 0, "")
+			s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, &u.ID, "rate_limited", 0, 0, "")
 			return outcome{kind: outcomePoison}
 		}
 	}
@@ -253,7 +243,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	case len(failed) > 0:
 		status = "partial"
 	}
-	s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, spfOK, &u.ID, status, len(added), len(failed), "")
+	s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, &u.ID, status, len(added), len(failed), "")
 
 	msg := BuildReply(ReplyInput{
 		FromAddr:  s.Cfg.IngestAddress,
@@ -580,7 +570,7 @@ func toConfirmInput(p planops.ProposedPlan) planops.ConfirmPlanInput {
 	return in
 }
 
-func (s *Service) logIngest(ctx context.Context, msgID, from, subject string, dkimPass, spfPass bool, userID *int64, status string, added, failed int, errMsg string) {
+func (s *Service) logIngest(ctx context.Context, msgID, from, subject string, dkimPass bool, userID *int64, status string, added, failed int, errMsg string) {
 	var msgPtr *string
 	if msgID != "" {
 		msgPtr = &msgID
@@ -590,7 +580,6 @@ func (s *Service) logIngest(ctx context.Context, msgID, from, subject string, dk
 		FromAddress:   from,
 		Subject:       subject,
 		DKIMPass:      dkimPass,
-		SPFPass:       spfPass,
 		UserID:        userID,
 		Status:        status,
 		FlightsAdded:  added,
