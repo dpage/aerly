@@ -77,10 +77,45 @@ func TestDKIMPass_IgnoresUntrustedAuthServID(t *testing.T) {
 	if DKIMPass(h, trustedID, "example.com") {
 		t.Error("a header not stamped by the trusted authserv-id must not be trusted")
 	}
-	// But the genuine trusted header alongside it still counts.
-	h = append(h, "mail.example; dkim=pass header.d=example.com")
+	// The genuine trusted header, stamped on top by our boundary MTA, still
+	// authenticates even with a foreign-id header injected below it.
+	h = []string{
+		"mail.example; dkim=pass header.d=example.com",
+		"attacker.invalid; dkim=pass header.d=example.com",
+	}
 	if !DKIMPass(h, trustedID, "example.com") {
-		t.Error("the trusted MTA's header should still authenticate")
+		t.Error("the trusted MTA's topmost header should authenticate")
+	}
+}
+
+func TestDKIMPass_IgnoresTrustedIDBelowForeignHeader(t *testing.T) {
+	// The boundary MTA prepends its Authentication-Results at the very top,
+	// above anything the sender supplied, so only the leading run of
+	// trusted-authserv-id headers counts. A header bearing our authserv-id that
+	// sits BELOW a foreign-id header can only have been injected by the sender
+	// (our MTA would have prepended its own result above, not stranded one
+	// beneath a foreign stamp), so it must not be trusted.
+	h := []string{
+		"attacker.invalid; dkim=pass header.d=example.com",
+		"mail.example; dkim=pass header.d=example.com",
+	}
+	if DKIMPass(h, trustedID, "example.com") {
+		t.Error("a trusted-id header below a foreign-id header must be ignored as sender-injected")
+	}
+}
+
+func TestDKIMPass_IgnoresInjectedTrustedHeaderBelowGenuineFail(t *testing.T) {
+	// Realistic spoof attempt: our boundary MTA stamps a genuine dkim=fail on
+	// top; the sender pre-inserted a forged dkim=pass below it but separated by
+	// their own foreign-id A-R header. Only the genuine leading run is honoured,
+	// so the forged pass is never reached.
+	h := []string{
+		"mail.example; dkim=fail header.d=example.com",
+		"attacker.invalid; whatever",
+		"mail.example; dkim=pass header.d=example.com",
+	}
+	if DKIMPass(h, trustedID, "example.com") {
+		t.Error("a forged trusted-id pass below a foreign-id header must not override the genuine fail")
 	}
 }
 
