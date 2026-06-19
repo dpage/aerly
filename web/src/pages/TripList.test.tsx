@@ -40,6 +40,7 @@ vi.mock('../pwa', () => ({ useOnlineStatus: () => pwa.online }));
 
 import TripList from './TripList';
 import { api } from '../api/client';
+
 const mockApiListTrips = api.listTrips as unknown as ReturnType<typeof vi.fn>;
 const mockImportTrip = api.importTrip as unknown as ReturnType<typeof vi.fn>;
 
@@ -475,5 +476,346 @@ describe('TripList', () => {
     const { container } = renderList('friends');
     expect(screen.queryByRole('button', { name: /import \.ics/i })).not.toBeInTheDocument();
     expect(container.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  // ── Filter functionality tests ──────────────────────────────────────────
+
+  it('shows a filter bar when trips are present', () => {
+    state.trips = [trip({ id: 1, name: 'Test Trip' })];
+    renderList();
+    expect(screen.getByPlaceholderText(/Filter trips/i)).toBeInTheDocument();
+  });
+
+  it('hides the filter bar when no trips are present', () => {
+    state.trips = [];
+    renderList();
+    expect(screen.queryByPlaceholderText(/Filter trips/i)).not.toBeInTheDocument();
+  });
+
+  it('filters trips by name', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Stockholm Adventure', starts_on: dateOnly(-10), ends_on: dateOnly(-5) }),
+      trip({ id: 2, name: 'Paris Weekend', starts_on: dateOnly(-20), ends_on: dateOnly(-18) }),
+      trip({ id: 3, name: 'Tokyo Business', starts_on: dateOnly(-30), ends_on: dateOnly(-28) }),
+    ];
+    renderList();
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+    await userEvent.type(filterInput, 'Stock');
+    
+    expect(screen.getByText('Stockholm Adventure')).toBeInTheDocument();
+    expect(screen.queryByText('Paris Weekend')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tokyo Business')).not.toBeInTheDocument();
+    expect(screen.getByText('1 trip matched')).toBeInTheDocument();
+  });
+
+  it('filters trips by destination', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip A', destination: 'Stockholm, Sweden', starts_on: dateOnly(-10) }),
+      trip({ id: 2, name: 'Trip B', destination: 'Paris, France', starts_on: dateOnly(-20) }),
+    ];
+    renderList();
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+    await userEvent.type(filterInput, 'Sweden');
+    
+    expect(screen.getByText('Trip A')).toBeInTheDocument();
+    expect(screen.queryByText('Trip B')).not.toBeInTheDocument();
+  });
+
+  it('filters trips by tags', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip A', tags: ['ARN', 'Nordic'], starts_on: dateOnly(-10) }),
+      trip({ id: 2, name: 'Trip B', tags: ['CDG', 'Europe'], starts_on: dateOnly(-20) }),
+    ];
+    renderList();
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+    await userEvent.type(filterInput, 'ARN');
+    
+    expect(screen.getByText('Trip A')).toBeInTheDocument();
+    expect(screen.queryByText('Trip B')).not.toBeInTheDocument();
+  });
+
+  it('shows clear button when filter is active', async () => {
+    state.trips = [trip({ id: 1, name: 'Test Trip', starts_on: dateOnly(-10) })];
+    renderList();
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+    
+    expect(screen.queryByLabelText(/clear filter/i)).not.toBeInTheDocument();
+    
+    await userEvent.type(filterInput, 'Test');
+    expect(screen.getByLabelText(/clear filter/i)).toBeInTheDocument();
+  });
+
+  it('clears filter when clear button is clicked', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Stockholm Trip', starts_on: dateOnly(-10) }),
+      trip({ id: 2, name: 'Paris Trip', starts_on: dateOnly(-20) }),
+    ];
+    renderList();
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+    
+    await userEvent.type(filterInput, 'Stockholm');
+    expect(screen.queryByText('Paris Trip')).not.toBeInTheDocument();
+    
+    await userEvent.click(screen.getByLabelText(/clear filter/i));
+    expect(filterInput).toHaveValue('');
+    expect(screen.getByText('Paris Trip')).toBeInTheDocument();
+  });
+
+  it('clears filter when Escape is pressed', async () => {
+    state.trips = [trip({ id: 1, name: 'Test Trip', starts_on: dateOnly(-10) })];
+    renderList();
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+    
+    await userEvent.type(filterInput, 'Test');
+    expect(filterInput).toHaveValue('Test');
+    
+    await userEvent.type(filterInput, '{Escape}');
+    expect(filterInput).toHaveValue('');
+  });
+
+  it('shows "No matching trips" when filter yields no results', async () => {
+    state.trips = [trip({ id: 1, name: 'Stockholm Trip', starts_on: dateOnly(-10) })];
+    renderList();
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+    
+    await userEvent.type(filterInput, 'Nonexistent');
+    expect(screen.getByText('No matching trips')).toBeInTheDocument();
+    expect(screen.queryByText('Stockholm Trip')).not.toBeInTheDocument();
+  });
+
+  it('restores year folding when filter is cleared', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip 2023', starts_on: '2023-06-15', ends_on: '2023-06-20' }),
+      trip({ id: 2, name: 'Trip 2024', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+    ];
+    renderList();
+    
+    // Initially should show year sections
+    expect(screen.getByText('2024')).toBeInTheDocument();
+    expect(screen.getByText('2023')).toBeInTheDocument();
+    
+    // Filter hides year sections
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+    await userEvent.type(filterInput, '2023');
+    expect(screen.queryByText('2024')).not.toBeInTheDocument(); // Year header gone
+    expect(screen.getByText('Trip 2023')).toBeInTheDocument();
+    
+    // Clear filter restores year sections
+    await userEvent.clear(filterInput);
+    expect(screen.getByText('2024')).toBeInTheDocument();
+    expect(screen.getByText('2023')).toBeInTheDocument();
+  });
+
+  // ── Year-based folding tests ──────────────────────────────────────────
+
+  it('groups past trips by year, most recent first', () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip A', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'Trip B', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+      trip({ id: 3, name: 'Trip C', starts_on: '2024-01-05', ends_on: '2024-01-10' }),
+    ];
+    renderList();
+    
+    expect(screen.getByText('2024')).toBeInTheDocument();
+    expect(screen.getByText('2023')).toBeInTheDocument();
+    
+    // Should show trip counts per year
+    expect(screen.getByText('2')).toBeInTheDocument(); // 2024 has 2 trips
+    expect(screen.getByText('1')).toBeInTheDocument(); // 2023 has 1 trip
+  });
+
+  it('expands the most recent year by default, collapses others', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Recent Trip', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+    ];
+    renderList();
+    
+    // Most recent year (2024) should be expanded - trips visible
+    expect(screen.getByText('Recent Trip')).toBeInTheDocument();
+    
+    // Older year (2023) should be collapsed - trip not visible
+    expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+    
+    // But year header should still be there
+    expect(screen.getByText('2023')).toBeInTheDocument();
+  });
+
+  it('toggles year section when year header is clicked', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Recent Trip', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+    ];
+    renderList();
+    
+    // Initially, 2023 section should be collapsed (old trip not visible)
+    expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+    
+    // Find and click the 2023 year button to expand
+    const yearButton = screen.getByText('2023').closest('[role="button"]') as HTMLElement;
+    await userEvent.click(yearButton);
+    
+    // Wait for the expand animation
+    await waitFor(() => {
+      expect(screen.getByText('Old Trip')).toBeInTheDocument();
+    });
+    
+    // Click again to collapse
+    await userEvent.click(yearButton);
+    
+    // Wait for the collapse animation
+    await waitFor(() => {
+      expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+    });
+  });
+
+  it('toggles year section via keyboard (Enter/Space) for accessibility', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Recent Trip', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+    ];
+    renderList();
+
+    // Initially, 2023 section is collapsed (old trip not visible)
+    expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+
+    const yearButton = screen.getByText('2023').closest('[role="button"]') as HTMLElement;
+    expect(yearButton).toHaveAttribute('tabindex', '0');
+
+    // Enter expands
+    yearButton.focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => {
+      expect(screen.getByText('Old Trip')).toBeInTheDocument();
+    });
+
+    // Space collapses
+    await userEvent.keyboard(' ');
+    await waitFor(() => {
+      expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows expand/collapse all button when multiple years exist', () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip A', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'Trip B', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+    ];
+    renderList();
+    
+    expect(screen.getByLabelText(/Expand all years|Collapse all years/)).toBeInTheDocument();
+  });
+
+  it('hides expand/collapse all button when only one year exists', () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip A', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+    ];
+    renderList();
+    
+    expect(screen.queryByLabelText(/Expand all years|Collapse all years/)).not.toBeInTheDocument();
+  });
+
+  it('expands all years when expand all is clicked', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Recent Trip', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+    ];
+    renderList();
+    
+    // Initially old trip is collapsed
+    expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+    
+    // Click expand all
+    await userEvent.click(screen.getByLabelText(/Expand all years/));
+    
+    // Now both trips should be visible
+    expect(screen.getByText('Recent Trip')).toBeInTheDocument();
+    expect(screen.getByText('Old Trip')).toBeInTheDocument();
+  });
+
+  it('collapses all years when collapse all is clicked', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Recent Trip', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+    ];
+    renderList();
+    
+    // First expand all so we can then collapse all
+    const expandAllButton = screen.getByLabelText(/Expand all years/);
+    await userEvent.click(expandAllButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Recent Trip')).toBeInTheDocument();
+      expect(screen.getByText('Old Trip')).toBeInTheDocument();
+    });
+    
+    // Now collapse all - the button text should change to "Collapse all years"
+    const collapseAllButton = screen.getByLabelText(/Collapse all years/);
+    await userEvent.click(collapseAllButton);
+    
+    // Both trips should be hidden
+    await waitFor(() => {
+      expect(screen.queryByText('Recent Trip')).not.toBeInTheDocument();
+      expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
+    });
+  });
+
+  // ── Helper function tests ──────────────────────────────────────────────
+
+  it('tripMatchesFilter: filters by name, destination, dates, and tags via the rendered UI', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Stockholm Adventure', destination: 'Stockholm, Sweden', starts_on: '2024-06-15', ends_on: '2024-06-20', tags: ['ARN', 'Nordic'] }),
+      trip({ id: 2, name: 'Paris Weekend', destination: 'Paris, France', starts_on: '2024-07-01', ends_on: '2024-07-03', tags: ['CDG'] }),
+    ];
+    renderList();
+    const filterInput = screen.getByPlaceholderText(/Filter trips/i);
+
+    // matches name
+    await userEvent.type(filterInput, 'Stock');
+    expect(screen.getByText('Stockholm Adventure')).toBeInTheDocument();
+    expect(screen.queryByText('Paris Weekend')).not.toBeInTheDocument();
+
+    // matches destination
+    await userEvent.clear(filterInput);
+    await userEvent.type(filterInput, 'France');
+    expect(screen.getByText('Paris Weekend')).toBeInTheDocument();
+    expect(screen.queryByText('Stockholm Adventure')).not.toBeInTheDocument();
+
+    // matches date
+    await userEvent.clear(filterInput);
+    await userEvent.type(filterInput, '2024-06-15');
+    expect(screen.getByText('Stockholm Adventure')).toBeInTheDocument();
+    expect(screen.queryByText('Paris Weekend')).not.toBeInTheDocument();
+
+    // matches tag
+    await userEvent.clear(filterInput);
+    await userEvent.type(filterInput, 'ARN');
+    expect(screen.getByText('Stockholm Adventure')).toBeInTheDocument();
+    expect(screen.queryByText('Paris Weekend')).not.toBeInTheDocument();
+
+    // no match
+    await userEvent.clear(filterInput);
+    await userEvent.type(filterInput, 'Nonexistent');
+    expect(screen.getByText('No matching trips')).toBeInTheDocument();
+  });
+
+  it('groupPastByYear: groups trips by year with correct counts via the rendered UI', () => {
+    state.trips = [
+      trip({ id: 1, name: 'A', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 2, name: 'B', starts_on: '2024-01-05', ends_on: '2024-01-10' }),
+      trip({ id: 3, name: 'C', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
+      trip({ id: 4, name: 'D', starts_on: '2022-12-25', ends_on: '2022-12-30' }),
+    ];
+    renderList();
+
+    // Three year headers present, most recent first
+    const yearHeaders = ['2024', '2023', '2022'];
+    for (const y of yearHeaders) expect(screen.getByText(y)).toBeInTheDocument();
+
+    // 2024 is expanded by default and shows 2 trips; others are collapsed
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.getByText('B')).toBeInTheDocument();
+    expect(screen.queryByText('C')).not.toBeInTheDocument();
+    expect(screen.queryByText('D')).not.toBeInTheDocument();
   });
 });
