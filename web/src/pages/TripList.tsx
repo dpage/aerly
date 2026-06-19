@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Avatar,
@@ -8,12 +8,15 @@ import {
   CardActionArea,
   Chip,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   FormControlLabel,
   FormGroup,
+  IconButton,
+  InputAdornment,
   Stack,
   Switch,
   TextField,
@@ -21,8 +24,14 @@ import {
   Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import ClearIcon from '@mui/icons-material/Clear';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import PlaceIcon from '@mui/icons-material/Place';
+import SearchIcon from '@mui/icons-material/Search';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
@@ -137,6 +146,32 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   const [createOpen, setCreateOpen] = useState(false);
   const busy = include ? diagLoading : loading;
 
+  const [filter, setFilter] = useState('');
+  const filterRef = useRef<HTMLInputElement>(null);
+
+  // Activate on "/" (vi/less style) when not already in a text field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable)
+        return;
+      if (e.key === '/') {
+        e.preventDefault();
+        filterRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  const filterNorm = filter.trim().toLowerCase();
+
+  // When filter is active, flatten all trips into a single filtered list.
+  const filteredTrips = useMemo(() => {
+    if (!filterNorm) return null;
+    return scoped.filter((t) => tripMatchesFilter(t, filterNorm));
+  }, [scoped, filterNorm]);
+
   return (
     <Box sx={{ p: 3, maxWidth: 760, mx: 'auto' }}>
       <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
@@ -200,6 +235,35 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
         </FormGroup>
       )}
 
+      {scoped.length > 0 && (
+        <TextField
+          inputRef={filterRef}
+          size="small"
+          placeholder='Filter trips… (press "/" to focus)'
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+          fullWidth
+          sx={{ mb: 2 }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" color={filterNorm ? 'primary' : 'disabled'} />
+                </InputAdornment>
+              ),
+              endAdornment: filter ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setFilter('')} edge="end" aria-label="Clear filter">
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : undefined,
+            },
+          }}
+        />
+      )}
+
       {busy && scoped.length === 0 ? (
         <Box sx={{ display: 'grid', placeItems: 'center', py: 6 }}>
           <CircularProgress />
@@ -216,10 +280,28 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
             "No trips have been shared with you yet. When a friend adds you to one of their trips, it'll appear here."
           )}
         </Typography>
+      ) : filteredTrips !== null ? (
+        // Filter active: flat list, no folding
+        <Box>
+          <Typography variant="overline" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+            {filteredTrips.length === 0
+              ? 'No matching trips'
+              : `${filteredTrips.length} trip${filteredTrips.length === 1 ? '' : 's'} matched`}
+          </Typography>
+          <Stack spacing={1.5}>
+            {filteredTrips.map((trip) => (
+              <TripCard key={trip.id} trip={trip} />
+            ))}
+          </Stack>
+        </Box>
       ) : (
         <Stack spacing={3}>
-          {GROUP_ORDER.map(({ bucket, label }) =>
-            groups[bucket].length > 0 ? (
+          {BUCKET_ORDER.map(({ bucket, label }) =>
+            bucket === 'past' ? (
+              groups.past.length > 0 ? (
+                <PastTripGroup key="past" trips={groups.past} />
+              ) : null
+            ) : groups[bucket].length > 0 ? (
               <TripGroup key={bucket} label={label} trips={groups[bucket]} />
             ) : null,
           )}
@@ -233,11 +315,172 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   );
 }
 
-const GROUP_ORDER: Array<{ bucket: TripBucket; label: string }> = [
+const BUCKET_ORDER: Array<{ bucket: TripBucket; label: string }> = [
   { bucket: 'now', label: 'Happening now' },
   { bucket: 'upcoming', label: 'Upcoming' },
   { bucket: 'past', label: 'Past' },
 ];
+
+/** Does a trip contain `q` (lowercase) in any of its searchable text fields? */
+function tripMatchesFilter(trip: Trip, q: string): boolean {
+  const fields = [
+    trip.name,
+    trip.destination,
+    trip.starts_on,
+    trip.ends_on,
+    trip.effective_start,
+    trip.effective_end,
+    ...(trip.tags ?? []),
+  ];
+  return fields.some((f) => f && f.toLowerCase().includes(q));
+}
+
+/** Group past trips by calendar year, most-recent year first. */
+function groupPastByYear(trips: Trip[]): Array<{ year: number; trips: Trip[] }> {
+  const map = new Map<number, Trip[]>();
+  for (const trip of trips) {
+    // Prefer starts_on / effective_start for year bucketing; fall back to ends_on.
+    const dateStr = trip.starts_on ?? trip.effective_start ?? trip.ends_on ?? trip.effective_end;
+    const year = dateStr ? new Date(dateStr).getUTCFullYear() : new Date().getUTCFullYear();
+    if (!map.has(year)) map.set(year, []);
+    map.get(year)!.push(trip);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(([year, trips]) => ({ year, trips }));
+}
+
+/** Past trips grouped by year with per-year and global fold/unfold controls. */
+function PastTripGroup({ trips }: { trips: Trip[] }) {
+  const yearGroups = useMemo(() => groupPastByYear(trips), [trips]);
+
+  // Start with only the most-recent year expanded.
+  const [collapsedYears, setCollapsedYears] = useState<Set<number>>(
+    () => new Set(yearGroups.slice(1).map((g) => g.year)),
+  );
+
+  // Keep the initial collapsed state up to date when the year list changes
+  // (e.g. a trip is added to a new year) without blowing away manual toggles.
+  const prevYearsRef = useRef<number[]>([]);
+  useEffect(() => {
+    const prev = new Set(prevYearsRef.current);
+    const next = yearGroups.map((g) => g.year);
+    const newYears = next.filter((y) => !prev.has(y));
+    if (newYears.length > 0) {
+      setCollapsedYears((c) => {
+        const s = new Set(c);
+        // Collapse newly-appeared years that aren't the most recent.
+        const mostRecent = next[0];
+        for (const y of newYears) if (y !== mostRecent) s.add(y);
+        return s;
+      });
+    }
+    prevYearsRef.current = next;
+  }, [yearGroups]);
+
+  const allCollapsed = collapsedYears.size === yearGroups.length;
+  const allExpanded = collapsedYears.size === 0;
+
+  const toggleYear = useCallback((year: number) => {
+    setCollapsedYears((c) => {
+      const s = new Set(c);
+      s.has(year) ? s.delete(year) : s.add(year);
+      return s;
+    });
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    setCollapsedYears(new Set(yearGroups.map((g) => g.year)));
+  }, [yearGroups]);
+
+  const expandAll = useCallback(() => {
+    setCollapsedYears(new Set());
+  }, []);
+
+  return (
+    <Box>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+        <Typography variant="overline" color="text.secondary">
+          Past
+        </Typography>
+        <Chip
+          label={trips.length}
+          size="small"
+          sx={{ height: 18, fontSize: '0.7rem', '& .MuiChip-label': { px: 0.75 } }}
+        />
+        <Box sx={{ flex: 1 }} />
+        {yearGroups.length > 1 && (
+          <>
+            <Tooltip title={allExpanded ? 'Collapse all years' : 'Expand all years'}>
+              <IconButton
+                size="small"
+                onClick={allExpanded ? collapseAll : expandAll}
+                aria-label={allExpanded ? 'Collapse all years' : 'Expand all years'}
+              >
+                {allExpanded ? (
+                  <UnfoldLessIcon fontSize="small" />
+                ) : allCollapsed ? (
+                  <UnfoldMoreIcon fontSize="small" />
+                ) : (
+                  <UnfoldMoreIcon fontSize="small" />
+                )}
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
+      </Stack>
+
+      <Stack spacing={1.5}>
+        {yearGroups.map(({ year, trips: yearTrips }) => {
+          const isCollapsed = collapsedYears.has(year);
+          return (
+            <Box key={year}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={0.5}
+                sx={{
+                  cursor: 'pointer',
+                  borderRadius: 1,
+                  px: 0.5,
+                  py: 0.25,
+                  mb: isCollapsed ? 0 : 1,
+                  '&:hover': { bgcolor: 'action.hover' },
+                  userSelect: 'none',
+                }}
+                onClick={() => toggleYear(year)}
+                role="button"
+                aria-expanded={!isCollapsed}
+              >
+                {isCollapsed ? (
+                  <ExpandMoreIcon fontSize="small" color="action" />
+                ) : (
+                  <ExpandLessIcon fontSize="small" color="action" />
+                )}
+                <Typography variant="caption" fontWeight={600} color="text.secondary">
+                  {year}
+                </Typography>
+                <Chip
+                  label={yearTrips.length}
+                  size="small"
+                  sx={{ height: 16, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.6 } }}
+                />
+              </Stack>
+
+              <Collapse in={!isCollapsed} unmountOnExit>
+                <Stack spacing={1.5}>
+                  {yearTrips.map((trip) => (
+                    <TripCard key={trip.id} trip={trip} />
+                  ))}
+                </Stack>
+              </Collapse>
+            </Box>
+          );
+        })}
+      </Stack>
+    </Box>
+  );
+}
 
 function groupTrips(trips: Trip[]): Record<TripBucket, Trip[]> {
   const now = Date.now();
