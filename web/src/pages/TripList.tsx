@@ -384,7 +384,11 @@ function PastTripGroup({ trips }: { trips: Trip[] }) {
   const toggleYear = useCallback((year: number) => {
     setCollapsedYears((c) => {
       const s = new Set(c);
-      s.has(year) ? s.delete(year) : s.add(year);
+      if (s.has(year)) {
+        s.delete(year);
+      } else {
+        s.add(year);
+      }
       return s;
     });
   }, []);
