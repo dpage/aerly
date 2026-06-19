@@ -17,6 +17,7 @@ import {
 
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import { api } from '../api/client';
+import PlanAttachments from './PlanAttachments';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
@@ -512,6 +513,8 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
               multiline
               minRows={2}
             />
+
+            <PlanAttachments planId={plan.id} attachments={plan.attachments} readOnly={readOnly} />
 
             {editableParts.map((part, i) => {
               const form = forms[part.id];

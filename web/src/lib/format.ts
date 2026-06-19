@@ -87,3 +87,17 @@ export function fmtAgo(iso: string, now: number = Date.now()): string {
   if (sec < 5) return 'just now';
   return `${fmtRelative(sec)} ago`;
 }
+
+// formatBytes renders a byte count as a compact human-readable size
+// (e.g. 2048 → "2.0 KB", 25 MiB → "25 MB"). Used by the plan attachments UI.
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = n / 1024;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
+}

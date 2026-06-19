@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dpage/aerly/internal/attachments"
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/config"
 	"github.com/dpage/aerly/internal/emailingest"
@@ -50,6 +51,11 @@ type API struct {
 	// Maps resolves pasted Google Maps URLs (incl. short links) to coordinates
 	// for the plan coordinate override. Defaulted in New().
 	Maps *aerlymaps.Resolver
+
+	// Attachments is the blob store backing per-plan file attachments (issue
+	// #91). nil when ATTACHMENTS_STORE is unset — the upload/download/delete
+	// endpoints then return 503 and the UI hides the affordance.
+	Attachments attachments.Storage
 
 	// SendVerifyEmail dispatches the verification message. Defaulted in
 	// New() to the real sendmail pipe; tests can override.
@@ -175,6 +181,12 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("PATCH /api/plan-parts/{id}", req(http.HandlerFunc(a.updatePlanPart)))
 	mux.Handle("POST /api/plan-parts/{id}/split", req(http.HandlerFunc(a.splitPlanPart)))
 	mux.Handle("POST /api/plan-parts/{id}/dismiss", req(http.HandlerFunc(a.dismissPlanPart)))
+
+	// Plan attachments (issue #91). Upload/list live under the plan; download +
+	// delete address a single attachment by id. All 503 unless a store is wired.
+	mux.Handle("POST /api/plans/{id}/attachments", req(http.HandlerFunc(a.uploadAttachment)))
+	mux.Handle("GET /api/attachments/{id}", req(http.HandlerFunc(a.downloadAttachment)))
+	mux.Handle("DELETE /api/attachments/{id}", req(http.HandlerFunc(a.deleteAttachment)))
 
 	// Ingest (Wave 2A).
 	mux.Handle("POST /api/trips/{id}/ingest", req(http.HandlerFunc(a.ingestTrip)))

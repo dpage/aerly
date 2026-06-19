@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { fmtAgo, fmtDateTime, fmtRelative, fmtUTC, formatCost } from './format';
+import { fmtAgo, fmtDateTime, fmtRelative, fmtUTC, formatBytes, formatCost } from './format';
 
 describe('formatCost', () => {
   it('returns null when there is no amount', () => {
@@ -87,5 +87,16 @@ describe('fmtAgo', () => {
   it('clamps future timestamps to "just now"', () => {
     const now = Date.UTC(2024, 0, 1, 0, 0, 10);
     expect(fmtAgo(new Date(now + 10_000).toISOString(), now)).toBe('just now');
+  });
+});
+
+describe('formatBytes', () => {
+  it('formats across units', () => {
+    expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(2048)).toBe('2.0 KB');
+    expect(formatBytes(5 * 1024 * 1024)).toBe('5.0 MB');
+    expect(formatBytes(25 * 1024 * 1024)).toBe('25 MB');
+    expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe('3.0 GB');
   });
 });

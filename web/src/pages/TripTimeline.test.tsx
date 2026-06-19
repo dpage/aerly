@@ -11,6 +11,8 @@ const state = {
   setError: vi.fn(),
   // Fields the child dialogs (PlanEditDialog/PlanPrivacyDialog/PlanAlertToggle)
   // pull off the store when they're opened from an expanded tile.
+  // PlanEditDialog mounts PlanAttachments, which reads capabilities; off here.
+  capabilities: { attachments_enabled: false },
   trips: [] as Trip[],
   users: [] as unknown[],
   listTrips: vi.fn(async () => {}),

@@ -443,8 +443,37 @@ type PlanDTO struct {
 	// this plan when true (per-plan all-friends share).
 	ShareAllFriends bool          `json:"share_all_friends"`
 	Parts           []PlanPartDTO `json:"parts"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
+	// Attachments are the plan's uploaded files (issue #91). Always non-nil
+	// (empty when the feature is off or the plan has none).
+	Attachments []AttachmentDTO `json:"attachments"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// AttachmentDTO is one uploaded file on a plan. The bytes are fetched from the
+// download endpoint (/api/attachments/{id}); only metadata travels in JSON.
+type AttachmentDTO struct {
+	ID          int64     `json:"id"`
+	PlanID      int64     `json:"plan_id"`
+	Filename    string    `json:"filename"`
+	ContentType string    `json:"content_type"`
+	SizeBytes   int64     `json:"size_bytes"`
+	UploadedBy  *int64    `json:"uploaded_by,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// ToAttachmentDTO projects a stored attachment into its DTO. The storage key is
+// deliberately omitted — it's an internal handle, never exposed to clients.
+func ToAttachmentDTO(a *store.PlanAttachment) AttachmentDTO {
+	return AttachmentDTO{
+		ID:          a.ID,
+		PlanID:      a.PlanID,
+		Filename:    a.Filename,
+		ContentType: a.ContentType,
+		SizeBytes:   a.SizeBytes,
+		UploadedBy:  a.UploadedBy,
+		CreatedAt:   a.CreatedAt,
+	}
 }
 
 // ProposedPlanDTO is a plan the ingest pipeline proposes, awaiting
