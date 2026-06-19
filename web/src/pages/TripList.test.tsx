@@ -573,6 +573,21 @@ describe('TripList', () => {
     expect(filterInput).toHaveValue('');
   });
 
+  it('orders filtered results chronologically rather than by store order', async () => {
+    // Store order is arbitrary (updated_at DESC); the filtered flat list should
+    // still come out most-recent-first within Past, like the grouped view.
+    state.trips = [
+      trip({ id: 1, name: 'Bel 2010', starts_on: '2010-02-05', ends_on: '2010-02-07' }),
+      trip({ id: 2, name: 'Bel 2013', starts_on: '2013-01-31', ends_on: '2013-02-03' }),
+      trip({ id: 3, name: 'Bel 2008', starts_on: '2008-02-22', ends_on: '2008-02-24' }),
+    ];
+    renderList();
+    await userEvent.type(screen.getByPlaceholderText(/Filter trips/i), 'Bel');
+
+    const cards = screen.getAllByText(/^Bel \d{4}$/).map((el) => el.textContent);
+    expect(cards).toEqual(['Bel 2013', 'Bel 2010', 'Bel 2008']);
+  });
+
   it('shows "No matching trips" when filter yields no results', async () => {
     state.trips = [trip({ id: 1, name: 'Stockholm Trip', starts_on: dateOnly(-10) })];
     renderList();

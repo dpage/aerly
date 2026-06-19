@@ -168,10 +168,16 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
 
   const filterNorm = filter.trim().toLowerCase();
 
-  // When filter is active, flatten all trips into a single filtered list.
+  // When filter is active, flatten all trips into a single filtered list. Run
+  // the matches through the same bucketing/sort as the grouped view and flatten
+  // in BUCKET_ORDER so the flat list keeps a meaningful chronological order
+  // (Happening now → Upcoming soonest-first → Past most-recent-first) rather
+  // than inheriting the store's arbitrary updated_at order.
   const filteredTrips = useMemo(() => {
     if (!filterNorm) return null;
-    return scoped.filter((t) => tripMatchesFilter(t, filterNorm));
+    const matched = scoped.filter((t) => tripMatchesFilter(t, filterNorm));
+    const g = groupTrips(matched);
+    return BUCKET_ORDER.flatMap(({ bucket }) => g[bucket]);
   }, [scoped, filterNorm]);
 
   return (
