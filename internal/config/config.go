@@ -247,6 +247,14 @@ func (c *Config) ResolverAvailable() bool {
 	return c.AeroDataBoxKey != ""
 }
 
+// HTTPS reports whether the deployment is served over HTTPS, inferred from the
+// PublicURL scheme. It mirrors the condition that marks session cookies Secure,
+// and gates HSTS: emitting Strict-Transport-Security over plain HTTP (e.g. local
+// dev on http://localhost) is pointless and a footgun if the host is reused.
+func (c *Config) HTTPS() bool {
+	return strings.HasPrefix(c.PublicURL, "https://")
+}
+
 func getenv(k, dflt string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
