@@ -253,22 +253,28 @@ func partDetails(it itinPart) []string {
 	pl, pt := it.plan, it.part
 	var out []string
 
-	if route := routeLine(pt.StartLabel, pt.EndLabel); route != "" {
-		out = append(out, route)
-	}
-	// Addresses. A part with a destination (a journey: flight/train/transfer)
-	// labels them From/To; a single-location plan (hotel/dining/excursion) shows
-	// one "Address" line.
-	twoEnded := pt.EndLabel != "" || pt.EndAddress != ""
-	if pt.StartAddress != "" {
-		if twoEnded {
-			out = append(out, "From: "+oneLine(pt.StartAddress))
-		} else {
-			out = append(out, "Address: "+oneLine(pt.StartAddress))
+	if singleLocation(pl.Type, pt) {
+		// A stay/booking at one place (hotel, dining, excursion, or any part
+		// whose start and end coincide): show the place once, not "X -> X", and
+		// a single address. Skip the place label when it just repeats the title.
+		if loc := nonEmpty(pt.StartLabel, pt.EndLabel); loc != "" && loc != pl.Title {
+			out = append(out, loc)
 		}
-	}
-	if pt.EndAddress != "" {
-		out = append(out, "To: "+oneLine(pt.EndAddress))
+		if addr := nonEmpty(pt.StartAddress, pt.EndAddress); addr != "" {
+			out = append(out, "Address: "+oneLine(addr))
+		}
+	} else {
+		// A journey (flight, train, transfer): a from→to route and, when known,
+		// the departure and arrival addresses.
+		if route := routeLine(pt.StartLabel, pt.EndLabel); route != "" {
+			out = append(out, route)
+		}
+		if pt.StartAddress != "" {
+			out = append(out, "From: "+oneLine(pt.StartAddress))
+		}
+		if pt.EndAddress != "" {
+			out = append(out, "To: "+oneLine(pt.EndAddress))
+		}
 	}
 
 	out = append(out, timeRange(pt.StartsAt, pt.EndsAt, pt.StartTZ, pt.EndTZ))
@@ -317,6 +323,23 @@ func joinNonEmpty(sep string, parts ...string) string {
 // paragraph rather than breaking the layout.
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// singleLocation reports whether a part describes one place rather than a
+// journey between two. Hotels, dining and excursions are inherently stationary —
+// they carry check-in/out (or start/end) times but the same location at both
+// ends, so the data duplicates the label/address into start_* and end_*. Any
+// other type also counts as single-location when its end coincides with its
+// start (or is blank), so a one-ended part never renders a redundant "X -> X"
+// route or duplicated From/To addresses.
+func singleLocation(planType string, pt *api.PlanPartDTO) bool {
+	switch planType {
+	case "hotel", "dining", "excursion":
+		return true
+	}
+	sameLabel := pt.EndLabel == "" || pt.EndLabel == pt.StartLabel
+	sameAddress := pt.EndAddress == "" || pt.EndAddress == pt.StartAddress
+	return sameLabel && sameAddress
 }
 
 // routeLine joins a start and end label with an arrow, tolerating either being
