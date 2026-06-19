@@ -15,6 +15,11 @@ type CapabilitiesDTO struct {
 	PollIntervalSec    int    `json:"poll_interval_sec"`
 	EmailIngestEnabled bool   `json:"email_ingest_enabled"`
 	EmailIngestAddress string `json:"email_ingest_address,omitempty"`
+	// AttachmentsEnabled gates the per-plan attachments UI (issue #91).
+	// AttachmentsMaxBytes is the per-file upload cap, so the client can reject
+	// oversize files before sending; omitted when attachments are disabled.
+	AttachmentsEnabled  bool  `json:"attachments_enabled"`
+	AttachmentsMaxBytes int64 `json:"attachments_max_bytes,omitempty"`
 }
 
 func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
@@ -26,6 +31,10 @@ func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
 		out.EmailIngestEnabled = a.Config.EmailIngestEnabled
 		if a.Config.EmailIngestEnabled {
 			out.EmailIngestAddress = a.Config.EmailIngestAddress
+		}
+		out.AttachmentsEnabled = a.Config.AttachmentsEnabled()
+		if a.Config.AttachmentsEnabled() {
+			out.AttachmentsMaxBytes = a.Config.AttachmentsMaxBytes
 		}
 	}
 	writeJSON(w, http.StatusOK, out)

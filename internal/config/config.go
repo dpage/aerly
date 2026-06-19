@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,21 @@ type Config struct {
 	LLMProvider                string
 	LLMModel                   string
 	LLMAPIKey                  string
+
+	// Attachments (optional, issue #91). AttachmentsStore gates the feature:
+	// empty/blank means off (upload endpoints 503, the UI hides the affordance).
+	// Otherwise it is either an absolute filesystem path under which blobs are
+	// stored (in a sharded directory structure), or an "s3://bucket[/prefix]" URL
+	// naming an S3 (or S3-compatible) bucket. For S3 the AttachmentsS3* fields
+	// carry the endpoint/region/credentials; they are zero for the filesystem
+	// backend. AttachmentsMaxBytes caps a single upload.
+	AttachmentsStore       string
+	AttachmentsMaxBytes    int64
+	AttachmentsS3Endpoint  string
+	AttachmentsS3Region    string
+	AttachmentsS3AccessKey string
+	AttachmentsS3SecretKey string
+	AttachmentsS3UseSSL    bool
 }
 
 func Load() (*Config, error) {
@@ -207,7 +223,66 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("EMAIL_INGEST_ENABLED=1 requires an LLM (set LLM_API_KEY, or LLM_PROVIDER=ollama)")
 		}
 	}
+
+	if err := loadAttachments(cfg); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// loadAttachments parses the optional attachments storage config. Blank
+// ATTACHMENTS_STORE leaves the feature disabled. An absolute path selects the
+// filesystem backend; an s3:// URL selects S3 and requires credentials. Either
+// way ATTACHMENTS_MAX_BYTES bounds a single upload (default 25 MiB).
+func loadAttachments(cfg *Config) error {
+	cfg.AttachmentsStore = strings.TrimSpace(os.Getenv("ATTACHMENTS_STORE"))
+	if cfg.AttachmentsStore == "" {
+		return nil
+	}
+
+	cfg.AttachmentsMaxBytes = 25 << 20
+	if v := os.Getenv("ATTACHMENTS_MAX_BYTES"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("ATTACHMENTS_MAX_BYTES must be a positive integer")
+		}
+		cfg.AttachmentsMaxBytes = n
+	}
+
+	if strings.HasPrefix(cfg.AttachmentsStore, "s3://") {
+		bucket, _ := parseS3Bucket(cfg.AttachmentsStore)
+		if bucket == "" {
+			return fmt.Errorf("ATTACHMENTS_STORE s3:// URL must include a bucket (e.g. s3://my-bucket/prefix)")
+		}
+		cfg.AttachmentsS3Endpoint = strings.TrimSpace(os.Getenv("ATTACHMENTS_S3_ENDPOINT"))
+		cfg.AttachmentsS3Region = getenv("ATTACHMENTS_S3_REGION", "us-east-1")
+		cfg.AttachmentsS3AccessKey = os.Getenv("ATTACHMENTS_S3_ACCESS_KEY")
+		cfg.AttachmentsS3SecretKey = os.Getenv("ATTACHMENTS_S3_SECRET_KEY")
+		if cfg.AttachmentsS3AccessKey == "" || cfg.AttachmentsS3SecretKey == "" {
+			return fmt.Errorf("ATTACHMENTS_STORE s3:// requires ATTACHMENTS_S3_ACCESS_KEY and ATTACHMENTS_S3_SECRET_KEY")
+		}
+		useSSL, err := parseBool01("ATTACHMENTS_S3_USE_SSL", true)
+		if err != nil {
+			return err
+		}
+		cfg.AttachmentsS3UseSSL = useSSL
+		return nil
+	}
+
+	if !filepath.IsAbs(cfg.AttachmentsStore) {
+		return fmt.Errorf("ATTACHMENTS_STORE must be an absolute filesystem path or an s3://bucket URL (got %q)", cfg.AttachmentsStore)
+	}
+	return nil
+}
+
+// parseS3Bucket extracts the bucket from an "s3://bucket[/prefix]" URL. It
+// mirrors attachments.ParseS3URL but lives here so config has no dependency on
+// the storage package.
+func parseS3Bucket(raw string) (bucket, prefix string) {
+	rest := strings.TrimPrefix(raw, "s3://")
+	rest = strings.TrimPrefix(rest, "/")
+	bucket, prefix, _ = strings.Cut(rest, "/")
+	return bucket, strings.Trim(prefix, "/")
 }
 
 // LLMConfigured reports whether an LLM-backed extractor can be built: either an
@@ -216,6 +291,19 @@ func Load() (*Config, error) {
 // for email ingest).
 func (c *Config) LLMConfigured() bool {
 	return c.LLMAPIKey != "" || c.LLMProvider == "ollama"
+}
+
+// AttachmentsEnabled reports whether a plan-attachments store is configured.
+// When false the upload/download endpoints report disabled and the UI hides the
+// attachments affordance.
+func (c *Config) AttachmentsEnabled() bool {
+	return c.AttachmentsStore != ""
+}
+
+// AttachmentsIsS3 reports whether the configured store is an S3 bucket (rather
+// than a local filesystem path).
+func (c *Config) AttachmentsIsS3() bool {
+	return strings.HasPrefix(c.AttachmentsStore, "s3://")
 }
 
 // WebPushEnabled reports whether Web Push is configured: both halves of the

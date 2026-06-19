@@ -493,3 +493,85 @@ func TestLoadEmailIngestRequireFlagsFailClosed(t *testing.T) {
 		t.Errorf("expected REQUIRE_DKIM 0/1 error, got %v", err)
 	}
 }
+
+func TestAttachmentsDisabledByDefault(t *testing.T) {
+	base(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AttachmentsEnabled() {
+		t.Error("attachments should be off when ATTACHMENTS_STORE is unset")
+	}
+}
+
+func TestAttachmentsFilesystem(t *testing.T) {
+	base(t)
+	t.Setenv("ATTACHMENTS_STORE", "/var/lib/aerly/attachments")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.AttachmentsEnabled() || cfg.AttachmentsIsS3() {
+		t.Errorf("expected filesystem store, got enabled=%v s3=%v", cfg.AttachmentsEnabled(), cfg.AttachmentsIsS3())
+	}
+	if cfg.AttachmentsMaxBytes != 25<<20 {
+		t.Errorf("default max bytes = %d, want %d", cfg.AttachmentsMaxBytes, 25<<20)
+	}
+}
+
+func TestAttachmentsRelativePathRejected(t *testing.T) {
+	base(t)
+	t.Setenv("ATTACHMENTS_STORE", "relative/path")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "absolute filesystem path") {
+		t.Errorf("expected absolute-path error, got %v", err)
+	}
+}
+
+func TestAttachmentsBadMaxBytes(t *testing.T) {
+	base(t)
+	t.Setenv("ATTACHMENTS_STORE", "/data")
+	t.Setenv("ATTACHMENTS_MAX_BYTES", "-1")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "ATTACHMENTS_MAX_BYTES") {
+		t.Errorf("expected max-bytes error, got %v", err)
+	}
+}
+
+func TestAttachmentsS3RequiresCredentials(t *testing.T) {
+	base(t)
+	t.Setenv("ATTACHMENTS_STORE", "s3://my-bucket/prefix")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "ATTACHMENTS_S3_ACCESS_KEY") {
+		t.Errorf("expected s3 credentials error, got %v", err)
+	}
+}
+
+func TestAttachmentsS3Configured(t *testing.T) {
+	base(t)
+	t.Setenv("ATTACHMENTS_STORE", "s3://my-bucket/prefix")
+	t.Setenv("ATTACHMENTS_S3_ACCESS_KEY", "ak")
+	t.Setenv("ATTACHMENTS_S3_SECRET_KEY", "sk")
+	t.Setenv("ATTACHMENTS_S3_REGION", "eu-west-2")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.AttachmentsEnabled() || !cfg.AttachmentsIsS3() {
+		t.Fatalf("expected s3 store, got enabled=%v s3=%v", cfg.AttachmentsEnabled(), cfg.AttachmentsIsS3())
+	}
+	if cfg.AttachmentsS3Region != "eu-west-2" || cfg.AttachmentsS3AccessKey != "ak" {
+		t.Errorf("s3 config not captured: %+v", cfg)
+	}
+	if !cfg.AttachmentsS3UseSSL {
+		t.Error("AttachmentsS3UseSSL should default to true")
+	}
+}
+
+func TestAttachmentsS3MissingBucket(t *testing.T) {
+	base(t)
+	t.Setenv("ATTACHMENTS_STORE", "s3://")
+	t.Setenv("ATTACHMENTS_S3_ACCESS_KEY", "ak")
+	t.Setenv("ATTACHMENTS_S3_SECRET_KEY", "sk")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "must include a bucket") {
+		t.Errorf("expected missing-bucket error, got %v", err)
+	}
+}

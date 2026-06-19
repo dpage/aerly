@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -318,10 +319,24 @@ func (a *API) deletePlan(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	// Sweep the attachment blobs before the rows cascade away with the plan —
+	// the DB can't reach the object store. Best-effort: a left-over blob is a
+	// harmless orphan, so a sweep error doesn't block the delete.
+	var blobKeys []string
+	if a.Attachments != nil {
+		if keys, kerr := a.Store.StorageKeysByPlan(r.Context(), id); kerr == nil {
+			blobKeys = keys
+		}
+	}
 	a.publishPlanDeleted(r.Context(), plan.TripID, id)
 	if err := a.Store.DeletePlan(r.Context(), id); err != nil {
 		handleStoreErr(w, err)
 		return
+	}
+	for _, key := range blobKeys {
+		if derr := a.Attachments.Delete(r.Context(), key); derr != nil {
+			slog.Error("attachment blob cleanup failed on plan delete", "err", derr, "key", key)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -996,6 +1011,16 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 			partDTOs[i].Passengers = paxDTOs
 		}
 	}
+	attachments := make([]api.AttachmentDTO, 0)
+	if a.Attachments != nil {
+		atts, err := a.Store.AttachmentsByPlan(ctx, planID)
+		if err != nil {
+			return api.PlanDTO{}, err
+		}
+		for _, att := range atts {
+			attachments = append(attachments, api.ToAttachmentDTO(att))
+		}
+	}
 	var optedIn bool
 	reminder := store.PlanReminder{Override: "inherit", LeadHours: 24}
 	if viewerID != 0 {
@@ -1031,6 +1056,7 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 		ReminderLeadHours: reminder.LeadHours,
 		ShareAllFriends:   plan.ShareAllFriends,
 		Parts:             partDTOs,
+		Attachments:       attachments,
 		CreatedAt:         plan.CreatedAt,
 		UpdatedAt:         plan.UpdatedAt,
 	}, nil

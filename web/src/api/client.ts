@@ -3,6 +3,7 @@ import type {
   AddTripMemberInput,
   AdminInfo,
   AlertPrefs,
+  Attachment,
   AuthProvider,
   AutoShare,
   AutoShareRole,
@@ -322,6 +323,17 @@ export const api = {
     request<PlanPart>('PATCH', `/api/plan-parts/${partId}`, patch),
   // Tidy away a superseded part; stamps dismissed_at so the timeline omits it.
   dismissPlanPart: (partId: number) => request<void>('POST', `/api/plan-parts/${partId}/dismiss`),
+
+  // Plan attachments (issue #91). Upload goes out as multipart/form-data;
+  // download streams the bytes to a browser save; delete is a plain DELETE.
+  uploadPlanAttachment: (planId: number, file: File) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return requestMultipart<Attachment>('POST', `/api/plans/${planId}/attachments`, form);
+  },
+  downloadAttachment: (att: Attachment) =>
+    downloadFile(`/api/attachments/${att.id}`, att.filename),
+  deleteAttachment: (id: number) => request<void>('DELETE', `/api/attachments/${id}`),
 
   // -------------------------------------------------------------------------
   // Ingest (spec §5.2 / §6): paste/upload → proposed plans, then commit.

@@ -17,6 +17,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/dpage/aerly/internal/attachments"
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/config"
 	"github.com/dpage/aerly/internal/db"
@@ -98,6 +99,20 @@ func run() error {
 		slog.Info("resolver: aerodatabox (cached, ttl=24h; poller uses uncached)")
 	}
 	api := handlers.New(s, authH, hub, cfg, resolver)
+	// Plan attachments (issue #91): wire the configured blob store. nil store
+	// (ATTACHMENTS_STORE unset) leaves the upload endpoints reporting disabled.
+	if cfg.AttachmentsEnabled() {
+		blobStore, err := buildAttachmentStore(cfg)
+		if err != nil {
+			return err
+		}
+		api.Attachments = blobStore
+		if cfg.AttachmentsIsS3() {
+			slog.Info("attachments: s3", "store", cfg.AttachmentsStore)
+		} else {
+			slog.Info("attachments: filesystem", "path", cfg.AttachmentsStore)
+		}
+	}
 	// Airport lookups go straight to the upstream client (not the cached/raw
 	// flight resolver): the endpoint is date-free and its data is static, so it
 	// backfills off-table airports on flights outside the ±180-day flight window.
@@ -280,4 +295,24 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// buildAttachmentStore constructs the blob store named by ATTACHMENTS_STORE: a
+// filesystem directory, or an S3 (or S3-compatible) bucket. The caller has
+// already validated the config, so the only errors here are I/O/connection
+// setup failures.
+func buildAttachmentStore(cfg *config.Config) (attachments.Storage, error) {
+	if cfg.AttachmentsIsS3() {
+		bucket, prefix := attachments.ParseS3URL(cfg.AttachmentsStore)
+		return attachments.NewS3Store(attachments.S3Config{
+			Bucket:    bucket,
+			Prefix:    prefix,
+			Endpoint:  cfg.AttachmentsS3Endpoint,
+			Region:    cfg.AttachmentsS3Region,
+			AccessKey: cfg.AttachmentsS3AccessKey,
+			SecretKey: cfg.AttachmentsS3SecretKey,
+			UseSSL:    cfg.AttachmentsS3UseSSL,
+		})
+	}
+	return attachments.NewFSStore(cfg.AttachmentsStore)
 }

@@ -44,6 +44,10 @@ export interface Capabilities {
   email_ingest_enabled: boolean;
   /** Forwarding address for email-ingest; absent when disabled. */
   email_ingest_address?: string;
+  /** When true, plans can carry uploaded file attachments (issue #91). */
+  attachments_enabled: boolean;
+  /** Per-file upload cap in bytes; absent when attachments are disabled. */
+  attachments_max_bytes?: number;
 }
 
 export interface UserEmail {
@@ -474,8 +478,22 @@ export interface Plan {
   reminder_override: 'inherit' | 'on' | 'off';
   reminder_lead_hours: number;
   parts: PlanPart[];
+  /** Uploaded file attachments (issue #91); always present, [] when none. */
+  attachments: Attachment[];
   created_at: string;
   updated_at: string;
+}
+
+/** A file attached to a plan (issue #91). Metadata only — fetch the bytes from
+ * GET /api/attachments/{id}. */
+export interface Attachment {
+  id: number;
+  plan_id: number;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  uploaded_by?: number;
+  created_at: string;
 }
 
 /** A single trackable part as surfaced by the tracker convergence view. */

@@ -68,6 +68,7 @@ All configuration is via environment variables (see `.env.example`).
 | `OPENSKY_ENABLED`          |          | `0`                           | Set to `1` to use OpenSky anonymously (heavily rate-limited).                          |
 | `AERODATABOX_RAPIDAPI_KEY` |          |                               | When set, the Add Flight dialog drops to its minimal "ident + date" form.              |
 | `DEV_AUTH_BYPASS`          |          | `0`                           | Local-only: `1` enables `/auth/dev-login?login=…` to skip OAuth. Refuses non-localhost.|
+| `ATTACHMENTS_STORE`        |          |                               | Enables per-plan file attachments. Blank = off. Set to an absolute filesystem path, or an `s3://bucket[/prefix]` URL. See **Plan attachments** below. |
 
 ¹ At least one OAuth provider (GitHub or Google) must be fully configured, unless `DEV_AUTH_BYPASS=1`. Each provider needs both its ID and secret, or neither.
 
@@ -174,6 +175,38 @@ attached PDFs are skipped.
   `EMAIL_INGEST_ENABLED=1` because they share the sendmail pipe.
 - The `.failed/` directory accumulates poisonous messages; the operator
   decides when to inspect and delete.
+
+## Plan attachments (optional)
+
+Users can attach files — a PDF ticket, a booking confirmation, a scanned
+voucher — to any plan (booking). The feature is gated entirely by server
+configuration: with `ATTACHMENTS_STORE` unset the upload/download endpoints
+report disabled and the UI hides the affordance.
+
+The file bytes live **out-of-band** from the database in a configured object
+store; the database holds only metadata (filename, size, content type) plus the
+opaque storage key. Set `ATTACHMENTS_STORE` to one of:
+
+- an **absolute filesystem path** (e.g. `/var/lib/aerly/attachments`) — blobs are
+  written under it in a two-level sharded directory layout (`ab/cd/<uuid>`) so a
+  single directory never has to hold millions of entries; or
+- an **`s3://bucket[/prefix]` URL** — blobs become objects in an S3 (or any
+  S3-compatible) bucket. The MinIO client is used under the hood, so AWS S3,
+  MinIO, Cloudflare R2, etc. all work.
+
+Access mirrors the plan's own authorization: anyone who can **edit** the plan's
+trip can upload or remove attachments; anyone who can **view** the plan can
+download them. Deleting an attachment (or its plan) sweeps the blob.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `ATTACHMENTS_STORE` | (off) | Absolute path or `s3://bucket[/prefix]`. Blank disables the feature. |
+| `ATTACHMENTS_MAX_BYTES` | `26214400` (25 MiB) | Per-file upload cap. |
+| `ATTACHMENTS_S3_ACCESS_KEY` | (required for s3) | S3 access key id. |
+| `ATTACHMENTS_S3_SECRET_KEY` | (required for s3) | S3 secret access key. |
+| `ATTACHMENTS_S3_REGION` | `us-east-1` | Bucket region. |
+| `ATTACHMENTS_S3_ENDPOINT` | (AWS default) | Override host for S3-compatible stores (e.g. MinIO). No scheme. |
+| `ATTACHMENTS_S3_USE_SSL` | `1` | `0` to talk plain HTTP to the endpoint. |
 
 ## Tracker and resolver modes
 
@@ -347,6 +380,7 @@ Pre-release. Tracker and resolver paths are working end-to-end with OpenSky and 
 - **Flight data: migrate to FlightAware AeroAPI.** Evaluate replacing AeroDataBox with AeroAPI for richer, fresher gate/terminal and status data. AeroAPI is metered per-query (cost-sensitive at poll cadence — lean on `last_resolved_at` throttling) and coverage varies, so spike against real routes first. Slots in behind the existing `providers.Resolver` interface as a sibling implementation; AeroDataBox stays the default until then.
 
 **Shipped (trip-planning follow-ups)**
+- Plan attachments — upload files (PDF tickets, confirmations) to a plan, stored out-of-band in a configured filesystem path or S3 bucket and gated by `ATTACHMENTS_STORE`.
 - Gate-change alerts — gate/terminal parsed from AeroDataBox onto `flight_details`, always-alert branch with dedupe in the poller.
 - Binary / PDF upload — multipart transport into the LLM extractor.
 - Single-flight track on the tracker — focused view returns the flown track.

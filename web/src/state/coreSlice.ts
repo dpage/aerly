@@ -31,6 +31,7 @@ function anonymousReset(): Partial<StoreState> {
       resolver_available: false,
       poll_interval_sec: 60,
       email_ingest_enabled: false,
+      attachments_enabled: false,
     },
     notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
     notice: null,
@@ -129,7 +130,12 @@ function persistShowAll(v: boolean): void {
 export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set, get) => ({
   auth: 'loading',
   me: null,
-  capabilities: { resolver_available: false, poll_interval_sec: 60, email_ingest_enabled: false },
+  capabilities: {
+    resolver_available: false,
+    poll_interval_sec: 60,
+    email_ingest_enabled: false,
+    attachments_enabled: false,
+  },
   users: [],
   friendships: [],
   autoShares: [],

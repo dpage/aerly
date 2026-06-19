@@ -26,6 +26,9 @@ vi.mock('../state/store', () => ({
       listTrips: h.listTrips,
       setError: h.setError,
       setNotice: h.setNotice,
+      // PlanAttachments (mounted by the dialog) reads capabilities; off here so
+      // it renders nothing and these tests stay focused on the editor.
+      capabilities: { attachments_enabled: false },
     }),
 }));
 
@@ -89,6 +92,7 @@ function plan(over: Partial<Plan> = {}): Plan {
     visibility: { mode: 'everyone', user_ids: [] },
     alert_opted_in: false,
     parts: [],
+    attachments: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...over,
