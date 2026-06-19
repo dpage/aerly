@@ -11,7 +11,12 @@ import "net/http"
 //     MapLibre demo glyph fonts. MapLibre fetches both from inside a web worker,
 //     as images and via fetch, so the tile/glyph hosts appear in img-src AND
 //     connect-src, and the worker itself is built from a blob: URL.
-//   - User avatars come from the GitHub and Google CDNs.
+//   - Trip cards show a country flag image from flagcdn.com (TripList's
+//     flagUrl), so that host is in img-src.
+//   - User avatars come from the GitHub and Google CDNs. dev-login (a dev-only
+//     affordance) uses https://github.com/<login>.png, which 302s to the
+//     githubusercontent CDN; the redirect's origin (github.com) must therefore
+//     also be allowed for that avatar to load.
 //
 // MUI/emotion injects <style> elements at runtime, so style-src must allow
 // 'unsafe-inline'; there is, however, no inline script (index.html loads a
@@ -25,7 +30,7 @@ const contentSecurityPolicy = "default-src 'self'; " +
 	"form-action 'self'; " +
 	"script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob: https://tile.openstreetmap.org https://*.githubusercontent.com https://*.googleusercontent.com; " +
+	"img-src 'self' data: blob: https://tile.openstreetmap.org https://flagcdn.com https://github.com https://*.githubusercontent.com https://*.googleusercontent.com; " +
 	"font-src 'self' data:; " +
 	"worker-src 'self' blob:; " +
 	"manifest-src 'self'; " +

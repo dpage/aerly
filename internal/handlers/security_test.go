@@ -42,6 +42,9 @@ func TestSecurityHeaders_SetOnEveryResponse(t *testing.T) {
 		"script-src 'self'",
 		"https://tile.openstreetmap.org",
 		"https://demotiles.maplibre.org",
+		// Image hosts the SPA loads from; omitting flagcdn silently breaks the
+		// trip-card country flags.
+		"https://flagcdn.com",
 	} {
 		if !strings.Contains(csp, frag) {
 			t.Errorf("CSP missing %q\nfull policy: %s", frag, csp)
