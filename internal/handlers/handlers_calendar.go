@@ -195,12 +195,16 @@ func (a *API) exportTripPDF(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
-	events, err := a.Store.CalendarEventsForTrip(r.Context(), me.ID, id)
+	// Render from the full visible plan model (not the calendar feed shape) so
+	// the itinerary can carry addresses, ticket/confirmation references and the
+	// supplier contact block. visiblePlanDTOs applies the §4 per-plan
+	// visibility, so hidden plans never leak.
+	plans, err := a.visiblePlanDTOs(r, id, me)
 	if err != nil {
-		serverError(w, err)
+		handleStoreErr(w, err)
 		return
 	}
-	body := renderItineraryPDF(trip, events, me.PaperSize)
+	body := renderItineraryPDF(trip, plans, me.PaperSize)
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition",
 		`attachment; filename="`+downloadFilename(trip.Name, "pdf")+`"`)
