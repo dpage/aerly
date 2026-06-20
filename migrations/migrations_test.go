@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"fmt"
 	"io/fs"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		t.Fatalf("ReadDir: %v", err)
 	}
 	var ups, downs int
+	seenVersion := map[int]string{}
 	for _, e := range entries {
 		n := e.Name()
 		if !strings.HasSuffix(n, ".sql") {
@@ -27,6 +29,18 @@ func TestEmbeddedMigrations(t *testing.T) {
 		switch {
 		case strings.HasSuffix(n, ".up.sql"):
 			ups++
+			// Each up migration must carry a unique NNNN version: the migrator
+			// keys schema_migrations by that number, so a duplicate silently
+			// skips one migration once the other's version is recorded.
+			var v int
+			if _, err := fmt.Sscanf(n, "%04d_", &v); err != nil {
+				t.Errorf("%s: cannot parse version: %v", n, err)
+				continue
+			}
+			if prev, dup := seenVersion[v]; dup {
+				t.Errorf("duplicate migration version %04d: %s and %s", v, prev, n)
+			}
+			seenVersion[v] = n
 		case strings.HasSuffix(n, ".down.sql"):
 			downs++
 		}
