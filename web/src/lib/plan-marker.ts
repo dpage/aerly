@@ -111,8 +111,9 @@ function iceCreamConeSvg(scoop: string, ring: string): string {
 }
 
 /** A labelled popover for a map marker: a coloured type glyph + the title, then
- * a Type / Location / When field list. Built with textContent so extracted
- * strings can't inject markup. Pass `iso`+`tz` to render a local When line. */
+ * a Type / Location / Address / When field list. Built with textContent so
+ * extracted strings can't inject markup. Pass `iso`+`tz` to render a local When
+ * line. */
 export interface MarkerPerson {
   name: string;
   avatarUrl?: string;
@@ -121,7 +122,10 @@ export interface MarkerPerson {
 export function buildMarkerPopup(opts: {
   title: string;
   type: PlanType;
+  /** The place name (shown as a Location row when it adds to the title). */
   location?: string;
+  /** The street address of the place (shown as its own row). */
+  address?: string;
   iso?: string;
   tz?: string;
   /** Who added the plan (shown as text). */
@@ -150,9 +154,16 @@ export function buildMarkerPopup(opts: {
   root.append(header);
 
   const when = opts.iso ? fmtLocalDateTime(opts.iso, opts.tz) : '';
+  // The place name, shown only when it adds something over the title.
+  const location = opts.location && opts.location !== opts.title ? opts.location : '';
+  // The street address, shown when it isn't already covered by the title or the
+  // Location row above it.
+  const address =
+    opts.address && opts.address !== opts.title && opts.address !== location ? opts.address : '';
   const rows: [string, string][] = [
     ['Type', planTypeLabel(opts.type)],
-    ['Location', opts.location && opts.location !== opts.title ? opts.location : ''],
+    ['Location', location],
+    ['Address', address],
     ['When', when],
     ['Added by', opts.owner ?? ''],
   ];

@@ -332,6 +332,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
                   title: partTitle(p),
                   type: p.type,
                   location: ep.label,
+                  address: ep.address,
                   iso: ep.iso,
                   tz: ep.tz,
                   owner: p.owner ? userName(p.owner) : undefined,
@@ -807,6 +808,7 @@ interface Endpoint {
   lat: number;
   lon: number;
   label: string;
+  address: string;
   iso: string;
   tz?: string;
 }
@@ -819,6 +821,7 @@ function endpoints(p: PlanPart): Endpoint[] {
           lat: p.start_lat,
           lon: p.start_lon,
           label: p.start_label,
+          address: p.start_address,
           iso: p.starts_at,
           tz: p.start_tz,
         }
@@ -830,6 +833,7 @@ function endpoints(p: PlanPart): Endpoint[] {
           lat: p.end_lat,
           lon: p.end_lon,
           label: p.end_label,
+          address: p.end_address,
           iso: p.ends_at ?? p.starts_at,
           tz: p.end_tz || p.start_tz,
         }

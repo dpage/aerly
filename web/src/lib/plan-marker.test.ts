@@ -106,6 +106,50 @@ describe('buildMarkerPopup', () => {
     expect(el.textContent).not.toContain('Location');
   });
 
+  it('shows an Address row alongside the place name', () => {
+    const el = buildMarkerPopup({
+      title: 'Rain or Shine',
+      type: 'ice_cream',
+      location: 'Rain or Shine',
+      address: '812 Homer St, Vancouver, British Columbia V6B 2W5',
+    });
+    expect(el.textContent).toContain('Address');
+    expect(el.textContent).toContain('812 Homer St, Vancouver, British Columbia V6B 2W5');
+  });
+
+  it('shows the Address even when the place name is just the type fallback', () => {
+    // A part with no label falls back to the type as its title; the address
+    // should still surface.
+    const el = buildMarkerPopup({
+      title: 'Ice cream',
+      type: 'ice_cream',
+      address: '812 Homer St, Vancouver',
+    });
+    expect(el.textContent).toContain('Address');
+    expect(el.textContent).toContain('812 Homer St, Vancouver');
+  });
+
+  it('omits the Address row when it merely repeats the title or location', () => {
+    const sameAsTitle = buildMarkerPopup({
+      title: '812 Homer St',
+      type: 'ice_cream',
+      address: '812 Homer St',
+    });
+    expect(sameAsTitle.textContent).not.toContain('Address');
+    const sameAsLocation = buildMarkerPopup({
+      title: 'Rain or Shine',
+      type: 'ice_cream',
+      location: '812 Homer St',
+      address: '812 Homer St',
+    });
+    expect(sameAsLocation.textContent).not.toContain('Address');
+  });
+
+  it('omits the Address row when no address is supplied', () => {
+    const el = buildMarkerPopup({ title: 'BA217', type: 'flight' });
+    expect(el.textContent).not.toContain('Address');
+  });
+
   it('renders a When row when an iso is supplied', () => {
     const el = buildMarkerPopup({
       title: 'BA217',
