@@ -3,25 +3,19 @@
 -- Meeting: useful for volunteer stand-ups, org meetings, committee sessions —
 --   any group event at a fixed venue with an optional organiser contact.
 -- Event: a general ticketed/attended happening — conference talks, concerts,
---   cinema, theatre, sports matches, etc. Replaces the narrower 'talk' concept.
+--   cinema, theatre, sports matches, etc.
 --
--- We drop and recreate the CHECK constraint on plans.type (PostgreSQL does not
--- support ALTER CHECK); both the plans and plan_parts tables share the same
--- allowed set via the constraint defined on plans.type.
+-- The plan type is stored on the plans table only (not plan_parts). Migration
+-- 0043 already renamed the constraint to plans_type_check and added ice_cream;
+-- we drop and recreate it here to add meeting and event.
 
 -- 1. Widen the CHECK constraint on plans.type.
-ALTER TABLE plans DROP CONSTRAINT IF EXISTS plans_type_check;
+ALTER TABLE plans DROP CONSTRAINT plans_type_check;
 ALTER TABLE plans ADD CONSTRAINT plans_type_check CHECK (
   type IN ('flight','train','hotel','ground','dining','excursion','ice_cream','meeting','event')
 );
 
--- 2. Widen the CHECK constraint on plan_parts.type.
-ALTER TABLE plan_parts DROP CONSTRAINT IF EXISTS plan_parts_type_check;
-ALTER TABLE plan_parts ADD CONSTRAINT plan_parts_type_check CHECK (
-  type IN ('flight','train','hotel','ground','dining','excursion','ice_cream','meeting','event')
-);
-
--- 3. Satellite table for 'meeting' parts.
+-- 2. Satellite table for 'meeting' parts.
 --    location = room / building / virtual link; organiser = person running it.
 CREATE TABLE meeting_details (
     plan_part_id  BIGINT PRIMARY KEY REFERENCES plan_parts(id) ON DELETE CASCADE,
@@ -30,7 +24,7 @@ CREATE TABLE meeting_details (
     platform      TEXT NOT NULL DEFAULT ''   -- e.g. "Zoom", "Google Meet", ""
 );
 
--- 4. Satellite table for 'event' parts.
+-- 3. Satellite table for 'event' parts.
 --    performer / speaker / act; venue within venue (stage / room / track).
 CREATE TABLE event_details (
     plan_part_id  BIGINT PRIMARY KEY REFERENCES plan_parts(id) ON DELETE CASCADE,

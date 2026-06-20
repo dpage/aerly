@@ -282,8 +282,10 @@ export default function mockApiPlugin(): Plugin {
         if (method === 'GET' && /^\/api\/trips\/\d+\//.test(url)) {
           return json(res, []);
         }
-        // Swallow mutations so the UI doesn't 404
-        if (/^\/api\/trips\/\d+/.test(url) && method !== 'GET') {
+        // Swallow mutations on the demo trip so the UI doesn't 404.
+        // Scoped to the demo trip only — don't accidentally swallow mutations
+        // for other routes (e.g. /api/trips POST to create a new trip).
+        if (url.startsWith(`/api/trips/${CONF_TRIP_ID}`) && method !== 'GET') {
           return json(res, {});
         }
         if (method === 'GET' && url === '/api/friends') {

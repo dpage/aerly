@@ -1356,7 +1356,6 @@ func (s *Store) UpdateIceCreamDetail(ctx context.Context, partID int64, up IceCr
 	return err
 }
 
-<<<<<<< HEAD
 // The per-type detail updaters below all follow the IceCream pattern: a nil
 // pointer leaves that field unchanged (COALESCE idiom), and each upserts the
 // satellite row so a part predating its detail still takes the edit. Number

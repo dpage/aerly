@@ -1193,6 +1193,10 @@ function placeholderFor(type: PlanType): string {
       return 'Walking tour';
     case 'ice_cream':
       return 'Gelato at Giolitti';
+    case 'meeting':
+      return 'Team stand-up';
+    case 'event':
+      return 'Opening keynote';
     default:
       return planTypeLabel(type);
   }
@@ -1218,6 +1222,8 @@ function startTimeLabel(type: PlanType): string {
     case 'dining':
     case 'excursion':
     case 'ice_cream':
+    case 'meeting':
+    case 'event':
       return 'Time';
     default:
       return 'Departs';
