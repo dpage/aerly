@@ -1,9 +1,21 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
-import type { Plan, PlanPart, Trip } from '../api/types';
+import type { ExternalEvent, Plan, PlanPart, Trip } from '../api/types';
+
+// The "Show external plans" preference is a module-level singleton; mock it with
+// a real useState seeded from `ext.initial` so the in-test toggle still works.
+const ext = vi.hoisted(() => ({ initial: false }));
+vi.mock('../lib/showExternalPlans', async () => {
+  const react = await import('react');
+  return {
+    useShowExternalPlans: () => react.useState(ext.initial),
+    showExternalPlansEnabled: () => ext.initial,
+    setShowExternalPlans: vi.fn(),
+  };
+});
 
 const state = {
   currentTrip: null as (Trip & { plans: Plan[] }) | null,
@@ -39,6 +51,7 @@ vi.mock('../components/AddToTripDialog', () => ({
     open ? <div role="dialog">Add to trip dialog</div> : null,
 }));
 
+import { api } from '../api/client';
 import TripTimeline from './TripTimeline';
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
@@ -100,8 +113,27 @@ function renderTimeline() {
 
 beforeEach(() => {
   state.currentTrip = null;
+  ext.initial = false;
   vi.clearAllMocks();
 });
+
+afterEach(() => {
+  // Undo any api spy installed by the external-plans tests so the default
+  // (fetch-less) behaviour returns for the rest of the suite.
+  vi.restoreAllMocks();
+});
+
+function externalEvent(over: Partial<ExternalEvent> = {}): ExternalEvent {
+  return {
+    id: 100,
+    feed_id: 1,
+    feed_name: 'PGConf',
+    title: 'Keynote',
+    starts_at: '2026-10-12T08:00:00Z',
+    all_day: false,
+    ...over,
+  };
+}
 
 describe('TripTimeline', () => {
   it('shows a loading state when no trip is loaded', () => {
@@ -357,6 +389,14 @@ describe('TripTimeline', () => {
       },
       {
         p: {
+          id: 17,
+          type: 'ice_cream',
+          ice_cream: { rating: 4, what_ordered: 'Pistachio cone' },
+        },
+        expect: [/★★★★☆/, /Pistachio cone/],
+      },
+      {
+        p: {
           id: 16,
           type: 'flight',
           flight: {
@@ -391,7 +431,7 @@ describe('TripTimeline', () => {
   it('renders no detail lines when type-specific objects are absent', async () => {
     // Hotel/train/ground/dining/excursion parts whose nested objects are missing
     // exercise the `if (part.x)` false branches in partDetailLines.
-    for (const type of ['hotel', 'train', 'ground', 'dining', 'excursion'] as const) {
+    for (const type of ['hotel', 'train', 'ground', 'dining', 'excursion', 'ice_cream'] as const) {
       state.currentTrip = tripWith([
         plan([part({ id: 20, plan_id: 1, type })], { id: 1, type, title: 'Bare' }),
       ]);
@@ -930,5 +970,87 @@ describe('TripTimeline', () => {
       expect(screen.getByRole('button', { name: /^link 2$/i })).toBeDisabled();
       expect(state.linkPlans).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('TripTimeline external plans', () => {
+  it('offers no external toggle when the trip has no feed events', async () => {
+    vi.spyOn(api, 'getTripExternalEvents').mockResolvedValue([]);
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    expect(await screen.findByText('Flight out')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/show external plans/i)).not.toBeInTheDocument();
+  });
+
+  it('renders feed events as read-only tiles (with feed chip, place and all-day) when on', async () => {
+    ext.initial = true;
+    vi.spyOn(api, 'getTripExternalEvents').mockResolvedValue([
+      externalEvent({
+        id: 100,
+        title: 'Keynote',
+        location: 'Hall A',
+        description: 'Opening talk',
+        starts_at: '2026-10-12T08:00:00Z',
+        ends_at: '2026-10-12T09:00:00Z',
+        start_tz: 'UTC',
+      }),
+      externalEvent({
+        id: 101,
+        feed_id: 2,
+        feed_name: 'Social',
+        title: 'Dinner',
+        all_day: true,
+        starts_at: '2026-10-12T00:00:00Z',
+      }),
+    ]);
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const tile = await screen.findByTestId('external-event-100');
+    expect(within(tile).getByText('Keynote')).toBeInTheDocument();
+    expect(within(tile).getByText('PGConf')).toBeInTheDocument(); // per-feed chip
+    expect(within(tile).getByText('Hall A')).toBeInTheDocument();
+    expect(within(tile).getByText('Opening talk')).toBeInTheDocument();
+    const allDay = await screen.findByTestId('external-event-101');
+    expect(within(allDay).getByText(/all day/i)).toBeInTheDocument();
+  });
+
+  it('toggling "Show external plans" reveals and hides the feed tiles', async () => {
+    ext.initial = false;
+    vi.spyOn(api, 'getTripExternalEvents').mockResolvedValue([
+      externalEvent({ id: 100, title: 'Keynote' }),
+    ]);
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const toggle = await screen.findByLabelText(/show external plans/i);
+    expect(screen.queryByTestId('external-event-100')).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(await screen.findByTestId('external-event-100')).toBeInTheDocument();
+  });
+
+  it('renders an external event even on a day with no bookings', async () => {
+    ext.initial = true;
+    vi.spyOn(api, 'getTripExternalEvents').mockResolvedValue([
+      externalEvent({ id: 102, title: 'Workshop', starts_at: '2026-12-01T10:00:00Z' }),
+    ]);
+    // No plans at all → the only timeline content is the external event's day.
+    state.currentTrip = tripWith([]);
+    renderTimeline();
+    expect(await screen.findByTestId('external-event-102')).toBeInTheDocument();
+  });
+
+  it('keeps the timeline intact when external events fail to load', async () => {
+    vi.spyOn(api, 'getTripExternalEvents').mockRejectedValue(new Error('feed down'));
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    expect(await screen.findByText('Flight out')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/show external plans/i)).not.toBeInTheDocument();
   });
 });

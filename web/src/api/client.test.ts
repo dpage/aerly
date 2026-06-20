@@ -262,6 +262,80 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(headers['Content-Type']).toBeUndefined();
   });
 
+  it('listTripFeeds', async () => {
+    await api.listTripFeeds(5);
+    expect(last()[0]).toBe('/api/trips/5/feeds');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('addTripFeed sends url + name', async () => {
+    await api.addTripFeed(5, 'https://cal.example/feed.ics', 'Work');
+    expect(last()[0]).toBe('/api/trips/5/feeds');
+    expect(last()[1]?.method).toBe('POST');
+    expect(last()[1]?.body).toBe(
+      JSON.stringify({ url: 'https://cal.example/feed.ics', name: 'Work' }),
+    );
+  });
+
+  it('addTripFeed defaults the name to empty', async () => {
+    await api.addTripFeed(5, 'https://cal.example/feed.ics');
+    expect(last()[1]?.body).toBe(
+      JSON.stringify({ url: 'https://cal.example/feed.ics', name: '' }),
+    );
+  });
+
+  it('updateTripFeed PATCHes the feed path with url + name', async () => {
+    await api.updateTripFeed(5, 9, 'https://x/y.ics', 'Holidays');
+    expect(last()[0]).toBe('/api/trips/5/feeds/9');
+    expect(last()[1]?.method).toBe('PATCH');
+    expect(last()[1]?.body).toBe(JSON.stringify({ url: 'https://x/y.ics', name: 'Holidays' }));
+  });
+
+  it('updateTripFeed defaults the name to empty', async () => {
+    await api.updateTripFeed(5, 9, 'https://x/y.ics');
+    expect(last()[1]?.body).toBe(JSON.stringify({ url: 'https://x/y.ics', name: '' }));
+  });
+
+  it('deleteTripFeed', async () => {
+    await api.deleteTripFeed(5, 9);
+    expect(last()[0]).toBe('/api/trips/5/feeds/9');
+    expect(last()[1]?.method).toBe('DELETE');
+  });
+
+  it('getTripExternalEvents', async () => {
+    await api.getTripExternalEvents(5);
+    expect(last()[0]).toBe('/api/trips/5/external-events');
+    expect(last()[1]?.method).toBe('GET');
+  });
+
+  it('uploadPlanAttachment posts the file as multipart/form-data', async () => {
+    const file = new File([new Uint8Array([1, 2])], 'voucher.pdf', { type: 'application/pdf' });
+    await api.uploadPlanAttachment(12, file);
+    expect(last()[0]).toBe('/api/plans/12/attachments');
+    expect(last()[1]?.method).toBe('POST');
+    const body = last()[1]?.body as FormData;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body.get('file') as File).name).toBe('voucher.pdf');
+    // No explicit Content-Type so the browser sets the multipart boundary.
+    expect((last()[1]?.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+  });
+
+  it('deleteAttachment', async () => {
+    await api.deleteAttachment(99);
+    expect(last()[0]).toBe('/api/attachments/99');
+    expect(last()[1]?.method).toBe('DELETE');
+  });
+
+  it('importTrip posts the .ics as multipart/form-data', async () => {
+    const file = new File([new Uint8Array([1])], 'trips.ics', { type: 'text/calendar' });
+    await api.importTrip(file);
+    expect(last()[0]).toBe('/api/trips/import');
+    expect(last()[1]?.method).toBe('POST');
+    const body = last()[1]?.body as FormData;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body.get('file') as File).name).toBe('trips.ics');
+  });
+
   it('getTracker passes the from/to/tag query params', async () => {
     await api.getTracker({ from: '2026-10-01', to: '2026-10-31', tag: 'pgconf' });
     expect(last()[0]).toBe('/api/tracker?from=2026-10-01&to=2026-10-31&tag=pgconf');
@@ -808,6 +882,36 @@ describe('exportTripIcs (file download)', () => {
     expect(spy.mock.calls[0][0]).toBe('/api/trips/9/export.pdf');
     expect(spy.mock.calls[0][1]?.credentials).toBe('include');
     expect(savedName).toBe('trip.pdf');
+  });
+
+  it('exportTripPdf appends ?external=1 when external plans are included', async () => {
+    const spy = mockFetch(() => fileResponse(null));
+    vi.spyOn(HTMLAnchorElement.prototype, 'download', 'set').mockImplementation(() => {});
+    await api.exportTripPdf(9, true);
+    expect(spy.mock.calls[0][0]).toBe('/api/trips/9/export.pdf?external=1');
+  });
+
+  it('downloadAttachment streams the attachment to a save with its filename', async () => {
+    const spy = mockFetch(() => fileResponse('attachment; filename="voucher.pdf"'));
+    let savedName = '';
+    vi.spyOn(HTMLAnchorElement.prototype, 'download', 'set').mockImplementation(function (
+      this: HTMLAnchorElement,
+      v: string,
+    ) {
+      savedName = v;
+    });
+    await api.downloadAttachment({
+      id: 42,
+      plan_id: 12,
+      filename: 'voucher.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 10,
+      created_at: '2026-01-01T00:00:00Z',
+    });
+    expect(spy.mock.calls[0][0]).toBe('/api/attachments/42');
+    expect(spy.mock.calls[0][1]?.credentials).toBe('include');
+    expect(savedName).toBe('voucher.pdf');
+    expect(clickSpy).toHaveBeenCalled();
   });
 
   it('throws the server error message on a non-ok response', async () => {
