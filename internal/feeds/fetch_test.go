@@ -127,3 +127,35 @@ func TestMapEventsDropsUndated(t *testing.T) {
 		t.Errorf("mapEvents = %+v, want only the dated event", out)
 	}
 }
+
+func TestLooksLikeICalendar(t *testing.T) {
+	cases := map[string]bool{
+		"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n":  true,
+		"\ufeffbegin:vcalendar\n":               true,  // BOM + lowercase
+		"<schedule><day/></schedule>":           false, // frab/Pentabarf XML
+		"<!DOCTYPE html><html>Not found</html>": false,
+		"":                                      false,
+	}
+	for body, want := range cases {
+		if got := looksLikeICalendar([]byte(body)); got != want {
+			t.Errorf("looksLikeICalendar(%q) = %v, want %v", body, got, want)
+		}
+	}
+}
+
+func TestFetchRejectsNonICalendar(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// A frab/Pentabarf XML schedule — valid XML, not iCalendar.
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><schedule><conference/></schedule>`))
+	}))
+	defer srv.Close()
+
+	f := NewFetcher("test")
+	f.HTTP = srv.Client()
+	f.AllowPrivate = true
+
+	if _, err := f.Fetch(context.Background(), srv.URL, "", ""); err != ErrNotICalendar {
+		t.Errorf("Fetch err = %v, want ErrNotICalendar", err)
+	}
+}

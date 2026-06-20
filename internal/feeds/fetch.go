@@ -5,6 +5,7 @@
 package feeds
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,12 @@ const maxFeedBytes = 8 << 20 // 8 MiB
 // ErrNotModified is returned by Fetch when the server answers a conditional GET
 // with 304 Not Modified — the cached events are still current.
 var ErrNotModified = errors.New("feeds: not modified")
+
+// ErrNotICalendar is returned when a fetched feed isn't an iCalendar document
+// (e.g. an HTML error page, or a frab/Pentabarf XML schedule). Its message is
+// surfaced verbatim as the feed's last_error in the UI, so it's phrased for a
+// human and carries no "feeds:" prefix.
+var ErrNotICalendar = errors.New("not an iCalendar feed — the URL must return an .ics calendar (BEGIN:VCALENDAR)")
 
 // Fetcher performs SSRF-guarded conditional GETs of external iCal feeds.
 type Fetcher struct {
@@ -109,7 +116,19 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL, etag, lastModified string) 
 		return nil, fmt.Errorf("feeds: unexpected status %s", resp.Status)
 	}
 
-	cal, err := importics.Parse(io.LimitReader(resp.Body, maxFeedBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFeedBytes))
+	if err != nil {
+		return nil, err
+	}
+	// Reject anything that isn't an iCalendar document. importics.Parse is
+	// lenient and would happily return zero events from, say, an HTML error page
+	// or a frab/Pentabarf XML schedule — leaving the user with a silently empty
+	// feed. Sniffing for the VCALENDAR sentinel turns that into a clear error.
+	if !looksLikeICalendar(body) {
+		return nil, ErrNotICalendar
+	}
+
+	cal, err := importics.Parse(bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +138,13 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL, etag, lastModified string) 
 		LastModified: resp.Header.Get("Last-Modified"),
 		CalName:      strings.TrimSpace(cal.Name),
 	}, nil
+}
+
+// looksLikeICalendar reports whether body is an iCalendar stream, identified by
+// the mandatory "BEGIN:VCALENDAR" line (RFC 5545 §3.4). The check is
+// case-insensitive and tolerates a leading BOM / whitespace.
+func looksLikeICalendar(body []byte) bool {
+	return bytes.Contains(bytes.ToUpper(body), []byte("BEGIN:VCALENDAR"))
 }
 
 // mapEvents projects parsed VEVENTs into cached store events, dropping any with
