@@ -608,6 +608,10 @@ type PlanPartDTO struct {
 	Dining       *DiningDetailDTO    `json:"dining,omitempty"`
 	Excursion    *ExcursionDetailDTO `json:"excursion,omitempty"`
 	IceCream     *IceCreamDetailDTO  `json:"ice_cream,omitempty"`
+	// Title is the owning plan's title (the user-facing name of the booking,
+	// e.g. an ice cream parlour's name), copied onto the part so the map marker
+	// and list can show it. '' when unknown (e.g. ingest preview parts).
+	Title string `json:"title,omitempty"`
 	// Who added the plan + who's on it, so the map can show whose plan it is.
 	// Populated for the tracker and trip-detail payloads.
 	Owner      *UserDTO  `json:"owner,omitempty"`

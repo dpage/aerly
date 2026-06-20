@@ -230,6 +230,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   // than the timeline tile shows), but every control is read-only and Save is
   // disabled — editing needs the server.
   const readOnly = !useOnlineStatus();
+  // Ice cream is a casual stop, not a booking: a parlour has no ticket or
+  // supplier, and its "confirmation" is really just the name a table was held
+  // under — so those fields are dropped/relabelled for it.
+  const isIceCream = plan.type === 'ice_cream';
 
   const [title, setTitle] = useState(plan.title);
   const [confRef, setConfRef] = useState(plan.confirmation_ref);
@@ -481,17 +485,19 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
               fullWidth
             />
             <TextField
-              label="Confirmation ref"
+              label={isIceCream ? 'Reservation name' : 'Confirmation ref'}
               value={confRef}
               onChange={(e) => setConfRef(e.target.value)}
               fullWidth
             />
-            <TextField
-              label="Ticket number"
-              value={ticketNumber}
-              onChange={(e) => setTicketNumber(e.target.value)}
-              fullWidth
-            />
+            {!isIceCream && (
+              <TextField
+                label="Ticket number"
+                value={ticketNumber}
+                onChange={(e) => setTicketNumber(e.target.value)}
+                fullWidth
+              />
+            )}
             <Stack direction="row" spacing={1}>
               <TextField
                 label="Cost"
@@ -510,13 +516,15 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                 sx={{ flex: 1 }}
               />
             </Stack>
-            <TextField
-              label="Supplier"
-              value={supplierName}
-              onChange={(e) => setSupplierName(e.target.value)}
-              placeholder="Who the booking is with, e.g. British Airways"
-              fullWidth
-            />
+            {!isIceCream && (
+              <TextField
+                label="Supplier"
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+                placeholder="Who the booking is with, e.g. British Airways"
+                fullWidth
+              />
+            )}
             <TextField
               label="Contact email"
               type="email"

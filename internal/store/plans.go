@@ -1473,6 +1473,33 @@ func (s *Store) SuppliersByPlan(ctx context.Context, planIDs []int64) (map[int64
 	return out, rows.Err()
 }
 
+// TitlesByPlan returns the title of each plan, keyed by plan id, in one query.
+// Used to copy a plan's user-facing name onto its tracker parts so the map
+// marker can show it. Plans with an empty title are omitted.
+func (s *Store) TitlesByPlan(ctx context.Context, planIDs []int64) (map[int64]string, error) {
+	out := map[int64]string{}
+	if len(planIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, title FROM plans WHERE id = ANY($1)`, planIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var planID int64
+		var title string
+		if err := rows.Scan(&planID, &title); err != nil {
+			return nil, err
+		}
+		if title != "" {
+			out[planID] = title
+		}
+	}
+	return out, rows.Err()
+}
+
 // TripOwnersByPlan returns the owner (creator) user id of each plan's containing
 // trip, keyed by plan id, in one query. The map hashes it to a per-person
 // colour so each person's trips share a hue (issue #13). Plans whose trip has a

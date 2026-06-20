@@ -134,6 +134,10 @@ func (a *API) trackerPartDTOs(ctx context.Context, parts []*store.PlanPart) ([]a
 	if err != nil {
 		return nil, err
 	}
+	titles, err := a.Store.TitlesByPlan(ctx, planIDs)
+	if err != nil {
+		return nil, err
+	}
 	userIDset := map[int64]struct{}{}
 	for _, uid := range owners {
 		userIDset[uid] = struct{}{}
@@ -164,6 +168,7 @@ func (a *API) trackerPartDTOs(ctx context.Context, parts []*store.PlanPart) ([]a
 		}
 		dto.TripOwnerID = tripOwners[p.PlanID]
 		dto.SupplierName = suppliers[p.PlanID]
+		dto.Title = titles[p.PlanID]
 		for _, uid := range pax[p.PlanID] {
 			if u := users[uid]; u != nil {
 				dto.Passengers = append(dto.Passengers, api.ToUserDTO(u))

@@ -473,6 +473,9 @@ export interface PlanPart {
   dining?: DiningDetail;
   excursion?: ExcursionDetail;
   ice_cream?: IceCreamDetail;
+  /** The owning plan's title (the user-facing name of the booking), copied onto
+   * the part so the map marker/list can show it. Absent when unknown. */
+  title?: string;
   /** Who added the plan + who's on it, so the map can show whose plan it is.
    * Populated on the tracker and trip-detail payloads. */
   owner?: User;

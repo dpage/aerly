@@ -268,6 +268,9 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   };
 
   const isFlight = type === 'flight';
+  // An ice cream stop isn't a booking: no ticket or supplier, and its
+  // "confirmation" is just the name a table was held under.
+  const isIceCream = type === 'ice_cream';
   // Point-to-point types carry a distinct departure and arrival address.
   const isTransfer = type === 'flight' || type === 'train' || type === 'ground';
   // Transfers show an arrival; hotels span nights, so they show a check-out.
@@ -372,17 +375,19 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
         <TextField
-          label="Confirmation ref (optional)"
+          label={isIceCream ? 'Reservation name (optional)' : 'Confirmation ref (optional)'}
           value={confRef}
           onChange={(e) => setConfRef(e.target.value)}
           fullWidth
         />
-        <TextField
-          label="Ticket number (optional)"
-          value={ticketNumber}
-          onChange={(e) => setTicketNumber(e.target.value)}
-          fullWidth
-        />
+        {!isIceCream && (
+          <TextField
+            label="Ticket number (optional)"
+            value={ticketNumber}
+            onChange={(e) => setTicketNumber(e.target.value)}
+            fullWidth
+          />
+        )}
       </Stack>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -404,13 +409,15 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
         />
       </Stack>
 
-      <TextField
-        label="Supplier (optional)"
-        value={supplierName}
-        onChange={(e) => setSupplierName(e.target.value)}
-        placeholder="Who the booking is with, e.g. British Airways"
-        fullWidth
-      />
+      {!isIceCream && (
+        <TextField
+          label="Supplier (optional)"
+          value={supplierName}
+          onChange={(e) => setSupplierName(e.target.value)}
+          placeholder="Who the booking is with, e.g. British Airways"
+          fullWidth
+        />
+      )}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
         <TextField

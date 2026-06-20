@@ -771,10 +771,15 @@ function TimeSlider({
 
 // --- helpers ----------------------------------------------------------------
 
-/** A human title for a row: a flight's ident, else its place line, else type. */
+/** A human title for a row: a flight's ident, else the plan's name (a venue like
+ * an ice cream parlour), else its place line, else the type. */
 function partTitle(part: PlanPart): string {
   if (part.type === 'flight' && part.flight?.ident) return part.flight.ident;
-  return fmtPartPlaces(part.type, part.start_label, part.end_label) || planTypeLabel(part.type);
+  return (
+    part.title?.trim() ||
+    fmtPartPlaces(part.type, part.start_label, part.end_label) ||
+    planTypeLabel(part.type)
+  );
 }
 
 /** The '·'-joined secondary line for a part: type · supplier · time range. */

@@ -777,6 +777,25 @@ describe('PlanMapView', () => {
     expect(within(rows[0]).getAllByText(/Excursion/i).length).toBeGreaterThan(0);
   });
 
+  it('titles a non-flight part by its plan name when one is set', () => {
+    // The plan title (the venue name, e.g. an ice cream parlour) wins over the
+    // part's place label so the map shows "La Parfait", not the street address.
+    const parlour = hotel({
+      id: 7,
+      type: 'ice_cream',
+      hotel: undefined,
+      ice_cream: { rating: 5, what_ordered: 'Pistachio' },
+      title: 'La Parfait',
+      start_label: '812 Homer St, Vancouver',
+      end_label: '',
+      end_lat: undefined,
+      end_lon: undefined,
+    });
+    render(<PlanMapView parts={[parlour]} />);
+    const row = screen.getByTestId('plan-row-7');
+    expect(within(row).getByText('La Parfait')).toBeInTheDocument();
+  });
+
   it('clears a stale selection when the selected part disappears from the set', async () => {
     const { rerender } = render(
       <PlanMapView parts={[flight(), hotel()]} initialSelectedPartId={2} />,

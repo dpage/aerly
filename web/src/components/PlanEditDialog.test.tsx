@@ -340,6 +340,12 @@ describe('PlanEditDialog', () => {
     // Single-location: a "Where" endpoint, no "To"/"Until".
     expect(screen.getByText('Where')).toBeInTheDocument();
     expect(screen.queryByText('Until')).not.toBeInTheDocument();
+    // Ice cream isn't a booking: the confirmation field is relabelled and the
+    // ticket-number / supplier fields are dropped.
+    expect(screen.getByRole('textbox', { name: /reservation name/i })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /confirmation ref/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /ticket number/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /supplier/i })).not.toBeInTheDocument();
     // The ice-cream section with its rating and free-text note (the label
     // appears on both the divider and the section heading).
     expect(screen.getAllByText('Ice cream').length).toBeGreaterThanOrEqual(1);

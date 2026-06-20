@@ -1049,6 +1049,7 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 		partDTOs[i].Owner = ownerDTO
 		partDTOs[i].TripOwnerID = tripOwners[planID]
 		partDTOs[i].SupplierName = plan.SupplierName
+		partDTOs[i].Title = plan.Title
 		if len(paxDTOs) > 0 {
 			partDTOs[i].Passengers = paxDTOs
 		}
@@ -1118,7 +1119,15 @@ func (a *API) partDTO(ctx context.Context, p *store.PlanPart) (api.PlanPartDTO, 
 			return api.PlanPartDTO{}, err
 		}
 	}
-	return a.partDTOWithFlights(ctx, p, flights)
+	dto, err := a.partDTOWithFlights(ctx, p, flights)
+	if err != nil {
+		return api.PlanPartDTO{}, err
+	}
+	// Carry the plan's user-facing name + supplier onto the part so the map
+	// marker/list keep their title after a single-part edit round-trips.
+	dto.Title = plan.Title
+	dto.SupplierName = plan.SupplierName
+	return dto, nil
 }
 
 // partDTOWithFlights builds a part DTO with the correct satellite loaded and,
