@@ -213,11 +213,14 @@ describe('AddToTripDialog - manual tab', () => {
     expect(screen.queryByLabelText('To address')).not.toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText(/^Title/), 'Dinner at Belcanto');
+    fireEvent.change(screen.getByLabelText(/Reservation name/), { target: { value: 'Page' } });
+    fireEvent.change(screen.getByLabelText('Party size'), { target: { value: '4' } });
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const [, input] = h.state.createPlan.mock.calls[0];
     expect(input.type).toBe('dining');
     expect(input.parts[0].ends_at).toBeUndefined();
+    expect(input.parts[0].dining).toMatchObject({ reservation_name: 'Page', party_size: 4 });
   });
 
   it('builds a train plan with operator/coach/seat detail', async () => {
@@ -236,6 +239,8 @@ describe('AddToTripDialog - manual tab', () => {
     await userEvent.type(screen.getByLabelText(/Service no/), '9024');
     await userEvent.type(screen.getByLabelText('Coach'), '12');
     await userEvent.type(screen.getByLabelText('Seat'), '44');
+    fireEvent.change(screen.getByLabelText('Class'), { target: { value: 'Standard' } });
+    fireEvent.change(screen.getByLabelText('Platform'), { target: { value: '5' } });
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const [, input] = h.state.createPlan.mock.calls[0];
@@ -245,6 +250,8 @@ describe('AddToTripDialog - manual tab', () => {
       service_no: '9024',
       coach: '12',
       seat: '44',
+      class: 'Standard',
+      platform: '5',
     });
   });
 });
@@ -256,6 +263,7 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     // Default type is flight (a transfer) → the "To address" field is shown.
     // Values are kept short: this types into many fields and userEvent is slow.
     await userEvent.type(screen.getByLabelText(/^Title/), 'BA');
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: 'Lisbon' } });
     await userEvent.type(screen.getByLabelText('To address'), 'LIS');
     await userEvent.type(screen.getByLabelText(/Confirmation ref/), 'REF42');
     await userEvent.type(screen.getByLabelText(/^Supplier/), 'BA');
@@ -271,6 +279,7 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     expect(input.contact_email).toBe('a@b.co');
     expect(input.contact_phone).toBe('+1');
     expect(input.website).toBe('b.co');
+    expect(input.parts[0].end_label).toBe('Lisbon');
     expect(input.parts[0].end_address).toBe('LIS');
   }, 30000);
 
@@ -361,6 +370,19 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     expect(h.state.createPlan.mock.calls[0][1].type).toBe('event');
   });
 
+  it('renders the ice cream stop with a reservation name and no ticket/supplier', async () => {
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Ice cream' }));
+    expect(screen.getByLabelText('Location')).toBeInTheDocument();
+    expect(screen.getByLabelText('Time')).toBeInTheDocument();
+    // An ice cream stop isn't a booking: its "confirmation" is the reservation
+    // name, and the ticket-number/supplier section is hidden.
+    expect(screen.getByLabelText(/Reservation name/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Ticket number')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Supplier/)).not.toBeInTheDocument();
+  });
+
   it('surfaces a non-Error create failure by stringifying it', async () => {
     h.state.createPlan.mockRejectedValue('string fail');
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
@@ -391,6 +413,10 @@ describe('AddToTripDialog - confirm step field coverage', () => {
     await userEvent.type(screen.getByLabelText('Website'), 'b.co');
     const notes = screen.getByLabelText('Notes');
     await userEvent.type(notes, 'seat');
+    // Ticket / cost / currency edits on the proposal (set atomically to stay fast).
+    fireEvent.change(screen.getByLabelText('Ticket number'), { target: { value: 'TK1' } });
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'usd' } });
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const plans = h.state.confirmIngest.mock.calls[0][1];
@@ -400,6 +426,9 @@ describe('AddToTripDialog - confirm step field coverage', () => {
     expect(plans[0].contact_email).toBe('a@b.co');
     expect(plans[0].contact_phone).toBe('+1');
     expect(plans[0].website).toBe('b.co');
+    expect(plans[0].ticket_number).toBe('TK1');
+    expect(plans[0].cost_amount).toBe(10);
+    expect(plans[0].cost_currency).toBe('USD');
   }, 30000);
 
   it('renders a proposal whose tz/labels are empty and that has no times', async () => {

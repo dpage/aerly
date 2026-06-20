@@ -285,6 +285,33 @@ describe('PartDetailBlock TypeSection', () => {
     expect(screen.queryByText('Tickets')).not.toBeInTheDocument();
   });
 
+  it('collapses every meeting row when its fields are empty', () => {
+    render(
+      <PartDetailBlock
+        part={part({ type: 'meeting', meeting: { location: '', organiser: '', platform: '' } })}
+      />,
+    );
+    expect(screen.queryByText('Meeting')).not.toBeInTheDocument();
+    expect(screen.queryByText('Location')).not.toBeInTheDocument();
+    expect(screen.queryByText('Organiser')).not.toBeInTheDocument();
+    expect(screen.queryByText('Platform')).not.toBeInTheDocument();
+  });
+
+  it('collapses every event row when its fields are empty', () => {
+    render(
+      <PartDetailBlock
+        part={part({
+          type: 'event',
+          event: { performer: '', category: '', venue_area: '', url: '' },
+        })}
+      />,
+    );
+    expect(screen.queryByText('Event')).not.toBeInTheDocument();
+    expect(screen.queryByText('Performer')).not.toBeInTheDocument();
+    expect(screen.queryByText('Category')).not.toBeInTheDocument();
+    expect(screen.queryByText('Link')).not.toBeInTheDocument();
+  });
+
   it('renders no type section when no detail object is populated', () => {
     render(<PartDetailBlock part={part({ type: 'flight', start_label: 'LHR' })} />);
     expect(screen.getByText('Where')).toBeInTheDocument();
