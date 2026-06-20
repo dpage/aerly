@@ -30,6 +30,7 @@ import PlanAlertToggle from '../components/PlanAlertToggle';
 import PlanReminderOverride from '../components/PlanReminderOverride';
 import AddToTripDialog from '../components/AddToTripDialog';
 import { useShowExternalPlans } from '../lib/showExternalPlans';
+import { useFeedsChangedCount } from '../lib/feedsBus';
 import {
   buildExternalDays,
   buildTimeline,
@@ -86,30 +87,38 @@ export default function TripTimeline() {
   const plans = useMemo(() => currentTrip?.plans ?? [], [currentTrip]);
   const tripId = currentTrip?.id;
 
-  // External (iCal feed) events for this trip. Fetched once per trip regardless
-  // of the toggle so we know whether to offer it at all; only merged into the
-  // timeline when the per-viewer toggle is on. Best-effort: a fetch failure
-  // just means no external tiles, never a broken timeline.
+  // External (iCal feed) events for this trip, plus how many feeds the trip has
+  // (so the toggle is offered whenever a feed exists, even before its events
+  // have loaded or if it currently has none). Re-fetched when feeds change in
+  // the Edit dialog. Best-effort: a failure just means no external tiles, never
+  // a broken timeline.
   const [showExternal, setShowExternal] = useShowExternalPlans();
   const [externalEvents, setExternalEvents] = useState<ExternalEvent[]>([]);
+  const [feedCount, setFeedCount] = useState(0);
+  const feedsChanged = useFeedsChangedCount();
   useEffect(() => {
     if (tripId == null) {
       setExternalEvents([]);
+      setFeedCount(0);
       return;
     }
     let live = true;
-    void api
-      .getTripExternalEvents(tripId)
-      .then((events) => {
-        if (live) setExternalEvents(events);
+    void Promise.all([api.getTripExternalEvents(tripId), api.listTripFeeds(tripId)])
+      .then(([events, feeds]) => {
+        if (!live) return;
+        setExternalEvents(events);
+        setFeedCount(feeds.length);
       })
       .catch(() => {
-        if (live) setExternalEvents([]);
+        if (live) {
+          setExternalEvents([]);
+          setFeedCount(0);
+        }
       });
     return () => {
       live = false;
     };
-  }, [tripId]);
+  }, [tripId, feedsChanged]);
 
   const days = useMemo(() => buildTimeline(plans), [plans]);
   // Stable feed ordering for per-feed accent colours (first appearance).
@@ -233,22 +242,31 @@ export default function TripTimeline() {
     );
   }
 
-  const hasExternal = externalEvents.length > 0;
-  // The toggle is offered only when the trip actually has feed events, so it's
-  // never noise on trips with no feeds. Off by default (the stored preference).
-  const externalToggle = hasExternal ? (
-    <FormControlLabel
-      sx={{ mb: 1, ml: 0 }}
-      control={
-        <Switch
-          checked={showExternal}
-          onChange={(e) => setShowExternal(e.target.checked)}
-          size="small"
+  // The toggle is offered whenever the trip has a feed (not gated on events
+  // having loaded), so it's discoverable as soon as a feed is added and never
+  // noise on trips with no feeds. Off by default (the stored preference). When
+  // it's on but the feed has produced no events yet, a hint explains the wait.
+  const externalToggle =
+    feedCount > 0 ? (
+      <Box sx={{ mb: 1 }}>
+        <FormControlLabel
+          sx={{ ml: 0 }}
+          control={
+            <Switch
+              checked={showExternal}
+              onChange={(e) => setShowExternal(e.target.checked)}
+              size="small"
+            />
+          }
+          label="Show external plans"
         />
-      }
-      label="Show external plans"
-    />
-  ) : null;
+        {showExternal && externalEvents.length === 0 && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            No events from your calendar feeds yet — they refresh periodically.
+          </Typography>
+        )}
+      </Box>
+    ) : null;
 
   if (mergedDays.length === 0) {
     return (
@@ -805,10 +823,7 @@ function partDetailLines(part: PlanPart): string[] {
       if (part.ice_cream) {
         const r = Math.max(0, Math.min(5, Math.round(part.ice_cream.rating)));
         out.push(
-          join(
-            r > 0 ? '★'.repeat(r) + '☆'.repeat(5 - r) : undefined,
-            part.ice_cream.what_ordered,
-          ),
+          join(r > 0 ? '★'.repeat(r) + '☆'.repeat(5 - r) : undefined, part.ice_cream.what_ordered),
         );
       }
       break;

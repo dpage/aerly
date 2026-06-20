@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/feeds"
+	"github.com/dpage/aerly/internal/store"
 )
 
 type feedReq struct {
@@ -43,8 +46,10 @@ func (a *API) listTripFeeds(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// addTripFeed registers a new feed URL on a trip (editor action) and kicks off
-// an immediate background refresh so its events populate shortly after.
+// addTripFeed registers a new feed URL on a trip (editor action), refreshes it
+// once synchronously so its events are ready (and any "not an iCalendar feed"
+// error surfaces) by the time the caller re-fetches, and returns the resulting
+// feed row.
 func (a *API) addTripFeed(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -70,8 +75,29 @@ func (a *API) addTripFeed(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
-	a.Feeds.RefreshFeedAsync(f.ID)
+	if refreshed := a.refreshFeedNow(f.ID); refreshed != nil {
+		f = refreshed
+	}
 	writeJSON(w, http.StatusCreated, api.ToTripFeedDTO(f))
+}
+
+// refreshFeedNow refreshes a feed once with a bounded, request-independent
+// timeout and returns the reloaded row (so last_error / last_fetched_at reflect
+// the attempt). Best-effort: any fetch/parse error is recorded on the row, not
+// returned to the caller; a feed that can't be reloaded falls back to the
+// original.
+func (a *API) refreshFeedNow(feedID int64) *store.TripFeed {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	f, err := a.Store.TripFeedByID(ctx, feedID)
+	if err != nil {
+		return nil
+	}
+	_ = a.Feeds.RefreshFeed(ctx, f) // records last_error on the row
+	if reloaded, err := a.Store.TripFeedByID(ctx, feedID); err == nil {
+		return reloaded
+	}
+	return f
 }
 
 // updateTripFeed changes a feed's URL and/or name (editor action). A changed
@@ -100,7 +126,9 @@ func (a *API) updateTripFeed(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
-	a.Feeds.RefreshFeedAsync(f.ID)
+	if refreshed := a.refreshFeedNow(f.ID); refreshed != nil {
+		f = refreshed
+	}
 	writeJSON(w, http.StatusOK, api.ToTripFeedDTO(f))
 }
 

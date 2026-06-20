@@ -6,6 +6,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { api } from '../api/client';
 import { useStore } from '../state/store';
 import { errorMessage } from '../state/helpers';
+import { notifyFeedsChanged } from '../lib/feedsBus';
 import type { TripFeed } from '../api/types';
 
 /** Manage a trip's iCal feed subscriptions ("external plans"): add a feed URL,
@@ -42,6 +43,7 @@ export default function TripFeedsEditor({ tripId }: { tripId: number }) {
       setFeeds((prev) => [...prev, feed]);
       setNewUrl('');
       setNewName('');
+      notifyFeedsChanged();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -54,6 +56,7 @@ export default function TripFeedsEditor({ tripId }: { tripId: number }) {
     try {
       await api.deleteTripFeed(tripId, id);
       setFeeds((prev) => prev.filter((f) => f.id !== id));
+      notifyFeedsChanged();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -61,8 +64,10 @@ export default function TripFeedsEditor({ tripId }: { tripId: number }) {
     }
   };
 
-  const saved = (updated: TripFeed) =>
+  const saved = (updated: TripFeed) => {
     setFeeds((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+    notifyFeedsChanged();
+  };
 
   return (
     <Box>
