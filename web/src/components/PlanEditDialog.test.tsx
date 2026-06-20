@@ -250,7 +250,7 @@ describe('PlanEditDialog', () => {
     const labels = screen.getAllByRole('textbox', { name: /^place$/i });
     const addresses = screen.getAllByRole('textbox', { name: /^address$/i });
     const dates = screen.getAllByLabelText(/^date$/i);
-    const tzs = screen.getAllByRole('textbox', { name: /^timezone$/i });
+    const tzs = screen.getAllByRole('combobox', { name: /^timezone$/i });
 
     await userEvent.clear(labels[0]);
     await userEvent.type(labels[0], 'Heathrow');

@@ -19,6 +19,7 @@ import {
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import { api } from '../api/client';
 import PlanAttachments from './PlanAttachments';
+import TimezoneSelect from './TimezoneSelect';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
@@ -868,14 +869,11 @@ function EndFields({
           sx={{ flex: 1 }}
         />
       </Stack>
-      <TextField
-        label="Timezone"
-        size="small"
+      <TimezoneSelect
         value={form.tz}
-        onChange={(e) => onChange('tz', e.target.value)}
+        onChange={(tz) => onChange('tz', tz)}
         placeholder="UTC"
         helperText="IANA name, e.g. Europe/London. Blank = UTC."
-        fullWidth
       />
     </Stack>
   );
