@@ -122,13 +122,17 @@ describe('TripList', () => {
     expect(screen.getByRole('button', { name: /new trip/i })).toBeInTheDocument();
   });
 
-  it('disables New trip and Import while offline', () => {
+  it('disables New trip and Import while offline', async () => {
     pwa.online = false;
     state.trips = [trip({ id: 1, name: 'MineTrip', my_role: 'owner' })];
     renderList('mine');
     expect(screen.getByRole('button', { name: /new trip/i })).toBeDisabled();
-    // When disabled the Tooltip title becomes the button's accessible name.
-    expect(screen.getByRole('button', { name: /import trips/i })).toBeDisabled();
+    // Import now lives in the overflow (⋮) menu; open it and check the item.
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    expect(screen.getByRole('menuitem', { name: /import \.ics/i })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 
   it('does not import a file while offline even if the picker fires', () => {
@@ -470,6 +474,18 @@ describe('TripList', () => {
     await userEvent.upload(input, new File(['x'], 'trip.ics', { type: 'text/calendar' }));
     expect(setError).toHaveBeenCalledWith('bad ics');
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('imports via the overflow menu: opens the picker from the Import .ics item', async () => {
+    renderList('mine');
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    const item = screen.getByRole('menuitem', { name: /import \.ics/i });
+    expect(item).toBeInTheDocument();
+    // Clicking the item triggers the hidden file input's picker.
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const clickSpy = vi.spyOn(input, 'click');
+    await userEvent.click(item);
+    expect(clickSpy).toHaveBeenCalled();
   });
 
   it('offers no import action on the Friends tab', () => {

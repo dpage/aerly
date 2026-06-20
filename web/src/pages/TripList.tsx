@@ -17,6 +17,9 @@ import {
   FormGroup,
   IconButton,
   InputAdornment,
+  ListItemIcon,
+  Menu,
+  MenuItem,
   Stack,
   Switch,
   TextField,
@@ -28,6 +31,7 @@ import ClearIcon from '@mui/icons-material/Clear';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PlaceIcon from '@mui/icons-material/Place';
 import SearchIcon from '@mui/icons-material/Search';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
@@ -69,6 +73,10 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   // Kayak feed stays on the list.
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Secondary actions (currently just Import .ics) live in an overflow (⋮)
+  // menu beside the primary "New trip" button, mirroring the Trip header.
+  const [actionsAnchor, setActionsAnchor] = useState<HTMLElement | null>(null);
+  const closeActions = () => setActionsAnchor(null);
   const onImportFile = async (file?: File) => {
     // Guard the handler too, not just the button: the connection can drop after
     // the file picker is already open.
@@ -187,17 +195,45 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
           {mine ? 'Your trips' : "Friends' trips"}
         </Typography>
         {mine && (
-          <Stack direction="row" spacing={1}>
-            <Tooltip title="Import trips from a TripIt or Kayak calendar export (.ics)">
-              <Button
-                variant="outlined"
-                startIcon={<FileUploadIcon />}
-                onClick={() => fileRef.current?.click()}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => setCreateOpen(true)}
+              disabled={!online}
+            >
+              New trip
+            </Button>
+            <Tooltip title="More actions">
+              <IconButton
+                size="small"
+                aria-label="More actions"
+                onClick={(e) => setActionsAnchor(e.currentTarget)}
+              >
+                <MoreVertIcon />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={actionsAnchor}
+              open={actionsAnchor !== null}
+              onClose={closeActions}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
+              <MenuItem
+                onClick={() => {
+                  closeActions();
+                  fileRef.current?.click();
+                }}
                 disabled={importing || !online}
               >
+                <ListItemIcon>
+                  <FileUploadIcon fontSize="small" />
+                </ListItemIcon>
                 Import .ics
-              </Button>
-            </Tooltip>
+              </MenuItem>
+            </Menu>
             <input
               ref={fileRef}
               type="file"
@@ -205,14 +241,6 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
               accept=".ics,text/calendar"
               onChange={(e) => void onImportFile(e.target.files?.[0])}
             />
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setCreateOpen(true)}
-              disabled={!online}
-            >
-              New trip
-            </Button>
           </Stack>
         )}
       </Stack>
