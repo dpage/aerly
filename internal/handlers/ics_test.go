@@ -74,7 +74,7 @@ func TestRenderICSStructure(t *testing.T) {
 			UpdatedAt:       time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
 		},
 	}
-	out := renderICS("Aerly", events)
+	out := renderICS("Aerly", events, false)
 
 	mustContain := []string{
 		"BEGIN:VCALENDAR",
@@ -122,7 +122,7 @@ func TestRenderICSDSTTransitions(t *testing.T) {
 		{PartID: 1, Type: "flight", Title: "Pre-DST", StartsAt: before, StartTZ: "Europe/London", UpdatedAt: before},
 		{PartID: 2, Type: "flight", Title: "Post-DST", StartsAt: after, StartTZ: "Europe/London", UpdatedAt: after},
 	}
-	out := renderICS("Aerly", events)
+	out := renderICS("Aerly", events, false)
 
 	mustContain := []string{
 		"BEGIN:VTIMEZONE",
@@ -150,6 +150,137 @@ func TestRenderICSDSTTransitions(t *testing.T) {
 	}
 }
 
+// TestRenderICSHotelSplitsIntoCheckinCheckout: a multi-night hotel stay must
+// render as two point events (check-in + check-out), not one all-night banner
+// (issue #101).
+func TestRenderICSHotelSplitsIntoCheckinCheckout(t *testing.T) {
+	checkout := time.Date(2026, 6, 14, 11, 0, 0, 0, time.UTC) // 13:00 CEST
+	events := []*store.CalendarEvent{{
+		PartID:     9,
+		PlanID:     4,
+		Type:       "hotel",
+		Title:      "Hotel Astoria",
+		StartsAt:   time.Date(2026, 6, 11, 13, 0, 0, 0, time.UTC), // 15:00 CEST check-in
+		EndsAt:     &checkout,
+		StartTZ:    "Europe/Zurich",
+		EndTZ:      "Europe/Zurich",
+		StartLabel: "Astoria",
+		Status:     "confirmed",
+		UpdatedAt:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+	}}
+	out := renderICS("Aerly", events, false)
+
+	mustContain := []string{
+		"UID:plan-part-9-checkin@aerly",
+		"UID:plan-part-9-checkout@aerly",
+		"SUMMARY:Hotel Astoria (Check-in)",
+		"SUMMARY:Hotel Astoria (Check-out)",
+		"DTSTART;TZID=Europe/Zurich:20260611T150000", // 15:00 CEST check-in
+		"DTSTART;TZID=Europe/Zurich:20260614T130000", // 13:00 CEST check-out
+	}
+	for _, m := range mustContain {
+		if !strings.Contains(out, m) {
+			t.Errorf("hotel split ICS missing %q\n---\n%s", m, out)
+		}
+	}
+	// The stay must NOT render as one spanning event with a DTEND on the checkout.
+	if strings.Contains(out, "UID:plan-part-9@aerly") {
+		t.Errorf("multi-night hotel still rendered as a single banner event:\n%s", out)
+	}
+	if strings.Contains(out, "DTEND;TZID=Europe/Zurich:20260614") {
+		t.Errorf("multi-night hotel still has a spanning DTEND:\n%s", out)
+	}
+}
+
+// TestRenderICSSameDayHotelStaysSingle: a same-day hotel (checkout the same
+// local day) is not a band and renders as one event with a DTEND.
+func TestRenderICSSameDayHotelStaysSingle(t *testing.T) {
+	checkout := time.Date(2026, 6, 11, 16, 0, 0, 0, time.UTC)
+	events := []*store.CalendarEvent{{
+		PartID:    9,
+		Type:      "hotel",
+		Title:     "Day Room",
+		StartsAt:  time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC),
+		EndsAt:    &checkout,
+		StartTZ:   "Europe/Zurich",
+		EndTZ:     "Europe/Zurich",
+		UpdatedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+	}}
+	out := renderICS("Aerly", events, false)
+	if !strings.Contains(out, "UID:plan-part-9@aerly") {
+		t.Errorf("same-day hotel should render as a single event:\n%s", out)
+	}
+	if strings.Contains(out, "checkin@aerly") || strings.Contains(out, "checkout@aerly") {
+		t.Errorf("same-day hotel should not split:\n%s", out)
+	}
+}
+
+// TestRenderICSTripBand: with tripBands on, the feed emits one all-day,
+// multi-day event named after the trip, with an exclusive DTEND (issue #101).
+func TestRenderICSTripBand(t *testing.T) {
+	start := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC)
+	events := []*store.CalendarEvent{{
+		PartID:       1,
+		PlanID:       1,
+		Type:         "flight",
+		Title:        "LX317",
+		StartsAt:     time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC),
+		StartTZ:      "Europe/Zurich",
+		Status:       "confirmed",
+		UpdatedAt:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		TripID:       42,
+		TripName:     "pgconf.ch 2026",
+		TripStartsOn: &start,
+		TripEndsOn:   &end,
+	}}
+	out := renderICS("Aerly", events, true)
+
+	mustContain := []string{
+		"UID:trip-42@aerly",
+		"SUMMARY:pgconf.ch 2026",
+		"DTSTART;VALUE=DATE:20260611",
+		"DTEND;VALUE=DATE:20260615", // exclusive: day after 14 Jun
+	}
+	for _, m := range mustContain {
+		if !strings.Contains(out, m) {
+			t.Errorf("trip band ICS missing %q\n---\n%s", m, out)
+		}
+	}
+	// With tripBands off, no trip banner is emitted.
+	if off := renderICS("Aerly", events, false); strings.Contains(off, "UID:trip-42@aerly") {
+		t.Errorf("trip banner emitted when tripBands=false:\n%s", off)
+	}
+}
+
+// TestRenderICSTripBandDerivedFromParts: when the trip has no stored date span,
+// the banner is derived from the min/max local date of its parts.
+func TestRenderICSTripBandDerivedFromParts(t *testing.T) {
+	endP1 := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	events := []*store.CalendarEvent{
+		{
+			PartID: 1, Type: "flight", Title: "Out", TripID: 7, TripName: "Road Trip",
+			StartsAt: time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC), EndsAt: &endP1,
+			StartTZ: "UTC", UpdatedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			PartID: 2, Type: "flight", Title: "Back", TripID: 7, TripName: "Road Trip",
+			StartsAt: time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC),
+			StartTZ:  "UTC", UpdatedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	out := renderICS("Aerly", events, true)
+	if !strings.Contains(out, "UID:trip-7@aerly") || !strings.Contains(out, "SUMMARY:Road Trip") {
+		t.Errorf("derived trip band missing:\n%s", out)
+	}
+	if !strings.Contains(out, "DTSTART;VALUE=DATE:20260611") {
+		t.Errorf("derived band start wrong (want 11 Jun):\n%s", out)
+	}
+	if !strings.Contains(out, "DTEND;VALUE=DATE:20260617") { // exclusive: day after 16 Jun
+		t.Errorf("derived band end wrong (want 17 Jun exclusive):\n%s", out)
+	}
+}
+
 func TestRenderICSNoTZFallsBackToUTC(t *testing.T) {
 	events := []*store.CalendarEvent{{
 		PartID:    1,
@@ -158,7 +289,7 @@ func TestRenderICSNoTZFallsBackToUTC(t *testing.T) {
 		StartsAt:  time.Date(2026, 7, 1, 19, 0, 0, 0, time.UTC),
 		UpdatedAt: time.Now(),
 	}}
-	out := renderICS("Aerly", events)
+	out := renderICS("Aerly", events, false)
 	if !strings.Contains(out, "DTSTART:20260701T190000Z") {
 		t.Errorf("expected UTC DTSTART fallback when tz empty:\n%s", out)
 	}

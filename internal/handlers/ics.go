@@ -30,8 +30,11 @@ import (
 const icsProdID = "-//Aerly//Trip Planner//EN"
 
 // renderICS produces the full VCALENDAR text for the given events. calName is
-// the X-WR-CALNAME shown by many clients.
-func renderICS(calName string, events []*store.CalendarEvent) string {
+// the X-WR-CALNAME shown by many clients. When tripBands is true the feed also
+// emits one all-day VEVENT per trip spanning the trip's dates (issue #101) — the
+// "name of the trip" banner. The single-plan feed passes false: a one-plan
+// subscription shouldn't sprout a trip-wide banner derived from just that plan.
+func renderICS(calName string, events []*store.CalendarEvent, tripBands bool) string {
 	var b strings.Builder
 	writeLine(&b, "BEGIN:VCALENDAR")
 	writeLine(&b, "VERSION:2.0")
@@ -82,7 +85,21 @@ func renderICS(calName string, events []*store.CalendarEvent) string {
 		writeVTimezone(&b, name, zones[name].loc, zones[name].instants)
 	}
 
+	if tripBands {
+		for _, te := range tripBandEvents(events) {
+			writeTripBand(&b, te)
+		}
+	}
+
 	for _, e := range events {
+		// A multi-night hotel stay renders as two point events — a check-in on the
+		// first day and a check-out on the last — exactly like the UI timeline,
+		// rather than one banner spanning every night (issue #101).
+		if isHotelBand(e) {
+			writeHotelCheckIn(&b, e)
+			writeHotelCheckOut(&b, e)
+			continue
+		}
 		writeVEvent(&b, e)
 	}
 	writeLine(&b, "END:VCALENDAR")
@@ -267,10 +284,7 @@ func writeVTimezone(b *strings.Builder, tzName string, loc *time.Location, insta
 func writeVEvent(b *strings.Builder, e *store.CalendarEvent) {
 	writeLine(b, "BEGIN:VEVENT")
 	writeLine(b, fmt.Sprintf("UID:plan-part-%d@aerly", e.PartID))
-	// DTSTAMP/LAST-MODIFIED let clients detect updates (a delayed flight whose
-	// part times moved re-renders on next refresh).
-	writeLine(b, "DTSTAMP:"+e.UpdatedAt.UTC().Format("20060102T150405Z"))
-	writeLine(b, "LAST-MODIFIED:"+e.UpdatedAt.UTC().Format("20060102T150405Z"))
+	writeStamp(b, e)
 
 	writeLine(b, dtLine("DTSTART", e.StartsAt, e.StartTZ))
 	if e.EndsAt != nil {
@@ -288,14 +302,224 @@ func writeVEvent(b *strings.Builder, e *store.CalendarEvent) {
 	if desc := descriptionFor(e); desc != "" {
 		writeLine(b, "DESCRIPTION:"+escapeText(desc))
 	}
-	if e.Status == "cancelled" {
+	writeStatus(b, e)
+	writeLine(b, "END:VEVENT")
+}
+
+// writeHotelCheckIn / writeHotelCheckOut split a multi-night hotel stay into its
+// two point events. Each is a single-instant VEVENT (DTSTART only) at the
+// booked check-in / check-out time, matching the UI's two timeline tiles
+// instead of one all-night banner (issue #101).
+func writeHotelCheckIn(b *strings.Builder, e *store.CalendarEvent) {
+	writeLine(b, "BEGIN:VEVENT")
+	writeLine(b, fmt.Sprintf("UID:plan-part-%d-checkin@aerly", e.PartID))
+	writeStamp(b, e)
+	writeLine(b, dtLine("DTSTART", e.StartsAt, e.StartTZ))
+	writeLine(b, "SUMMARY:"+escapeText(hotelEdgeSummary(e, "Check-in")))
+	if e.StartLabel != "" {
+		writeLine(b, "LOCATION:"+escapeText(e.StartLabel))
+	}
+	if desc := descriptionFor(e); desc != "" {
+		writeLine(b, "DESCRIPTION:"+escapeText(desc))
+	}
+	writeStatus(b, e)
+	writeLine(b, "END:VEVENT")
+}
+
+func writeHotelCheckOut(b *strings.Builder, e *store.CalendarEvent) {
+	endTZ := e.EndTZ
+	if endTZ == "" {
+		endTZ = e.StartTZ
+	}
+	loc := e.EndLabel
+	if loc == "" {
+		loc = e.StartLabel
+	}
+	writeLine(b, "BEGIN:VEVENT")
+	writeLine(b, fmt.Sprintf("UID:plan-part-%d-checkout@aerly", e.PartID))
+	writeStamp(b, e)
+	writeLine(b, dtLine("DTSTART", *e.EndsAt, endTZ))
+	writeLine(b, "SUMMARY:"+escapeText(hotelEdgeSummary(e, "Check-out")))
+	if loc != "" {
+		writeLine(b, "LOCATION:"+escapeText(loc))
+	}
+	if desc := descriptionFor(e); desc != "" {
+		writeLine(b, "DESCRIPTION:"+escapeText(desc))
+	}
+	writeStatus(b, e)
+	writeLine(b, "END:VEVENT")
+}
+
+// writeTripBand emits one all-day, multi-day VEVENT spanning the whole trip —
+// the "name of the trip" banner (issue #101).
+func writeTripBand(b *strings.Builder, tb tripBand) {
+	name := strings.TrimSpace(tb.name)
+	if name == "" {
+		name = "Trip"
+	}
+	stamp := tb.updatedAt
+	if stamp.IsZero() {
+		stamp = time.Now()
+	}
+	writeLine(b, "BEGIN:VEVENT")
+	writeLine(b, fmt.Sprintf("UID:trip-%d@aerly", tb.id))
+	writeLine(b, "DTSTAMP:"+stamp.UTC().Format("20060102T150405Z"))
+	writeLine(b, "LAST-MODIFIED:"+stamp.UTC().Format("20060102T150405Z"))
+	// All-day DATE values: DTEND is exclusive (RFC 5545 §3.8.2.2), so it's the
+	// day after the trip's last day. TRANSP:TRANSPARENT keeps the banner from
+	// marking every day busy.
+	writeLine(b, "DTSTART;VALUE=DATE:"+tb.start.Format("20060102"))
+	writeLine(b, "DTEND;VALUE=DATE:"+tb.end.AddDate(0, 0, 1).Format("20060102"))
+	writeLine(b, "SUMMARY:"+escapeText(name))
+	writeLine(b, "TRANSP:TRANSPARENT")
+	writeLine(b, "END:VEVENT")
+}
+
+// writeStamp emits DTSTAMP/LAST-MODIFIED so clients detect updates (a delayed
+// flight whose part times moved re-renders on next refresh).
+func writeStamp(b *strings.Builder, e *store.CalendarEvent) {
+	writeLine(b, "DTSTAMP:"+e.UpdatedAt.UTC().Format("20060102T150405Z"))
+	writeLine(b, "LAST-MODIFIED:"+e.UpdatedAt.UTC().Format("20060102T150405Z"))
+}
+
+// writeStatus maps a part's status to the RFC 5545 STATUS property.
+func writeStatus(b *strings.Builder, e *store.CalendarEvent) {
+	switch e.Status {
+	case "cancelled":
 		writeLine(b, "STATUS:CANCELLED")
-	} else if e.Status == "confirmed" {
+	case "confirmed":
 		writeLine(b, "STATUS:CONFIRMED")
-	} else {
+	default:
 		writeLine(b, "STATUS:TENTATIVE")
 	}
-	writeLine(b, "END:VEVENT")
+}
+
+// hotelEdgeSummary labels a hotel check-in/check-out event, e.g.
+// "Hilton Zürich (Check-in)", falling back to the bare edge when untitled.
+func hotelEdgeSummary(e *store.CalendarEvent, edge string) string {
+	title := strings.TrimSpace(e.Title)
+	if title == "" {
+		return edge
+	}
+	return fmt.Sprintf("%s (%s)", title, edge)
+}
+
+// isHotelBand reports whether an event is a multi-night hotel stay that should
+// split into separate check-in / check-out events: a hotel whose end falls on a
+// later local calendar day than its start. Mirrors the frontend isHotelBand
+// (web/src/lib/trip-format.ts) so the feed and the UI timeline agree.
+func isHotelBand(e *store.CalendarEvent) bool {
+	if e.Type != "hotel" || e.EndsAt == nil {
+		return false
+	}
+	endTZ := e.EndTZ
+	if endTZ == "" {
+		endTZ = e.StartTZ
+	}
+	return localDate(*e.EndsAt, endTZ).After(localDate(e.StartsAt, e.StartTZ))
+}
+
+// tripBand is one all-day trip banner: its id, name, inclusive local date span,
+// and the newest part timestamp (for DTSTAMP).
+type tripBand struct {
+	id        int64
+	name      string
+	start     time.Time // inclusive first day, midnight UTC
+	end       time.Time // inclusive last day, midnight UTC
+	updatedAt time.Time
+}
+
+// tripBandEvents derives one banner per trip from the feed's events. It uses the
+// trip's stored DATE span when set, otherwise the min/max local date across the
+// trip's parts. Trips come back in ascending id order for stable output.
+func tripBandEvents(events []*store.CalendarEvent) []tripBand {
+	type agg struct {
+		name                   string
+		updatedAt              time.Time
+		storedStart, storedEnd time.Time
+		haveStored             bool
+		partStart, partEnd     time.Time
+		havePart               bool
+	}
+	byTrip := map[int64]*agg{}
+	var order []int64
+	for _, e := range events {
+		if e.TripID == 0 {
+			continue
+		}
+		a := byTrip[e.TripID]
+		if a == nil {
+			a = &agg{name: e.TripName}
+			byTrip[e.TripID] = a
+			order = append(order, e.TripID)
+		}
+		if e.UpdatedAt.After(a.updatedAt) {
+			a.updatedAt = e.UpdatedAt
+		}
+		if !a.haveStored && e.TripStartsOn != nil && e.TripEndsOn != nil {
+			a.storedStart, a.storedEnd = dateOnly(*e.TripStartsOn), dateOnly(*e.TripEndsOn)
+			a.haveStored = true
+		}
+		start := localDate(e.StartsAt, e.StartTZ)
+		end := start
+		if e.EndsAt != nil {
+			endTZ := e.EndTZ
+			if endTZ == "" {
+				endTZ = e.StartTZ
+			}
+			end = localDate(*e.EndsAt, endTZ)
+		}
+		if !a.havePart {
+			a.partStart, a.partEnd, a.havePart = start, end, true
+		} else {
+			if start.Before(a.partStart) {
+				a.partStart = start
+			}
+			if end.After(a.partEnd) {
+				a.partEnd = end
+			}
+		}
+	}
+	sort.Slice(order, func(i, j int) bool { return order[i] < order[j] })
+	out := make([]tripBand, 0, len(order))
+	for _, id := range order {
+		a := byTrip[id]
+		tb := tripBand{id: id, name: a.name, updatedAt: a.updatedAt}
+		switch {
+		case a.haveStored:
+			tb.start, tb.end = a.storedStart, a.storedEnd
+		case a.havePart:
+			tb.start, tb.end = a.partStart, a.partEnd
+		default:
+			continue // no dates to anchor a banner
+		}
+		// A stored span can end before it starts only through bad data; clamp so
+		// DTEND never precedes DTSTART.
+		if tb.end.Before(tb.start) {
+			tb.end = tb.start
+		}
+		out = append(out, tb)
+	}
+	return out
+}
+
+// localDate returns the calendar date (midnight UTC of the y/m/d) that instant t
+// falls on in the named IANA zone, or in UTC when the zone is empty/unknown.
+func localDate(t time.Time, tzName string) time.Time {
+	loc := time.UTC
+	if tzName != "" {
+		if l, err := time.LoadLocation(tzName); err == nil {
+			loc = l
+		}
+	}
+	lt := t.In(loc)
+	return time.Date(lt.Year(), lt.Month(), lt.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// dateOnly strips a stored DATE value to midnight UTC of its y/m/d.
+func dateOnly(t time.Time) time.Time {
+	t = t.UTC()
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // dtLine formats a DTSTART/DTEND property. When the zone is known we emit a

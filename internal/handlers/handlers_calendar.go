@@ -35,7 +35,7 @@ func (a *API) calendarMe(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	writeICS(w, "Aerly", events)
+	writeICS(w, "Aerly", events, true)
 }
 
 func (a *API) calendarTrip(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +53,7 @@ func (a *API) calendarTrip(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	writeICS(w, "Aerly Trip", events)
+	writeICS(w, "Aerly Trip", events, true)
 }
 
 func (a *API) calendarPlan(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,9 @@ func (a *API) calendarPlan(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	writeICS(w, "Aerly Plan", events)
+	// Single-plan feed: no trip banner — a one-plan subscription shouldn't sprout
+	// a trip-wide all-day event derived from just that plan's parts (issue #101).
+	writeICS(w, "Aerly Plan", events, false)
 }
 
 // calendarTokenInfo resolves the ?token= query param to its owner and verifies
@@ -121,8 +123,8 @@ func parseICSPathID(path, prefix string) (int64, bool) {
 	return id, true
 }
 
-func writeICS(w http.ResponseWriter, calName string, events []*store.CalendarEvent) {
-	body := renderICS(calName, events)
+func writeICS(w http.ResponseWriter, calName string, events []*store.CalendarEvent, tripBands bool) {
+	body := renderICS(calName, events, tripBands)
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(body))
@@ -161,7 +163,7 @@ func (a *API) exportTrip(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	body := renderICS(trip.Name, events)
+	body := renderICS(trip.Name, events, true)
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.Header().Set("Content-Disposition",
 		`attachment; filename="`+downloadFilename(trip.Name, "ics")+`"`)

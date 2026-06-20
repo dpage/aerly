@@ -183,6 +183,14 @@ type CalendarEvent struct {
 	EndLabel        string
 	Status          string // planned|confirmed|cancelled
 	UpdatedAt       time.Time
+	// Trip identity, carried so the feed can emit one all-day "trip band" event
+	// per trip (issue #101). TripStartsOn/TripEndsOn are the trip's stored DATE
+	// span when set; the renderer falls back to the parts' own date range when
+	// they're null.
+	TripID       int64
+	TripName     string
+	TripStartsOn *time.Time
+	TripEndsOn   *time.Time
 }
 
 // calendarEventSelect is the shared projection + visibility-gated FROM/WHERE
@@ -194,7 +202,8 @@ type CalendarEvent struct {
 var calendarEventSelect = `
 	SELECT part.id, part.plan_id, pl.type, pl.title, pl.confirmation_ref,
 	       pl.notes, part.starts_at, part.ends_at, part.start_tz, part.end_tz,
-	       part.start_label, part.end_label, part.status, part.updated_at
+	       part.start_label, part.end_label, part.status, part.updated_at,
+	       t.id, t.name, t.starts_on, t.ends_on
 	  FROM plan_parts part
 	  JOIN plans pl ON pl.id = part.plan_id
 	  JOIN trips t ON t.id = pl.trip_id
@@ -209,7 +218,8 @@ func scanCalendarEvents(rows pgx.Rows) ([]*CalendarEvent, error) {
 		if err := rows.Scan(&e.PartID, &e.PlanID, &e.Type, &e.Title,
 			&e.ConfirmationRef, &e.Notes, &e.StartsAt, &e.EndsAt,
 			&e.StartTZ, &e.EndTZ, &e.StartLabel, &e.EndLabel,
-			&e.Status, &e.UpdatedAt); err != nil {
+			&e.Status, &e.UpdatedAt,
+			&e.TripID, &e.TripName, &e.TripStartsOn, &e.TripEndsOn); err != nil {
 			return nil, err
 		}
 		out = append(out, &e)
