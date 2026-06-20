@@ -642,6 +642,17 @@ function partDetailLines(part: PlanPart): string[] {
     case 'excursion':
       if (part.excursion) out.push(part.excursion.provider);
       break;
+    case 'ice_cream':
+      if (part.ice_cream) {
+        const r = Math.max(0, Math.min(5, Math.round(part.ice_cream.rating)));
+        out.push(
+          join(
+            r > 0 ? '★'.repeat(r) + '☆'.repeat(5 - r) : undefined,
+            part.ice_cream.what_ordered,
+          ),
+        );
+      }
+      break;
     case 'flight':
       if (part.flight) out.push(join(part.flight.ident, part.flight.flight_status));
       break;

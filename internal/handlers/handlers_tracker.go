@@ -231,7 +231,7 @@ func (a *API) trackerPartDetailDTO(ctx context.Context, p *store.PlanPart) (api.
 		}
 		track = trackMap[p.ID]
 	}
-	return api.ToPlanPartDTO(p, flight, nil, nil, nil, nil, nil, latest, track), nil
+	return api.ToPlanPartDTO(p, flight, nil, nil, nil, nil, nil, nil, latest, track), nil
 }
 
 // parseWindow parses a window duration string. It accepts a trailing "d" (days)

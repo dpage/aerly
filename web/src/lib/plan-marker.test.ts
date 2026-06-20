@@ -3,7 +3,15 @@ import { describe, it, expect } from 'vitest';
 import type { PlanType } from '../api/types';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from './plan-marker';
 
-const TYPES: PlanType[] = ['flight', 'train', 'hotel', 'ground', 'dining', 'excursion'];
+const TYPES: PlanType[] = [
+  'flight',
+  'train',
+  'hotel',
+  'ground',
+  'dining',
+  'excursion',
+  'ice_cream',
+];
 
 describe('planTypeColor', () => {
   it.each(TYPES)('returns a distinct hex colour for %s', (type) => {
@@ -46,6 +54,20 @@ describe('buildPinEl', () => {
     // The body stroke is white (no person colour present).
     expect(el.outerHTML).toContain('stroke="#fff"');
     expect(el.outerHTML).not.toContain('hsl(');
+  });
+
+  it('draws ice cream as a cone marker, not the generic teardrop', () => {
+    const el = buildPinEl('ice_cream');
+    // The scoop carries the ice-cream colour and the cone has a round scoop.
+    expect(el.outerHTML).toContain(planTypeColor('ice_cream'));
+    expect(el.querySelector('circle')).not.toBeNull();
+    // The cone is its own shape, so the shared teardrop path is absent.
+    expect(el.outerHTML).not.toContain('C5.6 0.5 0.5 5.6');
+  });
+
+  it('rings the ice cream scoop with the person colour when given', () => {
+    const el = buildPinEl('ice_cream', 'hsl(200, 70%, 42%)');
+    expect(el.outerHTML).toContain('stroke="hsl(200, 70%, 42%)"');
   });
 });
 

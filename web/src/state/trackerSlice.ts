@@ -52,6 +52,7 @@ const KNOWN_TYPES: readonly PlanType[] = [
   'ground',
   'dining',
   'excursion',
+  'ice_cream',
 ];
 
 export interface TrackerFilters {

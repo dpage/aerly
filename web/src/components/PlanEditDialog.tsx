@@ -10,6 +10,7 @@ import {
   DialogTitle,
   Divider,
   MenuItem,
+  Rating,
   Stack,
   TextField,
   Typography,
@@ -61,10 +62,17 @@ interface FlightForm {
   resolved: boolean;
 }
 
+/** An ice cream stop's editable rating (0–5 stars) and what-was-ordered note. */
+interface IceCreamForm {
+  rating: number;
+  whatOrdered: string;
+}
+
 interface PartForm {
   start: EndForm;
   end: EndForm;
   flight?: FlightForm;
+  iceCream?: IceCreamForm;
 }
 
 function endForm(
@@ -105,6 +113,13 @@ function partForm(part: PlanPart): PartForm {
             originIata: part.flight.origin_iata ?? '',
             destIata: part.flight.dest_iata ?? '',
             resolved: part.flight.resolved,
+          }
+        : undefined,
+    iceCream:
+      part.type === 'ice_cream'
+        ? {
+            rating: part.ice_cream?.rating ?? 0,
+            whatOrdered: part.ice_cream?.what_ordered ?? '',
           }
         : undefined,
   };
@@ -182,6 +197,16 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
         flight.dest_iata = f.destIata.trim().toUpperCase();
     }
     if (Object.keys(flight).length > 0) patch.flight = flight;
+  }
+
+  // Ice cream rating / what-ordered. Each field is sent only when it changed.
+  if (form.iceCream && init.iceCream) {
+    const c = form.iceCream;
+    const ci = init.iceCream;
+    const ice: NonNullable<UpdatePlanPartInput['ice_cream']> = {};
+    if (c.rating !== ci.rating) ice.rating = c.rating;
+    if (c.whatOrdered.trim() !== ci.whatOrdered.trim()) ice.what_ordered = c.whatOrdered.trim();
+    if (Object.keys(ice).length > 0) patch.ice_cream = ice;
   }
 
   return Object.keys(patch).length > 0 ? patch : null;
@@ -320,6 +345,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
       const f = prev[partId].flight;
       if (!f) return prev;
       return { ...prev, [partId]: { ...prev[partId], flight: { ...f, [field]: value } } };
+    });
+  };
+
+  const patchIceCream = (partId: number, field: keyof IceCreamForm, value: string | number) => {
+    setForms((prev) => {
+      const f = prev[partId].iceCream;
+      if (!f) return prev;
+      return { ...prev, [partId]: { ...prev[partId], iceCream: { ...f, [field]: value } } };
     });
   };
 
@@ -574,6 +607,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                       />
                     </Box>
                   )}
+                  {form.iceCream && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <IceCreamFields
+                        form={form.iceCream}
+                        onChange={(f, v) => patchIceCream(part.id, f, v)}
+                      />
+                    </Box>
+                  )}
                 </Box>
               );
             })}
@@ -684,6 +725,44 @@ function FlightFields({
           ? 'Route is set from live flight data. Change the flight number to re-look it up.'
           : "We couldn't match this flight number, so you can set its route by hand."}
       </Typography>
+    </Stack>
+  );
+}
+
+/** Ice cream inputs: a 0–5 star rating to score the find and a free-text note
+ * of what was ordered. Both are saved on the part's ice-cream satellite. */
+function IceCreamFields({
+  form,
+  onChange,
+}: {
+  form: IceCreamForm;
+  onChange: (field: keyof IceCreamForm, value: string | number) => void;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+        Ice cream
+      </Typography>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Typography variant="body2" color="text.secondary">
+          Rating
+        </Typography>
+        <Rating
+          name="ice-cream-rating"
+          value={form.rating}
+          onChange={(_, value) => onChange('rating', value ?? 0)}
+        />
+      </Stack>
+      <TextField
+        label="What was ordered"
+        size="small"
+        value={form.whatOrdered}
+        onChange={(e) => onChange('whatOrdered', e.target.value)}
+        placeholder="e.g. Pistachio &amp; stracciatella cone"
+        fullWidth
+        multiline
+        minRows={2}
+      />
     </Stack>
   );
 }

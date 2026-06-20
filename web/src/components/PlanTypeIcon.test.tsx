@@ -4,7 +4,15 @@ import { render } from '@testing-library/react';
 import type { PlanType } from '../api/types';
 import PlanTypeIcon from './PlanTypeIcon';
 
-const TYPES: PlanType[] = ['flight', 'train', 'hotel', 'ground', 'dining', 'excursion'];
+const TYPES: PlanType[] = [
+  'flight',
+  'train',
+  'hotel',
+  'ground',
+  'dining',
+  'excursion',
+  'ice_cream',
+];
 
 describe('PlanTypeIcon', () => {
   it.each(TYPES)('renders an svg icon for %s', (type) => {

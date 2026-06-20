@@ -406,6 +406,8 @@ export function planTypeLabel(type: PlanType): string {
       return 'Dining';
     case 'excursion':
       return 'Excursion';
+    case 'ice_cream':
+      return 'Ice cream';
     default:
       return type;
   }

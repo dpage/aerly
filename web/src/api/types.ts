@@ -256,7 +256,14 @@ export interface AutoShare {
 
 /** The kind of thing a plan (and each of its parts) represents. Selects which
  * per-type detail object is populated on a `PlanPart`. */
-export type PlanType = 'flight' | 'train' | 'hotel' | 'ground' | 'dining' | 'excursion';
+export type PlanType =
+  | 'flight'
+  | 'train'
+  | 'hotel'
+  | 'ground'
+  | 'dining'
+  | 'excursion'
+  | 'ice_cream';
 
 /** Lifecycle status of a single plan part. */
 export type PlanPartStatus = 'planned' | 'confirmed' | 'cancelled';
@@ -390,6 +397,14 @@ export interface ExcursionDetail {
   ticket_count?: number;
 }
 
+/** An ice cream stop: a 0–5 star rating for the find and a free-text note of
+ * what was ordered. */
+export interface IceCreamDetail {
+  /** 0–5 stars. */
+  rating: number;
+  what_ordered: string;
+}
+
 export interface PlanPart {
   id: number;
   plan_id: number;
@@ -424,6 +439,7 @@ export interface PlanPart {
   ground?: GroundDetail;
   dining?: DiningDetail;
   excursion?: ExcursionDetail;
+  ice_cream?: IceCreamDetail;
   /** Who added the plan + who's on it, so the map can show whose plan it is.
    * Populated on the tracker and trip-detail payloads. */
   owner?: User;
@@ -606,6 +622,7 @@ export interface PlanPartInput {
   ground?: Partial<GroundDetail>;
   dining?: Partial<DiningDetail>;
   excursion?: Partial<ExcursionDetail>;
+  ice_cream?: Partial<IceCreamDetail>;
 }
 
 export interface UpdatePlanPartInput {
@@ -628,6 +645,7 @@ export interface UpdatePlanPartInput {
   ground?: Partial<GroundDetail>;
   dining?: Partial<DiningDetail>;
   excursion?: Partial<ExcursionDetail>;
+  ice_cream?: Partial<IceCreamDetail>;
   /** Pin/unpin a manual coordinate override so the geocoder leaves it alone.
    * Send true alongside start_lat/start_lon to pin; false to revert to auto. */
   start_coords_pinned?: boolean;

@@ -42,6 +42,7 @@ type planPartReq struct {
 	Ground    *groundDetailReq    `json:"ground"`
 	Dining    *diningDetailReq    `json:"dining"`
 	Excursion *excursionDetailReq `json:"excursion"`
+	IceCream  *iceCreamDetailReq  `json:"ice_cream"`
 }
 
 type flightDetailReq struct {
@@ -95,6 +96,11 @@ type diningDetailReq struct {
 type excursionDetailReq struct {
 	Provider    string `json:"provider"`
 	TicketCount *int   `json:"ticket_count"`
+}
+
+type iceCreamDetailReq struct {
+	Rating      int    `json:"rating"`
+	WhatOrdered string `json:"what_ordered"`
 }
 
 type createPlanReq struct {
@@ -158,6 +164,17 @@ type updatePlanPartReq struct {
 	// labels & editing). Changing the ident re-resolves the flight; the
 	// origin/dest IATA are only honoured for an unresolved flight.
 	Flight *flightEditReq `json:"flight,omitempty"`
+
+	// IceCream carries an edit to the rating / what-ordered note, so an
+	// ice-cream find can be scored after the visit. A nil field is unchanged.
+	IceCream *iceCreamEditReq `json:"ice_cream,omitempty"`
+}
+
+// iceCreamEditReq is the editable subset of an ice-cream stop. A nil field
+// leaves it unchanged; the rating is clamped to 0–5 server-side.
+type iceCreamEditReq struct {
+	Rating      *int    `json:"rating,omitempty"`
+	WhatOrdered *string `json:"what_ordered,omitempty"`
 }
 
 // flightEditReq is the editable subset of a flight's route. A nil field leaves
@@ -183,7 +200,7 @@ type planUserIDReq struct {
 
 var validPlanTypes = map[string]bool{
 	"flight": true, "train": true, "hotel": true,
-	"ground": true, "dining": true, "excursion": true,
+	"ground": true, "dining": true, "excursion": true, "ice_cream": true,
 }
 
 func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
@@ -680,6 +697,24 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// An ice-cream rating / what-ordered edit. Only ice-cream parts carry the
+	// satellite; the store upserts so a part predating the detail still takes it.
+	if in.IceCream != nil && part.Type == "ice_cream" {
+		up := store.IceCreamDetailUpdate{WhatOrdered: in.IceCream.WhatOrdered}
+		if in.IceCream.Rating != nil {
+			rating := *in.IceCream.Rating
+			if rating < 0 {
+				rating = 0
+			} else if rating > 5 {
+				rating = 5
+			}
+			up.Rating = &rating
+		}
+		if err := a.Store.UpdateIceCreamDetail(r.Context(), id, up); err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+	}
 	dto, err := a.partDTO(r.Context(), part)
 	if err != nil {
 		handleStoreErr(w, err)
@@ -890,6 +925,13 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 				TicketCount: p.Excursion.TicketCount,
 			}
 		}
+	case "ice_cream":
+		if p.IceCream != nil {
+			out.IceCream = &store.IceCreamDetail{
+				Rating:      p.IceCream.Rating,
+				WhatOrdered: p.IceCream.WhatOrdered,
+			}
+		}
 	}
 	return out
 }
@@ -1097,6 +1139,7 @@ func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripF
 		ground    *store.GroundDetail
 		dining    *store.DiningDetail
 		excursion *store.ExcursionDetail
+		iceCream  *store.IceCreamDetail
 		err       error
 	)
 	switch p.Type {
@@ -1112,11 +1155,13 @@ func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripF
 		dining, err = a.Store.DiningDetailFor(ctx, p.ID)
 	case "excursion":
 		excursion, err = a.Store.ExcursionDetailFor(ctx, p.ID)
+	case "ice_cream":
+		iceCream, err = a.Store.IceCreamDetailFor(ctx, p.ID)
 	}
 	if err != nil {
 		return api.PlanPartDTO{}, err
 	}
-	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, latest, track)
+	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, iceCream, latest, track)
 	if p.Type == "hotel" && dto.Hotel != nil {
 		applyHotelSmartTimes(p, hotel, tripFlights, dto.Hotel)
 		// Order the timeline/map by the smart check-in (after the inbound

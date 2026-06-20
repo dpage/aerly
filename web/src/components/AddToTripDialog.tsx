@@ -45,7 +45,15 @@ interface AddToTripDialogProps {
 
 type CaptureTab = 'manual' | 'paste' | 'upload' | 'email';
 
-const PLAN_TYPES: PlanType[] = ['flight', 'train', 'hotel', 'ground', 'dining', 'excursion'];
+const PLAN_TYPES: PlanType[] = [
+  'flight',
+  'train',
+  'hotel',
+  'ground',
+  'dining',
+  'excursion',
+  'ice_cream',
+];
 
 /** Confidence below this gets flagged in the confirm step (spec §6 — "anything
  * it's unsure about is flagged rather than silently guessed"). */
@@ -647,6 +655,7 @@ function toDraft(p: ProposedPlan): DraftPlan {
       ground: part.ground,
       dining: part.dining,
       excursion: part.excursion,
+      ice_cream: part.ice_cream,
     })),
     supersedes_part_id: p.supersedes_part_id,
     accepted: true,
@@ -946,6 +955,8 @@ function placeholderFor(type: PlanType): string {
       return 'Dinner at Belcanto';
     case 'excursion':
       return 'Walking tour';
+    case 'ice_cream':
+      return 'Gelato at Giolitti';
     default:
       return planTypeLabel(type);
   }
@@ -979,6 +990,7 @@ function startTimeLabel(type: PlanType): string {
       return 'Check-in';
     case 'dining':
     case 'excursion':
+    case 'ice_cream':
       return 'Time';
     default:
       return 'Departs';

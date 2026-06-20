@@ -35,7 +35,15 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
   };
 }
 
-const ALL: PlanType[] = ['flight', 'train', 'hotel', 'ground', 'dining', 'excursion'];
+const ALL: PlanType[] = [
+  'flight',
+  'train',
+  'hotel',
+  'ground',
+  'dining',
+  'excursion',
+  'ice_cream',
+];
 
 describe('filterTrackerParts', () => {
   it('returns everything when nothing is filtered', () => {
@@ -51,7 +59,13 @@ describe('filterTrackerParts', () => {
       hiddenTypes: ['excursion', 'dining'],
       meId: 1,
     });
-    expect(out.map((p) => p.type).sort()).toEqual(['flight', 'ground', 'hotel', 'train']);
+    expect(out.map((p) => p.type).sort()).toEqual([
+      'flight',
+      'ground',
+      'hotel',
+      'ice_cream',
+      'train',
+    ]);
   });
 
   it('keeps only parts I am a passenger on when mineOnly is set', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { Plan, Trip } from '../api/types';
@@ -318,6 +318,40 @@ describe('PlanEditDialog', () => {
     expect(screen.getByText('Where')).toBeInTheDocument();
     expect(screen.queryByText('To')).not.toBeInTheDocument();
     expect(screen.queryByText('Until')).not.toBeInTheDocument();
+  });
+
+  it('edits an ice cream stop: a single place, a 0–5 rating and a what-was-ordered note', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'ice_cream',
+        parts: [
+          part({
+            type: 'ice_cream',
+            start_label: 'Giolitti',
+            ends_at: undefined,
+            end_label: '',
+            end_tz: '',
+            ice_cream: { rating: 0, what_ordered: '' },
+          }),
+        ],
+      }),
+    );
+    // Single-location: a "Where" endpoint, no "To"/"Until".
+    expect(screen.getByText('Where')).toBeInTheDocument();
+    expect(screen.queryByText('Until')).not.toBeInTheDocument();
+    // The ice-cream section with its rating and free-text note (the label
+    // appears on both the divider and the section heading).
+    expect(screen.getAllByText('Ice cream').length).toBeGreaterThanOrEqual(1);
+    const ordered = screen.getByRole('textbox', { name: /what was ordered/i });
+    await userEvent.type(ordered, 'Pistachio cone');
+    // MUI Rating exposes a radio per star; a direct click sets the value (a full
+    // pointer sequence would feed jsdom's zero-width rect into the hover maths).
+    fireEvent.click(screen.getByRole('radio', { name: '4 Stars' }));
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.ice_cream).toEqual({ rating: 4, what_ordered: 'Pistachio cone' });
   });
 
   it('shows "Until" for a non-transfer part that carries an end time (hotel)', () => {

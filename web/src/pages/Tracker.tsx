@@ -44,7 +44,15 @@ const fmtWinDay = (s?: string): string | null => {
 /** Plan types offered as Tracker show/hide chips, in display order (transport
  * grouped first). A new plan type must be added here AND to `KNOWN_TYPES` in
  * trackerSlice.ts, which validates persisted hidden-type lists. */
-const FILTER_TYPES: PlanType[] = ['flight', 'train', 'ground', 'hotel', 'dining', 'excursion'];
+const FILTER_TYPES: PlanType[] = [
+  'flight',
+  'train',
+  'ground',
+  'hotel',
+  'dining',
+  'excursion',
+  'ice_cream',
+];
 
 /** Global tracker (PRD §6.5): the unified map+list view over every mappable part
  * in a date window, optionally scoped to a tag. Identical to the trip Map tab

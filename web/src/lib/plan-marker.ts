@@ -25,6 +25,9 @@ const GROUND =
 const DINING =
   '<path d="M8.1 13.34l2.83-2.83L3.91 3.5c-1.56 1.56-1.56 4.09 0 5.66l4.19 4.18zm6.78-1.81c1.53.71 3.68.21 5.27-1.38 1.91-1.91 2.28-4.65.81-6.12-1.46-1.46-4.2-1.1-6.12.81-1.59 1.59-2.09 3.74-1.38 5.27L3.7 19.87l1.41 1.41L12 14.41l6.88 6.88 1.41-1.41L13.41 13l1.47-1.47z"/>';
 const EXCURSION = '<path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.75 7 10 7 10l-6 8h22L14 6z"/>';
+// A downward ice cream cone: a round scoop over a waffle cone tapering to a tip.
+const ICE_CREAM =
+  '<path d="M12 2C9.24 2 7 4.24 7 7c0 1.02.31 1.96.83 2.75L6 10l6 12 6-12-1.83.75c.52-.79.83-1.73.83-2.75 0-2.76-2.24-5-5-5z"/>';
 
 const TYPE_STYLE: Record<PlanType, TypeStyle> = {
   flight: { color: '#1f5fa8', glyph: FLIGHT },
@@ -33,6 +36,7 @@ const TYPE_STYLE: Record<PlanType, TypeStyle> = {
   ground: { color: '#0f766e', glyph: GROUND },
   dining: { color: '#be123c', glyph: DINING },
   excursion: { color: '#15803d', glyph: EXCURSION },
+  ice_cream: { color: '#db2777', glyph: ICE_CREAM },
 };
 
 const FALLBACK: TypeStyle = { color: '#6b7280', glyph: '<circle cx="12" cy="12" r="6"/>' };
@@ -64,6 +68,12 @@ export function buildPinEl(type: PlanType, ringColor?: string | null): HTMLEleme
   const el = document.createElement('div');
   el.style.cursor = 'pointer';
   el.style.lineHeight = '0';
+  // Ice cream gets its own cone-shaped marker rather than the generic teardrop:
+  // the cone's tip is the anchor, so the point of the cone marks the location.
+  if (type === 'ice_cream') {
+    el.innerHTML = iceCreamConeSvg(s.color, ring);
+    return el;
+  }
   // Three layers: a white halo for map contrast, the type-coloured body with a
   // person-coloured ring, then the white type glyph centred in the head.
   el.innerHTML = `
@@ -75,6 +85,29 @@ export function buildPinEl(type: PlanType, ringColor?: string | null): HTMLEleme
       <g transform="translate(4.8,5) scale(0.6)" fill="#fff">${s.glyph}</g>
     </svg>`;
   return el;
+}
+
+// A cone-shaped pin for ice cream stops: a round scoop (the type colour, with a
+// person-coloured ring) sitting on a waffle cone that tapers to a tip at the
+// bottom-centre. Drawn in the same 24×34 space as the teardrop and placed with
+// `anchor: 'bottom'`, so the cone's point lands exactly on the location. A white
+// halo behind the whole shape keeps it legible against the map.
+function iceCreamConeSvg(scoop: string, ring: string): string {
+  const cone = 'M6 12.5 L18 12.5 L12 33.5 Z';
+  return `
+    <svg width="28" height="38" viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg"
+         overflow="visible"
+         style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4))">
+      <g fill="#fff" stroke="#fff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+        <path d="${cone}"/>
+        <circle cx="12" cy="8.5" r="6.6"/>
+      </g>
+      <path d="${cone}" fill="#d99a52" stroke="${ring}" stroke-width="1" stroke-linejoin="round"/>
+      <path d="M8 14 L13 22 M16 14 L11 22" stroke="#a9702c" stroke-width="0.8"
+            fill="none" stroke-linecap="round" opacity="0.85"/>
+      <circle cx="12" cy="8.5" r="6.6" fill="${scoop}" stroke="${ring}" stroke-width="1.4"/>
+      <ellipse cx="9.6" cy="6.2" rx="2.1" ry="1.5" fill="#fff" opacity="0.45"/>
+    </svg>`;
 }
 
 /** A labelled popover for a map marker: a coloured type glyph + the title, then

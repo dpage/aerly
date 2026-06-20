@@ -178,6 +178,14 @@ type ExcursionDetail struct {
 	TicketCount *int
 }
 
+// IceCreamDetail is the ice-cream-stop satellite: a 0–5 star rating for the
+// find plus a free-text note of what was ordered.
+type IceCreamDetail struct {
+	PlanPartID  int64
+	Rating      int // 0–5 stars
+	WhatOrdered string
+}
+
 // CreatePlanPayload bundles a plan plus its parts and per-type details for an
 // atomic insert. The detail slices are written according to Type.
 type CreatePlanPayload struct {
@@ -223,6 +231,7 @@ type CreatePlanPartPayload struct {
 	Ground    *GroundDetail
 	Dining    *DiningDetail
 	Excursion *ExcursionDetail
+	IceCream  *IceCreamDetail
 }
 
 // UpdatePlanPayload carries the optionally-set fields of a plan edit. A nil
@@ -448,6 +457,16 @@ func insertDetailTx(ctx context.Context, tx pgx.Tx, partID int64, planType strin
 			INSERT INTO excursion_details (plan_part_id, provider, ticket_count)
 			VALUES ($1,$2,$3)`,
 			partID, d.Provider, d.TicketCount)
+		return err
+	case "ice_cream":
+		d := in.IceCream
+		if d == nil {
+			d = &IceCreamDetail{}
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO ice_cream_details (plan_part_id, rating, what_ordered)
+			VALUES ($1,$2,$3)`,
+			partID, d.Rating, d.WhatOrdered)
 		return err
 	default:
 		return errors.New("unknown plan type: " + planType)
@@ -1256,6 +1275,44 @@ func (s *Store) ExcursionDetailFor(ctx context.Context, partID int64) (*Excursio
 		return nil, err
 	}
 	return &d, nil
+}
+
+// IceCreamDetailFor loads the ice-cream satellite for a part, or (nil, nil).
+func (s *Store) IceCreamDetailFor(ctx context.Context, partID int64) (*IceCreamDetail, error) {
+	var d IceCreamDetail
+	err := s.pool.QueryRow(ctx, `
+		SELECT plan_part_id, rating, what_ordered
+		FROM ice_cream_details WHERE plan_part_id = $1`, partID).Scan(
+		&d.PlanPartID, &d.Rating, &d.WhatOrdered)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil //nolint:nilnil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// IceCreamDetailUpdate carries the editable ice-cream fields; a nil pointer
+// leaves that field unchanged (the COALESCE idiom shared with the other
+// updaters).
+type IceCreamDetailUpdate struct {
+	Rating      *int
+	WhatOrdered *string
+}
+
+// UpdateIceCreamDetail writes a rating and/or what-ordered edit, upserting the
+// satellite row so an ice-cream part created before the detail existed still
+// takes the edit.
+func (s *Store) UpdateIceCreamDetail(ctx context.Context, partID int64, up IceCreamDetailUpdate) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO ice_cream_details (plan_part_id, rating, what_ordered)
+		VALUES ($1, COALESCE($2, 0), COALESCE($3, ''))
+		ON CONFLICT (plan_part_id) DO UPDATE SET
+			rating       = COALESCE($2, ice_cream_details.rating),
+			what_ordered = COALESCE($3, ice_cream_details.what_ordered)`,
+		partID, up.Rating, up.WhatOrdered)
+	return err
 }
 
 // ----- Passengers (the trigger keeps trip_members in sync) -----

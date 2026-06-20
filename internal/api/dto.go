@@ -551,6 +551,7 @@ type PlanPartDTO struct {
 	Ground       *GroundDetailDTO    `json:"ground,omitempty"`
 	Dining       *DiningDetailDTO    `json:"dining,omitempty"`
 	Excursion    *ExcursionDetailDTO `json:"excursion,omitempty"`
+	IceCream     *IceCreamDetailDTO  `json:"ice_cream,omitempty"`
 	// Who added the plan + who's on it, so the map can show whose plan it is.
 	// Populated for the tracker and trip-detail payloads.
 	Owner      *UserDTO  `json:"owner,omitempty"`
@@ -644,6 +645,13 @@ type DiningDetailDTO struct {
 type ExcursionDetailDTO struct {
 	Provider    string `json:"provider"`
 	TicketCount *int   `json:"ticket_count,omitempty"`
+}
+
+// IceCreamDetailDTO is the ice-cream-stop satellite payload: a 0–5 star rating
+// and a free-text note of what was ordered.
+type IceCreamDetailDTO struct {
+	Rating      int    `json:"rating"`
+	WhatOrdered string `json:"what_ordered"`
 }
 
 // TrackerPartDTO is the convergence-view payload: a labelled trackable part
@@ -757,6 +765,7 @@ func ToPlanPartDTO(
 	ground *store.GroundDetail,
 	dining *store.DiningDetail,
 	excursion *store.ExcursionDetail,
+	iceCream *store.IceCreamDetail,
 	latest *store.Position,
 	track []*store.Position,
 ) PlanPartDTO {
@@ -808,6 +817,8 @@ func ToPlanPartDTO(
 		dto.Dining = ToDiningDetailDTO(dining)
 	case excursion != nil:
 		dto.Excursion = ToExcursionDetailDTO(excursion)
+	case iceCream != nil:
+		dto.IceCream = ToIceCreamDetailDTO(iceCream)
 	}
 	dto.StartTZ = startTZ
 	dto.EndTZ = endTZ
@@ -898,6 +909,14 @@ func ToDiningDetailDTO(d *store.DiningDetail) *DiningDetailDTO {
 		PartySize:       d.PartySize,
 		ReservationName: d.ReservationName,
 		Phone:           d.Phone,
+	}
+}
+
+// ToIceCreamDetailDTO projects an ice-cream satellite.
+func ToIceCreamDetailDTO(d *store.IceCreamDetail) *IceCreamDetailDTO {
+	return &IceCreamDetailDTO{
+		Rating:      d.Rating,
+		WhatOrdered: d.WhatOrdered,
 	}
 }
 

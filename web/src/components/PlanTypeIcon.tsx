@@ -5,6 +5,7 @@ import HotelIcon from '@mui/icons-material/Hotel';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import LocalActivityIcon from '@mui/icons-material/LocalActivity';
+import IcecreamIcon from '@mui/icons-material/Icecream';
 import PlaceIcon from '@mui/icons-material/Place';
 
 import type { PlanType } from '../api/types';
@@ -25,6 +26,8 @@ export default function PlanTypeIcon({ type, ...props }: { type: PlanType } & Sv
       return <RestaurantIcon {...props} />;
     case 'excursion':
       return <LocalActivityIcon {...props} />;
+    case 'ice_cream':
+      return <IcecreamIcon {...props} />;
     default:
       return <PlaceIcon {...props} />;
   }
