@@ -445,6 +445,71 @@ describe('PlanEditDialog', () => {
     expect(patch.dining).toEqual({ reservation_name: 'Smith', party_size: 4 });
   });
 
+  it('edits a ground transfer transport detail and patches it onto ground', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'ground',
+        parts: [
+          part({
+            type: 'ground',
+            start_label: 'Hotel',
+            end_label: 'Airport',
+            ground: { provider: '', phone: '', vehicle: '', driver: '', pax: undefined },
+          }),
+        ],
+      }),
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: /provider/i }), {
+      target: { value: 'Addison Lee' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /vehicle/i }), {
+      target: { value: 'Saloon' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /driver/i }), { target: { value: 'Sam' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /passengers/i }), {
+      target: { value: '3' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.ground).toEqual({
+      provider: 'Addison Lee',
+      vehicle: 'Saloon',
+      driver: 'Sam',
+      pax: 3,
+    });
+  });
+
+  it('edits an excursion: provider and ticket count patch onto excursion', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'excursion',
+        parts: [
+          part({
+            type: 'excursion',
+            start_label: 'Museum',
+            ends_at: undefined,
+            end_label: '',
+            end_tz: '',
+            excursion: { provider: '', ticket_count: undefined },
+          }),
+        ],
+      }),
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: /provider/i }), {
+      target: { value: 'City Tours' },
+    });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /tickets/i }), {
+      target: { value: '5' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.excursion).toEqual({ provider: 'City Tours', ticket_count: 5 });
+  });
+
   it('edits a hotel part: room/guests patch onto hotel and the place mirrors property_name', async () => {
     h.updatePlanPart.mockResolvedValue(part({}));
     render_(

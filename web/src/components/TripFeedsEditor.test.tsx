@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -149,5 +149,34 @@ describe('TripFeedsEditor', () => {
     h.listTripFeeds.mockResolvedValue([feed({ last_error: 'timeout' })]);
     render(<TripFeedsEditor tripId={7} />);
     expect(await screen.findByText(/last fetch failed: timeout/i)).toBeInTheDocument();
+  });
+});
+
+// The module-level timezone list is built once at import from Intl. These re-import
+// the module with a hobbled Intl to exercise the fallbacks for runtimes that lack
+// (or throw from) supportedValuesOf; the picker stays usable because it's free-solo.
+describe('TripFeedsEditor timezone fallback', () => {
+  const desc = Object.getOwnPropertyDescriptor(Intl, 'supportedValuesOf');
+
+  afterEach(() => {
+    if (desc) Object.defineProperty(Intl, 'supportedValuesOf', desc);
+    vi.resetModules();
+  });
+
+  it('falls back to an empty list when supportedValuesOf is absent', async () => {
+    Object.defineProperty(Intl, 'supportedValuesOf', { configurable: true, value: undefined });
+    vi.resetModules();
+    await expect(import('./TripFeedsEditor')).resolves.toBeDefined();
+  });
+
+  it('falls back to an empty list when supportedValuesOf throws', async () => {
+    Object.defineProperty(Intl, 'supportedValuesOf', {
+      configurable: true,
+      value: () => {
+        throw new Error('unsupported');
+      },
+    });
+    vi.resetModules();
+    await expect(import('./TripFeedsEditor')).resolves.toBeDefined();
   });
 });

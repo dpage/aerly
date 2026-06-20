@@ -168,6 +168,42 @@ describe('PartDetailBlock TypeSection', () => {
     expect(screen.getByText('5')).toBeInTheDocument();
   });
 
+  it('renders meeting fields', () => {
+    render(
+      <PartDetailBlock
+        part={part({
+          type: 'meeting',
+          meeting: { location: 'Room 4B', organiser: 'Dana', platform: 'Zoom' },
+        })}
+      />,
+    );
+    expect(screen.getByText('Meeting')).toBeInTheDocument();
+    expect(screen.getByText('Room 4B')).toBeInTheDocument();
+    expect(screen.getByText('Dana')).toBeInTheDocument();
+    expect(screen.getByText('Zoom')).toBeInTheDocument();
+  });
+
+  it('renders event fields', () => {
+    render(
+      <PartDetailBlock
+        part={part({
+          type: 'event',
+          event: {
+            performer: 'Adele',
+            category: 'Concert',
+            venue_area: 'Floor B',
+            url: 'https://tix.example/e',
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('Event')).toBeInTheDocument();
+    expect(screen.getByText('Adele')).toBeInTheDocument();
+    expect(screen.getByText('Concert')).toBeInTheDocument();
+    expect(screen.getByText('Floor B')).toBeInTheDocument();
+    expect(screen.getByText('https://tix.example/e')).toBeInTheDocument();
+  });
+
   it('collapses the whole Dining section when all its fields are empty', () => {
     render(
       <PartDetailBlock

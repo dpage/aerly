@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { Capabilities, PlanPart, ProposedPlan, Trip } from '../api/types';
@@ -293,6 +293,72 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     // Excursion is single-point → Location/Time labels, no end.
     expect(screen.getByLabelText('Location')).toBeInTheDocument();
     expect(screen.getByLabelText('Time')).toBeInTheDocument();
+  });
+
+  it('builds a ground plan with provider/vehicle/driver/passengers detail', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Ground transport' }));
+
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Transfer');
+    // Set the detail fields atomically (fireEvent) to stay fast under coverage.
+    fireEvent.change(screen.getByLabelText(/Provider/), { target: { value: 'Addison Lee' } });
+    fireEvent.change(screen.getByLabelText(/Vehicle/), { target: { value: 'Saloon' } });
+    fireEvent.change(screen.getByLabelText(/Driver/), { target: { value: 'Sam' } });
+    fireEvent.change(screen.getByLabelText('Passengers'), { target: { value: '3' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const [, input] = h.state.createPlan.mock.calls[0];
+    expect(input.type).toBe('ground');
+    expect(input.parts[0].ground).toMatchObject({
+      provider: 'Addison Lee',
+      vehicle: 'Saloon',
+      driver: 'Sam',
+      pax: 3,
+    });
+  });
+
+  it('builds an excursion plan with provider and ticket count', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Excursion' }));
+
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Tour');
+    fireEvent.change(screen.getByLabelText(/Provider/), { target: { value: 'City Tours' } });
+    fireEvent.change(screen.getByLabelText('Tickets'), { target: { value: '5' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const [, input] = h.state.createPlan.mock.calls[0];
+    expect(input.type).toBe('excursion');
+    expect(input.parts[0].excursion).toMatchObject({ provider: 'City Tours', ticket_count: 5 });
+  });
+
+  it('builds point-in-time meeting and event plans (Location/Time labels, no detail block)', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    // Meeting: single point (Location/Time), no per-type detail block.
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Meeting' }));
+    expect(screen.getByLabelText('Location')).toBeInTheDocument();
+    expect(screen.getByLabelText('Time')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Standup');
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+    expect(h.state.createPlan.mock.calls[0][1].type).toBe('meeting');
+
+    h.state.createPlan.mockClear();
+
+    // Event: likewise a single point in time.
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Event' }));
+    expect(screen.getByLabelText('Location')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Keynote');
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+    expect(h.state.createPlan.mock.calls[0][1].type).toBe('event');
   });
 
   it('surfaces a non-Error create failure by stringifying it', async () => {
