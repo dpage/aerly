@@ -28,7 +28,7 @@ vi.mock('../api/client', () => ({
 import TripFeedsEditor from './TripFeedsEditor';
 
 function feed(over: Partial<TripFeed> = {}): TripFeed {
-  return { id: 1, trip_id: 7, url: 'https://cal.example/a.ics', name: 'Conf', ...over };
+  return { id: 1, trip_id: 7, url: 'https://cal.example/a.ics', name: 'Conf', timezone: '', ...over };
 }
 
 beforeEach(() => {
@@ -61,7 +61,7 @@ describe('TripFeedsEditor', () => {
     await userEvent.type(screen.getByLabelText('Name (optional)'), 'New');
     await userEvent.click(addBtn);
     await waitFor(() =>
-      expect(h.addTripFeed).toHaveBeenCalledWith(7, 'https://new/c.ics', 'New'),
+      expect(h.addTripFeed).toHaveBeenCalledWith(7, 'https://new/c.ics', 'New', undefined),
     );
     expect(await screen.findByDisplayValue('https://new/c.ics')).toBeInTheDocument();
     // Inputs reset after a successful add. The added feed now renders its own
@@ -78,7 +78,7 @@ describe('TripFeedsEditor', () => {
     await userEvent.type(screen.getByLabelText('Feed URL'), 'https://new/c.ics');
     await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
     await waitFor(() =>
-      expect(h.addTripFeed).toHaveBeenCalledWith(7, 'https://new/c.ics', undefined),
+      expect(h.addTripFeed).toHaveBeenCalledWith(7, 'https://new/c.ics', undefined, undefined),
     );
   });
 
@@ -124,7 +124,13 @@ describe('TripFeedsEditor', () => {
     const save = await screen.findByRole('button', { name: /^save$/i });
     await userEvent.click(save);
     await waitFor(() =>
-      expect(h.updateTripFeed).toHaveBeenCalledWith(7, 1, 'https://cal.example/a.ics', 'Renamed'),
+      expect(h.updateTripFeed).toHaveBeenCalledWith(
+        7,
+        1,
+        'https://cal.example/a.ics',
+        'Renamed',
+        undefined,
+      ),
     );
   });
 

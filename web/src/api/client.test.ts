@@ -273,14 +273,14 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(last()[0]).toBe('/api/trips/5/feeds');
     expect(last()[1]?.method).toBe('POST');
     expect(last()[1]?.body).toBe(
-      JSON.stringify({ url: 'https://cal.example/feed.ics', name: 'Work' }),
+      JSON.stringify({ url: 'https://cal.example/feed.ics', name: 'Work', timezone: '' }),
     );
   });
 
   it('addTripFeed defaults the name to empty', async () => {
     await api.addTripFeed(5, 'https://cal.example/feed.ics');
     expect(last()[1]?.body).toBe(
-      JSON.stringify({ url: 'https://cal.example/feed.ics', name: '' }),
+      JSON.stringify({ url: 'https://cal.example/feed.ics', name: '', timezone: '' }),
     );
   });
 
@@ -288,12 +288,16 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     await api.updateTripFeed(5, 9, 'https://x/y.ics', 'Holidays');
     expect(last()[0]).toBe('/api/trips/5/feeds/9');
     expect(last()[1]?.method).toBe('PATCH');
-    expect(last()[1]?.body).toBe(JSON.stringify({ url: 'https://x/y.ics', name: 'Holidays' }));
+    expect(last()[1]?.body).toBe(
+      JSON.stringify({ url: 'https://x/y.ics', name: 'Holidays', timezone: '' }),
+    );
   });
 
   it('updateTripFeed defaults the name to empty', async () => {
     await api.updateTripFeed(5, 9, 'https://x/y.ics');
-    expect(last()[1]?.body).toBe(JSON.stringify({ url: 'https://x/y.ics', name: '' }));
+    expect(last()[1]?.body).toBe(
+      JSON.stringify({ url: 'https://x/y.ics', name: '', timezone: '' }),
+    );
   });
 
   it('deleteTripFeed', async () => {

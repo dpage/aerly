@@ -39,11 +39,13 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
-	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	configPath := fs.String("config", "", "path to a YAML config file (must be mode 0400); "+
+	// Register on the default CommandLine (rather than a private FlagSet) so the
+	// flag set already carries the testing package's -test.* flags when main() is
+	// driven from a test; a private set would reject them and exit. ExitOnError
+	// still prints usage and exits on a genuinely unknown flag in production.
+	configPath := flag.String("config", "", "path to a YAML config file (must be mode 0400); "+
 		"its keys are env-var names and environment variables override it")
-	// Ignore the error: ExitOnError already prints usage and exits on a bad flag.
-	_ = fs.Parse(os.Args[1:])
+	flag.Parse()
 
 	if err := run(*configPath); err != nil {
 		slog.Error("server failed", "err", err)
