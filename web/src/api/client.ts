@@ -35,6 +35,8 @@ import type {
   TagSuggestion,
   TrackerResponse,
   Trip,
+  TripFeed,
+  ExternalEvent,
   UpdateAlertPrefsInput,
   UpdatePlanInput,
   UpdatePlanPartInput,
@@ -276,7 +278,11 @@ export const api = {
   // Downloads the trip's visible plans as a printable PDF itinerary, formatted
   // for the user's stored A4/US-Letter page size. Same session-auth + blob-save
   // path as the .ics export.
-  exportTripPdf: (id: number) => downloadFile(`/api/trips/${id}/export.pdf`, 'trip.pdf'),
+  // external=true mirrors the viewer's "Show external plans" toggle, so the
+  // printed itinerary includes the trip's iCal feed events when they're showing
+  // on screen (and omits them otherwise — they're never on the .ics export).
+  exportTripPdf: (id: number, external = false) =>
+    downloadFile(`/api/trips/${id}/export.pdf${external ? '?external=1' : ''}`, 'trip.pdf'),
   // Downloads several trips as one printable PDF — the trips list passes the ids
   // currently visible to the viewer. Same session-auth + blob-save path as the
   // single-trip exports.
@@ -295,6 +301,21 @@ export const api = {
     request<Trip>('POST', `/api/trips/${tripId}/passengers`, { user_id: userId }),
   removeTripPassenger: (tripId: number, userId: number) =>
     request<void>('DELETE', `/api/trips/${tripId}/passengers/${userId}`),
+
+  // -------------------------------------------------------------------------
+  // Trip iCal feed subscriptions ("external plans"). Feeds are managed from the
+  // Edit trip dialog (editor action); the cached events are read lazily when the
+  // viewer turns on "Show external plans".
+  // -------------------------------------------------------------------------
+  listTripFeeds: (tripId: number) => request<TripFeed[]>('GET', `/api/trips/${tripId}/feeds`),
+  addTripFeed: (tripId: number, url: string, name?: string) =>
+    request<TripFeed>('POST', `/api/trips/${tripId}/feeds`, { url, name: name ?? '' }),
+  updateTripFeed: (tripId: number, feedId: number, url: string, name?: string) =>
+    request<TripFeed>('PATCH', `/api/trips/${tripId}/feeds/${feedId}`, { url, name: name ?? '' }),
+  deleteTripFeed: (tripId: number, feedId: number) =>
+    request<void>('DELETE', `/api/trips/${tripId}/feeds/${feedId}`),
+  getTripExternalEvents: (tripId: number) =>
+    request<ExternalEvent[]>('GET', `/api/trips/${tripId}/external-events`),
 
   // Tags: set the full label list on a trip; suggest autocompletes over the
   // tags the viewer can see.
@@ -336,8 +357,7 @@ export const api = {
     form.append('file', file, file.name);
     return requestMultipart<Attachment>('POST', `/api/plans/${planId}/attachments`, form);
   },
-  downloadAttachment: (att: Attachment) =>
-    downloadFile(`/api/attachments/${att.id}`, att.filename),
+  downloadAttachment: (att: Attachment) => downloadFile(`/api/attachments/${att.id}`, att.filename),
   deleteAttachment: (id: number) => request<void>('DELETE', `/api/attachments/${id}`),
 
   // -------------------------------------------------------------------------

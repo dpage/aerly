@@ -1,7 +1,7 @@
 // Display + classification helpers for the trip list and timeline (spec §11,
 // PRD §6.1/§6.2). Pure functions, unit-tested in trip-format.test.ts.
 
-import type { Plan, PlanPart, PlanType, Trip } from '../api/types';
+import type { ExternalEvent, Plan, PlanPart, PlanType, Trip } from '../api/types';
 
 /** Which home-screen group a trip falls under. */
 export type TripBucket = 'upcoming' | 'now' | 'past';
@@ -182,6 +182,33 @@ export function buildTimeline(plans: Plan[]): TimelineDay[] {
       days.set(key, day);
     }
     day.parts.push(e.tp);
+  }
+  return [...days.values()];
+}
+
+/** One local day's worth of external (iCal feed) events under one header. */
+export interface ExternalDay {
+  dayKey: string;
+  label: string;
+  events: ExternalEvent[];
+}
+
+/** Group external feed events by local calendar day, chronologically, using the
+ * same day-keying as buildTimeline so a day's events line up with the bookings
+ * on that day when the two lists are merged. All-day events are keyed in UTC
+ * (the feed gave a date, not a wall-clock instant). */
+export function buildExternalDays(events: ExternalEvent[]): ExternalDay[] {
+  const sorted = [...events].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  const days = new Map<string, ExternalDay>();
+  for (const e of sorted) {
+    const tz = e.all_day ? 'UTC' : e.start_tz || undefined;
+    const key = localDayKey(e.starts_at, tz);
+    let day = days.get(key);
+    if (!day) {
+      day = { dayKey: key, label: fmtDayHeader(e.starts_at, tz), events: [] };
+      days.set(key, day);
+    }
+    day.events.push(e);
   }
   return [...days.values()];
 }

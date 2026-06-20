@@ -6,6 +6,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   Stack,
   TextField,
 } from '@mui/material';
@@ -13,6 +14,7 @@ import {
 import { useStore } from '../state/store';
 import type { Trip } from '../api/types';
 import TagInput from './TagInput';
+import TripFeedsEditor from './TripFeedsEditor';
 
 interface Props {
   open: boolean;
@@ -134,6 +136,8 @@ export default function TripEditDialog({ open, trip, onClose, onDeleted }: Props
             onChange={setTags}
             helperText="Tags group trips so people find each other — they never grant access."
           />
+          <Divider />
+          <TripFeedsEditor tripId={trip.id} />
         </Stack>
       </DialogContent>
       <DialogActions>

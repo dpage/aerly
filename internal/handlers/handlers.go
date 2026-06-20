@@ -14,6 +14,7 @@ import (
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/config"
 	"github.com/dpage/aerly/internal/emailingest"
+	"github.com/dpage/aerly/internal/feeds"
 	"github.com/dpage/aerly/internal/geocode"
 	aerlymaps "github.com/dpage/aerly/internal/maps"
 	"github.com/dpage/aerly/internal/planops"
@@ -57,6 +58,11 @@ type API struct {
 	// endpoints then return 503 and the UI hides the affordance.
 	Attachments attachments.Storage
 
+	// Feeds refreshes trip-scoped iCal feed subscriptions on demand (when a feed
+	// is added or its URL edited). Always non-nil (New sets it); the poller runs
+	// the periodic sweep.
+	Feeds *feeds.Service
+
 	// SendVerifyEmail dispatches the verification message. Defaulted in
 	// New() to the real sendmail pipe; tests can override.
 	SendVerifyEmail func(ctx context.Context, to, token string) error
@@ -71,6 +77,7 @@ func New(s *store.Store, a *auth.Handler, hub *sse.Hub, cfg *config.Config, r pr
 	api.SendVerifyEmail = api.defaultSendVerifyEmail
 	api.Maps = aerlymaps.NewResolver()
 	api.Push = push.NewSender(s, cfg.WebPushVAPIDPublic, cfg.WebPushVAPIDPrivate, cfg.WebPushSubject)
+	api.Feeds = feeds.NewService(s, "aerly (+"+cfg.PublicURL+")", 0)
 	return api
 }
 
@@ -166,6 +173,15 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/trips/{id}/notify-shares", req(http.HandlerFunc(a.notifyTripShares)))
 	mux.Handle("POST /api/trips/{id}/share-by-email", req(http.HandlerFunc(a.shareTripByEmail)))
 	mux.Handle("GET /api/tags/suggest", req(http.HandlerFunc(a.suggestTags)))
+
+	// Trip-scoped iCal feed subscriptions ("external plans"). Feeds are managed
+	// from the Edit trip dialog (edit perm); the cached events are read by any
+	// trip viewer behind the per-viewer "Show external plans" toggle.
+	mux.Handle("GET /api/trips/{id}/feeds", req(http.HandlerFunc(a.listTripFeeds)))
+	mux.Handle("POST /api/trips/{id}/feeds", req(http.HandlerFunc(a.addTripFeed)))
+	mux.Handle("PATCH /api/trips/{id}/feeds/{feedId}", req(http.HandlerFunc(a.updateTripFeed)))
+	mux.Handle("DELETE /api/trips/{id}/feeds/{feedId}", req(http.HandlerFunc(a.deleteTripFeed)))
+	mux.Handle("GET /api/trips/{id}/external-events", req(http.HandlerFunc(a.listTripExternalEvents)))
 
 	// Plans, parts, passengers, visibility, move (Wave 1B).
 	mux.Handle("POST /api/trips/{id}/plans", req(http.HandlerFunc(a.createPlan)))

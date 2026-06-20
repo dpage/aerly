@@ -13,6 +13,7 @@ import (
 
 	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/feeds"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/sse"
@@ -42,7 +43,15 @@ type Poller struct {
 	// channel alongside in-app and email. nil (or a disabled Sender) skips the
 	// push channel; the other channels are unaffected.
 	Push pusher
+
+	// Feeds refreshes trip-scoped iCal feed subscriptions on its own cadence
+	// (feedInterval). nil disables the feed-refresh pass.
+	Feeds *feeds.Service
 }
+
+// feedInterval is how often the poller sweeps trip feeds for ones due a
+// refresh. The per-feed staleness threshold lives on the feed service.
+const feedInterval = 5 * time.Minute
 
 // pusher is the slice of *push.Sender the poller needs, as an interface so the
 // alert tests can substitute a fake that records what would have been pushed.
@@ -81,10 +90,16 @@ func (p *Poller) Run(ctx context.Context) {
 	// Tick immediately on startup so a fresh server doesn't look stale.
 	p.tick(ctx)
 
+	// Refresh feed subscriptions once at startup so a fresh server populates
+	// them promptly, then on the feed cadence below.
+	p.refreshFeeds(ctx)
+
 	mainT := time.NewTicker(p.Interval)
 	defer mainT.Stop()
 	sweepT := time.NewTicker(sweepInterval)
 	defer sweepT.Stop()
+	feedT := time.NewTicker(feedInterval)
+	defer feedT.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -93,8 +108,19 @@ func (p *Poller) Run(ctx context.Context) {
 			p.tick(ctx)
 		case <-sweepT.C:
 			p.Sweep(ctx)
+		case <-feedT.C:
+			p.refreshFeeds(ctx)
 		}
 	}
+}
+
+// refreshFeeds sweeps trip-scoped iCal feed subscriptions, refetching any that
+// are due. A no-op when no feed service is wired.
+func (p *Poller) refreshFeeds(ctx context.Context) {
+	if p.Feeds == nil {
+		return
+	}
+	guard("poller.refreshFeeds", 0, func() { p.Feeds.RefreshDue(ctx) })
 }
 
 // minPollAge returns how long to wait between polls for a given flight.

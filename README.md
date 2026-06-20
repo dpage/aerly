@@ -367,6 +367,7 @@ internal/
 ├── providers/       External flight-data integrations: Tracker (Stub, OpenSky)
 │                    + Resolver (AeroDataBox) + DeadReckoner wrapper.
 ├── importics/       TripIt & Kayak .ics parsing into plans/parts.
+├── feeds/           SSRF-guarded fetch + refresh of trip iCal feed subscriptions.
 ├── emailingest/     Forwarded-email Maildir drain + LLM extraction + auto-reply.
 ├── planops/         Plan propose/commit pipeline incl. rebooking supersession.
 ├── mailer/          Outbound multipart email assembly (alerts, invites, replies).
@@ -408,6 +409,7 @@ Pre-release. Tracker and resolver paths are working end-to-end with OpenSky and 
 - **Flight data: migrate to FlightAware AeroAPI.** Evaluate replacing AeroDataBox with AeroAPI for richer, fresher gate/terminal and status data. AeroAPI is metered per-query (cost-sensitive at poll cadence — lean on `last_resolved_at` throttling) and coverage varies, so spike against real routes first. Slots in behind the existing `providers.Resolver` interface as a sibling implementation; AeroDataBox stays the default until then.
 
 **Shipped (trip-planning follow-ups)**
+- External calendar feeds — subscribe a trip to one or more iCal feed URLs (e.g. a conference's published schedule) from the **Edit trip** dialog. The server refreshes them periodically (SSRF-guarded, conditional GETs) and their events render as read-only "external plan" tiles, interleaved into the timeline behind a per-viewer **Show external plans** toggle (off by default, stored in `localStorage`). Sharing is inherited wholesale from the trip — no per-event sharing — and the events are kept out of the map and `.ics` export but included in the trip PDF when the toggle is on.
 - Plan attachments — upload files (PDF tickets, confirmations) to a plan, stored out-of-band in a configured filesystem path or S3 bucket and gated by `ATTACHMENTS_STORE`.
 - Gate-change alerts — gate/terminal parsed from AeroDataBox onto `flight_details`, always-alert branch with dedupe in the poller.
 - Binary / PDF upload — multipart transport into the LLM extractor.

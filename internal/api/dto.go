@@ -476,6 +476,62 @@ func ToAttachmentDTO(a *store.PlanAttachment) AttachmentDTO {
 	}
 }
 
+// TripFeedDTO is one registered iCal feed on a trip. The cached events are
+// fetched separately (ExternalEventDTO); this carries just the source URL and
+// its health, for the Edit trip dialog.
+type TripFeedDTO struct {
+	ID            int64      `json:"id"`
+	TripID        int64      `json:"trip_id"`
+	URL           string     `json:"url"`
+	Name          string     `json:"name"`
+	LastFetchedAt *time.Time `json:"last_fetched_at,omitempty"`
+	LastError     string     `json:"last_error,omitempty"`
+}
+
+// ToTripFeedDTO projects a stored feed into its DTO.
+func ToTripFeedDTO(f *store.TripFeed) TripFeedDTO {
+	return TripFeedDTO{
+		ID:            f.ID,
+		TripID:        f.TripID,
+		URL:           f.URL,
+		Name:          f.Name,
+		LastFetchedAt: f.LastFetchedAt,
+		LastError:     f.LastError,
+	}
+}
+
+// ExternalEventDTO is one read-only event pulled from a trip's iCal feed. It is
+// deliberately separate from PlanDTO: external events never join the plan model
+// (no split/link/sharing/map/.ics-export), they only render as their own tiles.
+type ExternalEventDTO struct {
+	ID          int64      `json:"id"`
+	FeedID      int64      `json:"feed_id"`
+	FeedName    string     `json:"feed_name,omitempty"`
+	Title       string     `json:"title"`
+	Location    string     `json:"location,omitempty"`
+	Description string     `json:"description,omitempty"`
+	StartsAt    time.Time  `json:"starts_at"`
+	EndsAt      *time.Time `json:"ends_at,omitempty"`
+	StartTZ     string     `json:"start_tz,omitempty"`
+	AllDay      bool       `json:"all_day"`
+}
+
+// ToExternalEventDTO projects a cached feed event into its DTO.
+func ToExternalEventDTO(e *store.TripFeedEvent) ExternalEventDTO {
+	return ExternalEventDTO{
+		ID:          e.ID,
+		FeedID:      e.FeedID,
+		FeedName:    e.FeedName,
+		Title:       e.Summary,
+		Location:    e.Location,
+		Description: e.Description,
+		StartsAt:    e.StartsAt,
+		EndsAt:      e.EndsAt,
+		StartTZ:     e.StartTZ,
+		AllDay:      e.AllDay,
+	}
+}
+
 // ProposedPlanDTO is a plan the ingest pipeline proposes, awaiting
 // confirmation (matches the FE ProposedPlan). Confidence is 0..1;
 // SupersedesPartID is set when the proposal would supersede an existing part

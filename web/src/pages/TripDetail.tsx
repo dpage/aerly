@@ -27,6 +27,7 @@ import FileDownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdfOutlined';
 
 import { api } from '../api/client';
+import { showExternalPlansEnabled } from '../lib/showExternalPlans';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
@@ -81,7 +82,9 @@ export default function TripDetail() {
   };
 
   const exportPdf = () => {
-    void api.exportTripPdf(tripId).catch((err: unknown) => {
+    // Match the on-screen view: include external feed events in the PDF only
+    // when the viewer's "Show external plans" toggle is on.
+    void api.exportTripPdf(tripId, showExternalPlansEnabled()).catch((err: unknown) => {
       setExportError(err instanceof Error ? err.message : String(err));
     });
   };
@@ -309,7 +312,9 @@ export default function TripDetail() {
         <>
           <Tabs
             value={tab}
-            onChange={(_e, v) => navigate(v === 'map' ? `/trips/${tripId}/map` : `/trips/${tripId}`)}
+            onChange={(_e, v) =>
+              navigate(v === 'map' ? `/trips/${tripId}/map` : `/trips/${tripId}`)
+            }
             sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}
           >
             <Tab label="Timeline" value="timeline" />

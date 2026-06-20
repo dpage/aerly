@@ -317,6 +317,39 @@ export interface Trip {
   updated_at: string;
 }
 
+/** A registered iCal feed on a trip ("external plans" source). Managed from the
+ * Edit trip dialog; the cached events come from getTripExternalEvents. */
+export interface TripFeed {
+  id: number;
+  trip_id: number;
+  url: string;
+  /** Optional friendly label; blank falls back to the host in the UI. */
+  name: string;
+  /** ISO timestamp of the last successful/attempted fetch; absent until first. */
+  last_fetched_at?: string;
+  /** Last fetch/parse error, surfaced on the Edit dialog. Absent when healthy. */
+  last_error?: string;
+}
+
+/** A read-only event pulled from a trip's iCal feed. Kept separate from Plan:
+ * external events never join the plan model (no split/link/sharing/map), they
+ * only render as their own tiles behind the "Show external plans" toggle. */
+export interface ExternalEvent {
+  id: number;
+  feed_id: number;
+  /** Owning feed's display name, for the per-feed tile label/colour. */
+  feed_name?: string;
+  title: string;
+  location?: string;
+  description?: string;
+  /** ISO datetime. */
+  starts_at: string;
+  ends_at?: string;
+  /** IANA zone of the wall-clock time, for local display; absent for UTC. */
+  start_tz?: string;
+  all_day: boolean;
+}
+
 export interface PlanVisibility {
   mode: PlanVisibilityMode;
   user_ids: number[];

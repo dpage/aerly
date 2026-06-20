@@ -195,6 +195,9 @@ func run(configPath string) error {
 	// Web Push is the third alert channel. Reuse the API's Sender (stateless and
 	// concurrency-safe); a no-op unless VAPID keys are configured.
 	p.Push = api.Push
+	// Reuse the API's feed service so the periodic feed-refresh sweep shares the
+	// same SSRF-guarded fetcher and store as the on-demand (add/edit) refreshes.
+	p.Feeds = api.Feeds
 
 	// Operational quota/rate-limit alerts: when an upstream data provider
 	// returns a 429, email the admins (superusers with a verified address) so

@@ -133,11 +133,29 @@ type itinPart struct {
 	part *api.PlanPartDTO
 }
 
-// flattenPlans expands the trip's plans into time-ordered itinerary rows, one
-// per non-dismissed part, sorted by start time (then part id for stable
-// ordering of parts that share an instant).
-func flattenPlans(plans []api.PlanDTO) []itinPart {
-	var items []itinPart
+// itinRow is one chronologically-placed itinerary line: either a plan part or a
+// read-only external feed event. Exactly one of part/ev is set. External events
+// are interleaved with bookings so a conference's sessions read in time order
+// alongside the flights and hotels around them.
+type itinRow struct {
+	part *itinPart
+	ev   *api.ExternalEventDTO
+}
+
+// start returns the row's start instant and its display timezone, for sorting
+// and day grouping.
+func (r itinRow) start() (time.Time, string) {
+	if r.part != nil {
+		return r.part.part.StartsAt, r.part.part.StartTZ
+	}
+	return r.ev.StartsAt, r.ev.StartTZ
+}
+
+// flattenItinerary expands the trip's plans (one row per non-dismissed part)
+// and any external feed events into a single time-ordered list, sorted by start
+// instant (parts before events at the same instant, then by id for stability).
+func flattenItinerary(plans []api.PlanDTO, externals []api.ExternalEventDTO) []itinRow {
+	var rows []itinRow
 	for i := range plans {
 		pl := &plans[i]
 		for j := range pl.Parts {
@@ -145,17 +163,25 @@ func flattenPlans(plans []api.PlanDTO) []itinPart {
 			if pt.DismissedAt != nil {
 				continue // superseded/tidied-away leg, as the calendar feed omits
 			}
-			items = append(items, itinPart{plan: pl, part: pt})
+			rows = append(rows, itinRow{part: &itinPart{plan: pl, part: pt}})
 		}
 	}
-	sort.SliceStable(items, func(a, b int) bool {
-		ai, bi := items[a].part, items[b].part
-		if !ai.StartsAt.Equal(bi.StartsAt) {
-			return ai.StartsAt.Before(bi.StartsAt)
+	for i := range externals {
+		rows = append(rows, itinRow{ev: &externals[i]})
+	}
+	sort.SliceStable(rows, func(a, b int) bool {
+		as, _ := rows[a].start()
+		bs, _ := rows[b].start()
+		if !as.Equal(bs) {
+			return as.Before(bs)
 		}
-		return ai.ID < bi.ID
+		// Bookings before external events at the same instant.
+		if (rows[a].part != nil) != (rows[b].part != nil) {
+			return rows[a].part != nil
+		}
+		return false
 	})
-	return items
+	return rows
 }
 
 // tripItinerary pairs a trip with its visible plans, the unit a multi-trip PDF
@@ -169,9 +195,9 @@ type tripItinerary struct {
 // returns the encoded file. Parts are grouped under a header per local day, in
 // time order, each with its route, addresses, booking references and contact
 // details. paper is the user's page-size preference.
-func renderItineraryPDF(trip *store.Trip, plans []api.PlanDTO, paper string) []byte {
+func renderItineraryPDF(trip *store.Trip, plans []api.PlanDTO, externals []api.ExternalEventDTO, paper string) []byte {
 	l := newPDFLayout(paper)
-	l.renderTrip(trip, plans)
+	l.renderTrip(trip, plans, externals)
 	return l.encode()
 }
 
@@ -185,14 +211,14 @@ func renderItinerariesPDF(sections []tripItinerary, paper string) []byte {
 		if i > 0 {
 			l.newPage() // each trip begins on a fresh page
 		}
-		l.renderTrip(s.trip, s.plans)
+		l.renderTrip(s.trip, s.plans, nil)
 	}
 	return l.encode()
 }
 
 // renderTrip writes one trip's title block and day-grouped itinerary into the
 // current page flow, starting at the cursor's current position.
-func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO) {
+func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals []api.ExternalEventDTO) {
 	// Title block: trip name, then destination/date meta, then a rule.
 	name := trip.Name
 	if name == "" {
@@ -208,17 +234,17 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO) {
 	l.hrule(0.75)
 	l.y -= 18
 
-	items := flattenPlans(plans)
-	if len(items) == 0 {
+	rows := flattenItinerary(plans, externals)
+	if len(rows) == 0 {
 		l.text(l.margin, l.y, "F1", 11, 0.4, "No plans to show.")
 		l.y -= 16
 	}
 
 	bodyX := l.margin + 64
 	var lastDay string
-	for _, it := range items {
-		loc := eventLoc(it.part.StartTZ)
-		start := it.part.StartsAt.In(loc)
+	for _, row := range rows {
+		startsAt, tz := row.start()
+		start := startsAt.In(eventLoc(tz))
 		day := start.Format("Monday, 2 January 2006")
 		if day != lastDay {
 			l.ensure(34)
@@ -231,16 +257,46 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO) {
 		// Each row: a bold time in the left column, the title beside it, then
 		// indented detail lines. Keep the time+title pair together on a page.
 		l.ensure(28)
-		l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
-		title := typeLabel(it.plan.Type) + ": " + nonEmpty(it.plan.Title, typeLabel(it.plan.Type))
+		var title string
+		var details []string
+		if row.part != nil {
+			l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
+			title = typeLabel(row.part.plan.Type) + ": " +
+				nonEmpty(row.part.plan.Title, typeLabel(row.part.plan.Type))
+			details = partDetails(*row.part)
+		} else {
+			if row.ev.AllDay {
+				l.text(l.margin, l.y, "F2", 10, 0.1, "all day")
+			} else {
+				l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
+			}
+			title = "Event: " + nonEmpty(row.ev.Title, "Event")
+			details = externalEventDetails(row.ev)
+		}
 		l.text(bodyX, l.y, "F2", 11, 0.1, title)
 		l.y -= 16
 
-		for _, d := range partDetails(it) {
+		for _, d := range details {
 			l.line(bodyX, "F1", 9.5, 0.4, 13, d)
 		}
 		l.y -= 8
 	}
+}
+
+// externalEventDetails builds the indented detail lines under an external feed
+// event: its location, time span, and notes. Empty fields are skipped.
+func externalEventDetails(ev *api.ExternalEventDTO) []string {
+	var out []string
+	if ev.Location != "" {
+		out = append(out, oneLine(ev.Location))
+	}
+	if !ev.AllDay {
+		out = append(out, timeRange(ev.StartsAt, ev.EndsAt, ev.StartTZ, ev.StartTZ))
+	}
+	if ev.Description != "" {
+		out = append(out, oneLine(ev.Description))
+	}
+	return out
 }
 
 // tripMeta is the secondary header line: destination and, when set, the trip's

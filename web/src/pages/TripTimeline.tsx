@@ -1,4 +1,4 @@
-import { type MouseEvent, useMemo, useState } from 'react';
+import { type MouseEvent, useEffect, useMemo, useState } from 'react';
 import { errorMessage } from '../state/helpers';
 import {
   Box,
@@ -8,23 +8,30 @@ import {
   Chip,
   Collapse,
   Divider,
+  FormControlLabel,
   Link,
   Stack,
+  Switch,
   Tooltip,
   Typography,
 } from '@mui/material';
 import LocationOffIcon from '@mui/icons-material/LocationOff';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import PlaceIcon from '@mui/icons-material/Place';
 
+import { api } from '../api/client';
 import { useStore } from '../state/store';
-import type { Plan, PlanPart, Trip } from '../api/types';
+import type { ExternalEvent, Plan, PlanPart, Trip } from '../api/types';
 import PlanTypeIcon from '../components/PlanTypeIcon';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
 import PlanAlertToggle from '../components/PlanAlertToggle';
 import PlanReminderOverride from '../components/PlanReminderOverride';
 import AddToTripDialog from '../components/AddToTripDialog';
+import { useShowExternalPlans } from '../lib/showExternalPlans';
 import {
+  buildExternalDays,
   buildTimeline,
   fmtPartPlaces,
   fmtPartTimeRange,
@@ -44,6 +51,16 @@ const ACCENTS = ['#1f5fa8', '#d97706', '#2e7d32', '#7b1fa2', '#c2185b', '#00838f
 function accentFor(planIds: number[], planId: number): string {
   const idx = planIds.indexOf(planId);
   return ACCENTS[(idx < 0 ? 0 : idx) % ACCENTS.length];
+}
+
+// External (feed) events use a separate, cooler palette so they read as
+// reference items distinct from the viewer's own bookings, with each feed
+// getting its own stable colour (assigned by first-seen order of feed id).
+const EXTERNAL_ACCENTS = ['#546e7a', '#6a7b8a', '#4e6b7d', '#705c6b', '#5b6e5e'];
+
+function externalAccentFor(feedIds: number[], feedId: number): string {
+  const idx = feedIds.indexOf(feedId);
+  return EXTERNAL_ACCENTS[(idx < 0 ? 0 : idx) % EXTERNAL_ACCENTS.length];
 }
 
 // Flights, trains and ground transport carry multi-leg bookings, so only they
@@ -67,8 +84,65 @@ export default function TripTimeline() {
   const linkPlans = useStore((s) => s.linkPlans);
   const setError = useStore((s) => s.setError);
   const plans = useMemo(() => currentTrip?.plans ?? [], [currentTrip]);
+  const tripId = currentTrip?.id;
+
+  // External (iCal feed) events for this trip. Fetched once per trip regardless
+  // of the toggle so we know whether to offer it at all; only merged into the
+  // timeline when the per-viewer toggle is on. Best-effort: a fetch failure
+  // just means no external tiles, never a broken timeline.
+  const [showExternal, setShowExternal] = useShowExternalPlans();
+  const [externalEvents, setExternalEvents] = useState<ExternalEvent[]>([]);
+  useEffect(() => {
+    if (tripId == null) {
+      setExternalEvents([]);
+      return;
+    }
+    let live = true;
+    void api
+      .getTripExternalEvents(tripId)
+      .then((events) => {
+        if (live) setExternalEvents(events);
+      })
+      .catch(() => {
+        if (live) setExternalEvents([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [tripId]);
 
   const days = useMemo(() => buildTimeline(plans), [plans]);
+  // Stable feed ordering for per-feed accent colours (first appearance).
+  const feedIds = useMemo(() => {
+    const seen: number[] = [];
+    for (const e of externalEvents) if (!seen.includes(e.feed_id)) seen.push(e.feed_id);
+    return seen;
+  }, [externalEvents]);
+  // Merge plan days and (when shown) external-event days by local day key, so a
+  // conference's sessions interleave with the bookings on the same day.
+  const mergedDays = useMemo(() => {
+    interface MergedDay {
+      dayKey: string;
+      label: string;
+      parts: (typeof days)[number]['parts'];
+      externals: ExternalEvent[];
+    }
+    const byKey = new Map<string, MergedDay>();
+    for (const d of days) {
+      byKey.set(d.dayKey, { dayKey: d.dayKey, label: d.label, parts: d.parts, externals: [] });
+    }
+    if (showExternal) {
+      for (const d of buildExternalDays(externalEvents)) {
+        const existing = byKey.get(d.dayKey);
+        if (existing) existing.externals = d.events;
+        else
+          byKey.set(d.dayKey, { dayKey: d.dayKey, label: d.label, parts: [], externals: d.events });
+      }
+    }
+    return [...byKey.values()].sort((a, b) =>
+      a.dayKey < b.dayKey ? -1 : a.dayKey > b.dayKey ? 1 : 0,
+    );
+  }, [days, externalEvents, showExternal]);
   // Stable plan ordering for accent assignment (first appearance on timeline).
   const planIds = useMemo(() => {
     const seen: number[] = [];
@@ -159,9 +233,27 @@ export default function TripTimeline() {
     );
   }
 
-  if (days.length === 0) {
+  const hasExternal = externalEvents.length > 0;
+  // The toggle is offered only when the trip actually has feed events, so it's
+  // never noise on trips with no feeds. Off by default (the stored preference).
+  const externalToggle = hasExternal ? (
+    <FormControlLabel
+      sx={{ mb: 1, ml: 0 }}
+      control={
+        <Switch
+          checked={showExternal}
+          onChange={(e) => setShowExternal(e.target.checked)}
+          size="small"
+        />
+      }
+      label="Show external plans"
+    />
+  ) : null;
+
+  if (mergedDays.length === 0) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 3, maxWidth: 760, mx: 'auto' }}>
+        {externalToggle}
         <Typography color="text.secondary">
           Nothing on this trip yet. Use{' '}
           <Link
@@ -187,6 +279,7 @@ export default function TripTimeline() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 760, mx: 'auto' }}>
+      {externalToggle}
       {canEdit && linkableCount >= 2 && (
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
           {!linkMode ? (
@@ -213,7 +306,7 @@ export default function TripTimeline() {
           )}
         </Stack>
       )}
-      {days.map((day) => (
+      {mergedDays.map((day) => (
         <Box key={day.dayKey} sx={{ mb: 2 }}>
           <Typography
             variant="subtitle2"
@@ -251,10 +344,76 @@ export default function TripTimeline() {
                 />
               );
             })}
+            {day.externals.map((ev) => (
+              <ExternalEventCard
+                key={`ext-${ev.id}`}
+                event={ev}
+                accent={externalAccentFor(feedIds, ev.feed_id)}
+              />
+            ))}
           </Stack>
         </Box>
       ))}
     </Box>
+  );
+}
+
+/** A read-only timeline tile for an external (iCal feed) event. Visually
+ * distinct from booking tiles: a calendar icon and a cooler per-feed accent, no
+ * expand/edit/select affordances, and a chip naming its source feed so events
+ * from different feeds are tellable apart. */
+function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: string }) {
+  const when = event.all_day
+    ? 'All day'
+    : fmtTimeOfDay(event.starts_at, event.start_tz) +
+      (event.ends_at ? ` – ${fmtTimeOfDay(event.ends_at, event.start_tz)}` : '');
+  return (
+    <Card
+      variant="outlined"
+      sx={{ position: 'relative', borderLeft: `4px solid ${accent}` }}
+      data-testid={`external-event-${event.id}`}
+    >
+      <Stack direction="row" spacing={1.5} sx={{ p: 1.5 }} alignItems="flex-start">
+        <CalendarMonthIcon sx={{ color: accent, mt: 0.25 }} />
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap>
+              {event.title || 'Event'}
+            </Typography>
+            {event.feed_name && (
+              <Chip
+                label={event.feed_name}
+                size="small"
+                variant="outlined"
+                sx={{ height: 18, fontSize: 10, borderColor: accent, color: accent }}
+              />
+            )}
+          </Stack>
+          {event.location && (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              noWrap
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+            >
+              <PlaceIcon sx={{ fontSize: 14 }} /> {event.location}
+            </Typography>
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            {when}
+          </Typography>
+          {event.description && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', mt: 0.5, whiteSpace: 'pre-wrap' }}
+            >
+              {event.description}
+            </Typography>
+          )}
+        </Box>
+      </Stack>
+    </Card>
   );
 }
 

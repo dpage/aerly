@@ -38,7 +38,7 @@ func TestRenderItineraryPDFStructure(t *testing.T) {
 		},
 	}
 
-	s := string(renderItineraryPDF(trip, plans, "a4"))
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
 
 	if !strings.HasPrefix(s, "%PDF-1.4") {
 		t.Errorf("missing PDF header: %q", s[:min(16, len(s))])
@@ -86,7 +86,7 @@ func TestRenderItineraryPDFSingleAddress(t *testing.T) {
 			StartLabel: name, EndLabel: name, StartAddress: addr, EndAddress: addr,
 		}},
 	}}
-	s := string(renderItineraryPDF(trip, plans, "a4"))
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
 	if !strings.Contains(s, "Address: "+addr) {
 		t.Errorf("hotel should show one Address line:\n%s", s)
 	}
@@ -119,7 +119,7 @@ func TestRenderItineraryPDFSingleLocationLabel(t *testing.T) {
 			StartLabel: "The French Laundry", StartAddress: "6640 Washington St, Yountville, CA",
 		}},
 	}}
-	s := string(renderItineraryPDF(trip, plans, "a4"))
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
 	if !strings.Contains(s, "(The French Laundry)") {
 		t.Errorf("a place label distinct from the title should be shown:\n%s", s)
 	}
@@ -130,7 +130,7 @@ func TestRenderItineraryPDFSingleLocationLabel(t *testing.T) {
 
 func TestRenderItineraryPDFLetterAndEmpty(t *testing.T) {
 	trip := &store.Trip{Name: "Empty"}
-	out := renderItineraryPDF(trip, nil, "letter")
+	out := renderItineraryPDF(trip, nil, nil, "letter")
 	s := string(out)
 	if !strings.Contains(s, "612.00 792.00") {
 		t.Errorf("Letter MediaBox missing")
@@ -149,7 +149,7 @@ func TestRenderItineraryPDFFallbacks(t *testing.T) {
 		Type: "", Title: "",
 		Parts: []api.PlanPartDTO{{StartsAt: at, StartTZ: "", Status: "cancelled"}},
 	}}
-	s := string(renderItineraryPDF(trip, plans, ""))
+	s := string(renderItineraryPDF(trip, plans, nil, ""))
 	if !strings.Contains(s, "Plan: Plan") {
 		t.Errorf("untyped/untitled plan should fall back to Plan: Plan")
 	}
@@ -171,7 +171,7 @@ func TestRenderItineraryPDFPaginates(t *testing.T) {
 			Parts: []api.PlanPartDTO{{StartsAt: ts, StartTZ: "UTC"}},
 		})
 	}
-	s := string(renderItineraryPDF(trip, plans, "a4"))
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
 	if strings.Contains(s, "/Count 1 ") {
 		t.Errorf("expected multiple pages, got a single-page tree")
 	}
@@ -226,8 +226,8 @@ func TestRenderItinerariesPDFEmpty(t *testing.T) {
 	}
 }
 
-// flattenPlans drops dismissed parts and orders the rest by start time.
-func TestFlattenPlans(t *testing.T) {
+// flattenItinerary drops dismissed parts and orders the rest by start time.
+func TestFlattenItinerary(t *testing.T) {
 	t1 := mustTime(t, "2026-03-01T09:00:00Z")
 	t2 := mustTime(t, "2026-03-01T12:00:00Z")
 	t3 := mustTime(t, "2026-03-02T08:00:00Z")
@@ -239,12 +239,32 @@ func TestFlattenPlans(t *testing.T) {
 		}},
 		{Type: "flight", Parts: []api.PlanPartDTO{{ID: 1, StartsAt: t1}}},
 	}
-	items := flattenPlans(plans)
-	if len(items) != 2 {
-		t.Fatalf("expected 2 live items, got %d", len(items))
+	rows := flattenItinerary(plans, nil)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 live rows, got %d", len(rows))
 	}
-	if items[0].part.ID != 1 || items[1].part.ID != 3 {
-		t.Errorf("not ordered by start time: %d then %d", items[0].part.ID, items[1].part.ID)
+	if rows[0].part == nil || rows[1].part == nil ||
+		rows[0].part.part.ID != 1 || rows[1].part.part.ID != 3 {
+		t.Errorf("parts not ordered by start time")
+	}
+}
+
+// External feed events interleave with plan parts in start-time order.
+func TestFlattenItineraryExternals(t *testing.T) {
+	t1 := mustTime(t, "2026-03-01T09:00:00Z")
+	t2 := mustTime(t, "2026-03-01T12:00:00Z")
+	plans := []api.PlanDTO{
+		{Type: "flight", Parts: []api.PlanPartDTO{{ID: 1, StartsAt: t1}}},
+	}
+	externals := []api.ExternalEventDTO{
+		{ID: 7, Title: "Keynote", StartsAt: t2},
+	}
+	rows := flattenItinerary(plans, externals)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0].part == nil || rows[1].ev == nil {
+		t.Errorf("expected booking then external event by time, got %+v", rows)
 	}
 }
 

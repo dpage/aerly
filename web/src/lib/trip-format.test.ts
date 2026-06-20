@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
-import type { Plan, PlanPart, Trip } from '../api/types';
+import type { ExternalEvent, Plan, PlanPart, Trip } from '../api/types';
 import {
+  buildExternalDays,
   buildTimeline,
   classifyTrip,
   fmtPartPlaces,
@@ -292,6 +293,36 @@ describe('buildTimeline', () => {
     ];
     const days = buildTimeline(plans);
     expect(days[0].dayKey).toBe('2026-10-12');
+  });
+});
+
+describe('buildExternalDays', () => {
+  const ev = (over: Partial<ExternalEvent>): ExternalEvent => ({
+    id: 1,
+    feed_id: 1,
+    title: 'Session',
+    starts_at: '2026-10-20T09:00:00Z',
+    all_day: false,
+    ...over,
+  });
+
+  it('groups events by local day, chronologically', () => {
+    const days = buildExternalDays([
+      ev({ id: 2, starts_at: '2026-10-21T09:00:00Z' }),
+      ev({ id: 1, starts_at: '2026-10-20T09:00:00Z' }),
+      ev({ id: 3, starts_at: '2026-10-20T14:00:00Z' }),
+    ]);
+    expect(days.map((d) => d.dayKey)).toEqual(['2026-10-20', '2026-10-21']);
+    expect(days[0].events.map((e) => e.id)).toEqual([1, 3]);
+    expect(days[1].events.map((e) => e.id)).toEqual([2]);
+  });
+
+  it('keys to the event timezone', () => {
+    // 23:30 UTC on the 20th is 01:30 on the 21st in CEST (UTC+2).
+    const days = buildExternalDays([
+      ev({ starts_at: '2026-10-20T23:30:00Z', start_tz: 'Europe/Berlin' }),
+    ]);
+    expect(days[0].dayKey).toBe('2026-10-21');
   });
 });
 

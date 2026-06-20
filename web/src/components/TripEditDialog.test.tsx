@@ -21,6 +21,13 @@ vi.mock('../state/store', () => ({
     }),
 }));
 
+// TripFeedsEditor manages its own state via the API and is covered by its own
+// tests; stub it here so the dialog tests stay focused on the trip fields (and
+// its feed URL/name inputs don't collide with the trip's Name field).
+vi.mock('./TripFeedsEditor', () => ({
+  default: () => <div data-testid="trip-feeds-editor" />,
+}));
+
 // TagInput: expose the current tags and a button to push a new tag, so we can
 // exercise the "tags changed → setTripTags" branch.
 vi.mock('./TagInput', () => ({

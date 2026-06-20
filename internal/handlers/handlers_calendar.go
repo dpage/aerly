@@ -204,7 +204,21 @@ func (a *API) exportTripPDF(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
-	body := renderItineraryPDF(trip, plans, me.PaperSize)
+	// Include external feed events only when the caller's "Show external plans"
+	// toggle is on (passed through as ?external=1), so a printed itinerary
+	// matches what they see on screen.
+	var externals []api.ExternalEventDTO
+	if r.URL.Query().Get("external") == "1" {
+		events, err := a.Store.TripFeedEventsForTrip(r.Context(), id)
+		if err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+		for _, e := range events {
+			externals = append(externals, api.ToExternalEventDTO(e))
+		}
+	}
+	body := renderItineraryPDF(trip, plans, externals, me.PaperSize)
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition",
 		`attachment; filename="`+downloadFilename(trip.Name, "pdf")+`"`)
