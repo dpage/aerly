@@ -12,7 +12,12 @@ const TYPES: PlanType[] = [
   'dining',
   'excursion',
   'ice_cream',
+  'meeting',
+  'event',
 ];
+=======
+const TYPES: PlanType[] = ['flight', 'train', 'hotel', 'ground', 'dining', 'excursion', 'meeting', 'event'];
+>>>>>>> 1732f31 (feat: add Meeting and Event plan types)
 
 describe('PlanTypeIcon', () => {
   it.each(TYPES)('renders an svg icon for %s', (type) => {

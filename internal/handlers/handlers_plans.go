@@ -43,6 +43,8 @@ type planPartReq struct {
 	Dining    *diningDetailReq    `json:"dining"`
 	Excursion *excursionDetailReq `json:"excursion"`
 	IceCream  *iceCreamDetailReq  `json:"ice_cream"`
+	Meeting   *meetingDetailReq   `json:"meeting"`
+	Event     *eventDetailReq     `json:"event"`
 }
 
 type flightDetailReq struct {
@@ -101,6 +103,19 @@ type excursionDetailReq struct {
 type iceCreamDetailReq struct {
 	Rating      int    `json:"rating"`
 	WhatOrdered string `json:"what_ordered"`
+}
+
+type meetingDetailReq struct {
+	Location  string `json:"location"`
+	Organiser string `json:"organiser"`
+	Platform  string `json:"platform"`
+}
+
+type eventDetailReq struct {
+	Performer string `json:"performer"`
+	Category  string `json:"category"`
+	VenueArea string `json:"venue_area"`
+	URL       string `json:"url"`
 }
 
 type createPlanReq struct {
@@ -250,6 +265,7 @@ type planUserIDReq struct {
 var validPlanTypes = map[string]bool{
 	"flight": true, "train": true, "hotel": true,
 	"ground": true, "dining": true, "excursion": true, "ice_cream": true,
+	"meeting": true, "event": true,
 }
 
 func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
@@ -1054,6 +1070,23 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 				WhatOrdered: p.IceCream.WhatOrdered,
 			}
 		}
+	case "meeting":
+		if p.Meeting != nil {
+			out.Meeting = &store.MeetingDetail{
+				Location:  p.Meeting.Location,
+				Organiser: p.Meeting.Organiser,
+				Platform:  p.Meeting.Platform,
+			}
+		}
+	case "event":
+		if p.Event != nil {
+			out.Event = &store.EventDetail{
+				Performer: p.Event.Performer,
+				Category:  p.Event.Category,
+				VenueArea: p.Event.VenueArea,
+				URL:       p.Event.URL,
+			}
+		}
 	}
 	return out
 }
@@ -1271,6 +1304,8 @@ func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripF
 		dining    *store.DiningDetail
 		excursion *store.ExcursionDetail
 		iceCream  *store.IceCreamDetail
+		meeting   *store.MeetingDetail
+		event     *store.EventDetail
 		err       error
 	)
 	switch p.Type {
@@ -1288,11 +1323,15 @@ func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripF
 		excursion, err = a.Store.ExcursionDetailFor(ctx, p.ID)
 	case "ice_cream":
 		iceCream, err = a.Store.IceCreamDetailFor(ctx, p.ID)
+	case "meeting":
+		meeting, err = a.Store.MeetingDetailFor(ctx, p.ID)
+	case "event":
+		event, err = a.Store.EventDetailFor(ctx, p.ID)
 	}
 	if err != nil {
 		return api.PlanPartDTO{}, err
 	}
-	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, iceCream, latest, track)
+	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, iceCream, meeting, event, latest, track)
 	if p.Type == "hotel" && dto.Hotel != nil {
 		applyHotelSmartTimes(p, hotel, tripFlights, dto.Hotel)
 		// Order the timeline/map by the smart check-in (after the inbound

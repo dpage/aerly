@@ -43,6 +43,8 @@ type ProposedPart struct {
 	Ground    *store.GroundDetail
 	Dining    *store.DiningDetail
 	Excursion *store.ExcursionDetail
+	Meeting   *store.MeetingDetail
+	Event     *store.EventDetail
 
 	// startTimeDefaulted marks a part whose start time-of-day was filled from a
 	// type default rather than stated in the source. The transfer-timing

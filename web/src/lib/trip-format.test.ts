@@ -437,6 +437,8 @@ describe('planTypeLabel', () => {
     expect(planTypeLabel('dining')).toBe('Dining');
     expect(planTypeLabel('excursion')).toBe('Excursion');
     expect(planTypeLabel('ice_cream')).toBe('Ice cream');
+    expect(planTypeLabel('meeting')).toBe('Meeting');
+    expect(planTypeLabel('event')).toBe('Event');
   });
   it('falls back to the raw type for an unknown value', () => {
     expect(planTypeLabel('mystery' as unknown as Parameters<typeof planTypeLabel>[0])).toBe(

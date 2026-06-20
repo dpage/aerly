@@ -608,6 +608,8 @@ type PlanPartDTO struct {
 	Dining       *DiningDetailDTO    `json:"dining,omitempty"`
 	Excursion    *ExcursionDetailDTO `json:"excursion,omitempty"`
 	IceCream     *IceCreamDetailDTO  `json:"ice_cream,omitempty"`
+	Meeting      *MeetingDetailDTO   `json:"meeting,omitempty"`
+	Event        *EventDetailDTO     `json:"event,omitempty"`
 	// Title is the owning plan's title (the user-facing name of the booking,
 	// e.g. an ice cream parlour's name), copied onto the part so the map marker
 	// and list can show it. '' when unknown (e.g. ingest preview parts).
@@ -712,6 +714,22 @@ type ExcursionDetailDTO struct {
 type IceCreamDetailDTO struct {
 	Rating      int    `json:"rating"`
 	WhatOrdered string `json:"what_ordered"`
+}
+
+// MeetingDetailDTO is the meeting satellite payload (stand-ups, org sessions).
+type MeetingDetailDTO struct {
+	Location  string `json:"location"`
+	Organiser string `json:"organiser"`
+	Platform  string `json:"platform"`
+}
+
+// EventDetailDTO is the event satellite payload: any ticketed or attended
+// happening — talks, concerts, cinema, theatre, sports, etc.
+type EventDetailDTO struct {
+	Performer string `json:"performer"`
+	Category  string `json:"category"`
+	VenueArea string `json:"venue_area"`
+	URL       string `json:"url"`
 }
 
 // TrackerPartDTO is the convergence-view payload: a labelled trackable part
@@ -826,6 +844,8 @@ func ToPlanPartDTO(
 	dining *store.DiningDetail,
 	excursion *store.ExcursionDetail,
 	iceCream *store.IceCreamDetail,
+	meeting *store.MeetingDetail,
+	event *store.EventDetail,
 	latest *store.Position,
 	track []*store.Position,
 ) PlanPartDTO {
@@ -879,6 +899,10 @@ func ToPlanPartDTO(
 		dto.Excursion = ToExcursionDetailDTO(excursion)
 	case iceCream != nil:
 		dto.IceCream = ToIceCreamDetailDTO(iceCream)
+	case meeting != nil:
+		dto.Meeting = ToMeetingDetailDTO(meeting)
+	case event != nil:
+		dto.Event = ToEventDetailDTO(event)
 	}
 	dto.StartTZ = startTZ
 	dto.EndTZ = endTZ
@@ -985,6 +1009,25 @@ func ToExcursionDetailDTO(d *store.ExcursionDetail) *ExcursionDetailDTO {
 	return &ExcursionDetailDTO{
 		Provider:    d.Provider,
 		TicketCount: d.TicketCount,
+	}
+}
+
+// ToMeetingDetailDTO projects a meeting satellite.
+func ToMeetingDetailDTO(d *store.MeetingDetail) *MeetingDetailDTO {
+	return &MeetingDetailDTO{
+		Location:  d.Location,
+		Organiser: d.Organiser,
+		Platform:  d.Platform,
+	}
+}
+
+// ToEventDetailDTO projects an event satellite.
+func ToEventDetailDTO(d *store.EventDetail) *EventDetailDTO {
+	return &EventDetailDTO{
+		Performer: d.Performer,
+		Category:  d.Category,
+		VenueArea: d.VenueArea,
+		URL:       d.URL,
 	}
 }
 

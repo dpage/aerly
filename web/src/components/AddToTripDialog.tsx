@@ -53,6 +53,8 @@ const PLAN_TYPES: PlanType[] = [
   'dining',
   'excursion',
   'ice_cream',
+  'meeting',
+  'event',
 ];
 
 /** Confidence below this gets flagged in the confirm step (spec §6 — "anything

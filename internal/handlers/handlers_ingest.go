@@ -10,9 +10,9 @@ import (
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
+	"github.com/dpage/aerly/internal/importics"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
-	"github.com/dpage/aerly/internal/importics"
 )
 
 // maxUploadBytes caps a single ingest document (PDF ticket) to keep multipart
@@ -246,7 +246,7 @@ func icalProposalDTO(in planops.ConfirmPlanInput) api.ProposedPlanDTO {
 			Status:       part.Status,
 		}
 		dto.Parts = append(dto.Parts, api.ToPlanPartDTO(sp,
-			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, nil, nil))
+			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, part.Meeting, part.Event, nil, nil))
 	}
 	return dto
 }
@@ -348,6 +348,8 @@ func toConfirmPlanInput(p ingestConfirmPlanReq) planops.ConfirmPlanInput {
 			Ground:       cp.Ground,
 			Dining:       cp.Dining,
 			Excursion:    cp.Excursion,
+			Meeting:      cp.Meeting,
+			Event:        cp.Event,
 		})
 	}
 	return out
@@ -388,7 +390,7 @@ func toProposedPlanDTO(p planops.ProposedPlan) api.ProposedPlanDTO {
 			Status:       part.Status,
 		}
 		dto.Parts = append(dto.Parts, api.ToPlanPartDTO(sp,
-			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, nil, nil))
+			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, part.Meeting, part.Event, nil, nil))
 	}
 	return dto
 }

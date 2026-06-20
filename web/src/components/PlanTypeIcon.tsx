@@ -6,12 +6,13 @@ import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import LocalActivityIcon from '@mui/icons-material/LocalActivity';
 import IcecreamIcon from '@mui/icons-material/Icecream';
+import GroupsIcon from '@mui/icons-material/Groups';
+import EventIcon from '@mui/icons-material/Event';
 import PlaceIcon from '@mui/icons-material/Place';
 
 import type { PlanType } from '../api/types';
 
-/** Maps a plan/part type to its MUI icon (spec §11 / PRD §6.2 icon set:
- * plane, train, bed, ground transport, meal, excursion). */
+/** Maps a plan/part type to its MUI icon. */
 export default function PlanTypeIcon({ type, ...props }: { type: PlanType } & SvgIconProps) {
   switch (type) {
     case 'flight':
@@ -28,6 +29,10 @@ export default function PlanTypeIcon({ type, ...props }: { type: PlanType } & Sv
       return <LocalActivityIcon {...props} />;
     case 'ice_cream':
       return <IcecreamIcon {...props} />;
+    case 'meeting':
+      return <GroupsIcon {...props} />;
+    case 'event':
+      return <EventIcon {...props} />;
     default:
       return <PlaceIcon {...props} />;
   }

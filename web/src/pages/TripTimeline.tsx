@@ -842,6 +842,20 @@ function partDetailLines(part: PlanPart): string[] {
         );
       }
       break;
+    case 'meeting':
+      if (part.meeting)
+        out.push(join(part.meeting.organiser, part.meeting.location, part.meeting.platform));
+      break;
+    case 'event':
+      if (part.event)
+        out.push(
+          join(
+            part.event.performer,
+            part.event.category,
+            part.event.venue_area,
+          ),
+        );
+      break;
     case 'flight':
       if (part.flight) out.push(join(part.flight.ident, part.flight.flight_status));
       break;

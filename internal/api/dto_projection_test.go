@@ -16,9 +16,9 @@ func TestToPlanPartDTO_FlightTZFallbackAndEffectiveAt(t *testing.T) {
 		Ident: "BA117", OriginIATA: "LHR", DestIATA: "JFK",
 		ScheduledOut: out, ScheduledIn: in, EstimatedOut: &est,
 	}
-	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil)
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	// Empty part TZs fall back to the airport zones.
+	// Empty part TZs fall back to the airport zones. (arg order: flight,hotel,train,ground,dining,excursion,iceCream,meeting,event,latest,track)
 	if dto.StartTZ != "Europe/London" {
 		t.Errorf("start_tz = %q, want Europe/London", dto.StartTZ)
 	}
@@ -40,7 +40,7 @@ func TestToPlanPartDTO_StoredTZNotOverwritten(t *testing.T) {
 		StartTZ: "Asia/Tokyo", EndTZ: "Asia/Singapore",
 	}
 	flight := &store.FlightDetail{Ident: "X", OriginIATA: "LHR", DestIATA: "JFK"}
-	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil)
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if dto.StartTZ != "Asia/Tokyo" || dto.EndTZ != "Asia/Singapore" {
 		t.Errorf("stored TZs overwritten: start=%q end=%q", dto.StartTZ, dto.EndTZ)
 	}
@@ -52,26 +52,26 @@ func TestToPlanPartDTO_NonFlightTypesSelectTheRightDetail(t *testing.T) {
 		return &store.PlanPart{Type: typ, StartsAt: now}
 	}
 
-	if d := ToPlanPartDTO(base("hotel"), nil, &store.HotelDetail{PropertyName: "H"}, nil, nil, nil, nil, nil, nil, nil); d.Hotel == nil || d.Hotel.PropertyName != "H" {
+	if d := ToPlanPartDTO(base("hotel"), nil, &store.HotelDetail{PropertyName: "H"}, nil, nil, nil, nil, nil, nil, nil, nil, nil); d.Hotel == nil || d.Hotel.PropertyName != "H" {
 		t.Error("hotel detail not projected")
 	}
-	if d := ToPlanPartDTO(base("train"), nil, nil, &store.TrainDetail{Operator: "Eurostar"}, nil, nil, nil, nil, nil, nil); d.Train == nil || d.Train.Operator != "Eurostar" {
+	if d := ToPlanPartDTO(base("train"), nil, nil, &store.TrainDetail{Operator: "Eurostar"}, nil, nil, nil, nil, nil, nil, nil, nil); d.Train == nil || d.Train.Operator != "Eurostar" {
 		t.Error("train detail not projected")
 	}
-	if d := ToPlanPartDTO(base("ground"), nil, nil, nil, &store.GroundDetail{Provider: "Uber"}, nil, nil, nil, nil, nil); d.Ground == nil || d.Ground.Provider != "Uber" {
+	if d := ToPlanPartDTO(base("ground"), nil, nil, nil, &store.GroundDetail{Provider: "Uber"}, nil, nil, nil, nil, nil, nil, nil); d.Ground == nil || d.Ground.Provider != "Uber" {
 		t.Error("ground detail not projected")
 	}
-	if d := ToPlanPartDTO(base("dining"), nil, nil, nil, nil, &store.DiningDetail{ReservationName: "R"}, nil, nil, nil, nil); d.Dining == nil || d.Dining.ReservationName != "R" {
+	if d := ToPlanPartDTO(base("dining"), nil, nil, nil, nil, &store.DiningDetail{ReservationName: "R"}, nil, nil, nil, nil, nil, nil); d.Dining == nil || d.Dining.ReservationName != "R" {
 		t.Error("dining detail not projected")
 	}
-	if d := ToPlanPartDTO(base("excursion"), nil, nil, nil, nil, nil, &store.ExcursionDetail{Provider: "Tour"}, nil, nil, nil); d.Excursion == nil || d.Excursion.Provider != "Tour" {
+	if d := ToPlanPartDTO(base("excursion"), nil, nil, nil, nil, nil, &store.ExcursionDetail{Provider: "Tour"}, nil, nil, nil, nil, nil); d.Excursion == nil || d.Excursion.Provider != "Tour" {
 		t.Error("excursion detail not projected")
 	}
-	if d := ToPlanPartDTO(base("ice_cream"), nil, nil, nil, nil, nil, nil, &store.IceCreamDetail{Rating: 5, WhatOrdered: "Pistachio"}, nil, nil); d.IceCream == nil || d.IceCream.Rating != 5 || d.IceCream.WhatOrdered != "Pistachio" {
+	if d := ToPlanPartDTO(base("ice_cream"), nil, nil, nil, nil, nil, nil, &store.IceCreamDetail{Rating: 5, WhatOrdered: "Pistachio"}, nil, nil, nil, nil); d.IceCream == nil || d.IceCream.Rating != 5 || d.IceCream.WhatOrdered != "Pistachio" {
 		t.Error("ice_cream detail not projected")
 	}
 	// Non-flight effective_at is just StartsAt.
-	d := ToPlanPartDTO(base("dining"), nil, nil, nil, nil, &store.DiningDetail{}, nil, nil, nil, nil)
+	d := ToPlanPartDTO(base("dining"), nil, nil, nil, nil, &store.DiningDetail{}, nil, nil, nil, nil, nil, nil)
 	if !d.EffectiveAt.Equal(now) {
 		t.Errorf("non-flight effective_at = %v, want StartsAt %v", d.EffectiveAt, now)
 	}

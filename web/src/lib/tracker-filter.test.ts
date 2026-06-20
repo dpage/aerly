@@ -43,6 +43,8 @@ const ALL: PlanType[] = [
   'dining',
   'excursion',
   'ice_cream',
+  'meeting',
+  'event',
 ];
 
 describe('filterTrackerParts', () => {
@@ -60,10 +62,12 @@ describe('filterTrackerParts', () => {
       meId: 1,
     });
     expect(out.map((p) => p.type).sort()).toEqual([
+      'event',
       'flight',
       'ground',
       'hotel',
       'ice_cream',
+      'meeting',
       'train',
     ]);
   });

@@ -28,6 +28,12 @@ const EXCURSION = '<path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.75 7 10 7 10l
 // A downward ice cream cone: a round scoop over a waffle cone tapering to a tip.
 const ICE_CREAM =
   '<path d="M12 2C9.24 2 7 4.24 7 7c0 1.02.31 1.96.83 2.75L6 10l6 12 6-12-1.83.75c.52-.79.83-1.73.83-2.75 0-2.76-2.24-5-5-5z"/>';
+// Meeting: group-of-people icon
+const MEETING =
+  '<path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>';
+// Event: star/ticket icon
+const EVENT =
+  '<path d="M22 9V7h-2V5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2v-2h-2V9h2zm-4 10H4V5h14v14zm-6-9.5L10.5 13l-1.5-3.5L5 8l3.5-1.5L10.5 3 12 6.5 15.5 8z"/>';
 
 const TYPE_STYLE: Record<PlanType, TypeStyle> = {
   flight: { color: '#1f5fa8', glyph: FLIGHT },
@@ -37,6 +43,8 @@ const TYPE_STYLE: Record<PlanType, TypeStyle> = {
   dining: { color: '#be123c', glyph: DINING },
   excursion: { color: '#15803d', glyph: EXCURSION },
   ice_cream: { color: '#db2777', glyph: ICE_CREAM },
+  meeting: { color: '#0369a1', glyph: MEETING },
+  event: { color: '#7c3aed', glyph: EVENT },
 };
 
 const FALLBACK: TypeStyle = { color: '#6b7280', glyph: '<circle cx="12" cy="12" r="6"/>' };

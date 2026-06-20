@@ -17,7 +17,7 @@ import (
 type Plan struct {
 	ID              int64
 	TripID          int64
-	Type            string // flight|train|hotel|ground|dining|excursion
+	Type            string // flight|train|hotel|ground|dining|excursion|ice_cream|meeting|event
 	Title           string
 	ConfirmationRef string
 	TicketNumber    string // e-ticket / ticket number, when known (issue #22)
@@ -186,6 +186,25 @@ type IceCreamDetail struct {
 	WhatOrdered string
 }
 
+// MeetingDetail is the meeting satellite (stand-ups, org sessions, committee
+// calls…). Location can be a room, building address or a virtual call URL.
+type MeetingDetail struct {
+	PlanPartID int64
+	Location   string
+	Organiser  string
+	Platform   string // e.g. "Zoom", "Google Meet", ""
+}
+
+// EventDetail is the event satellite: any ticketed or attended happening—
+// conference talks, concerts, cinema, theatre, sports, etc.
+type EventDetail struct {
+	PlanPartID int64
+	Performer  string // artist, speaker, act, presenter
+	Category   string // e.g. "Concert", "Talk", "Cinema", "Theatre"
+	VenueArea  string // stage, screen, room, track within the venue
+	URL        string // event page / ticket link
+}
+
 // CreatePlanPayload bundles a plan plus its parts and per-type details for an
 // atomic insert. The detail slices are written according to Type.
 type CreatePlanPayload struct {
@@ -232,6 +251,8 @@ type CreatePlanPartPayload struct {
 	Dining    *DiningDetail
 	Excursion *ExcursionDetail
 	IceCream  *IceCreamDetail
+	Meeting   *MeetingDetail
+	Event     *EventDetail
 }
 
 // UpdatePlanPayload carries the optionally-set fields of a plan edit. A nil
@@ -467,6 +488,26 @@ func insertDetailTx(ctx context.Context, tx pgx.Tx, partID int64, planType strin
 			INSERT INTO ice_cream_details (plan_part_id, rating, what_ordered)
 			VALUES ($1,$2,$3)`,
 			partID, d.Rating, d.WhatOrdered)
+		return err
+	case "meeting":
+		d := in.Meeting
+		if d == nil {
+			d = &MeetingDetail{}
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO meeting_details (plan_part_id, location, organiser, platform)
+			VALUES ($1,$2,$3,$4)`,
+			partID, d.Location, d.Organiser, d.Platform)
+		return err
+	case "event":
+		d := in.Event
+		if d == nil {
+			d = &EventDetail{}
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO event_details (plan_part_id, performer, category, venue_area, url)
+			VALUES ($1,$2,$3,$4,$5)`,
+			partID, d.Performer, d.Category, d.VenueArea, d.URL)
 		return err
 	default:
 		return errors.New("unknown plan type: " + planType)
@@ -1315,6 +1356,7 @@ func (s *Store) UpdateIceCreamDetail(ctx context.Context, partID int64, up IceCr
 	return err
 }
 
+<<<<<<< HEAD
 // The per-type detail updaters below all follow the IceCream pattern: a nil
 // pointer leaves that field unchanged (COALESCE idiom), and each upserts the
 // satellite row so a part predating its detail still takes the edit. Number
@@ -1429,6 +1471,38 @@ func (s *Store) UpdateExcursionDetail(ctx context.Context, partID int64, up Excu
 			ticket_count = COALESCE($3, excursion_details.ticket_count)`,
 		partID, up.Provider, up.TicketCount)
 	return err
+}
+
+// MeetingDetailFor loads the meeting satellite for a part, or (nil, nil).
+func (s *Store) MeetingDetailFor(ctx context.Context, partID int64) (*MeetingDetail, error) {
+	var d MeetingDetail
+	err := s.pool.QueryRow(ctx, `
+		SELECT plan_part_id, location, organiser, platform
+		FROM meeting_details WHERE plan_part_id = $1`, partID).Scan(
+		&d.PlanPartID, &d.Location, &d.Organiser, &d.Platform)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil //nolint:nilnil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// EventDetailFor loads the event satellite for a part, or (nil, nil).
+func (s *Store) EventDetailFor(ctx context.Context, partID int64) (*EventDetail, error) {
+	var d EventDetail
+	err := s.pool.QueryRow(ctx, `
+		SELECT plan_part_id, performer, category, venue_area, url
+		FROM event_details WHERE plan_part_id = $1`, partID).Scan(
+		&d.PlanPartID, &d.Performer, &d.Category, &d.VenueArea, &d.URL)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil //nolint:nilnil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
 }
 
 // ----- Passengers (the trigger keeps trip_members in sync) -----

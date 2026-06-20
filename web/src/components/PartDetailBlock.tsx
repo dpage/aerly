@@ -95,5 +95,26 @@ function TypeSection({ part }: { part: PlanPart }) {
       </Section>
     );
   }
+  const m = part.meeting;
+  if (m) {
+    return (
+      <Section title="Meeting">
+        <Row label="Location" value={m.location || null} />
+        <Row label="Organiser" value={m.organiser || null} />
+        <Row label="Platform" value={m.platform || null} />
+      </Section>
+    );
+  }
+  const ev = part.event;
+  if (ev) {
+    return (
+      <Section title="Event">
+        <Row label="Performer" value={ev.performer || null} />
+        <Row label="Category" value={ev.category || null} />
+        <Row label="Venue area" value={ev.venue_area || null} />
+        <Row label="Link" value={ev.url || null} />
+      </Section>
+    );
+  }
   return null;
 }
