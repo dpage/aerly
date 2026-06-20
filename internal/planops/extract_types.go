@@ -73,6 +73,17 @@ type ExtractedPart struct {
 
 	// Excursion (Type=="excursion").
 	ExcursionTitle string
+
+	// Meeting (Type=="meeting").
+	MeetingLocation  string
+	MeetingOrganiser string
+	MeetingPlatform  string
+
+	// Event (Type=="event").
+	EventPerformer string
+	EventCategory  string
+	EventVenueArea string
+	EventURL       string
 }
 
 // ExtractedPlan groups the parts of one booking into a single plan (PRD §6.3:

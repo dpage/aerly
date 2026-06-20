@@ -1,4 +1,4 @@
--- Migration 0045: add 'meeting' and 'event' plan types.
+-- Migration 0046: add 'meeting' and 'event' plan types.
 --
 -- Meeting: useful for volunteer stand-ups, org meetings, committee sessions —
 --   any group event at a fixed venue with an optional organiser contact.

@@ -383,6 +383,41 @@ func TestExtractPlans_MultiType(t *testing.T) {
 	}
 }
 
+func TestExtractPlans_MeetingAndEvent(t *testing.T) {
+	resp := `{"plans":[
+	  {"type":"meeting","title":"Volunteer Stand-up","parts":[
+	     {"type":"meeting","confidence":"high","start_date":"2026-06-12","start_time":"08:30","meeting":{"location":"Room A","organiser":"Dave Page","platform":"Zoom"}}
+	  ]},
+	  {"type":"event","title":"Keynote","parts":[
+	     {"type":"event","confidence":"high","start_date":"2026-06-12","event":{"performer":"Dave Page","category":"Talk","venue_area":"Main Hall","url":"https://pgconf.eu"}}
+	  ]}
+	]}`
+	x, _ := newExtractor(resp)
+	plans, err := x.ExtractPlans(context.Background(), "body", nil)
+	if err != nil {
+		t.Fatalf("ExtractPlans: %v", err)
+	}
+	if len(plans) != 2 {
+		t.Fatalf("len(plans) = %d, want 2", len(plans))
+	}
+	byType := map[string]planops.ExtractedPart{}
+	for _, p := range plans {
+		byType[p.Type] = p.Parts[0]
+	}
+	m := byType["meeting"]
+	if m.MeetingLocation != "Room A" || m.MeetingOrganiser != "Dave Page" || m.MeetingPlatform != "Zoom" {
+		t.Errorf("meeting fields wrong: %+v", m)
+	}
+	if m.StartTime != "08:30" {
+		t.Errorf("meeting start_time = %q, want 08:30", m.StartTime)
+	}
+	ev := byType["event"]
+	if ev.EventPerformer != "Dave Page" || ev.EventCategory != "Talk" ||
+		ev.EventVenueArea != "Main Hall" || ev.EventURL != "https://pgconf.eu" {
+		t.Errorf("event fields wrong: %+v", ev)
+	}
+}
+
 func TestExtractPlans_ParsesTicketAndCost(t *testing.T) {
 	resp := `{"plans":[
 	  {"type":"flight","title":"BA to JFK","confirmation_ref":"PNR9","ticket_number":"1252300000001","cost":{"amount":523.40,"currency":"gbp"},"parts":[

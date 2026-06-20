@@ -463,7 +463,6 @@ export interface EventDetail {
   venue_area: string;
   /** Event page or ticket link. */
   url: string;
->>>>>>> 1732f31 (feat: add Meeting and Event plan types)
 }
 
 export interface PlanPart {

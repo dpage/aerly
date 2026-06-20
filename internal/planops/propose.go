@@ -325,6 +325,27 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 		if out.StartLabel == "" {
 			out.StartLabel = part.ExcursionTitle
 		}
+	case "meeting":
+		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 9)
+		out.Meeting = &store.MeetingDetail{
+			Location:  part.MeetingLocation,
+			Organiser: part.MeetingOrganiser,
+			Platform:  part.MeetingPlatform,
+		}
+		if out.StartLabel == "" {
+			out.StartLabel = part.MeetingLocation
+		}
+	case "event":
+		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 9)
+		out.Event = &store.EventDetail{
+			Performer: part.EventPerformer,
+			Category:  part.EventCategory,
+			VenueArea: part.EventVenueArea,
+			URL:       part.EventURL,
+		}
+		if out.StartLabel == "" {
+			out.StartLabel = part.EventPerformer
+		}
 	}
 	return out, conf
 }

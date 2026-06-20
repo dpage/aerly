@@ -1,4 +1,4 @@
--- Rollback migration 0045: remove 'meeting' and 'event' plan types.
+-- Rollback migration 0046: remove 'meeting' and 'event' plan types.
 --
 -- Restore the CHECK constraint FIRST so that if any rows still use the new
 -- types the constraint re-add fails before the satellite data is destroyed.

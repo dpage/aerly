@@ -84,6 +84,13 @@ func TestMigration0010UpDown(t *testing.T) {
 
 	// Down then up again — exercises the reverse, and that the FK is restored.
 	// A correct rollback chain unwinds the later migrations first:
+	//   - 0046 created meeting_details/event_details with FKs to plan_parts, so
+	//     they must be dropped before 0010 can drop plan_parts;
+	//   - 0044 created trip_feeds/trip_feed_events with an FK to trips (the
+	//     0045 timezone column rides along on trip_feeds), so they must be
+	//     dropped before 0010 can drop trips;
+	//   - 0043 created ice_cream_details with an FK to plan_parts, so it must
+	//     be dropped before 0010 can drop plan_parts;
 	//   - 0042 created plan_attachments with an FK to plans, so it must be
 	//     dropped before 0010 can drop plans;
 	//   - 0030 created notifications/pending_shares tables with FKs to
@@ -99,6 +106,9 @@ func TestMigration0010UpDown(t *testing.T) {
 	//   - 0020-down then drops the flight_alerts table itself;
 	//   - 0013 (applied by NewPool) dropped the legacy flights tables, so its
 	//     down must run before 0010-down's positions→flights FK restore.
+	_, down0046 := readUpDown(t, "0046_meeting_event_types")
+	_, down0044 := readUpDown(t, "0044_trip_feeds")
+	_, down0043 := readUpDown(t, "0043_ice_cream_plan")
 	_, down0042 := readUpDown(t, "0042_plan_attachments")
 	_, down0030 := readUpDown(t, "0030_share_all_friends")
 	_, down0024 := readUpDown(t, "0024_plan_reminders")
@@ -107,6 +117,15 @@ func TestMigration0010UpDown(t *testing.T) {
 	_, down0020 := readUpDown(t, "0020_flight_alerts")
 	up0013, down0013 := readUpDown(t, "0013_drop_legacy_flights")
 	up, down := readUpDown(t, "0010_trip_core")
+	if _, err := pool.Exec(ctx, down0046); err != nil {
+		t.Fatalf("apply 0046 down: %v", err)
+	}
+	if _, err := pool.Exec(ctx, down0044); err != nil {
+		t.Fatalf("apply 0044 down: %v", err)
+	}
+	if _, err := pool.Exec(ctx, down0043); err != nil {
+		t.Fatalf("apply 0043 down: %v", err)
+	}
 	if _, err := pool.Exec(ctx, down0042); err != nil {
 		t.Fatalf("apply 0042 down: %v", err)
 	}
