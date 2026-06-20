@@ -382,12 +382,24 @@ describe('PlanEditDialog', () => {
         ],
       }),
     );
-    await userEvent.type(screen.getByRole('textbox', { name: /operator/i }), 'Eurostar');
-    await userEvent.type(screen.getByRole('textbox', { name: /service no/i }), '9024');
-    await userEvent.type(screen.getByRole('textbox', { name: /class/i }), 'Standard');
-    await userEvent.type(screen.getByRole('textbox', { name: /coach/i }), '12');
-    await userEvent.type(screen.getByRole('textbox', { name: /seat/i }), '44');
-    await userEvent.type(screen.getByRole('textbox', { name: /platform/i }), '2');
+    // Set each field in one shot rather than per-keystroke: under v8 coverage the
+    // dialog's controlled re-render is slow enough that simulated typing across
+    // these six fields blows the test timeout. fireEvent.change exercises the same
+    // onChange path deterministically.
+    fireEvent.change(screen.getByRole('textbox', { name: /operator/i }), {
+      target: { value: 'Eurostar' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /service no/i }), {
+      target: { value: '9024' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /class/i }), {
+      target: { value: 'Standard' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /coach/i }), { target: { value: '12' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /seat/i }), { target: { value: '44' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /platform/i }), {
+      target: { value: '2' },
+    });
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
     const [, patch] = h.updatePlanPart.mock.calls[0];
@@ -418,8 +430,15 @@ describe('PlanEditDialog', () => {
         ],
       }),
     );
-    await userEvent.type(screen.getByRole('textbox', { name: /reservation name/i }), 'Smith');
-    await userEvent.type(screen.getByRole('spinbutton', { name: /party size/i }), '4');
+    // Set the fields in one shot: under v8 coverage the slow controlled re-render
+    // lets per-keystroke typing interleave and corrupt the values. fireEvent.change
+    // drives the same onChange path deterministically.
+    fireEvent.change(screen.getByRole('textbox', { name: /reservation name/i }), {
+      target: { value: 'Smith' },
+    });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /party size/i }), {
+      target: { value: '4' },
+    });
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
     const [, patch] = h.updatePlanPart.mock.calls[0];

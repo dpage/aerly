@@ -27,10 +27,12 @@ export default defineConfig({
     css: false,
     // userEvent.type fires one input event per keystroke; with v8 coverage
     // instrumentation each handler is meaningfully slower on CI hardware,
-    // occasionally pushing the multi-input dialog tests past the default
-    // 5s. 15s gives us headroom for the slow case without masking genuinely
-    // stuck tests.
-    testTimeout: 15000,
+    // pushing the multi-input dialog tests well past the default 5s (the
+    // heaviest were taking ~13-19s, and the full parallel run adds contention
+    // on top). 30s gives the slow case headroom on CI hardware without masking
+    // genuinely stuck tests. The very heaviest forms set their fields via
+    // fireEvent.change instead of simulated typing to stay fast and deterministic.
+    testTimeout: 30000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
