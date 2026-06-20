@@ -6,7 +6,10 @@ on:
   pull_request:
 
 jobs:
-  test:
+  # The Go and web suites are independent, so run them as separate jobs in
+  # parallel: the overall CI wall-clock is then max(go, web) rather than their
+  # sum. Only the Go job needs Postgres; only the web job needs Node.
+  go:
     runs-on: ubuntu-latest
 
     services:
@@ -39,6 +42,22 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
+      - name: go vet
+        run: go vet ./cmd/... ./internal/... ./migrations ./web
+
+      - name: Go tests
+        run: go test ./cmd/... ./internal/... ./migrations ./web
+
+  web:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v6
+
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
@@ -46,24 +65,14 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: go vet
-        run: go vet ./cmd/... ./internal/... ./migrations ./web
-
-      - name: Go tests
-        run: go test ./cmd/... ./internal/... ./migrations ./web
-
       - name: Install web dependencies
-        working-directory: web
         run: npm ci
 
       - name: Web typecheck
-        working-directory: web
         run: npm run typecheck
 
       - name: Web lint
-        working-directory: web
         run: npm run lint
 
       - name: Web tests (per-file 90% coverage gate)
-        working-directory: web
         run: npm run test:coverage
