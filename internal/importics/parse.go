@@ -28,9 +28,13 @@ type Calendar struct {
 	// Name / Desc are the X-WR-CALNAME / X-WR-CALDESC headers. TripIt puts the
 	// trip name here, e.g. Name="Dave Page (TripIt - PGConf.EU 2016)" and
 	// Desc="PGConf.EU 2016 (Trip Shared by Dave Page)".
-	Name   string
-	Desc   string
-	Events []Event
+	Name string
+	Desc string
+	// Timezone is the X-WR-TIMEZONE header: the calendar's default IANA zone
+	// (e.g. "America/Vancouver"). Conference exports commonly emit event times
+	// in UTC and rely on this to render them in the event's local zone.
+	Timezone string
+	Events   []Event
 }
 
 // Event is one VEVENT. The strongly-typed fields cover the properties the
@@ -117,6 +121,11 @@ func Parse(r io.Reader) (*Calendar, error) {
 		case "X-WR-CALDESC":
 			if cur == nil {
 				cal.Desc = p.Value
+			}
+			continue
+		case "X-WR-TIMEZONE":
+			if cur == nil {
+				cal.Timezone = strings.TrimSpace(p.Value)
 			}
 			continue
 		}

@@ -133,7 +133,7 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL, etag, lastModified string) 
 		return nil, err
 	}
 	return &Result{
-		Events:       mapEvents(cal.Events),
+		Events:       mapEvents(cal.Events, strings.TrimSpace(cal.Timezone)),
 		ETag:         resp.Header.Get("ETag"),
 		LastModified: resp.Header.Get("Last-Modified"),
 		CalName:      strings.TrimSpace(cal.Name),
@@ -149,29 +149,59 @@ func looksLikeICalendar(body []byte) bool {
 
 // mapEvents projects parsed VEVENTs into cached store events, dropping any with
 // no usable start instant (a feed we couldn't date can't be placed on a
-// timeline).
-func mapEvents(in []importics.Event) []store.TripFeedEvent {
+// timeline). calTZ is the calendar's X-WR-TIMEZONE: the zone to fall back to for
+// display, and to anchor floating wall-clock times, when an event carries no
+// TZID of its own.
+func mapEvents(in []importics.Event, calTZ string) []store.TripFeedEvent {
 	out := make([]store.TripFeedEvent, 0, len(in))
 	for _, e := range in {
-		if e.Start.Time.IsZero() {
+		start, ok := resolveInstant(e.Start, calTZ)
+		if !ok {
 			continue
+		}
+		// Display zone: the event's own TZID, else the calendar default. For a
+		// UTC-stamped feed this is what turns "all times in UTC" into the event's
+		// real local time.
+		zone := e.Start.TZID
+		if zone == "" {
+			zone = calTZ
 		}
 		ev := store.TripFeedEvent{
 			UID:         e.UID,
 			Summary:     e.Summary,
 			Description: e.Description,
 			Location:    e.Location,
-			StartsAt:    e.Start.Time.UTC(),
-			StartTZ:     e.Start.TZID,
+			StartsAt:    start,
 			AllDay:      !e.Start.HasTime,
 		}
-		if !e.End.Time.IsZero() {
-			end := e.End.Time.UTC()
+		// Date-only events have no time of day, so no zone applies.
+		if !ev.AllDay {
+			ev.StartTZ = zone
+		}
+		if end, ok := resolveInstant(e.End, zone); ok {
 			ev.EndsAt = &end
 		}
 		out = append(out, ev)
 	}
 	return out
+}
+
+// resolveInstant turns a parsed DTSTART/DTEND into a UTC instant. A UTC- or
+// TZID-anchored value already is an absolute instant. A *floating* value is a
+// wall-clock with no zone; when the calendar supplies a default zone we
+// reinterpret the wall-clock in it (so a 09:00 talk in America/Vancouver lands
+// at the right instant, not at 09:00 UTC). ok is false for an undated value.
+func resolveInstant(dt importics.DateTime, zone string) (time.Time, bool) {
+	if dt.Time.IsZero() {
+		return time.Time{}, false
+	}
+	if dt.Floating && zone != "" {
+		if loc, err := time.LoadLocation(zone); err == nil {
+			t := dt.Time // wall-clock, parsed naively as UTC by importics
+			return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, loc).UTC(), true
+		}
+	}
+	return dt.Time.UTC(), true
 }
 
 // parseFeedURL parses rawURL, upgrades the webcal scheme to https, and runs the

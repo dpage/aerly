@@ -103,17 +103,23 @@ export default function TripTimeline() {
       return;
     }
     let live = true;
-    void Promise.all([api.getTripExternalEvents(tripId), api.listTripFeeds(tripId)])
-      .then(([events, feeds]) => {
-        if (!live) return;
-        setExternalEvents(events);
-        setFeedCount(feeds.length);
+    // Fetch events and the feed list independently, so one failing doesn't
+    // discard the other (a flaky feed-list call shouldn't hide loaded events).
+    void api
+      .getTripExternalEvents(tripId)
+      .then((events) => {
+        if (live) setExternalEvents(events);
       })
       .catch(() => {
-        if (live) {
-          setExternalEvents([]);
-          setFeedCount(0);
-        }
+        if (live) setExternalEvents([]);
+      });
+    void api
+      .listTripFeeds(tripId)
+      .then((feeds) => {
+        if (live) setFeedCount(feeds.length);
+      })
+      .catch(() => {
+        if (live) setFeedCount(0);
       });
     return () => {
       live = false;
@@ -242,12 +248,13 @@ export default function TripTimeline() {
     );
   }
 
-  // The toggle is offered whenever the trip has a feed (not gated on events
-  // having loaded), so it's discoverable as soon as a feed is added and never
-  // noise on trips with no feeds. Off by default (the stored preference). When
-  // it's on but the feed has produced no events yet, a hint explains the wait.
+  // The toggle is offered whenever the trip has a feed configured OR has events
+  // to show — so it's discoverable as soon as a feed is added (even before its
+  // events load), yet never noise on trips with no feeds. Off by default (the
+  // stored preference). When it's on but the feed has produced no events yet, a
+  // hint explains the wait.
   const externalToggle =
-    feedCount > 0 ? (
+    feedCount > 0 || externalEvents.length > 0 ? (
       <Box sx={{ mb: 1 }}>
         <FormControlLabel
           sx={{ ml: 0 }}
@@ -377,10 +384,12 @@ export default function TripTimeline() {
 }
 
 /** A read-only timeline tile for an external (iCal feed) event. Visually
- * distinct from booking tiles: a calendar icon and a cooler per-feed accent, no
- * expand/edit/select affordances, and a chip naming its source feed so events
- * from different feeds are tellable apart. */
+ * distinct from booking tiles: a calendar icon and a cooler per-feed accent, and
+ * a chip naming its source feed. Titles (and locations) can be long, so on a
+ * narrow screen they're truncated by default; tapping the tile toggles them to
+ * wrap in full. The description always shows in full. */
 function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: string }) {
+  const [expanded, setExpanded] = useState(false);
   const when = event.all_day
     ? 'All day'
     : fmtTimeOfDay(event.starts_at, event.start_tz) +
@@ -388,14 +397,20 @@ function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: st
   return (
     <Card
       variant="outlined"
-      sx={{ position: 'relative', borderLeft: `4px solid ${accent}` }}
+      onClick={() => setExpanded((v) => !v)}
+      sx={{ position: 'relative', borderLeft: `4px solid ${accent}`, cursor: 'pointer' }}
       data-testid={`external-event-${event.id}`}
     >
-      <Stack direction="row" spacing={1.5} sx={{ p: 1.5 }} alignItems="flex-start">
+      <Stack
+        direction="row"
+        spacing={1.5}
+        sx={{ p: 1.5, '&:hover': { bgcolor: 'action.hover' } }}
+        alignItems="flex-start"
+      >
         <CalendarMonthIcon sx={{ color: accent, mt: 0.25 }} />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap={!expanded}>
               {event.title || 'Event'}
             </Typography>
             {event.feed_name && (
@@ -403,7 +418,7 @@ function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: st
                 label={event.feed_name}
                 size="small"
                 variant="outlined"
-                sx={{ height: 18, fontSize: 10, borderColor: accent, color: accent }}
+                sx={{ height: 18, fontSize: 10, borderColor: accent, color: accent, flexShrink: 0 }}
               />
             )}
           </Stack>
@@ -411,10 +426,10 @@ function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: st
             <Typography
               variant="body2"
               color="text.secondary"
-              noWrap
+              noWrap={!expanded}
               sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
             >
-              <PlaceIcon sx={{ fontSize: 14 }} /> {event.location}
+              <PlaceIcon sx={{ fontSize: 14, flexShrink: 0 }} /> {event.location}
             </Typography>
           )}
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
