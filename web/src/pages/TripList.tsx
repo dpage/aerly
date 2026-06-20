@@ -189,13 +189,15 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   }, [scoped, filterNorm]);
 
   return (
-    <Box sx={{ p: 3, maxWidth: 760, mx: 'auto' }}>
+    <Box sx={{ px: 3, pt: 2, pb: 3, maxWidth: 760, mx: 'auto' }}>
       <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>
           {mine ? 'Your trips' : "Friends' trips"}
         </Typography>
         {mine && (
-          <Stack direction="row" spacing={1} alignItems="center">
+          // Pull the actions 12px into the right padding so the kebab lines up
+          // with the Trip header's overflow button (which sits at px:1.5).
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mr: -1.5 }}>
             <Button
               variant="contained"
               size="small"
