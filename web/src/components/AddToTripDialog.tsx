@@ -233,6 +233,28 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   // Flight uses the existing lookup affordance (ident + date) per PRD §6.3.
   const [ident, setIdent] = useState('');
 
+  // Per-type detail fields (counts kept as strings, parsed on submit). Only the
+  // block matching the chosen type is rendered and sent.
+  const [hotelPhone, setHotelPhone] = useState('');
+  const [roomType, setRoomType] = useState('');
+  const [guests, setGuests] = useState('');
+  const [trainOperator, setTrainOperator] = useState('');
+  const [serviceNo, setServiceNo] = useState('');
+  const [coach, setCoach] = useState('');
+  const [seat, setSeat] = useState('');
+  const [trainClass, setTrainClass] = useState('');
+  const [platform, setPlatform] = useState('');
+  const [groundProvider, setGroundProvider] = useState('');
+  const [groundPhone, setGroundPhone] = useState('');
+  const [vehicle, setVehicle] = useState('');
+  const [driver, setDriver] = useState('');
+  const [pax, setPax] = useState('');
+  const [reservationName, setReservationName] = useState('');
+  const [partySize, setPartySize] = useState('');
+  const [diningPhone, setDiningPhone] = useState('');
+  const [excursionProvider, setExcursionProvider] = useState('');
+  const [ticketCount, setTicketCount] = useState('');
+
   const canSubmit = title.trim() !== '' && startsAt !== null && !disabled;
 
   const submit = () => {
@@ -248,6 +270,44 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
     };
     if (type === 'flight' && ident.trim()) {
       part.flight = { ident: ident.trim().toUpperCase() };
+    }
+    // Per-type detail. The hotel's name is the single "Property" field
+    // (start_label); mirror it into property_name so the map detail shows it.
+    if (type === 'hotel') {
+      part.hotel = {
+        property_name: startLabel.trim() || undefined,
+        room_type: roomType.trim() || undefined,
+        guests: parseCount(guests),
+        phone: hotelPhone.trim() || undefined,
+      };
+    } else if (type === 'train') {
+      part.train = {
+        operator: trainOperator.trim() || undefined,
+        service_no: serviceNo.trim() || undefined,
+        coach: coach.trim() || undefined,
+        seat: seat.trim() || undefined,
+        class: trainClass.trim() || undefined,
+        platform: platform.trim() || undefined,
+      };
+    } else if (type === 'ground') {
+      part.ground = {
+        provider: groundProvider.trim() || undefined,
+        phone: groundPhone.trim() || undefined,
+        vehicle: vehicle.trim() || undefined,
+        driver: driver.trim() || undefined,
+        pax: parseCount(pax),
+      };
+    } else if (type === 'dining') {
+      part.dining = {
+        reservation_name: reservationName.trim() || undefined,
+        party_size: parseCount(partySize),
+        phone: diningPhone.trim() || undefined,
+      };
+    } else if (type === 'excursion') {
+      part.excursion = {
+        provider: excursionProvider.trim() || undefined,
+        ticket_count: parseCount(ticketCount),
+      };
     }
     const costNum = cost.trim() === '' ? undefined : Number(cost);
     const input: CreatePlanInput = {
@@ -325,9 +385,9 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
           onChange={(e) => setStartLabel(e.target.value)}
           fullWidth
         />
-        {showEnd && (
+        {isTransfer && (
           <TextField
-            label={endFieldLabel(type)}
+            label="To"
             value={endLabel}
             onChange={(e) => setEndLabel(e.target.value)}
             fullWidth
@@ -372,6 +432,164 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
           />
         )}
       </Stack>
+
+      {type === 'hotel' && (
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <TextField
+            label="Room type (optional)"
+            value={roomType}
+            onChange={(e) => setRoomType(e.target.value)}
+            sx={{ flexGrow: 1 }}
+          />
+          <TextField
+            label="Guests"
+            type="number"
+            value={guests}
+            onChange={(e) => setGuests(e.target.value)}
+            slotProps={{ htmlInput: { min: 0, step: 1 } }}
+            sx={{ width: { xs: '100%', sm: 110 } }}
+          />
+          <TextField
+            label="Phone (optional)"
+            type="tel"
+            value={hotelPhone}
+            onChange={(e) => setHotelPhone(e.target.value)}
+            sx={{ flexGrow: 1 }}
+          />
+        </Stack>
+      )}
+
+      {type === 'train' && (
+        <>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Operator (optional)"
+              value={trainOperator}
+              onChange={(e) => setTrainOperator(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Service no. (optional)"
+              value={serviceNo}
+              onChange={(e) => setServiceNo(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Class"
+              value={trainClass}
+              onChange={(e) => setTrainClass(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Coach"
+              value={coach}
+              onChange={(e) => setCoach(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Seat"
+              value={seat}
+              onChange={(e) => setSeat(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Platform"
+              value={platform}
+              onChange={(e) => setPlatform(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+          </Stack>
+        </>
+      )}
+
+      {type === 'ground' && (
+        <>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Provider (optional)"
+              value={groundProvider}
+              onChange={(e) => setGroundProvider(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Phone (optional)"
+              type="tel"
+              value={groundPhone}
+              onChange={(e) => setGroundPhone(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Vehicle (optional)"
+              value={vehicle}
+              onChange={(e) => setVehicle(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Driver (optional)"
+              value={driver}
+              onChange={(e) => setDriver(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Passengers"
+              type="number"
+              value={pax}
+              onChange={(e) => setPax(e.target.value)}
+              slotProps={{ htmlInput: { min: 0, step: 1 } }}
+              sx={{ width: { xs: '100%', sm: 130 } }}
+            />
+          </Stack>
+        </>
+      )}
+
+      {type === 'dining' && (
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <TextField
+            label="Reservation name (optional)"
+            value={reservationName}
+            onChange={(e) => setReservationName(e.target.value)}
+            sx={{ flexGrow: 1 }}
+          />
+          <TextField
+            label="Party size"
+            type="number"
+            value={partySize}
+            onChange={(e) => setPartySize(e.target.value)}
+            slotProps={{ htmlInput: { min: 0, step: 1 } }}
+            sx={{ width: { xs: '100%', sm: 120 } }}
+          />
+          <TextField
+            label="Phone (optional)"
+            type="tel"
+            value={diningPhone}
+            onChange={(e) => setDiningPhone(e.target.value)}
+            sx={{ flexGrow: 1 }}
+          />
+        </Stack>
+      )}
+
+      {type === 'excursion' && (
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <TextField
+            label="Provider (optional)"
+            value={excursionProvider}
+            onChange={(e) => setExcursionProvider(e.target.value)}
+            sx={{ flexGrow: 1 }}
+          />
+          <TextField
+            label="Tickets"
+            type="number"
+            value={ticketCount}
+            onChange={(e) => setTicketCount(e.target.value)}
+            slotProps={{ htmlInput: { min: 0, step: 1 } }}
+            sx={{ width: { xs: '100%', sm: 120 } }}
+          />
+        </Stack>
+      )}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
         <TextField
@@ -926,6 +1144,15 @@ function defaultStart(): Date {
   return d;
 }
 
+/** Parse an optional count field into a non-negative integer, or undefined when
+ * blank/invalid (the field is then omitted from the create payload). */
+function parseCount(v: string): number | undefined {
+  const t = v.trim();
+  if (t === '') return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
+}
+
 function fmtIso(iso: string, tz?: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -979,15 +1206,6 @@ function startFieldLabel(type: PlanType): string {
       return 'Property';
     default:
       return 'Location';
-  }
-}
-
-function endFieldLabel(type: PlanType): string {
-  switch (type) {
-    case 'hotel':
-      return 'Room / details';
-    default:
-      return 'To';
   }
 }
 

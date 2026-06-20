@@ -360,6 +360,102 @@ describe('PlanEditDialog', () => {
     expect(patch.ice_cream).toEqual({ rating: 4, what_ordered: 'Pistachio cone' });
   });
 
+  it('edits a train part: operator/service/class/coach/seat/platform patch onto train', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'train',
+        parts: [
+          part({
+            type: 'train',
+            start_label: 'Folkestone',
+            end_label: 'Calais',
+            train: {
+              operator: '',
+              service_no: '',
+              coach: '',
+              seat: '',
+              class: '',
+              platform: '',
+            },
+          }),
+        ],
+      }),
+    );
+    await userEvent.type(screen.getByRole('textbox', { name: /operator/i }), 'Eurostar');
+    await userEvent.type(screen.getByRole('textbox', { name: /service no/i }), '9024');
+    await userEvent.type(screen.getByRole('textbox', { name: /class/i }), 'Standard');
+    await userEvent.type(screen.getByRole('textbox', { name: /coach/i }), '12');
+    await userEvent.type(screen.getByRole('textbox', { name: /seat/i }), '44');
+    await userEvent.type(screen.getByRole('textbox', { name: /platform/i }), '2');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.train).toEqual({
+      operator: 'Eurostar',
+      service_no: '9024',
+      class: 'Standard',
+      coach: '12',
+      seat: '44',
+      platform: '2',
+    });
+  });
+
+  it('edits a dining part: reservation name, party size and phone patch onto dining', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'dining',
+        parts: [
+          part({
+            type: 'dining',
+            start_label: 'Belcanto',
+            ends_at: undefined,
+            end_label: '',
+            end_tz: '',
+            dining: { party_size: undefined, reservation_name: '', phone: '' },
+          }),
+        ],
+      }),
+    );
+    await userEvent.type(screen.getByRole('textbox', { name: /reservation name/i }), 'Smith');
+    await userEvent.type(screen.getByRole('spinbutton', { name: /party size/i }), '4');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.dining).toEqual({ reservation_name: 'Smith', party_size: 4 });
+  });
+
+  it('edits a hotel part: room/guests patch onto hotel and the place mirrors property_name', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({
+            type: 'hotel',
+            start_label: 'Old name',
+            end_label: '',
+            hotel: { property_name: 'Old name', address: '', phone: '', room_type: '', guests: 0 },
+          }),
+        ],
+      }),
+    );
+    // No duplicate "Property name" field — the single "Place" carries the name.
+    expect(screen.queryByRole('textbox', { name: /property name/i })).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox', { name: /room type/i }), 'Suite');
+    await userEvent.type(screen.getByRole('spinbutton', { name: /guests/i }), '2');
+    // Renaming the hotel via "Place" mirrors into property_name.
+    const place = screen.getByRole('textbox', { name: /^place$/i });
+    await userEvent.clear(place);
+    await userEvent.type(place, 'New name');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.start_label).toBe('New name');
+    expect(patch.hotel).toMatchObject({ room_type: 'Suite', guests: 2, property_name: 'New name' });
+  });
+
   it('shows "Until" for a non-transfer part that carries an end time (hotel)', () => {
     render_(
       plan({

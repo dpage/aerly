@@ -1315,6 +1315,122 @@ func (s *Store) UpdateIceCreamDetail(ctx context.Context, partID int64, up IceCr
 	return err
 }
 
+// The per-type detail updaters below all follow the IceCream pattern: a nil
+// pointer leaves that field unchanged (COALESCE idiom), and each upserts the
+// satellite row so a part predating its detail still takes the edit. Number
+// fields (guests/pax/party_size/ticket_count) can be set or corrected but not
+// cleared back to NULL, mirroring how cost_amount behaves on the plan.
+
+// HotelDetailUpdate carries the editable subset of a hotel satellite.
+type HotelDetailUpdate struct {
+	PropertyName *string
+	Phone        *string
+	RoomType     *string
+	Guests       *int
+}
+
+// UpdateHotelDetail writes a hotel detail edit, upserting the satellite row.
+func (s *Store) UpdateHotelDetail(ctx context.Context, partID int64, up HotelDetailUpdate) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO hotel_details (plan_part_id, property_name, phone, room_type, guests)
+		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''), COALESCE($4, ''), $5)
+		ON CONFLICT (plan_part_id) DO UPDATE SET
+			property_name = COALESCE($2, hotel_details.property_name),
+			phone         = COALESCE($3, hotel_details.phone),
+			room_type     = COALESCE($4, hotel_details.room_type),
+			guests        = COALESCE($5, hotel_details.guests)`,
+		partID, up.PropertyName, up.Phone, up.RoomType, up.Guests)
+	return err
+}
+
+// TrainDetailUpdate carries the editable subset of a train satellite.
+type TrainDetailUpdate struct {
+	Operator  *string
+	ServiceNo *string
+	Coach     *string
+	Seat      *string
+	Class     *string
+	Platform  *string
+}
+
+// UpdateTrainDetail writes a train detail edit, upserting the satellite row.
+func (s *Store) UpdateTrainDetail(ctx context.Context, partID int64, up TrainDetailUpdate) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO train_details (plan_part_id, operator, service_no, coach, seat, class, platform)
+		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''), COALESCE($4, ''), COALESCE($5, ''), COALESCE($6, ''), COALESCE($7, ''))
+		ON CONFLICT (plan_part_id) DO UPDATE SET
+			operator   = COALESCE($2, train_details.operator),
+			service_no = COALESCE($3, train_details.service_no),
+			coach      = COALESCE($4, train_details.coach),
+			seat       = COALESCE($5, train_details.seat),
+			class      = COALESCE($6, train_details.class),
+			platform   = COALESCE($7, train_details.platform)`,
+		partID, up.Operator, up.ServiceNo, up.Coach, up.Seat, up.Class, up.Platform)
+	return err
+}
+
+// GroundDetailUpdate carries the editable subset of a ground-transport satellite.
+type GroundDetailUpdate struct {
+	Provider *string
+	Phone    *string
+	Vehicle  *string
+	Driver   *string
+	Pax      *int
+}
+
+// UpdateGroundDetail writes a ground-transport detail edit, upserting the row.
+func (s *Store) UpdateGroundDetail(ctx context.Context, partID int64, up GroundDetailUpdate) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO ground_details (plan_part_id, provider, phone, vehicle, driver, pax)
+		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''), COALESCE($4, ''), COALESCE($5, ''), $6)
+		ON CONFLICT (plan_part_id) DO UPDATE SET
+			provider = COALESCE($2, ground_details.provider),
+			phone    = COALESCE($3, ground_details.phone),
+			vehicle  = COALESCE($4, ground_details.vehicle),
+			driver   = COALESCE($5, ground_details.driver),
+			pax      = COALESCE($6, ground_details.pax)`,
+		partID, up.Provider, up.Phone, up.Vehicle, up.Driver, up.Pax)
+	return err
+}
+
+// DiningDetailUpdate carries the editable subset of a dining satellite.
+type DiningDetailUpdate struct {
+	PartySize       *int
+	ReservationName *string
+	Phone           *string
+}
+
+// UpdateDiningDetail writes a dining detail edit, upserting the satellite row.
+func (s *Store) UpdateDiningDetail(ctx context.Context, partID int64, up DiningDetailUpdate) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO dining_details (plan_part_id, party_size, reservation_name, phone)
+		VALUES ($1, $2, COALESCE($3, ''), COALESCE($4, ''))
+		ON CONFLICT (plan_part_id) DO UPDATE SET
+			party_size       = COALESCE($2, dining_details.party_size),
+			reservation_name = COALESCE($3, dining_details.reservation_name),
+			phone            = COALESCE($4, dining_details.phone)`,
+		partID, up.PartySize, up.ReservationName, up.Phone)
+	return err
+}
+
+// ExcursionDetailUpdate carries the editable subset of an excursion satellite.
+type ExcursionDetailUpdate struct {
+	Provider    *string
+	TicketCount *int
+}
+
+// UpdateExcursionDetail writes an excursion detail edit, upserting the row.
+func (s *Store) UpdateExcursionDetail(ctx context.Context, partID int64, up ExcursionDetailUpdate) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO excursion_details (plan_part_id, provider, ticket_count)
+		VALUES ($1, COALESCE($2, ''), $3)
+		ON CONFLICT (plan_part_id) DO UPDATE SET
+			provider     = COALESCE($2, excursion_details.provider),
+			ticket_count = COALESCE($3, excursion_details.ticket_count)`,
+		partID, up.Provider, up.TicketCount)
+	return err
+}
+
 // ----- Passengers (the trigger keeps trip_members in sync) -----
 
 // AddPlanPassenger adds a passenger to a plan. The DB trigger ensures the

@@ -168,6 +168,14 @@ type updatePlanPartReq struct {
 	// IceCream carries an edit to the rating / what-ordered note, so an
 	// ice-cream find can be scored after the visit. A nil field is unchanged.
 	IceCream *iceCreamEditReq `json:"ice_cream,omitempty"`
+
+	// The remaining per-type detail edits, applied only to a part of the
+	// matching type. A nil field within each leaves that column unchanged.
+	Hotel     *hotelEditReq     `json:"hotel,omitempty"`
+	Train     *trainEditReq     `json:"train,omitempty"`
+	Ground    *groundEditReq    `json:"ground,omitempty"`
+	Dining    *diningEditReq    `json:"dining,omitempty"`
+	Excursion *excursionEditReq `json:"excursion,omitempty"`
 }
 
 // iceCreamEditReq is the editable subset of an ice-cream stop. A nil field
@@ -175,6 +183,47 @@ type updatePlanPartReq struct {
 type iceCreamEditReq struct {
 	Rating      *int    `json:"rating,omitempty"`
 	WhatOrdered *string `json:"what_ordered,omitempty"`
+}
+
+// hotelEditReq is the editable subset of a hotel satellite. A nil field leaves
+// that column unchanged.
+type hotelEditReq struct {
+	PropertyName *string `json:"property_name,omitempty"`
+	Phone        *string `json:"phone,omitempty"`
+	RoomType     *string `json:"room_type,omitempty"`
+	Guests       *int    `json:"guests,omitempty"`
+}
+
+// trainEditReq is the editable subset of a train satellite.
+type trainEditReq struct {
+	Operator  *string `json:"operator,omitempty"`
+	ServiceNo *string `json:"service_no,omitempty"`
+	Coach     *string `json:"coach,omitempty"`
+	Seat      *string `json:"seat,omitempty"`
+	Class     *string `json:"class,omitempty"`
+	Platform  *string `json:"platform,omitempty"`
+}
+
+// groundEditReq is the editable subset of a ground-transport satellite.
+type groundEditReq struct {
+	Provider *string `json:"provider,omitempty"`
+	Phone    *string `json:"phone,omitempty"`
+	Vehicle  *string `json:"vehicle,omitempty"`
+	Driver   *string `json:"driver,omitempty"`
+	Pax      *int    `json:"pax,omitempty"`
+}
+
+// diningEditReq is the editable subset of a dining satellite.
+type diningEditReq struct {
+	PartySize       *int    `json:"party_size,omitempty"`
+	ReservationName *string `json:"reservation_name,omitempty"`
+	Phone           *string `json:"phone,omitempty"`
+}
+
+// excursionEditReq is the editable subset of an excursion satellite.
+type excursionEditReq struct {
+	Provider    *string `json:"provider,omitempty"`
+	TicketCount *int    `json:"ticket_count,omitempty"`
 }
 
 // flightEditReq is the editable subset of a flight's route. A nil field leaves
@@ -715,6 +764,14 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The remaining per-type detail edits. Each is applied only to a part of the
+	// matching type (a hotel edit on a dining part is ignored), and the store
+	// upserts so a part predating its satellite still takes the edit. partDTO
+	// reloads the satellite below, so the response reflects the change.
+	if err := a.applyPartDetailEdit(r.Context(), id, part.Type, in); err != nil {
+		handleStoreErr(w, err)
+		return
+	}
 	dto, err := a.partDTO(r.Context(), part)
 	if err != nil {
 		handleStoreErr(w, err)
@@ -724,6 +781,71 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		a.publishPlanUpdated(r.Context(), tripID, planID)
 	}
 	writeJSON(w, http.StatusOK, dto)
+}
+
+// applyPartDetailEdit dispatches a per-type detail edit to the matching store
+// upsert, guarded by the part's type so a mismatched detail block (e.g. a hotel
+// edit posted against a dining part) is silently ignored rather than written.
+func (a *API) applyPartDetailEdit(ctx context.Context, id int64, partType string, in updatePlanPartReq) error {
+	switch partType {
+	case "hotel":
+		if in.Hotel != nil {
+			return a.Store.UpdateHotelDetail(ctx, id, store.HotelDetailUpdate{
+				PropertyName: in.Hotel.PropertyName,
+				Phone:        in.Hotel.Phone,
+				RoomType:     in.Hotel.RoomType,
+				Guests:       clampNonNegative(in.Hotel.Guests),
+			})
+		}
+	case "train":
+		if in.Train != nil {
+			return a.Store.UpdateTrainDetail(ctx, id, store.TrainDetailUpdate{
+				Operator:  in.Train.Operator,
+				ServiceNo: in.Train.ServiceNo,
+				Coach:     in.Train.Coach,
+				Seat:      in.Train.Seat,
+				Class:     in.Train.Class,
+				Platform:  in.Train.Platform,
+			})
+		}
+	case "ground":
+		if in.Ground != nil {
+			return a.Store.UpdateGroundDetail(ctx, id, store.GroundDetailUpdate{
+				Provider: in.Ground.Provider,
+				Phone:    in.Ground.Phone,
+				Vehicle:  in.Ground.Vehicle,
+				Driver:   in.Ground.Driver,
+				Pax:      clampNonNegative(in.Ground.Pax),
+			})
+		}
+	case "dining":
+		if in.Dining != nil {
+			return a.Store.UpdateDiningDetail(ctx, id, store.DiningDetailUpdate{
+				PartySize:       clampNonNegative(in.Dining.PartySize),
+				ReservationName: in.Dining.ReservationName,
+				Phone:           in.Dining.Phone,
+			})
+		}
+	case "excursion":
+		if in.Excursion != nil {
+			return a.Store.UpdateExcursionDetail(ctx, id, store.ExcursionDetailUpdate{
+				Provider:    in.Excursion.Provider,
+				TicketCount: clampNonNegative(in.Excursion.TicketCount),
+			})
+		}
+	}
+	return nil
+}
+
+// clampNonNegative floors a nullable count at 0 so a stray negative from the
+// client can't land in a guests/pax/party-size/ticket column. nil passes
+// through (leave unchanged).
+func clampNonNegative(n *int) *int {
+	if n != nil && *n < 0 {
+		zero := 0
+		return &zero
+	}
+	return n
 }
 
 // applyFlightEdit applies a flight part's route/identity edit. Changing the

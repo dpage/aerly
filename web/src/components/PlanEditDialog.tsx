@@ -69,11 +69,52 @@ interface IceCreamForm {
   whatOrdered: string;
 }
 
+/** The editable per-type detail for the remaining plan types. Numbers are held
+ * as strings so the field can be cleared while editing; parsed on save. */
+interface HotelForm {
+  phone: string;
+  roomType: string;
+  guests: string;
+}
+
+interface TrainForm {
+  operator: string;
+  serviceNo: string;
+  coach: string;
+  seat: string;
+  cls: string;
+  platform: string;
+}
+
+interface GroundForm {
+  provider: string;
+  phone: string;
+  vehicle: string;
+  driver: string;
+  pax: string;
+}
+
+interface DiningForm {
+  reservationName: string;
+  partySize: string;
+  phone: string;
+}
+
+interface ExcursionForm {
+  provider: string;
+  ticketCount: string;
+}
+
 interface PartForm {
   start: EndForm;
   end: EndForm;
   flight?: FlightForm;
   iceCream?: IceCreamForm;
+  hotel?: HotelForm;
+  train?: TrainForm;
+  ground?: GroundForm;
+  dining?: DiningForm;
+  excursion?: ExcursionForm;
 }
 
 function endForm(
@@ -121,6 +162,51 @@ function partForm(part: PlanPart): PartForm {
         ? {
             rating: part.ice_cream?.rating ?? 0,
             whatOrdered: part.ice_cream?.what_ordered ?? '',
+          }
+        : undefined,
+    hotel:
+      part.type === 'hotel'
+        ? {
+            phone: part.hotel?.phone ?? '',
+            roomType: part.hotel?.room_type ?? '',
+            guests: part.hotel?.guests != null ? String(part.hotel.guests) : '',
+          }
+        : undefined,
+    train:
+      part.type === 'train'
+        ? {
+            operator: part.train?.operator ?? '',
+            serviceNo: part.train?.service_no ?? '',
+            coach: part.train?.coach ?? '',
+            seat: part.train?.seat ?? '',
+            cls: part.train?.class ?? '',
+            platform: part.train?.platform ?? '',
+          }
+        : undefined,
+    ground:
+      part.type === 'ground'
+        ? {
+            provider: part.ground?.provider ?? '',
+            phone: part.ground?.phone ?? '',
+            vehicle: part.ground?.vehicle ?? '',
+            driver: part.ground?.driver ?? '',
+            pax: part.ground?.pax != null ? String(part.ground.pax) : '',
+          }
+        : undefined,
+    dining:
+      part.type === 'dining'
+        ? {
+            reservationName: part.dining?.reservation_name ?? '',
+            partySize: part.dining?.party_size != null ? String(part.dining.party_size) : '',
+            phone: part.dining?.phone ?? '',
+          }
+        : undefined,
+    excursion:
+      part.type === 'excursion'
+        ? {
+            provider: part.excursion?.provider ?? '',
+            ticketCount:
+              part.excursion?.ticket_count != null ? String(part.excursion.ticket_count) : '',
           }
         : undefined,
   };
@@ -210,7 +296,80 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
     if (Object.keys(ice).length > 0) patch.ice_cream = ice;
   }
 
+  // The remaining per-type details. Each text field is sent only when changed
+  // (trimmed); each count only when it changed to a valid non-negative number —
+  // a count can be set or corrected but, like cost, not cleared back to unknown.
+  if (form.hotel && init.hotel) {
+    const h = form.hotel;
+    const hi = init.hotel;
+    const d: NonNullable<UpdatePlanPartInput['hotel']> = {};
+    // The hotel's name is the single "Place" field (start_label); mirror an edit
+    // of it into property_name so the map detail's "Property" row stays in sync
+    // rather than asking for the name twice.
+    if (form.start.label.trim() !== init.start.label.trim())
+      d.property_name = form.start.label.trim();
+    if (h.phone.trim() !== hi.phone.trim()) d.phone = h.phone.trim();
+    if (h.roomType.trim() !== hi.roomType.trim()) d.room_type = h.roomType.trim();
+    const guests = parseCount(h.guests);
+    if (guests != null && h.guests.trim() !== hi.guests.trim()) d.guests = guests;
+    if (Object.keys(d).length > 0) patch.hotel = d;
+  }
+  if (form.train && init.train) {
+    const t = form.train;
+    const ti = init.train;
+    const d: NonNullable<UpdatePlanPartInput['train']> = {};
+    if (t.operator.trim() !== ti.operator.trim()) d.operator = t.operator.trim();
+    if (t.serviceNo.trim() !== ti.serviceNo.trim()) d.service_no = t.serviceNo.trim();
+    if (t.coach.trim() !== ti.coach.trim()) d.coach = t.coach.trim();
+    if (t.seat.trim() !== ti.seat.trim()) d.seat = t.seat.trim();
+    if (t.cls.trim() !== ti.cls.trim()) d.class = t.cls.trim();
+    if (t.platform.trim() !== ti.platform.trim()) d.platform = t.platform.trim();
+    if (Object.keys(d).length > 0) patch.train = d;
+  }
+  if (form.ground && init.ground) {
+    const g = form.ground;
+    const gi = init.ground;
+    const d: NonNullable<UpdatePlanPartInput['ground']> = {};
+    if (g.provider.trim() !== gi.provider.trim()) d.provider = g.provider.trim();
+    if (g.phone.trim() !== gi.phone.trim()) d.phone = g.phone.trim();
+    if (g.vehicle.trim() !== gi.vehicle.trim()) d.vehicle = g.vehicle.trim();
+    if (g.driver.trim() !== gi.driver.trim()) d.driver = g.driver.trim();
+    const pax = parseCount(g.pax);
+    if (pax != null && g.pax.trim() !== gi.pax.trim()) d.pax = pax;
+    if (Object.keys(d).length > 0) patch.ground = d;
+  }
+  if (form.dining && init.dining) {
+    const dn = form.dining;
+    const di = init.dining;
+    const d: NonNullable<UpdatePlanPartInput['dining']> = {};
+    if (dn.reservationName.trim() !== di.reservationName.trim())
+      d.reservation_name = dn.reservationName.trim();
+    if (dn.phone.trim() !== di.phone.trim()) d.phone = dn.phone.trim();
+    const partySize = parseCount(dn.partySize);
+    if (partySize != null && dn.partySize.trim() !== di.partySize.trim()) d.party_size = partySize;
+    if (Object.keys(d).length > 0) patch.dining = d;
+  }
+  if (form.excursion && init.excursion) {
+    const e = form.excursion;
+    const ei = init.excursion;
+    const d: NonNullable<UpdatePlanPartInput['excursion']> = {};
+    if (e.provider.trim() !== ei.provider.trim()) d.provider = e.provider.trim();
+    const ticketCount = parseCount(e.ticketCount);
+    if (ticketCount != null && e.ticketCount.trim() !== ei.ticketCount.trim())
+      d.ticket_count = ticketCount;
+    if (Object.keys(d).length > 0) patch.excursion = d;
+  }
+
   return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/** Parse an optional count field: a finite, non-negative integer, else
+ * undefined (blank or invalid — left unchanged on save). */
+function parseCount(v: string): number | undefined {
+  const t = v.trim();
+  if (t === '') return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
 }
 
 /** Edit a plan's title / confirmation / notes plus every part's schedule and
@@ -358,6 +517,20 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
       const f = prev[partId].iceCream;
       if (!f) return prev;
       return { ...prev, [partId]: { ...prev[partId], iceCream: { ...f, [field]: value } } };
+    });
+  };
+
+  // One updater for the remaining per-type detail sub-forms — each is a flat
+  // record of string fields, so a single keyed merge serves all of them.
+  type DetailKey = 'hotel' | 'train' | 'ground' | 'dining' | 'excursion';
+  const patchDetail = (partId: number, key: DetailKey, field: string, value: string) => {
+    setForms((prev) => {
+      const sub = prev[partId][key];
+      if (!sub) return prev;
+      return {
+        ...prev,
+        [partId]: { ...prev[partId], [key]: { ...sub, [field]: value } as typeof sub },
+      };
     });
   };
 
@@ -624,6 +797,46 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                       />
                     </Box>
                   )}
+                  {form.hotel && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <HotelFields
+                        form={form.hotel}
+                        onChange={(f, v) => patchDetail(part.id, 'hotel', f, v)}
+                      />
+                    </Box>
+                  )}
+                  {form.train && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <TrainFields
+                        form={form.train}
+                        onChange={(f, v) => patchDetail(part.id, 'train', f, v)}
+                      />
+                    </Box>
+                  )}
+                  {form.ground && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <GroundFields
+                        form={form.ground}
+                        onChange={(f, v) => patchDetail(part.id, 'ground', f, v)}
+                      />
+                    </Box>
+                  )}
+                  {form.dining && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <DiningFields
+                        form={form.dining}
+                        onChange={(f, v) => patchDetail(part.id, 'dining', f, v)}
+                      />
+                    </Box>
+                  )}
+                  {form.excursion && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <ExcursionFields
+                        form={form.excursion}
+                        onChange={(f, v) => patchDetail(part.id, 'excursion', f, v)}
+                      />
+                    </Box>
+                  )}
                 </Box>
               );
             })}
@@ -772,6 +985,250 @@ function IceCreamFields({
         multiline
         minRows={2}
       />
+    </Stack>
+  );
+}
+
+/** Hotel detail inputs: property name, phone, room type and guest count — the
+ * fields the map list shows for a stay (PartDetailBlock). */
+function HotelFields({
+  form,
+  onChange,
+}: {
+  form: HotelForm;
+  onChange: (field: keyof HotelForm, value: string) => void;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+        Hotel
+      </Typography>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Room type"
+          size="small"
+          value={form.roomType}
+          onChange={(e) => onChange('roomType', e.target.value)}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Guests"
+          type="number"
+          size="small"
+          value={form.guests}
+          onChange={(e) => onChange('guests', e.target.value)}
+          slotProps={{ htmlInput: { min: 0, step: 1 } }}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+      <TextField
+        label="Phone"
+        type="tel"
+        size="small"
+        value={form.phone}
+        onChange={(e) => onChange('phone', e.target.value)}
+        fullWidth
+      />
+    </Stack>
+  );
+}
+
+/** Train detail inputs: operator, service, class and coach/seat/platform. */
+function TrainFields({
+  form,
+  onChange,
+}: {
+  form: TrainForm;
+  onChange: (field: keyof TrainForm, value: string) => void;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+        Train
+      </Typography>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Operator"
+          size="small"
+          value={form.operator}
+          onChange={(e) => onChange('operator', e.target.value)}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Service no."
+          size="small"
+          value={form.serviceNo}
+          onChange={(e) => onChange('serviceNo', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Class"
+          size="small"
+          value={form.cls}
+          onChange={(e) => onChange('cls', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+        <TextField
+          label="Coach"
+          size="small"
+          value={form.coach}
+          onChange={(e) => onChange('coach', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+        <TextField
+          label="Seat"
+          size="small"
+          value={form.seat}
+          onChange={(e) => onChange('seat', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+        <TextField
+          label="Platform"
+          size="small"
+          value={form.platform}
+          onChange={(e) => onChange('platform', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+    </Stack>
+  );
+}
+
+/** Ground-transport detail inputs: provider, phone, vehicle, driver, pax. */
+function GroundFields({
+  form,
+  onChange,
+}: {
+  form: GroundForm;
+  onChange: (field: keyof GroundForm, value: string) => void;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+        Ground transport
+      </Typography>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Provider"
+          size="small"
+          value={form.provider}
+          onChange={(e) => onChange('provider', e.target.value)}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Phone"
+          type="tel"
+          size="small"
+          value={form.phone}
+          onChange={(e) => onChange('phone', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Vehicle"
+          size="small"
+          value={form.vehicle}
+          onChange={(e) => onChange('vehicle', e.target.value)}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Driver"
+          size="small"
+          value={form.driver}
+          onChange={(e) => onChange('driver', e.target.value)}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Passengers"
+          type="number"
+          size="small"
+          value={form.pax}
+          onChange={(e) => onChange('pax', e.target.value)}
+          slotProps={{ htmlInput: { min: 0, step: 1 } }}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+    </Stack>
+  );
+}
+
+/** Dining detail inputs: reservation name, party size, phone. */
+function DiningFields({
+  form,
+  onChange,
+}: {
+  form: DiningForm;
+  onChange: (field: keyof DiningForm, value: string) => void;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+        Dining
+      </Typography>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Reservation name"
+          size="small"
+          value={form.reservationName}
+          onChange={(e) => onChange('reservationName', e.target.value)}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Party size"
+          type="number"
+          size="small"
+          value={form.partySize}
+          onChange={(e) => onChange('partySize', e.target.value)}
+          slotProps={{ htmlInput: { min: 0, step: 1 } }}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+      <TextField
+        label="Phone"
+        type="tel"
+        size="small"
+        value={form.phone}
+        onChange={(e) => onChange('phone', e.target.value)}
+        fullWidth
+      />
+    </Stack>
+  );
+}
+
+/** Excursion detail inputs: provider and ticket count. */
+function ExcursionFields({
+  form,
+  onChange,
+}: {
+  form: ExcursionForm;
+  onChange: (field: keyof ExcursionForm, value: string) => void;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+        Excursion
+      </Typography>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Provider"
+          size="small"
+          value={form.provider}
+          onChange={(e) => onChange('provider', e.target.value)}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Tickets"
+          type="number"
+          size="small"
+          value={form.ticketCount}
+          onChange={(e) => onChange('ticketCount', e.target.value)}
+          slotProps={{ htmlInput: { min: 0, step: 1 } }}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
     </Stack>
   );
 }

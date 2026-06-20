@@ -172,15 +172,18 @@ describe('AddToTripDialog - manual tab', () => {
     await userEvent.click(screen.getByLabelText('Type'));
     await userEvent.click(await screen.findByRole('option', { name: /hotel/i }));
 
-    // Hotel-specific labels appear; flight ident field does not.
+    // Hotel-specific labels appear; flight ident field does not. A hotel isn't a
+    // transfer, so there's no "To" label — the room is its own detail field now.
     expect(screen.getByLabelText('Property')).toBeInTheDocument();
     expect(screen.getByLabelText('Check-in')).toBeInTheDocument();
     expect(screen.getByLabelText('Check-out')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Room type/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/Flight number/)).not.toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText(/^Title/), 'Hotel Lisboa');
     await userEvent.type(screen.getByLabelText('Property'), 'Lobby');
-    await userEvent.type(screen.getByLabelText('Room / details'), 'Suite');
+    await userEvent.type(screen.getByLabelText(/Room type/), 'Suite');
+    await userEvent.type(screen.getByLabelText('Guests'), '2');
     await userEvent.type(screen.getByLabelText('Property address'), '1 Rua');
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
@@ -188,7 +191,13 @@ describe('AddToTripDialog - manual tab', () => {
     expect(input.type).toBe('hotel');
     expect(input.parts[0].flight).toBeUndefined();
     expect(input.parts[0].start_label).toBe('Lobby');
-    expect(input.parts[0].end_label).toBe('Suite');
+    // The room/guests land on the hotel detail, and the property name mirrors
+    // the single "Property" (start_label) field rather than a duplicate input.
+    expect(input.parts[0].hotel).toMatchObject({
+      property_name: 'Lobby',
+      room_type: 'Suite',
+      guests: 2,
+    });
   });
 
   it('builds a dining plan (single endpoint, no end field)', async () => {
@@ -209,6 +218,34 @@ describe('AddToTripDialog - manual tab', () => {
     const [, input] = h.state.createPlan.mock.calls[0];
     expect(input.type).toBe('dining');
     expect(input.parts[0].ends_at).toBeUndefined();
+  });
+
+  it('builds a train plan with operator/coach/seat detail', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: /train/i }));
+
+    // A train is a transfer (From/To) and exposes its own detail fields.
+    expect(screen.getByLabelText('To')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Operator/)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Eurostar');
+    await userEvent.type(screen.getByLabelText(/Operator/), 'Eurostar');
+    await userEvent.type(screen.getByLabelText(/Service no/), '9024');
+    await userEvent.type(screen.getByLabelText('Coach'), '12');
+    await userEvent.type(screen.getByLabelText('Seat'), '44');
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const [, input] = h.state.createPlan.mock.calls[0];
+    expect(input.type).toBe('train');
+    expect(input.parts[0].train).toMatchObject({
+      operator: 'Eurostar',
+      service_no: '9024',
+      coach: '12',
+      seat: '44',
+    });
   });
 });
 
