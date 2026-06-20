@@ -43,6 +43,10 @@ func PlanReminderLabel(planType, title, ident string) string {
 		return "your reservation"
 	case "excursion":
 		return "your excursion"
+	case "meeting":
+		return "your meeting"
+	case "event":
+		return "your event"
 	default:
 		return "your plan"
 	}

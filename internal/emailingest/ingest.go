@@ -493,6 +493,10 @@ func planTypeLabel(t string) string {
 		return "Dining"
 	case "excursion":
 		return "Excursion"
+	case "meeting":
+		return "Meeting"
+	case "event":
+		return "Event"
 	default:
 		return "Booking"
 	}

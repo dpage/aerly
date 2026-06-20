@@ -402,8 +402,8 @@ export function isTransferType(type: PlanType): boolean {
 }
 
 /** Types that carry a distinct end the user can set: transfers (an arrival)
- * and hotels (a check-out). Single-place types (dining, excursion) have only a
- * start. Drives which dialogs offer an end date/time. */
+ * and hotels (a check-out). Single-place types (dining, excursion, meeting,
+ * event) have only a start. Drives which dialogs offer an end date/time. */
 export function typeHasEnd(type: PlanType): boolean {
   return isTransferType(type) || type === 'hotel';
 }
@@ -435,7 +435,13 @@ export function planTypeLabel(type: PlanType): string {
       return 'Excursion';
     case 'ice_cream':
       return 'Ice cream';
+    case 'meeting':
+      return 'Meeting';
+    case 'event':
+      return 'Event';
     default:
       return type;
   }
 }
+
+

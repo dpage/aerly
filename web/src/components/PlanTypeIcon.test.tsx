@@ -12,6 +12,8 @@ const TYPES: PlanType[] = [
   'dining',
   'excursion',
   'ice_cream',
+  'meeting',
+  'event',
 ];
 
 describe('PlanTypeIcon', () => {

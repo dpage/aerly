@@ -36,7 +36,7 @@ func (f FlightFields) HasManualDetails() bool {
 // meaning. StartDate/EndDate are YYYY-MM-DD local; StartTime/EndTime are HH:MM
 // 24h local. Confidence is "high"|"medium"|"low".
 type ExtractedPart struct {
-	Type       string // flight|train|hotel|ground|dining|excursion
+	Type       string // flight|train|hotel|ground|dining|excursion|meeting|event
 	Confidence string
 
 	StartDate  string

@@ -53,6 +53,8 @@ const PLAN_TYPES: PlanType[] = [
   'dining',
   'excursion',
   'ice_cream',
+  'meeting',
+  'event',
 ];
 
 /** Confidence below this gets flagged in the confirm step (spec §6 — "anything
@@ -1191,6 +1193,10 @@ function placeholderFor(type: PlanType): string {
       return 'Walking tour';
     case 'ice_cream':
       return 'Gelato at Giolitti';
+    case 'meeting':
+      return 'Team stand-up';
+    case 'event':
+      return 'Opening keynote';
     default:
       return planTypeLabel(type);
   }
@@ -1216,6 +1222,8 @@ function startTimeLabel(type: PlanType): string {
     case 'dining':
     case 'excursion':
     case 'ice_cream':
+    case 'meeting':
+    case 'event':
       return 'Time';
     default:
       return 'Departs';

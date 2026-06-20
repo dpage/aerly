@@ -263,7 +263,9 @@ export type PlanType =
   | 'ground'
   | 'dining'
   | 'excursion'
-  | 'ice_cream';
+  | 'ice_cream'
+  | 'meeting'
+  | 'event';
 
 /** Lifecycle status of a single plan part. */
 export type PlanPartStatus = 'planned' | 'confirmed' | 'cancelled';
@@ -441,6 +443,29 @@ export interface IceCreamDetail {
   what_ordered: string;
 }
 
+/** Detail for a meeting part: stand-ups, org sessions, committee calls. */
+export interface MeetingDetail {
+  /** Room, building address, or virtual call URL. */
+  location: string;
+  organiser: string;
+  /** Video-call platform name, e.g. 'Zoom', 'Google Meet'. Empty for in-person. */
+  platform: string;
+}
+
+/** Detail for an event part: any ticketed or attended happening—conference
+ * talks, concerts, cinema, theatre, sports matches, etc. */
+export interface EventDetail {
+  /** Artist, speaker, act, or presenter name. */
+  performer: string;
+  /** Free-form category, e.g. 'Concert', 'Talk', 'Cinema', 'Theatre'. */
+  category: string;
+  /** Stage, screen, room, or track within the venue. */
+  venue_area: string;
+  /** Event page or ticket link. */
+  url: string;
+>>>>>>> 1732f31 (feat: add Meeting and Event plan types)
+}
+
 export interface PlanPart {
   id: number;
   plan_id: number;
@@ -476,6 +501,8 @@ export interface PlanPart {
   dining?: DiningDetail;
   excursion?: ExcursionDetail;
   ice_cream?: IceCreamDetail;
+  meeting?: MeetingDetail;
+  event?: EventDetail;
   /** The owning plan's title (the user-facing name of the booking), copied onto
    * the part so the map marker/list can show it. Absent when unknown. */
   title?: string;
@@ -662,6 +689,8 @@ export interface PlanPartInput {
   dining?: Partial<DiningDetail>;
   excursion?: Partial<ExcursionDetail>;
   ice_cream?: Partial<IceCreamDetail>;
+  meeting?: Partial<MeetingDetail>;
+  event?: Partial<EventDetail>;
 }
 
 export interface UpdatePlanPartInput {
