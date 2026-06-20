@@ -91,7 +91,7 @@ func TestFetchParsesAndConditionalGET(t *testing.T) {
 	f.HTTP = srv.Client()
 	f.AllowPrivate = true // httptest binds to loopback
 
-	res, err := f.Fetch(context.Background(), srv.URL, "", "")
+	res, err := f.Fetch(context.Background(), srv.URL, "", "", "")
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestFetchParsesAndConditionalGET(t *testing.T) {
 	}
 
 	// A conditional GET with the returned ETag yields ErrNotModified.
-	if _, err := f.Fetch(context.Background(), srv.URL, res.ETag, ""); err != ErrNotModified {
+	if _, err := f.Fetch(context.Background(), srv.URL, res.ETag, "", ""); err != ErrNotModified {
 		t.Errorf("conditional Fetch err = %v, want ErrNotModified", err)
 	}
 }
@@ -131,7 +131,7 @@ func TestMapEventsDropsUndated(t *testing.T) {
 		{UID: "a", Summary: "dated", Start: importics.DateTime{Time: time.Now(), HasTime: true}},
 		{UID: "b", Summary: "undated"}, // zero Start.Time → dropped
 	}
-	out := mapEvents(in, "")
+	out := mapEvents(in, "", "")
 	if len(out) != 1 || out[0].UID != "a" {
 		t.Errorf("mapEvents = %+v, want only the dated event", out)
 	}
@@ -145,7 +145,7 @@ func TestMapEventsTimezone(t *testing.T) {
 	in := []importics.Event{
 		{UID: "z", Summary: "keynote", Start: importics.DateTime{Time: utc, HasTime: true, IsUTC: true}},
 	}
-	out := mapEvents(in, "America/Vancouver")
+	out := mapEvents(in, "America/Vancouver", "")
 	if len(out) != 1 {
 		t.Fatalf("want 1 event, got %d", len(out))
 	}
@@ -162,7 +162,7 @@ func TestMapEventsTimezone(t *testing.T) {
 	in = []importics.Event{
 		{UID: "f", Summary: "session", Start: importics.DateTime{Time: wall, HasTime: true, Floating: true}},
 	}
-	out = mapEvents(in, "America/Vancouver")
+	out = mapEvents(in, "America/Vancouver", "")
 	if got := out[0].StartsAt; !got.Equal(time.Date(2026, 5, 12, 16, 0, 0, 0, time.UTC)) {
 		t.Errorf("floating not anchored to Vancouver: got %v, want 16:00Z", got)
 	}
@@ -174,9 +174,22 @@ func TestMapEventsTimezone(t *testing.T) {
 	in = []importics.Event{
 		{UID: "t", Summary: "x", Start: importics.DateTime{Time: utc, HasTime: true, TZID: "Europe/London"}},
 	}
-	out = mapEvents(in, "America/Vancouver")
+	out = mapEvents(in, "America/Vancouver", "")
 	if out[0].StartTZ != "Europe/London" {
 		t.Errorf("StartTZ = %q, want Europe/London (event TZID wins)", out[0].StartTZ)
+	}
+
+	// With no event TZID and no calendar zone, the user-set fallback applies —
+	// the case for a UTC feed that declares no zone at all (e.g. PGDay UK).
+	in = []importics.Event{
+		{UID: "u", Summary: "x", Start: importics.DateTime{Time: utc, HasTime: true, IsUTC: true}},
+	}
+	out = mapEvents(in, "", "Europe/London")
+	if out[0].StartTZ != "Europe/London" {
+		t.Errorf("StartTZ = %q, want Europe/London (user fallback)", out[0].StartTZ)
+	}
+	if !out[0].StartsAt.Equal(utc) {
+		t.Errorf("UTC instant changed under fallback: %v", out[0].StartsAt)
 	}
 }
 
@@ -207,7 +220,7 @@ func TestFetchRejectsNonICalendar(t *testing.T) {
 	f.HTTP = srv.Client()
 	f.AllowPrivate = true
 
-	if _, err := f.Fetch(context.Background(), srv.URL, "", ""); err != ErrNotICalendar {
+	if _, err := f.Fetch(context.Background(), srv.URL, "", "", ""); err != ErrNotICalendar {
 		t.Errorf("Fetch err = %v, want ErrNotICalendar", err)
 	}
 }

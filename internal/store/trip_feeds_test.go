@@ -14,11 +14,11 @@ func TestTripFeedsCRUDAndEvents(t *testing.T) {
 	trip := mkTrip(t, s, owner)
 
 	// Add two feeds.
-	f1, err := s.AddTripFeed(ctx, trip, "https://example.com/a.ics", "Schedule A")
+	f1, err := s.AddTripFeed(ctx, trip, "https://example.com/a.ics", "Schedule A", "")
 	if err != nil {
 		t.Fatalf("AddTripFeed: %v", err)
 	}
-	if _, err := s.AddTripFeed(ctx, trip, "https://example.com/b.ics", ""); err != nil {
+	if _, err := s.AddTripFeed(ctx, trip, "https://example.com/b.ics", "", ""); err != nil {
 		t.Fatalf("AddTripFeed b: %v", err)
 	}
 
@@ -34,12 +34,15 @@ func TestTripFeedsCRUDAndEvents(t *testing.T) {
 	if err := s.MarkFeedFetched(ctx, f1.ID, `"etag"`, "Mon", "boom"); err != nil {
 		t.Fatalf("MarkFeedFetched: %v", err)
 	}
-	upd, err := s.UpdateTripFeed(ctx, f1.ID, "https://example.com/a2.ics", "A2")
+	upd, err := s.UpdateTripFeed(ctx, f1.ID, "https://example.com/a2.ics", "A2", "America/Vancouver")
 	if err != nil {
 		t.Fatalf("UpdateTripFeed: %v", err)
 	}
 	if upd.URL != "https://example.com/a2.ics" || upd.Name != "A2" {
 		t.Errorf("update = %+v", upd)
+	}
+	if upd.Timezone != "America/Vancouver" {
+		t.Errorf("timezone not saved: %+v", upd)
 	}
 	if upd.ETag != "" || upd.LastModified != "" || upd.LastError != "" {
 		t.Errorf("edit should clear validators/error: %+v", upd)

@@ -325,6 +325,9 @@ export interface TripFeed {
   url: string;
   /** Optional friendly label; blank falls back to the host in the UI. */
   name: string;
+  /** Optional IANA zone used as the fallback display zone for events that carry
+   * no zone of their own (for feeds that emit UTC with no timezone info). */
+  timezone: string;
   /** ISO timestamp of the last successful/attempted fetch; absent until first. */
   last_fetched_at?: string;
   /** Last fetch/parse error, surfaced on the Edit dialog. Absent when healthy. */

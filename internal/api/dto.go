@@ -484,6 +484,7 @@ type TripFeedDTO struct {
 	TripID        int64      `json:"trip_id"`
 	URL           string     `json:"url"`
 	Name          string     `json:"name"`
+	Timezone      string     `json:"timezone"`
 	LastFetchedAt *time.Time `json:"last_fetched_at,omitempty"`
 	LastError     string     `json:"last_error,omitempty"`
 }
@@ -495,6 +496,7 @@ func ToTripFeedDTO(f *store.TripFeed) TripFeedDTO {
 		TripID:        f.TripID,
 		URL:           f.URL,
 		Name:          f.Name,
+		Timezone:      f.Timezone,
 		LastFetchedAt: f.LastFetchedAt,
 		LastError:     f.LastError,
 	}

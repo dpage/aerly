@@ -20,8 +20,11 @@ type TripFeed struct {
 	LastModified  string
 	LastFetchedAt *time.Time
 	LastError     string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// Timezone is an optional IANA zone the user picked for feeds that don't
+	// declare one; used as the fallback display zone for the feed's events.
+	Timezone  string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // TripFeedEvent is one cached event parsed from a feed. Events are read-only
@@ -42,12 +45,12 @@ type TripFeedEvent struct {
 	FeedName string
 }
 
-const tripFeedColumns = `id, trip_id, url, name, etag, last_modified, last_fetched_at, last_error, created_at, updated_at`
+const tripFeedColumns = `id, trip_id, url, name, etag, last_modified, last_fetched_at, last_error, timezone, created_at, updated_at`
 
 func scanTripFeed(row pgx.Row) (*TripFeed, error) {
 	var f TripFeed
 	err := row.Scan(&f.ID, &f.TripID, &f.URL, &f.Name, &f.ETag, &f.LastModified,
-		&f.LastFetchedAt, &f.LastError, &f.CreatedAt, &f.UpdatedAt)
+		&f.LastFetchedAt, &f.LastError, &f.Timezone, &f.CreatedAt, &f.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -69,7 +72,7 @@ func (s *Store) ListTripFeeds(ctx context.Context, tripID int64) ([]*TripFeed, e
 	for rows.Next() {
 		var f TripFeed
 		if err := rows.Scan(&f.ID, &f.TripID, &f.URL, &f.Name, &f.ETag, &f.LastModified,
-			&f.LastFetchedAt, &f.LastError, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			&f.LastFetchedAt, &f.LastError, &f.Timezone, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, &f)
@@ -83,28 +86,30 @@ func (s *Store) TripFeedByID(ctx context.Context, id int64) (*TripFeed, error) {
 		`SELECT `+tripFeedColumns+` FROM trip_feeds WHERE id = $1`, id))
 }
 
-// AddTripFeed registers a new feed URL on a trip with an optional friendly name.
-func (s *Store) AddTripFeed(ctx context.Context, tripID int64, url, name string) (*TripFeed, error) {
+// AddTripFeed registers a new feed URL on a trip with an optional friendly name
+// and an optional fallback display timezone.
+func (s *Store) AddTripFeed(ctx context.Context, tripID int64, url, name, timezone string) (*TripFeed, error) {
 	return scanTripFeed(s.pool.QueryRow(ctx, `
-		INSERT INTO trip_feeds (trip_id, url, name)
-		VALUES ($1, $2, $3)
-		RETURNING `+tripFeedColumns, tripID, url, name))
+		INSERT INTO trip_feeds (trip_id, url, name, timezone)
+		VALUES ($1, $2, $3, $4)
+		RETURNING `+tripFeedColumns, tripID, url, name, timezone))
 }
 
-// UpdateTripFeed changes a feed's URL and/or name. A changed URL clears the
-// cached validators and error so the next poll re-fetches from scratch (the old
-// events are dropped by ReplaceFeedEvents on that refresh).
-func (s *Store) UpdateTripFeed(ctx context.Context, id int64, url, name string) (*TripFeed, error) {
+// UpdateTripFeed changes a feed's URL, name and/or timezone. It always clears
+// the cached validators and error so the next poll re-fetches and re-maps from
+// scratch (so a changed URL or timezone takes effect, not just a 304).
+func (s *Store) UpdateTripFeed(ctx context.Context, id int64, url, name, timezone string) (*TripFeed, error) {
 	return scanTripFeed(s.pool.QueryRow(ctx, `
 		UPDATE trip_feeds SET
 			url           = $2,
 			name          = $3,
+			timezone      = $4,
 			etag          = '',
 			last_modified = '',
 			last_error    = '',
 			updated_at    = NOW()
 		WHERE id = $1
-		RETURNING `+tripFeedColumns, id, url, name))
+		RETURNING `+tripFeedColumns, id, url, name, timezone))
 }
 
 // DeleteTripFeed removes a feed and (via cascade) its cached events.
@@ -134,7 +139,7 @@ func (s *Store) FeedsDueForRefresh(ctx context.Context, cutoff time.Time) ([]*Tr
 	for rows.Next() {
 		var f TripFeed
 		if err := rows.Scan(&f.ID, &f.TripID, &f.URL, &f.Name, &f.ETag, &f.LastModified,
-			&f.LastFetchedAt, &f.LastError, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			&f.LastFetchedAt, &f.LastError, &f.Timezone, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, &f)

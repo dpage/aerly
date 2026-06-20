@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import {
+  Autocomplete,
+  Box,
+  Button,
+  IconButton,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 
@@ -9,16 +18,63 @@ import { errorMessage } from '../state/helpers';
 import { notifyFeedsChanged } from '../lib/feedsBus';
 import type { TripFeed } from '../api/types';
 
+// The IANA zone list from the runtime (modern browsers/Node 18+). Empty on the
+// rare runtime without Intl.supportedValuesOf — the selector stays usable
+// because it's free-solo, so a zone can still be typed.
+function loadTimezones(): string[] {
+  try {
+    const fn = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] })
+      .supportedValuesOf;
+    return fn ? fn('timeZone') : [];
+  } catch {
+    return [];
+  }
+}
+const TIMEZONES = loadTimezones();
+
+/** A free-solo IANA timezone picker. Free-solo so a zone can be typed even when
+ * the runtime exposes no list, and so an arbitrary valid zone is accepted. */
+function TimezoneSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Autocomplete
+      freeSolo
+      options={TIMEZONES}
+      inputValue={value}
+      onInputChange={(_e, v) => onChange(v)}
+      disabled={disabled}
+      size="small"
+      fullWidth
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          label="Timezone (optional)"
+          helperText="Set this for feeds that publish times without a timezone"
+        />
+      )}
+    />
+  );
+}
+
 /** Manage a trip's iCal feed subscriptions ("external plans"): add a feed URL,
- * edit a feed's URL/name, or remove it. Each action hits the API immediately
- * (independent of the trip's Save button), since feeds have their own endpoints
- * and the server refreshes a new/changed feed in the background. Sharing is
- * inherited wholesale from the trip — there's nothing per-feed to configure. */
+ * edit a feed's URL/name/timezone, or remove it. Each action hits the API
+ * immediately (independent of the trip's Save button), since feeds have their
+ * own endpoints and the server refreshes a new/changed feed synchronously.
+ * Sharing is inherited wholesale from the trip — there's nothing per-feed to
+ * configure. */
 export default function TripFeedsEditor({ tripId }: { tripId: number }) {
   const setError = useStore((s) => s.setError);
   const [feeds, setFeeds] = useState<TripFeed[]>([]);
   const [newUrl, setNewUrl] = useState('');
   const [newName, setNewName] = useState('');
+  const [newTz, setNewTz] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -39,10 +95,16 @@ export default function TripFeedsEditor({ tripId }: { tripId: number }) {
     if (!url) return;
     setBusy(true);
     try {
-      const feed = await api.addTripFeed(tripId, url, newName.trim() || undefined);
+      const feed = await api.addTripFeed(
+        tripId,
+        url,
+        newName.trim() || undefined,
+        newTz.trim() || undefined,
+      );
       setFeeds((prev) => [...prev, feed]);
       setNewUrl('');
       setNewName('');
+      setNewTz('');
       notifyFeedsChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -90,7 +152,7 @@ export default function TripFeedsEditor({ tripId }: { tripId: number }) {
         ))}
 
         <Stack direction="row" spacing={1} alignItems="flex-start">
-          <Stack spacing={1} sx={{ flexGrow: 1 }}>
+          <Stack spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
             <TextField
               label="Feed URL"
               placeholder="https://example.com/schedule.ics"
@@ -106,6 +168,7 @@ export default function TripFeedsEditor({ tripId }: { tripId: number }) {
               size="small"
               fullWidth
             />
+            <TimezoneSelect value={newTz} onChange={setNewTz} disabled={busy} />
           </Stack>
           <Button
             variant="outlined"
@@ -122,8 +185,8 @@ export default function TripFeedsEditor({ tripId }: { tripId: number }) {
   );
 }
 
-/** One existing feed: editable URL + name with a Save (enabled only when
- * changed) and a Delete. Surfaces the last fetch error when the feed is
+/** One existing feed: editable URL, name and timezone with a Save (enabled only
+ * when changed) and a Delete. Surfaces the last fetch error when the feed is
  * unhealthy. */
 function FeedRow({
   tripId,
@@ -141,9 +204,10 @@ function FeedRow({
   const setError = useStore((s) => s.setError);
   const [url, setUrl] = useState(feed.url);
   const [name, setName] = useState(feed.name);
+  const [tz, setTz] = useState(feed.timezone);
   const [saving, setSaving] = useState(false);
 
-  const dirty = url.trim() !== feed.url || name.trim() !== feed.name;
+  const dirty = url.trim() !== feed.url || name.trim() !== feed.name || tz.trim() !== feed.timezone;
 
   const save = async () => {
     if (!url.trim() || !dirty) return;
@@ -154,6 +218,7 @@ function FeedRow({
         feed.id,
         url.trim(),
         name.trim() || undefined,
+        tz.trim() || undefined,
       );
       onSaved(updated);
     } catch (err) {
@@ -193,6 +258,7 @@ function FeedRow({
           size="small"
           fullWidth
         />
+        <TimezoneSelect value={tz} onChange={setTz} disabled={saving || busy} />
       </Stack>
       <Stack sx={{ mt: 0.5 }}>
         {dirty && (

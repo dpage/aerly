@@ -308,10 +308,18 @@ export const api = {
   // viewer turns on "Show external plans".
   // -------------------------------------------------------------------------
   listTripFeeds: (tripId: number) => request<TripFeed[]>('GET', `/api/trips/${tripId}/feeds`),
-  addTripFeed: (tripId: number, url: string, name?: string) =>
-    request<TripFeed>('POST', `/api/trips/${tripId}/feeds`, { url, name: name ?? '' }),
-  updateTripFeed: (tripId: number, feedId: number, url: string, name?: string) =>
-    request<TripFeed>('PATCH', `/api/trips/${tripId}/feeds/${feedId}`, { url, name: name ?? '' }),
+  addTripFeed: (tripId: number, url: string, name?: string, timezone?: string) =>
+    request<TripFeed>('POST', `/api/trips/${tripId}/feeds`, {
+      url,
+      name: name ?? '',
+      timezone: timezone ?? '',
+    }),
+  updateTripFeed: (tripId: number, feedId: number, url: string, name?: string, timezone?: string) =>
+    request<TripFeed>('PATCH', `/api/trips/${tripId}/feeds/${feedId}`, {
+      url,
+      name: name ?? '',
+      timezone: timezone ?? '',
+    }),
   deleteTripFeed: (tripId: number, feedId: number) =>
     request<void>('DELETE', `/api/trips/${tripId}/feeds/${feedId}`),
   getTripExternalEvents: (tripId: number) =>

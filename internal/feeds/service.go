@@ -50,7 +50,7 @@ func (s *Service) RefreshDue(ctx context.Context) {
 // 304 (ErrNotModified) just bumps last_fetched_at; a transport/parse error is
 // recorded on the feed (and returned) without disturbing the cached events.
 func (s *Service) RefreshFeed(ctx context.Context, f *store.TripFeed) error {
-	res, err := s.Fetcher.Fetch(ctx, f.URL, f.ETag, f.LastModified)
+	res, err := s.Fetcher.Fetch(ctx, f.URL, f.ETag, f.LastModified, f.Timezone)
 	if errors.Is(err, ErrNotModified) {
 		return s.Store.MarkFeedFetched(ctx, f.ID, f.ETag, f.LastModified, "")
 	}

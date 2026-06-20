@@ -13,8 +13,22 @@ import (
 )
 
 type feedReq struct {
-	URL  string `json:"url"`
-	Name string `json:"name"`
+	URL      string `json:"url"`
+	Name     string `json:"name"`
+	Timezone string `json:"timezone"`
+}
+
+// validFeedTimezone returns the trimmed IANA zone, or an error if it's set but
+// not loadable. An empty value is allowed (means "auto / no override").
+func validFeedTimezone(tz string) (string, error) {
+	tz = strings.TrimSpace(tz)
+	if tz == "" {
+		return "", nil
+	}
+	if _, err := time.LoadLocation(tz); err != nil {
+		return "", err
+	}
+	return tz, nil
 }
 
 // listTripFeeds returns a trip's registered iCal feeds. Any trip viewer may
@@ -70,7 +84,12 @@ func (a *API) addTripFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Enter a valid http(s) calendar feed URL.")
 		return
 	}
-	f, err := a.Store.AddTripFeed(r.Context(), id, url, strings.TrimSpace(in.Name))
+	tz, err := validFeedTimezone(in.Timezone)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid timezone.")
+		return
+	}
+	f, err := a.Store.AddTripFeed(r.Context(), id, url, strings.TrimSpace(in.Name), tz)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
@@ -121,7 +140,12 @@ func (a *API) updateTripFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Enter a valid http(s) calendar feed URL.")
 		return
 	}
-	f, err := a.Store.UpdateTripFeed(r.Context(), feedID, url, strings.TrimSpace(in.Name))
+	tz, err := validFeedTimezone(in.Timezone)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid timezone.")
+		return
+	}
+	f, err := a.Store.UpdateTripFeed(r.Context(), feedID, url, strings.TrimSpace(in.Name), tz)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
