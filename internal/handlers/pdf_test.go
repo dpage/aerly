@@ -180,6 +180,52 @@ func TestRenderItineraryPDFPaginates(t *testing.T) {
 	}
 }
 
+// renderItinerariesPDF lays several trips into one document: every trip's title
+// and plans appear, each trip starts a new page (so a two-trip doc has at least
+// two pages), and the page-size preference is honoured.
+func TestRenderItinerariesPDF(t *testing.T) {
+	at := mustTime(t, "2026-06-15T12:30:00Z")
+	parts := []api.PlanPartDTO{{StartsAt: at, StartTZ: "UTC", StartLabel: "Gate"}}
+	sections := []tripItinerary{
+		{
+			trip:  &store.Trip{Name: "Paris (2026)", Destination: "Paris"},
+			plans: []api.PlanDTO{{Type: "flight", Title: "BA303", Parts: parts}},
+		},
+		{
+			trip:  &store.Trip{Name: "Berlin Trip"},
+			plans: []api.PlanDTO{{Type: "train", Title: "ICE 123", Parts: parts}},
+		},
+	}
+	s := string(renderItinerariesPDF(sections, "a4"))
+
+	if !strings.HasPrefix(s, "%PDF-1.4") {
+		t.Fatalf("missing PDF header")
+	}
+	for _, want := range []string{
+		`Paris \(2026\)`, "Flight: BA303", "Berlin Trip", "Train: ICE 123",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("multi-trip PDF missing %q", want)
+		}
+	}
+	// One page per trip → at least two pages, and a second-page footer.
+	if strings.Contains(s, "/Count 1 ") {
+		t.Errorf("expected at least two pages for two trips, got a single-page tree")
+	}
+	if !strings.Contains(s, "Page 2 of") {
+		t.Errorf("expected a second-page footer for the second trip")
+	}
+}
+
+// An empty section list still produces a valid (single, empty) PDF rather than
+// panicking — the handler guards against this, but the renderer is defensive.
+func TestRenderItinerariesPDFEmpty(t *testing.T) {
+	s := string(renderItinerariesPDF(nil, "a4"))
+	if !strings.HasPrefix(s, "%PDF-1.4") || !strings.Contains(s, "%%EOF") {
+		t.Errorf("empty multi-trip export should still be a valid PDF")
+	}
+}
+
 // flattenPlans drops dismissed parts and orders the rest by start time.
 func TestFlattenPlans(t *testing.T) {
 	t1 := mustTime(t, "2026-03-01T09:00:00Z")

@@ -151,6 +151,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/trips", req(http.HandlerFunc(a.listTrips)))
 	mux.Handle("POST /api/trips", req(http.HandlerFunc(a.createTrip)))
 	mux.Handle("POST /api/trips/import", req(http.HandlerFunc(a.importTrip)))
+	mux.Handle("GET /api/trips/export.pdf", req(http.HandlerFunc(a.exportTripsPDF)))
 	mux.Handle("GET /api/trips/{id}", req(http.HandlerFunc(a.getTrip)))
 	mux.Handle("GET /api/trips/{id}/export.ics", req(http.HandlerFunc(a.exportTrip)))
 	mux.Handle("GET /api/trips/{id}/export.pdf", req(http.HandlerFunc(a.exportTripPDF)))

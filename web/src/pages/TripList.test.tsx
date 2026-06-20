@@ -33,7 +33,9 @@ vi.mock('../state/store', () => ({
   useStore: (sel: (s: typeof state) => unknown) => sel(state),
 }));
 
-vi.mock('../api/client', () => ({ api: { listTrips: vi.fn(), importTrip: vi.fn() } }));
+vi.mock('../api/client', () => ({
+  api: { listTrips: vi.fn(), importTrip: vi.fn(), exportTripsPdf: vi.fn() },
+}));
 
 const pwa = vi.hoisted(() => ({ online: true }));
 vi.mock('../pwa', () => ({ useOnlineStatus: () => pwa.online }));
@@ -43,6 +45,7 @@ import { api } from '../api/client';
 
 const mockApiListTrips = api.listTrips as unknown as ReturnType<typeof vi.fn>;
 const mockImportTrip = api.importTrip as unknown as ReturnType<typeof vi.fn>;
+const mockExportTripsPdf = api.exportTripsPdf as unknown as ReturnType<typeof vi.fn>;
 
 function trip(over: Partial<Trip> = {}): Trip {
   return {
@@ -95,6 +98,7 @@ beforeEach(() => {
   state.friendsShowAllTrips = false;
   pwa.online = true;
   mockApiListTrips.mockResolvedValue([]);
+  mockExportTripsPdf.mockResolvedValue(undefined);
 });
 
 describe('TripList', () => {
@@ -486,6 +490,64 @@ describe('TripList', () => {
     const clickSpy = vi.spyOn(input, 'click');
     await userEvent.click(item);
     expect(clickSpy).toHaveBeenCalled();
+  });
+
+  it('Download PDF exports upcoming/now trips plus past trips from expanded years', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Soon', starts_on: dateOnly(10), ends_on: dateOnly(12) }),
+      trip({ id: 2, name: 'NowTrip', starts_on: dateOnly(-1), ends_on: dateOnly(1) }),
+      // Two past years: the most recent (this year) is expanded by default; the
+      // older one (2024) is collapsed, so its trip must NOT be exported.
+      trip({ id: 3, name: 'Old2024', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 4, name: 'RecentPast', starts_on: dateOnly(-40), ends_on: dateOnly(-35) }),
+    ];
+    renderList('mine');
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /download pdf/i }));
+    expect(mockExportTripsPdf).toHaveBeenCalledTimes(1);
+    const ids = mockExportTripsPdf.mock.calls[0][0] as number[];
+    expect(ids).toEqual(expect.arrayContaining([1, 2, 4]));
+    expect(ids).not.toContain(3); // collapsed 2024 year
+  });
+
+  it('Download PDF includes a past trip once its year is expanded', async () => {
+    state.trips = [
+      trip({ id: 3, name: 'Old2024', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      trip({ id: 4, name: 'RecentPast', starts_on: dateOnly(-40), ends_on: dateOnly(-35) }),
+    ];
+    renderList('mine');
+    await userEvent.click(screen.getByText('2024').closest('[role="button"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByText('Old2024')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /download pdf/i }));
+    const ids = mockExportTripsPdf.mock.calls[0][0] as number[];
+    expect(ids).toEqual(expect.arrayContaining([3, 4]));
+  });
+
+  it('Download PDF exports every match when a filter is active', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Alpha', starts_on: dateOnly(10) }),
+      trip({ id: 2, name: 'Beta', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
+      // An old match that would normally be in a collapsed year — the filter
+      // makes its tile visible, so it must be included.
+      trip({ id: 3, name: 'AlphaOld', starts_on: '2022-01-10', ends_on: '2022-01-12' }),
+    ];
+    renderList('mine');
+    await userEvent.type(screen.getByPlaceholderText(/Filter trips/i), 'Alpha');
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await userEvent.click(screen.getByRole('menuitem', { name: /download pdf/i }));
+    const ids = mockExportTripsPdf.mock.calls[0][0] as number[];
+    expect([...ids].sort()).toEqual([1, 3]);
+  });
+
+  it('disables Download PDF when there are no trips to export', async () => {
+    state.trips = [];
+    renderList('mine');
+    await userEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    expect(screen.getByRole('menuitem', { name: /download pdf/i })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 
   it('offers no import action on the Friends tab', () => {

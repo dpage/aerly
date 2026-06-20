@@ -32,6 +32,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import PlaceIcon from '@mui/icons-material/Place';
 import SearchIcon from '@mui/icons-material/Search';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
@@ -73,10 +74,14 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   // Kayak feed stays on the list.
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Secondary actions (currently just Import .ics) live in an overflow (⋮)
-  // menu beside the primary "New trip" button, mirroring the Trip header.
+  // Secondary actions (Import .ics, Download PDF) live in an overflow (⋮) menu
+  // beside the primary "New trip" button, mirroring the Trip header.
   const [actionsAnchor, setActionsAnchor] = useState<HTMLElement | null>(null);
   const closeActions = () => setActionsAnchor(null);
+  // Trip ids of the past trips currently on screen — the expanded years.
+  // PastTripGroup owns the fold state, so it reports its visible ids up here for
+  // the "Download PDF" action (the upcoming/now groups are always visible).
+  const [visiblePastIds, setVisiblePastIds] = useState<number[]>([]);
   const onImportFile = async (file?: File) => {
     // Guard the handler too, not just the button: the connection can drop after
     // the file picker is already open.
@@ -188,6 +193,28 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
     return BUCKET_ORDER.flatMap(({ bucket }) => g[bucket]);
   }, [scoped, filterNorm]);
 
+  // The trips a "Download PDF" should cover: exactly the tiles on screen. With a
+  // filter active that's every match; otherwise it's Happening now + Upcoming
+  // (always shown) plus the past trips from the years the user has expanded
+  // (reported by PastTripGroup, intersected with the current past trips so a
+  // stale id from a since-removed trip can't sneak in). Order follows the list.
+  const exportTripIds = useMemo(() => {
+    if (filteredTrips !== null) return filteredTrips.map((t) => t.id);
+    const ids = [...groups.now, ...groups.upcoming].map((t) => t.id);
+    const pastIds = new Set(groups.past.map((t) => t.id));
+    for (const id of visiblePastIds) if (pastIds.has(id)) ids.push(id);
+    return ids;
+  }, [filteredTrips, groups, visiblePastIds]);
+
+  const onDownloadPdf = async () => {
+    if (!online || exportTripIds.length === 0) return;
+    try {
+      await api.exportTripsPdf(exportTripIds);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not download the PDF.');
+    }
+  };
+
   return (
     <Box sx={{ px: 3, pt: 2, pb: 3, maxWidth: 760, mx: 'auto' }}>
       <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
@@ -234,6 +261,18 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
                   <FileUploadIcon fontSize="small" />
                 </ListItemIcon>
                 Import .ics
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  closeActions();
+                  void onDownloadPdf();
+                }}
+                disabled={!online || exportTripIds.length === 0}
+              >
+                <ListItemIcon>
+                  <PictureAsPdfIcon fontSize="small" />
+                </ListItemIcon>
+                Download PDF
               </MenuItem>
             </Menu>
             <input
@@ -337,7 +376,7 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
           {BUCKET_ORDER.map(({ bucket, label }) =>
             bucket === 'past' ? (
               groups.past.length > 0 ? (
-                <PastTripGroup key="past" trips={groups.past} />
+                <PastTripGroup key="past" trips={groups.past} onVisibleChange={setVisiblePastIds} />
               ) : null
             ) : groups[bucket].length > 0 ? (
               <TripGroup key={bucket} label={label} trips={groups[bucket]} />
@@ -388,14 +427,33 @@ function groupPastByYear(trips: Trip[]): Array<{ year: number; trips: Trip[] }> 
     .map(([year, trips]) => ({ year, trips }));
 }
 
-/** Past trips grouped by year with per-year and global fold/unfold controls. */
-function PastTripGroup({ trips }: { trips: Trip[] }) {
+/** Past trips grouped by year with per-year and global fold/unfold controls.
+ * Reports the ids of the trips in its expanded years via `onVisibleChange` so
+ * the page's "Download PDF" action can cover exactly the tiles on screen. */
+function PastTripGroup({
+  trips,
+  onVisibleChange,
+}: {
+  trips: Trip[];
+  onVisibleChange?: (ids: number[]) => void;
+}) {
   const yearGroups = useMemo(() => groupPastByYear(trips), [trips]);
 
   // Start with only the most-recent year expanded.
   const [collapsedYears, setCollapsedYears] = useState<Set<number>>(
     () => new Set(yearGroups.slice(1).map((g) => g.year)),
   );
+
+  // Report the visible (expanded-year) trip ids up whenever the fold state or
+  // the year groups change, so the parent can build the PDF export's id list.
+  useEffect(() => {
+    if (!onVisibleChange) return;
+    const ids: number[] = [];
+    for (const g of yearGroups) {
+      if (!collapsedYears.has(g.year)) for (const t of g.trips) ids.push(t.id);
+    }
+    onVisibleChange(ids);
+  }, [yearGroups, collapsedYears, onVisibleChange]);
 
   // Keep the initial collapsed state up to date when the year list changes
   // (e.g. a trip is added to a new year) without blowing away manual toggles.

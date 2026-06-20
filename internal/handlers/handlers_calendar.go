@@ -212,6 +212,77 @@ func (a *API) exportTripPDF(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
+// exportTripsPDF serves several trips' visible plans as a single downloadable
+// PDF itinerary — the trips-list counterpart to exportTripPDF. The caller passes
+// the ids it wants in the ?ids= query (comma-separated), which the trips list
+// fills with the trips currently visible to the user (upcoming plus any past
+// years they've expanded, or the filter matches). Trips the viewer can't see (or
+// that no longer exist) are skipped, so the same §4 visibility holds and no
+// hidden plan leaks. Trips render in the order requested, preserving the list's
+// ordering. Honours the caller's A4/US-Letter page-size preference.
+func (a *API) exportTripsPDF(w http.ResponseWriter, r *http.Request) {
+	me := auth.UserFrom(r.Context())
+	ids := parseIDList(r.URL.Query().Get("ids"))
+	if len(ids) == 0 {
+		writeError(w, http.StatusBadRequest, "No trips selected.")
+		return
+	}
+	sections := make([]tripItinerary, 0, len(ids))
+	for _, id := range ids {
+		ok, err := a.canViewTrip(r.Context(), id, me)
+		if err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+		if !ok {
+			continue // not visible to this viewer; skip rather than fail the lot
+		}
+		trip, err := a.Store.TripByID(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			handleStoreErr(w, err)
+			return
+		}
+		plans, err := a.visiblePlanDTOs(r, id, me)
+		if err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+		sections = append(sections, tripItinerary{trip: trip, plans: plans})
+	}
+	if len(sections) == 0 {
+		writeError(w, http.StatusNotFound, "No trips found.")
+		return
+	}
+	body := renderItinerariesPDF(sections, me.PaperSize)
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `attachment; filename="trips.pdf"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
+// parseIDList parses a comma-separated list of positive int64 ids, dropping
+// blanks, non-numbers, and duplicates while preserving first-seen order.
+func parseIDList(s string) []int64 {
+	var ids []int64
+	seen := make(map[int64]bool)
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(part, 10, 64)
+		if err != nil || id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // downloadFilename turns a trip name into a safe ASCII download filename with
 // the given extension. Anything outside [A-Za-z0-9] collapses to a hyphen so the
 // value is safe to drop unquoted-ish into the Content-Disposition header and

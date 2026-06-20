@@ -429,6 +429,110 @@ func TestExportTripPDF(t *testing.T) {
 	}
 }
 
+// TestParseIDList: the ?ids= parser keeps positive ids in first-seen order and
+// drops blanks, non-numbers, non-positives, and duplicates.
+func TestParseIDList(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []int64
+	}{
+		{"", nil},
+		{"1,2,3", []int64{1, 2, 3}},
+		{" 1 , 2 ,3 ", []int64{1, 2, 3}},
+		{"3,1,2", []int64{3, 1, 2}},           // order preserved
+		{"1,1,2,2,1", []int64{1, 2}},          // de-duped
+		{"1,abc,,2,-3,0,4", []int64{1, 2, 4}}, // junk dropped
+	}
+	for _, c := range cases {
+		got := parseIDList(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("parseIDList(%q) = %v, want %v", c.in, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("parseIDList(%q) = %v, want %v", c.in, got, c.want)
+				break
+			}
+		}
+	}
+}
+
+// TestExportTripsPDF: the trips-list PDF export bundles the requested trips into
+// one attachment, skips trips the viewer can't see (no leak, no failure), 400s
+// an empty/garbage id list, 404s when nothing is viewable, and requires a
+// session.
+func TestExportTripsPDF(t *testing.T) {
+	e := setup(t, nil, calCfg())
+	owner := e.user(t, "trips-pdf-owner", false)
+	stranger := e.user(t, "trips-pdf-stranger", false)
+
+	t1 := seedTrip(t, e, owner)
+	if _, err := e.pool.Exec(context.Background(),
+		`UPDATE trips SET name = 'Alpha Trip' WHERE id = $1`, t1); err != nil {
+		t.Fatalf("rename t1: %v", err)
+	}
+	p1 := seedPlan(t, e, t1, owner, "Alpha Flight")
+	seedPart(t, e, p1)
+
+	t2 := seedTrip(t, e, owner)
+	if _, err := e.pool.Exec(context.Background(),
+		`UPDATE trips SET name = 'Beta Trip' WHERE id = $1`, t2); err != nil {
+		t.Fatalf("rename t2: %v", err)
+	}
+	p2 := seedPlan(t, e, t2, owner, "Beta Hotel")
+	seedPart(t, e, p2)
+
+	// A trip owned by someone else, which the owner can't see.
+	other := seedTrip(t, e, stranger)
+
+	// Both of the owner's trips export into one PDF attachment named trips.pdf.
+	w := e.req(t, "GET", "/api/trips/export.pdf?ids="+itoa(t1)+","+itoa(t2), nil, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("owner export = %d %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
+		t.Errorf("content-type = %q, want application/pdf", ct)
+	}
+	if cd := w.Header().Get("Content-Disposition"); cd != `attachment; filename="trips.pdf"` {
+		t.Errorf("content-disposition = %q", cd)
+	}
+	body := w.Body.String()
+	if !strings.HasPrefix(body, "%PDF-1.4") {
+		t.Errorf("export is not a PDF: %q", body[:min(16, len(body))])
+	}
+	for _, want := range []string{"Alpha Trip", "Alpha Flight", "Beta Trip", "Beta Hotel"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("multi-trip export missing %q", want)
+		}
+	}
+
+	// A trip the owner can't see is silently skipped; the visible one still renders.
+	w = e.req(t, "GET", "/api/trips/export.pdf?ids="+itoa(t1)+","+itoa(other), nil, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("export with one hidden id = %d %s", w.Code, w.Body.String())
+	}
+	if b := w.Body.String(); !strings.Contains(b, "Alpha Trip") {
+		t.Errorf("visible trip should still render when an unviewable id is requested")
+	}
+
+	// Nothing viewable → 404.
+	if w := e.req(t, "GET", "/api/trips/export.pdf?ids="+itoa(other), nil, owner); w.Code != http.StatusNotFound {
+		t.Errorf("all-hidden export = %d, want 404", w.Code)
+	}
+	// Empty / garbage id list → 400.
+	if w := e.req(t, "GET", "/api/trips/export.pdf?ids=", nil, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("empty ids export = %d, want 400", w.Code)
+	}
+	if w := e.req(t, "GET", "/api/trips/export.pdf?ids=abc", nil, owner); w.Code != http.StatusBadRequest {
+		t.Errorf("garbage ids export = %d, want 400", w.Code)
+	}
+	// Export requires a session.
+	if w := e.req(t, "GET", "/api/trips/export.pdf?ids="+itoa(t1), nil, 0); w.Code != http.StatusUnauthorized {
+		t.Errorf("anon export = %d, want 401", w.Code)
+	}
+}
+
 // TestCalendarFeedUpdatesReflectPartChanges: a delayed part re-renders (the
 // single-plan feed stays live — re-fetch shows the new time and LAST-MODIFIED).
 func TestCalendarFeedUpdatesReflectPartChanges(t *testing.T) {

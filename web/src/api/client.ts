@@ -277,6 +277,11 @@ export const api = {
   // for the user's stored A4/US-Letter page size. Same session-auth + blob-save
   // path as the .ics export.
   exportTripPdf: (id: number) => downloadFile(`/api/trips/${id}/export.pdf`, 'trip.pdf'),
+  // Downloads several trips as one printable PDF — the trips list passes the ids
+  // currently visible to the viewer. Same session-auth + blob-save path as the
+  // single-trip exports.
+  exportTripsPdf: (ids: number[]) =>
+    downloadFile(`/api/trips/export.pdf?ids=${ids.join(',')}`, 'trips.pdf'),
   createTrip: (input: CreateTripInput) => request<Trip>('POST', '/api/trips', input),
   updateTrip: (id: number, patch: UpdateTripInput) =>
     request<Trip>('PATCH', `/api/trips/${id}`, patch),

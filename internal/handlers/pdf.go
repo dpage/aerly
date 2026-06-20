@@ -158,13 +158,41 @@ func flattenPlans(plans []api.PlanDTO) []itinPart {
 	return items
 }
 
-// renderItineraryPDF lays out the trip's visible plans as a printable PDF and
+// tripItinerary pairs a trip with its visible plans, the unit a multi-trip PDF
+// renders one titled section per (see renderItinerariesPDF).
+type tripItinerary struct {
+	trip  *store.Trip
+	plans []api.PlanDTO
+}
+
+// renderItineraryPDF lays out one trip's visible plans as a printable PDF and
 // returns the encoded file. Parts are grouped under a header per local day, in
 // time order, each with its route, addresses, booking references and contact
 // details. paper is the user's page-size preference.
 func renderItineraryPDF(trip *store.Trip, plans []api.PlanDTO, paper string) []byte {
 	l := newPDFLayout(paper)
+	l.renderTrip(trip, plans)
+	return l.encode()
+}
 
+// renderItinerariesPDF lays several trips out into a single PDF, one titled
+// section per trip starting on its own page, in the order given. Used by the
+// trips-list "Download PDF" action to export the trips the viewer can see at
+// once. paper is the user's page-size preference.
+func renderItinerariesPDF(sections []tripItinerary, paper string) []byte {
+	l := newPDFLayout(paper)
+	for i, s := range sections {
+		if i > 0 {
+			l.newPage() // each trip begins on a fresh page
+		}
+		l.renderTrip(s.trip, s.plans)
+	}
+	return l.encode()
+}
+
+// renderTrip writes one trip's title block and day-grouped itinerary into the
+// current page flow, starting at the cursor's current position.
+func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO) {
 	// Title block: trip name, then destination/date meta, then a rule.
 	name := trip.Name
 	if name == "" {
@@ -213,8 +241,6 @@ func renderItineraryPDF(trip *store.Trip, plans []api.PlanDTO, paper string) []b
 		}
 		l.y -= 8
 	}
-
-	return l.encode()
 }
 
 // tripMeta is the secondary header line: destination and, when set, the trip's
