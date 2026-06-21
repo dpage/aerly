@@ -124,6 +124,15 @@ func typeLabel(t string) string {
 	}
 }
 
+// Hotel-stay edges. A multi-night hotel renders as two itinerary rows — a
+// check-in on the first day and a check-out on the last — so the check-out time
+// gets its own day and entry, matching the UI timeline and the iCal feed. Every
+// other row (and a same-day stay) leaves edge empty and renders once.
+const (
+	edgeCheckIn  = "check-in"
+	edgeCheckOut = "check-out"
+)
+
 // itinPart pairs a visible plan_part with its owning plan, the unit the
 // itinerary renders one row per. The plan carries the booking-level details
 // (confirmation, ticket, supplier, contact); the part carries the leg's times,
@@ -131,6 +140,9 @@ func typeLabel(t string) string {
 type itinPart struct {
 	plan *api.PlanDTO
 	part *api.PlanPartDTO
+	// edge marks which end of a multi-night hotel stay this row renders (one of
+	// the edge* constants), or "" for a single-entry row.
+	edge string
 }
 
 // itinRow is one chronologically-placed itinerary line: either a plan part or a
@@ -143,12 +155,26 @@ type itinRow struct {
 }
 
 // start returns the row's start instant and its display timezone, for sorting
-// and day grouping.
+// and day grouping. A hotel check-out row places by the check-out instant (in
+// the property's end zone) so it lands on the last day, not the first.
 func (r itinRow) start() (time.Time, string) {
 	if r.part != nil {
+		if r.part.edge == edgeCheckOut && r.part.part.EndsAt != nil {
+			return *r.part.part.EndsAt, checkoutTZ(r.part.part)
+		}
 		return r.part.part.StartsAt, r.part.part.StartTZ
 	}
 	return r.ev.StartsAt, r.ev.StartTZ
+}
+
+// checkoutTZ is a hotel part's check-out timezone: its end zone, falling back to
+// the start zone (a stay's two ends are the same property, so end_tz is usually
+// blank).
+func checkoutTZ(pt *api.PlanPartDTO) string {
+	if pt.EndTZ != "" {
+		return pt.EndTZ
+	}
+	return pt.StartTZ
 }
 
 // flattenItinerary expands the trip's plans (one row per non-dismissed part)
@@ -162,6 +188,15 @@ func flattenItinerary(plans []api.PlanDTO, externals []api.ExternalEventDTO) []i
 			pt := &pl.Parts[j]
 			if pt.DismissedAt != nil {
 				continue // superseded/tidied-away leg, as the calendar feed omits
+			}
+			if hotelBand(pl.Type, pt) {
+				// A multi-night stay becomes a check-in row (on its first day) and
+				// a check-out row (on its last), so the check-out time shows on its
+				// own day rather than only inside a span line on the first.
+				rows = append(rows,
+					itinRow{part: &itinPart{plan: pl, part: pt, edge: edgeCheckIn}},
+					itinRow{part: &itinPart{plan: pl, part: pt, edge: edgeCheckOut}})
+				continue
 			}
 			rows = append(rows, itinRow{part: &itinPart{plan: pl, part: pt}})
 		}
@@ -262,7 +297,8 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 		if row.part != nil {
 			l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
 			title = typeLabel(row.part.plan.Type) + ": " +
-				nonEmpty(row.part.plan.Title, typeLabel(row.part.plan.Type))
+				nonEmpty(row.part.plan.Title, typeLabel(row.part.plan.Type)) +
+				edgeSuffix(row.part.edge)
 			details = partDetails(*row.part)
 		} else {
 			if row.ev.AllDay {
@@ -359,7 +395,23 @@ func partDetails(it itinPart) []string {
 		}
 	}
 
-	out = append(out, timeRange(pt.StartsAt, pt.EndsAt, pt.StartTZ, pt.EndTZ))
+	// Time line. A split hotel stay shows only this row's own instant — labelled
+	// "Check-in" / "Check-out" — so each end reads clearly on its own day; the
+	// check-out row is just a "when to leave" reminder, so the booking references
+	// and contact (below) live only on the check-in row. Every other row shows
+	// the part's full span.
+	switch it.edge {
+	case edgeCheckIn:
+		out = append(out, "Check-in: "+timeRange(pt.StartsAt, nil, pt.StartTZ, ""))
+	case edgeCheckOut:
+		out = append(out, "Check-out: "+timeRange(*pt.EndsAt, nil, checkoutTZ(pt), ""))
+		if pt.Status == "cancelled" {
+			out = append(out, "Status: cancelled")
+		}
+		return out
+	default:
+		out = append(out, timeRange(pt.StartsAt, pt.EndsAt, pt.StartTZ, pt.EndTZ))
+	}
 
 	if refs := joinNonEmpty("   ", labelled("Confirmation", pl.ConfirmationRef),
 		labelled("Ticket", pl.TicketNumber)); refs != "" {
@@ -379,6 +431,19 @@ func partDetails(it itinPart) []string {
 		out = append(out, oneLine(pl.Notes))
 	}
 	return out
+}
+
+// edgeSuffix is the parenthetical appended to a split hotel stay's title, e.g.
+// " (Check-in)", matching the iCal feed's hotelEdgeSummary. Empty for a
+// single-entry row.
+func edgeSuffix(edge string) string {
+	switch edge {
+	case edgeCheckIn:
+		return " (Check-in)"
+	case edgeCheckOut:
+		return " (Check-out)"
+	}
+	return ""
 }
 
 // labelled returns "label: value" when value is non-blank, else "".
@@ -422,6 +487,20 @@ func singleLocation(planType string, pt *api.PlanPartDTO) bool {
 	sameLabel := pt.EndLabel == "" || pt.EndLabel == pt.StartLabel
 	sameAddress := pt.EndAddress == "" || pt.EndAddress == pt.StartAddress
 	return sameLabel && sameAddress
+}
+
+// hotelBand reports whether a part is a multi-night hotel stay the itinerary
+// should split into a check-in row and a check-out row, so the check-out gets
+// its own day and time rather than only appearing inside a span line. Mirrors
+// isHotelBand in the iCal feed (ics.go) and the web timeline (trip-format.ts):
+// a hotel whose end falls on a later local calendar day than its start.
+func hotelBand(planType string, pt *api.PlanPartDTO) bool {
+	if planType != "hotel" || pt.EndsAt == nil {
+		return false
+	}
+	start := pt.StartsAt.In(eventLoc(pt.StartTZ))
+	end := pt.EndsAt.In(eventLoc(checkoutTZ(pt)))
+	return end.After(start) && !sameDay(start, end)
 }
 
 // routeLine joins a start and end label with an arrow, tolerating either being

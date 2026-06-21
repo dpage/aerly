@@ -72,7 +72,9 @@ func TestRenderItineraryPDFStructure(t *testing.T) {
 
 // A hotel carries the same place in start_* and end_*; the itinerary must show
 // it once (one Address line, no "X -> X" route, no duplicated From/To) and must
-// not repeat the place label when it just echoes the title.
+// not repeat the place label when it just echoes the title. A multi-night stay
+// splits into a check-in row and a check-out row, so the title carries the
+// "(Check-in)" / "(Check-out)" suffix.
 func TestRenderItineraryPDFSingleAddress(t *testing.T) {
 	in := mustTime(t, "2026-07-20T16:00:00Z")
 	out := mustTime(t, "2026-07-23T12:00:00Z")
@@ -97,13 +99,68 @@ func TestRenderItineraryPDFSingleAddress(t *testing.T) {
 		t.Errorf("hotel must not render a redundant X -> X route")
 	}
 	// The place label repeats the title, so it must not also appear as its own
-	// detail line. In the content stream the title renders as "(Hotel: <name>)"
-	// while a stray label line would render as the bare "(<name>)".
+	// detail line. In the content stream the title renders as
+	// "(Hotel: <name> \(Check-in\))" while a stray label line would render as the
+	// bare "(<name>)".
 	if strings.Contains(s, "("+name+")") {
 		t.Errorf("the place label should not repeat as a line when it echoes the title")
 	}
-	if !strings.Contains(s, "(Hotel: "+name+")") {
-		t.Errorf("the title should still name the hotel")
+	if !strings.Contains(s, `(Hotel: `+name+` \(Check-in\))`) {
+		t.Errorf("the title should still name the hotel and mark the check-in:\n%s", s)
+	}
+}
+
+// A multi-night hotel stay must render as two rows — a check-in on its first day
+// and a check-out on its last — so the check-out time appears on its own day,
+// not only inside a span line on the check-in day (the reported bug).
+func TestRenderItineraryPDFHotelCheckOut(t *testing.T) {
+	in := mustTime(t, "2026-09-07T14:00:00Z")  // 15:00 BST check-in, Mon 7 Sep
+	out := mustTime(t, "2026-09-09T11:00:00Z") // 12:00 BST check-out, Wed 9 Sep
+	trip := &store.Trip{Name: "PGDay UK 2026"}
+	plans := []api.PlanDTO{{
+		Type: "hotel", Title: "Radisson Blu", ConfirmationRef: "3BD48BMG",
+		Parts: []api.PlanPartDTO{{
+			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London",
+		}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
+
+	for _, want := range []string{
+		`Hotel: Radisson Blu \(Check-in\)`,
+		`Hotel: Radisson Blu \(Check-out\)`,
+		"Check-in: Mon 7 Sep, 15:00",
+		"Check-out: Wed 9 Sep, 12:00",
+		"Monday, 7 September 2026",
+		"Wednesday, 9 September 2026",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("split hotel PDF missing %q:\n%s", want, s)
+		}
+	}
+	// The confirmation belongs to the check-in row only, not duplicated onto the
+	// check-out reminder.
+	if got := strings.Count(s, "Confirmation: 3BD48BMG"); got != 1 {
+		t.Errorf("confirmation should appear once (on check-in), got %d", got)
+	}
+}
+
+// A same-day hotel booking (no overnight) is not a band: it stays one row with
+// the usual span line, never split into check-in/check-out.
+func TestRenderItineraryPDFHotelSameDay(t *testing.T) {
+	in := mustTime(t, "2026-09-07T09:00:00Z")
+	out := mustTime(t, "2026-09-07T17:00:00Z")
+	trip := &store.Trip{Name: "Day room"}
+	plans := []api.PlanDTO{{
+		Type: "hotel", Title: "Yotel",
+		Parts: []api.PlanPartDTO{{StartsAt: in, EndsAt: &out, StartTZ: "Europe/London"}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
+	if strings.Contains(s, "Check-in)") || strings.Contains(s, "Check-out)") {
+		t.Errorf("a same-day hotel should not split into check-in/check-out rows:\n%s", s)
+	}
+	// The en-dash in the span is folded to ASCII "-" in the content stream.
+	if !strings.Contains(s, "Mon 7 Sep, 10:00 - 18:00") {
+		t.Errorf("a same-day hotel should show its full span:\n%s", s)
 	}
 }
 
