@@ -14,6 +14,13 @@ func TestPlanReminderLabel(t *testing.T) {
 		{"hotel", "", "", "your hotel check-in"},
 		{"dining", "", "", "your reservation"},
 		{"excursion", "", "", "your excursion"},
+		{"flight", "", "", "your flight"}, // flight with no ident falls through to the type word
+		{"train", "", "", "your train"},
+		{"ground", "", "", "your transfer"},
+		{"meeting", "", "", "your meeting"},
+		{"event", "", "", "your event"},
+		{"mystery", "", "", "your plan"},            // unknown type → default
+		{"hotel", "   ", "", "your hotel check-in"}, // whitespace-only title is not used
 	}
 	for _, c := range cases {
 		if got := PlanReminderLabel(c.typ, c.title, c.ident); got != c.want {
@@ -58,6 +65,14 @@ func TestBuildPlanReminderEmail_NonASCIITitle(t *testing.T) {
 	})
 	if !strings.Contains(msg, "École dinner starts") {
 		t.Errorf("expected rune-safe capitalisation 'École dinner', got:\n%s", msg)
+	}
+}
+
+func TestCapitalise_Empty(t *testing.T) {
+	// The empty-string fast path must return the empty string untouched
+	// rather than indexing into a zero-length rune slice.
+	if got := capitalise(""); got != "" {
+		t.Errorf("capitalise(\"\") = %q, want empty", got)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/api"
+	"github.com/dpage/aerly/internal/feeds"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
@@ -57,6 +58,16 @@ func seedUser(t *testing.T, s *store.Store) int64 {
 }
 
 var seedSeq atomic.Int64
+
+// failMarshal swaps the package jsonMarshal seam for one that always errors,
+// restoring it when the test ends. It lets the otherwise-unreachable
+// marshal-failure branches in the SSE-publish paths be exercised.
+func failMarshal(t *testing.T) {
+	t.Helper()
+	orig := jsonMarshal
+	jsonMarshal = func(any) ([]byte, error) { return nil, errors.New("synthetic marshal failure") }
+	t.Cleanup(func() { jsonMarshal = orig })
+}
 
 // partSeed carries the flight schedule fields mkPart needs to seed a flight
 // part. It replaces the legacy store.CreateFlightPayload the tests used before
@@ -738,6 +749,36 @@ func TestResolveConfirmsAndFreezesSchedule(t *testing.T) {
 	}
 }
 
+// TestPublishPartChange_MarshalErrorSkipsBroadcast covers the marshal-failure
+// branch in publishPartChange: when the DTO can't be encoded, no SSE event is
+// published (rather than a half-built or empty payload).
+func TestPublishPartChange_MarshalErrorSkipsBroadcast(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, hub := newPoller(t, tr, time.Minute)
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "PL99", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	events, unsub := hub.Subscribe(sse.Subscription{ViewerID: uid, IsSuperuser: true, ShowAll: true})
+	defer unsub()
+
+	failMarshal(t)
+	p.publishPartChange(ctx, f.ID)
+
+	select {
+	case ev := <-events:
+		t.Errorf("no broadcast expected when the payload fails to marshal, got %s", ev.Type)
+	case <-time.After(150 * time.Millisecond):
+		// good — nothing published.
+	}
+}
+
 func TestRunImmediateTickThenStops(t *testing.T) {
 	tr := &mockTracker{pos: &store.Position{Lat: 2, Lon: 2}}
 	p, s, _ := newPoller(t, tr, 20*time.Millisecond)
@@ -761,6 +802,279 @@ func TestRunImmediateTickThenStops(t *testing.T) {
 	}
 	if tr.calls == 0 {
 		t.Error("Run should have polled at least once")
+	}
+}
+
+// TestGuardRecoversFromPanic covers the panic-recovery path in guard: a panicking
+// fn must be caught and logged, not crash the process.
+func TestGuardRecoversFromPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("guard let a panic escape: %v", r)
+		}
+	}()
+	guard("test.panic", 42, func() { panic("boom") })
+}
+
+// TestRefreshFeeds covers refreshFeeds with and without a wired feed service:
+// nil is a no-op, a real (empty) service runs RefreshDue cleanly through guard.
+func TestRefreshFeeds(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	ctx := context.Background()
+
+	p.refreshFeeds(ctx) // Feeds nil → no-op
+
+	p.Feeds = feeds.NewService(s, "aerly-test", time.Minute)
+	p.refreshFeeds(ctx) // empty feed set → RefreshDue runs and returns cleanly
+}
+
+// TestNeedsLateRefresh covers the early-out branches: a far-future flight, and a
+// terminal-status flight (Arrived/Cancelled/Diverted) never need a late refresh.
+func TestNeedsLateRefresh(t *testing.T) {
+	now := time.Now()
+	farFuture := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(48 * time.Hour)}
+	if needsLateRefresh(farFuture, now) {
+		t.Error("a flight two days out should not need a late refresh")
+	}
+	arrived := &store.Flight{Status: "Arrived", ScheduledOut: now.Add(-time.Hour)}
+	if needsLateRefresh(arrived, now) {
+		t.Error("an arrived flight should not need a late refresh")
+	}
+	cancelled := &store.Flight{Status: "Cancelled", ScheduledOut: now.Add(time.Hour)}
+	if needsLateRefresh(cancelled, now) {
+		t.Error("a cancelled flight should not need a late refresh")
+	}
+	// In-window, never resolved → needs it.
+	fresh := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(time.Hour)}
+	if !needsLateRefresh(fresh, now) {
+		t.Error("an in-window, never-resolved flight should need a late refresh")
+	}
+}
+
+// TestTickMetadataListErrorReturns covers the FlightPartsNeedingMetadata error
+// branch in tick: the active pass succeeds (no active rows) but a cancelled
+// context fails the metadata-list query, so tick logs and returns.
+func TestTickMetadataListErrorReturns(t *testing.T) {
+	tr := &mockTracker{}
+	p, _, _ := newPoller(t, tr, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.tick(ctx) // ActiveFlightParts errors first → returns before the metadata pass
+	if tr.calls != 0 {
+		t.Errorf("no tracking expected on a cancelled tick, calls = %d", tr.calls)
+	}
+}
+
+// TestRefreshMetadata_NoResolverIsNoOp covers refreshMetadata's guard: with no
+// Resolver wired it returns immediately (no status write, no alert).
+func TestRefreshMetadata_NoResolverIsNoOp(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p.Resolver = nil
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "NR1", ScheduledOut: now.Add(2 * time.Hour), ScheduledIn: now.Add(4 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	p.refreshMetadata(ctx, f, now) // no resolver → early return, must not panic
+}
+
+// TestRefreshMetadata_ResolveErrorRefreshesStatus covers the resolve-error path
+// in refreshMetadata: a not-found resolve still bumps last_polled_at via
+// RefreshFlightPartStatus so the metadata-pass throttle applies.
+func TestRefreshMetadata_ResolveErrorRefreshesStatus(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p.Resolver = &fakeResolver{err: providers.ErrFlightNotFound}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Degenerate schedule (needsBackfill true) so the resolve is attempted.
+	dep := now.Add(2 * time.Hour)
+	f, err := mkPart(ctx, s, partSeed{Ident: "NR2", ScheduledOut: dep, ScheduledIn: dep}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	p.refreshMetadata(ctx, f, now)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.LastPolledAt == nil {
+		t.Error("a failed metadata resolve must still bump last_polled_at")
+	}
+}
+
+// TestTickMetadataListErrorAfterActivePass covers the FlightPartsNeedingMetadata
+// error branch (180-183): the active pass runs (its tracker cancels the context
+// mid-flight), so the subsequent metadata-list query fails on the now-cancelled
+// context and tick logs + returns.
+func TestTickMetadataListErrorAfterActivePass(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}, before: func(*store.Flight) { cancel() }}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	uid := seedUser(t, s)
+	now := time.Now()
+	// One active (enroute) flight to drive the active pass.
+	if _, err := mkPart(context.Background(), s, partSeed{
+		Ident: "MD1", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, uid); err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	p.tick(ctx) // active pass cancels ctx; metadata list query then errors
+
+	if tr.calls != 1 {
+		t.Errorf("the active flight should have been tracked once, calls = %d", tr.calls)
+	}
+}
+
+// cancelMetaResolver cancels the context on its first Resolve call (then reports
+// not-found), so a tick's metadata loop bails on its per-row ctx.Err() guard
+// before the second candidate.
+type cancelMetaResolver struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (c *cancelMetaResolver) Resolve(_ context.Context, _ string, _ time.Time) (*providers.ResolvedFlight, error) {
+	c.calls++
+	c.cancel()
+	return nil, providers.ErrFlightNotFound
+}
+
+// TestTickMetadataLoopContextCancelled covers the per-row ctx.Err() guard in the
+// metadata loop (185-187): two pre-departure metadata candidates, and the
+// resolver cancels the context whilst the first is processed, so the loop bails
+// before the second.
+func TestTickMetadataLoopContextCancelled(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Two flights 2h out with degenerate schedules → both are metadata-pass
+	// candidates needing a resolve; none are in the active (<30m) window.
+	for _, id := range []string{"ML1", "ML2"} {
+		dep := now.Add(2 * time.Hour)
+		if _, err := mkPart(context.Background(), s, partSeed{Ident: id, ScheduledOut: dep, ScheduledIn: dep}, uid); err != nil {
+			t.Fatalf("mkPart %s: %v", id, err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cr := &cancelMetaResolver{cancel: cancel}
+	p.Resolver = cr
+
+	p.tick(ctx)
+
+	if cr.calls != 1 {
+		t.Errorf("metadata loop should stop after the first row cancels, resolver calls = %d", cr.calls)
+	}
+}
+
+// TestRefreshMetadata_StatusRefreshErrorOnResolveError covers the
+// RefreshFlightPartStatus error branch inside refreshMetadata's resolve-error
+// path (229-231): a cancelled context fails both the resolve and the follow-up
+// status refresh.
+func TestRefreshMetadata_StatusRefreshErrorOnResolveError(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p.Resolver = &fakeResolver{err: providers.ErrFlightNotFound}
+	uid := seedUser(t, s)
+	now := time.Now()
+	dep := now.Add(2 * time.Hour)
+	f, err := mkPart(context.Background(), s, partSeed{Ident: "MD2", ScheduledOut: dep, ScheduledIn: dep}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // resolve errors → RefreshFlightPartStatus also errors on cancel
+
+	p.refreshMetadata(ctx, f, now) // must not panic
+}
+
+// TestResolveAndUpdate_BackfillWriteErrorPropagates covers the BackfillFlightPart
+// error branch (432-435): the (fake) resolver returns success, but a cancelled
+// context fails the backfill write, which is logged and propagated.
+func TestResolveAndUpdate_BackfillWriteErrorPropagates(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "RU2", OriginIATA: "LHR", DestIATA: "JFK", ICAO24: "406b05",
+	}}
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(context.Background(), s, partSeed{
+		Ident: "RU2", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Resolve succeeds (fake ignores ctx); BackfillFlightPart fails
+
+	if _, rerr := p.resolveAndUpdate(ctx, f, now); rerr == nil {
+		t.Fatal("a failed backfill write should propagate from resolveAndUpdate")
+	}
+}
+
+// TestResolveAndUpdate_ResolveErrorStampsThrottle covers resolveAndUpdate's
+// resolver-error path: a transport error (not ErrFlightNotFound) is logged, the
+// throttle is stamped via an empty airframe refresh, and the error propagates.
+func TestResolveAndUpdate_ResolveErrorStampsThrottle(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p.Resolver = &fakeResolver{err: errors.New("upstream 500")}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "RU1", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK", ICAO24: "abc123",
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	if _, rerr := p.resolveAndUpdate(ctx, f, now); rerr == nil {
+		t.Fatal("resolveAndUpdate should propagate the transport error")
+	}
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.LastResolvedAt == nil {
+		t.Error("a transport error must still stamp last_resolved_at to throttle the retry")
+	}
+}
+
+// TestRunFiresSweepAndFeedTickers covers the sweep and feed ticker cases of
+// Run's select loop (otherwise gated behind the 4h / 5m production cadences). We
+// shorten the two package-level intervals for the duration of the test so both
+// tickers fire promptly, then assert the loop stops on context cancel.
+func TestRunFiresSweepAndFeedTickers(t *testing.T) {
+	origSweep, origFeed := sweepInterval, feedInterval
+	sweepInterval = 15 * time.Millisecond
+	feedInterval = 15 * time.Millisecond
+	t.Cleanup(func() { sweepInterval, feedInterval = origSweep, origFeed })
+
+	tr := &mockTracker{pos: &store.Position{Lat: 3, Lon: 3}}
+	p, s, _ := newPoller(t, tr, 20*time.Millisecond)
+	p.Feeds = feeds.NewService(s, "aerly-test", time.Minute) // empty set → no-op refresh
+	uid := seedUser(t, s)
+	now := time.Now()
+	if _, err := mkPart(context.Background(), s, partSeed{
+		Ident: "RN1", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, uid); err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
+	time.Sleep(80 * time.Millisecond) // let all three tickers fire at least once
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop on context cancel")
 	}
 }
 

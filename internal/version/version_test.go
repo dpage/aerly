@@ -2,6 +2,7 @@ package version
 
 import (
 	"runtime"
+	"runtime/debug"
 	"testing"
 )
 
@@ -35,6 +36,44 @@ func TestGetPrefersLdflagsOverrides(t *testing.T) {
 	}
 	if got.Short != "0123456789ab" {
 		t.Errorf("Short = %q, want first 12 chars", got.Short)
+	}
+}
+
+func TestApplyBuildSettingsFillsFromVCSStamp(t *testing.T) {
+	got := applyBuildSettings(Info{}, []debug.BuildSetting{
+		{Key: "vcs.revision", Value: "deadbeefcafef00d"},
+		{Key: "vcs.time", Value: "2026-06-08T12:00:00Z"},
+		{Key: "vcs.modified", Value: "true"},
+		{Key: "GOARCH", Value: "ignored"},
+	})
+	if got.Commit != "deadbeefcafef00d" {
+		t.Errorf("Commit = %q, want the VCS revision", got.Commit)
+	}
+	if got.BuildTime != "2026-06-08T12:00:00Z" {
+		t.Errorf("BuildTime = %q, want the VCS time", got.BuildTime)
+	}
+	if !got.Modified {
+		t.Error("Modified = false, want true for vcs.modified=true")
+	}
+}
+
+func TestApplyBuildSettingsKeepsLdflagsOverrides(t *testing.T) {
+	// Commit and BuildTime are already populated (as if from -ldflags), so the
+	// VCS stamp must not clobber them; vcs.modified=false leaves Modified false.
+	seed := Info{Commit: "fromldflags", BuildTime: "fromldflags-time"}
+	got := applyBuildSettings(seed, []debug.BuildSetting{
+		{Key: "vcs.revision", Value: "vcsrevision"},
+		{Key: "vcs.time", Value: "vcstime"},
+		{Key: "vcs.modified", Value: "false"},
+	})
+	if got.Commit != "fromldflags" {
+		t.Errorf("Commit = %q, want the ldflags value preserved", got.Commit)
+	}
+	if got.BuildTime != "fromldflags-time" {
+		t.Errorf("BuildTime = %q, want the ldflags value preserved", got.BuildTime)
+	}
+	if got.Modified {
+		t.Error("Modified = true, want false for vcs.modified=false")
 	}
 }
 

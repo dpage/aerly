@@ -448,6 +448,160 @@ func TestSweep_ProvisionalThrottleSkipsAfterMiss(t *testing.T) {
 	}
 }
 
+// TestSweep_MissingCoordsListErrorReturns covers the FlightPartsWithMissingCoords
+// error branch in Sweep: a cancelled context fails the candidate query, so Sweep
+// logs and returns early (still running the deferred provisional pass, which
+// also short-circuits on the cancelled context).
+func TestSweep_MissingCoordsListErrorReturns(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{Ident: "X"}}
+	p.Resolver = resolver
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	p.Sweep(ctx) // must not panic; both passes bail on the cancelled context
+
+	if resolver.calls != 0 {
+		t.Errorf("a cancelled sweep should not call the resolver, got %d", resolver.calls)
+	}
+	_ = s
+}
+
+// cancelOnResolve is a Resolver double that cancels a context the first time it
+// is asked to resolve, then returns not-found. It lets the sweep loops' per-row
+// ctx.Err() guards be exercised deterministically: the first row triggers the
+// cancel, and the loop bails before the second.
+type cancelOnResolve struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (c *cancelOnResolve) Resolve(_ context.Context, _ string, _ time.Time) (*providers.ResolvedFlight, error) {
+	c.calls++
+	c.cancel()
+	return nil, providers.ErrFlightNotFound
+}
+
+// TestSweep_ContextCancelledMidCoordLoop covers the per-row ctx.Err() guard in
+// Sweep's coord loop (52-54): the resolver cancels the context whilst the first
+// candidate is processed, so the loop bails before the second.
+func TestSweep_ContextCancelledMidCoordLoop(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Two NULL-coord candidates (dest ZZZ/QQQ not in the table), so the coord
+	// loop runs both unless cancelled mid-way.
+	for _, id := range []string{"EZYA", "EZYB"} {
+		dest := "ZZZ"
+		if id == "EZYB" {
+			dest = "QQQ"
+		}
+		if _, err := mkPart(context.Background(), s, partSeed{
+			Ident: id, ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+			OriginIATA: "BRS", DestIATA: dest,
+		}, uid); err != nil {
+			t.Fatalf("mkPart %s: %v", id, err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cr := &cancelOnResolve{cancel: cancel}
+	p.Resolver = cr
+
+	p.Sweep(ctx)
+
+	if cr.calls != 1 {
+		t.Errorf("coord loop should stop after the first row cancels, resolver calls = %d", cr.calls)
+	}
+}
+
+// TestSweepProvisional_ContextCancelledMidLoop covers the per-row ctx.Err() guard
+// in sweepProvisional's loop (108-110): the resolver cancels the context on the
+// first provisional row, so the loop bails before the second.
+func TestSweepProvisional_ContextCancelledMidLoop(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Two far-future on-table provisional flights (coords filled → the coord
+	// pass skips them, the provisional pass owns them).
+	for _, id := range []string{"TKAA", "TKBB"} {
+		if _, err := mkPart(context.Background(), s, partSeed{
+			Ident: id, ScheduledOut: now.Add(60 * 24 * time.Hour),
+			ScheduledIn: now.Add(60*24*time.Hour + 3*time.Hour),
+			OriginIATA:  "IST", DestIATA: "LHR",
+		}, uid); err != nil {
+			t.Fatalf("mkPart %s: %v", id, err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cr := &cancelOnResolve{cancel: cancel}
+	p.Resolver = cr
+
+	// Call sweepProvisional directly with a non-cancelled context so the early
+	// guard passes; the resolver cancels mid-loop.
+	p.sweepProvisional(ctx, now)
+
+	if cr.calls != 1 {
+		t.Errorf("provisional loop should stop after the first row cancels, resolver calls = %d", cr.calls)
+	}
+}
+
+// TestSweepOne_FillErrorIsIsolated covers the flightcoord.Fill error branch in
+// sweepOne: a cancelled context makes the fill error, which is logged and
+// isolated (no publish, no panic) so one bad row never unwinds the sweep.
+func TestSweepOne_FillErrorIsIsolated(t *testing.T) {
+	p, s, hub := newPoller(t, &mockTracker{}, time.Minute)
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "EZY2", OriginIATA: "BRS", DestIATA: "ZZZ", DestLat: 1, DestLon: 2,
+	}}
+	p.Resolver = resolver
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(context.Background(), s, partSeed{
+		Ident: "EZY2", ScheduledOut: now, ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "BRS", DestIATA: "ZZZ",
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	events, unsub := hub.Subscribe(sse.Subscription{ViewerID: uid, IsSuperuser: true, ShowAll: true})
+	defer unsub()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // flightcoord.Fill errors on the cancelled context
+
+	p.sweepOne(ctx, f, now) // must not panic, must not publish
+
+	select {
+	case ev := <-events:
+		t.Errorf("a failed fill must not publish, got %s", ev.Type)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// TestSweepProvisional_ListErrorReturns covers the ProvisionalFlightParts error
+// branch: a context that is NOT yet cancelled when sweepProvisional's guard runs
+// but fails the query. We use a context cancelled after the resolver-presence
+// check by wrapping with a deadline already elapsed — simplest is a cancelled
+// context, which short-circuits at the ctx.Err() guard, so instead we close the
+// query path by cancelling just before the query. A cancelled context trips the
+// early guard, so to reach the query error we keep the context live but point
+// the pool at a cancelled child only for the query — not feasible without a
+// seam. Cover the early-guard path here (resolver set, context cancelled).
+func TestSweepProvisional_CancelledContextBails(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	resolver := &fakeResolver{rf: &providers.ResolvedFlight{Ident: "X"}}
+	p.Resolver = resolver
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	p.sweepProvisional(ctx, time.Now()) // ctx.Err() != nil → quiet bail
+
+	if resolver.calls != 0 {
+		t.Errorf("a cancelled provisional pass should not resolve, got %d", resolver.calls)
+	}
+	_ = s
+}
+
 // resolveByIdent is a Resolver double that only returns success for one
 // specific ident. Used by the mixed-batch test.
 type resolveByIdent struct {

@@ -14,6 +14,11 @@ import (
 	"github.com/dpage/aerly/internal/store"
 )
 
+// marshalJSON is the payload encoder. It's a package var so tests can force the
+// (otherwise unreachable) marshal-error branch; production always uses
+// encoding/json.
+var marshalJSON = json.Marshal
+
 // tripEventPayload is the trip.updated body. Carries the trip id so the FE can
 // refetch the right trip (and re-list trips).
 type tripEventPayload struct {
@@ -42,7 +47,7 @@ func TripUpdated(ctx context.Context, st *store.Store, hub *sse.Hub, tripID int6
 		slog.Error("notify.TripUpdated: visibility", "err", err, "trip", tripID)
 		return
 	}
-	payload, err := json.Marshal(tripEventPayload{ID: tripID})
+	payload, err := marshalJSON(tripEventPayload{ID: tripID})
 	if err != nil {
 		slog.Error("notify.TripUpdated: marshal", "err", err, "trip", tripID)
 		return
@@ -72,7 +77,7 @@ func planEvent(ctx context.Context, st *store.Store, hub *sse.Hub, eventType str
 		slog.Error("notify.planEvent: visibility", "err", err, "type", eventType, "plan", planID)
 		return
 	}
-	payload, err := json.Marshal(planEventPayload{TripID: tripID, PlanID: planID})
+	payload, err := marshalJSON(planEventPayload{TripID: tripID, PlanID: planID})
 	if err != nil {
 		slog.Error("notify.planEvent: marshal", "err", err, "type", eventType, "plan", planID)
 		return

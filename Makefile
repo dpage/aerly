@@ -17,7 +17,8 @@ BUILD_TIME  ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 VERSION_LDFLAGS := -X $(VERSION_PKG).commit=$(COMMIT) -X $(VERSION_PKG).buildTime=$(BUILD_TIME)
 
 .PHONY: build build-go build-web run dev test test-go test-web cover-go \
-        cover-web lint lint-go lint-web typecheck-web fmt-web clean tidy
+        cover-web coverage-gate lint lint-go lint-web typecheck-web fmt-web \
+        clean tidy
 
 ## build: build the SPA, then the Go binary that embeds it.
 build: build-web build-go
@@ -69,6 +70,13 @@ test-go:
 cover-go:
 	$(GO) test -covermode=set -coverprofile=coverage.out $(GO_PKGS)
 	$(GO) tool cover -func=coverage.out | tail -1
+
+## coverage-gate: per-file Go coverage report against the 90% target. Report
+##                only for now (see issue #103); add -enforce to fail on gaps
+##                once they have been closed.
+coverage-gate:
+	$(GO) test -covermode=set -coverprofile=coverage.out $(GO_PKGS)
+	$(GO) run ./cmd/coverage-gate -profile=coverage.out -min=90
 
 test-web:
 	cd $(WEB_DIR) && $(NPM) run test

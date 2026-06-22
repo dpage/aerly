@@ -51,7 +51,18 @@ type Poller struct {
 
 // feedInterval is how often the poller sweeps trip feeds for ones due a
 // refresh. The per-feed staleness threshold lives on the feed service.
-const feedInterval = 5 * time.Minute
+//
+// It is a package var (not a const) only so the Run-loop test can shorten it to
+// drive the feed-refresh ticker branch deterministically; production never
+// reassigns it.
+var feedInterval = 5 * time.Minute
+
+// jsonMarshal is the indirection the SSE-publish paths use to encode a payload.
+// It defaults to encoding/json.Marshal in production; it exists as a package
+// var purely so tests can exercise the otherwise-unreachable marshal-failure
+// branches (a NotificationsDTO / TrackerPartDTO never fails to encode in
+// practice). It must not be overridden outside tests.
+var jsonMarshal = json.Marshal
 
 // pusher is the slice of *push.Sender the poller needs, as an interface so the
 // alert tests can substitute a fake that records what would have been pushed.
@@ -337,7 +348,7 @@ func (p *Poller) publishPartChange(ctx context.Context, partID int64) {
 			dto.Track[i] = api.ToPositionDTO(pos)
 		}
 	}
-	payload, err := json.Marshal(dto)
+	payload, err := jsonMarshal(dto)
 	if err != nil {
 		slog.Error("poller: marshal dto", "err", err)
 		return

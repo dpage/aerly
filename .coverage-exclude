@@ -1,0 +1,28 @@
+# Files excluded from the per-file Go coverage gate (cmd/coverage-gate).
+#
+# Keep this list SHORT and principled. Only exclude code that genuinely cannot
+# or should not be unit-tested, mirroring how web/vitest.config.ts excludes the
+# service-worker shell and the test/ harness. "Hard to test" is not a reason to
+# exclude: those files are the work item for issue #103, not exemptions.
+#
+# Syntax (matched against repo-relative paths):
+#   path/to/file.go   exact file
+#   path/prefix/      directory and everything beneath it (note trailing slash)
+#   internal/*/x.go   filepath.Match glob
+
+# Test infrastructure: exercised only by other tests, so it has no tests of its
+# own (the parallel to vitest excluding src/test/**).
+internal/testsupport/
+
+# The coverage gate tool itself: a thin CLI entrypoint added for this very gate.
+cmd/coverage-gate/main.go
+
+# One-shot ops CLI for relabelling flight parts. Its pure logic (tableRelabel,
+# isQuotaExhausted, sleep) IS unit-tested, but run()'s core re-resolve loop is
+# hardwired to providers.NewAeroDataBox (the live RapidAPI host, with no
+# endpoint/resolver injection point), so the loop can't be exercised without
+# either calling the real flight API or adding a production seam to an
+# entrypoint purely for coverage. Excluded on that basis, not mere difficulty.
+# (cmd/server/main.go is deliberately NOT excluded: its wiring proved testable
+# and it sits at ~97%.)
+cmd/backfill-flight-labels/main.go

@@ -81,6 +81,45 @@ func TestSend_BinaryMissing(t *testing.T) {
 	}
 }
 
+func TestSend_NonZeroExitReturnsError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sendmail pipe is POSIX-shaped; skip on Windows")
+	}
+	// A stub that drains stdin but exits non-zero must surface as a Wait()
+	// error: the message was written and stdin closed cleanly, so the only
+	// failure is the child's exit status.
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "sendmail.sh")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\ncat >/dev/null\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	if err := Send(context.Background(), stub, "x@y", "msg"); err == nil {
+		t.Error("expected error when sendmail exits non-zero")
+	}
+}
+
+func TestSend_WriteToStdinFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sendmail pipe is POSIX-shaped; skip on Windows")
+	}
+	// A stub that exits immediately without reading stdin closes the read end
+	// of the pipe; writing a payload larger than the OS pipe buffer then fails
+	// with EPIPE, exercising the write-error branch (Close + Wait + return).
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "sendmail.sh")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	// 8 MiB comfortably exceeds the typical 64 KiB pipe buffer.
+	big := strings.Repeat("x", 8<<20)
+	// Either the write fails (EPIPE) or, if the child hadn't exited yet, Wait
+	// succeeds; in practice on Linux the child exits before we finish writing,
+	// so we expect an error. Accept an error as the success condition.
+	if err := Send(context.Background(), stub, "x@y", big); err == nil {
+		t.Error("expected an error when the child closes stdin mid-write")
+	}
+}
+
 func TestSend_PassesMessageToBinary(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("sendmail pipe is POSIX-shaped; skip on Windows")

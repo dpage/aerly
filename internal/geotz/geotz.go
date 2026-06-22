@@ -15,7 +15,18 @@ var (
 	once   sync.Once
 	finder tzf.F
 	initEr error
+
+	// newFinder constructs the timezone finder. It's a package var so tests can
+	// substitute a failing constructor and exercise the init-failure path;
+	// production always uses tzf's embedded-data finder.
+	newFinder = func() (tzf.F, error) { return tzf.NewDefaultFinder() }
 )
+
+// tzFinder is the single method of tzf.F that resolve needs. Narrowing it to
+// an interface lets the resolution logic be unit-tested with a stub finder.
+type tzFinder interface {
+	GetTimezoneName(lng, lat float64) string
+}
 
 // Lookup returns the IANA timezone name for a coordinate (e.g.
 // "America/New_York"), or ("", false) when it can't be resolved (open ocean,
@@ -23,18 +34,27 @@ var (
 // the first call pays a one-off load cost; subsequent calls are cheap and the
 // finder is safe for concurrent use.
 func Lookup(lat, lon float64) (string, bool) {
-	once.Do(func() {
-		finder, initEr = tzf.NewDefaultFinder()
-		if initEr != nil {
-			// Logged once (guarded by once.Do): otherwise every Lookup silently
-			// returns ("", false) forever and timezone anchoring just never works.
-			slog.Error("geotz: timezone finder init failed; tz lookups disabled", "err", initEr)
-		}
-	})
-	if initEr != nil || finder == nil {
+	once.Do(initFinder)
+	return resolve(finder, initEr, lat, lon)
+}
+
+// initFinder builds the shared finder once. A failure is logged here (guarded
+// by once.Do) rather than on every Lookup: otherwise a silent ("", false)
+// would mean timezone anchoring just never works, with no clue why.
+func initFinder() {
+	finder, initEr = newFinder()
+	if initEr != nil {
+		slog.Error("geotz: timezone finder init failed; tz lookups disabled", "err", initEr)
+	}
+}
+
+// resolve is the pure lookup logic: it reports ("", false) when the finder
+// failed to initialise or a coordinate has no zone, and otherwise the zone name.
+func resolve(f tzFinder, initErr error, lat, lon float64) (string, bool) {
+	if initErr != nil || f == nil {
 		return "", false
 	}
-	name := finder.GetTimezoneName(lon, lat)
+	name := f.GetTimezoneName(lon, lat)
 	if name == "" {
 		return "", false
 	}

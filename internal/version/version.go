@@ -51,22 +51,31 @@ func Get() Info {
 		Arch:      runtime.GOARCH,
 	}
 	if bi, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range bi.Settings {
-			switch s.Key {
-			case "vcs.revision":
-				if info.Commit == "" {
-					info.Commit = s.Value
-				}
-			case "vcs.time":
-				if info.BuildTime == "" {
-					info.BuildTime = s.Value
-				}
-			case "vcs.modified":
-				info.Modified = s.Value == "true"
-			}
-		}
+		info = applyBuildSettings(info, bi.Settings)
 	}
 	info.Short = shortSHA(info.Commit)
+	return info
+}
+
+// applyBuildSettings fills commit, build time and the modified flag from the
+// toolchain's embedded VCS stamp, leaving any value already supplied via
+// -ldflags untouched. It's separated from Get so it can be unit-tested with
+// synthetic settings, since the real stamp depends on how the binary was built.
+func applyBuildSettings(info Info, settings []debug.BuildSetting) Info {
+	for _, s := range settings {
+		switch s.Key {
+		case "vcs.revision":
+			if info.Commit == "" {
+				info.Commit = s.Value
+			}
+		case "vcs.time":
+			if info.BuildTime == "" {
+				info.BuildTime = s.Value
+			}
+		case "vcs.modified":
+			info.Modified = s.Value == "true"
+		}
+	}
 	return info
 }
 

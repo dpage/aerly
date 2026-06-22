@@ -239,6 +239,63 @@ func TestHandleReturnsOnInitialWriteError(t *testing.T) {
 	}
 }
 
+func TestSubscriberCount(t *testing.T) {
+	h := NewHub()
+	if got := h.SubscriberCount(); got != 0 {
+		t.Fatalf("empty hub SubscriberCount = %d, want 0", got)
+	}
+	_, unsub1 := h.Subscribe(anySub)
+	_, unsub2 := h.Subscribe(anySub)
+	if got := h.SubscriberCount(); got != 2 {
+		t.Fatalf("SubscriberCount = %d, want 2", got)
+	}
+	unsub1()
+	if got := h.SubscriberCount(); got != 1 {
+		t.Fatalf("after one unsubscribe SubscriberCount = %d, want 1", got)
+	}
+	unsub2()
+	if got := h.SubscriberCount(); got != 0 {
+		t.Fatalf("after all unsubscribed SubscriberCount = %d, want 0", got)
+	}
+}
+
+func TestHandleSendsKeepalive(t *testing.T) {
+	h := NewHub()
+	h.keepalive = time.Millisecond // fire heartbeats promptly
+	ctx, cancel := context.WithCancel(context.Background())
+	r := httptest.NewRequest("GET", "/api/events", nil).WithContext(ctx)
+	w := &syncWriter{hdr: http.Header{}}
+
+	done := make(chan struct{})
+	go func() { h.Stream(w, r, anySub); close(done) }()
+
+	waitFor(t, func() bool { return strings.Contains(w.String(), ": keepalive") })
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stream did not return after context cancel")
+	}
+}
+
+func TestHandleReturnsOnKeepaliveWriteError(t *testing.T) {
+	h := NewHub()
+	h.keepalive = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := httptest.NewRequest("GET", "/api/events", nil).WithContext(ctx)
+	// ": ok" write succeeds; the next write (a keepalive heartbeat) fails.
+	w := &syncWriter{hdr: http.Header{}, failAt: 2}
+	done := make(chan struct{})
+	go func() { h.Stream(w, r, anySub); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stream should return when keepalive write fails")
+	}
+}
+
 func TestHandleReturnsOnEventWriteError(t *testing.T) {
 	h := NewHub()
 	ctx, cancel := context.WithCancel(context.Background())

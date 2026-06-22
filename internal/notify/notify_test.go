@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/dpage/aerly/internal/sse"
@@ -122,6 +123,70 @@ func TestPlanUpdated_ScopedToVisibility(t *testing.T) {
 	}
 	if _, ok := recv(strangerCh); ok {
 		t.Error("non-visible user received a plan.updated event")
+	}
+}
+
+// A failing visibility query is logged and swallowed (never published): a
+// cancelled context makes VisibleTripUserIDs / VisiblePlanUserIDs error.
+func TestNotify_VisibilityErrorIsSwallowed(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	st := store.New(pool)
+	hub := sse.NewHub()
+
+	owner := testsupport.InsertUser(t, pool, "notify-verr", false, true)
+	trip, err := st.CreateTrip(context.Background(), store.CreateTripPayload{Name: "Trip"}, owner)
+	if err != nil {
+		t.Fatalf("CreateTrip: %v", err)
+	}
+	plan, err := st.CreatePlan(context.Background(), store.CreatePlanPayload{TripID: trip.ID, Type: "dining", Title: "D"}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel() // the visibility query will fail on a cancelled context
+
+	TripUpdated(cancelled, st, hub, trip.ID)
+	PlanUpdated(cancelled, st, hub, trip.ID, plan.ID)
+
+	if _, ok := recv(ch); ok {
+		t.Error("nothing should be published when the visibility query fails")
+	}
+}
+
+// A marshal failure is logged and swallowed. Marshalling an int-only payload
+// can't fail in practice, so the encoder seam is forced to error here.
+func TestNotify_MarshalErrorIsSwallowed(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	st := store.New(pool)
+	hub := sse.NewHub()
+	ctx := context.Background()
+
+	owner := testsupport.InsertUser(t, pool, "notify-merr", false, true)
+	trip, err := st.CreateTrip(ctx, store.CreateTripPayload{Name: "Trip"}, owner)
+	if err != nil {
+		t.Fatalf("CreateTrip: %v", err)
+	}
+	plan, err := st.CreatePlan(ctx, store.CreatePlanPayload{TripID: trip.ID, Type: "dining", Title: "D"}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+
+	orig := marshalJSON
+	t.Cleanup(func() { marshalJSON = orig })
+	marshalJSON = func(any) ([]byte, error) { return nil, errors.New("marshal boom") }
+
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	TripUpdated(ctx, st, hub, trip.ID)
+	PlanUpdated(ctx, st, hub, trip.ID, plan.ID)
+
+	if _, ok := recv(ch); ok {
+		t.Error("nothing should be published when marshalling fails")
 	}
 }
 

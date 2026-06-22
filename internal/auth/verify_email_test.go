@@ -66,6 +66,27 @@ func TestVerifyEmail_BadToken(t *testing.T) {
 	}
 }
 
+// TestVerifyEmail_StoreError closes the pool so VerifyEmailByToken returns a
+// generic (non-ErrNotFound) error, exercising the "something went wrong"
+// branch that renders a 400 with a generic message.
+func TestVerifyEmail_StoreError(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	s := store.New(pool)
+	h := NewHandler([]byte("verify-email-test-session-key!!!!!"), "http://localhost:8080", s)
+	pool.Close() // VerifyEmailByToken now fails with "closed pool"
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/auth/verify-email?token=anything", nil)
+	h.VerifyEmail(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "something went wrong") {
+		t.Errorf("body should mention generic error, got: %s", w.Body.String())
+	}
+}
+
 func TestVerifyEmail_MissingToken(t *testing.T) {
 	h, _ := newAuthHandler(t)
 	mux := http.NewServeMux()

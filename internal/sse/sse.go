@@ -44,12 +44,17 @@ type Hub struct {
 	mu    sync.RWMutex
 	subs  map[chan Event]Subscription
 	bufSz int
+	// keepalive is the interval between SSE comment heartbeats sent by
+	// Stream. Defaults to 25s via NewHub; overridable only so tests can
+	// exercise the keepalive branch deterministically.
+	keepalive time.Duration
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		subs:  make(map[chan Event]Subscription),
-		bufSz: 16,
+		subs:      make(map[chan Event]Subscription),
+		bufSz:     16,
+		keepalive: 25 * time.Second,
 	}
 }
 
@@ -147,7 +152,7 @@ func (h *Hub) Stream(w http.ResponseWriter, r *http.Request, sub Subscription) {
 	}
 	flusher.Flush()
 
-	keepalive := time.NewTicker(25 * time.Second)
+	keepalive := time.NewTicker(h.keepalive)
 	defer keepalive.Stop()
 
 	for {

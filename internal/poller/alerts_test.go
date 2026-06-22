@@ -3,6 +3,7 @@ package poller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -109,6 +110,266 @@ func drainAlerts(t *testing.T, ch <-chan sse.Event) []api.FlightAlertDTO {
 			return out
 		}
 	}
+}
+
+// TestSnapshotAndSignature exercises the pure snapshot/effectiveOut/signature
+// helpers directly: the delay-clamp (negative effective-out → 0), the
+// estimated-out fallback when there's no actual time, and the belt/terminal
+// components of the dedupe signature.
+func TestSnapshotAndSignature(t *testing.T) {
+	out := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+
+	// No estimated/actual departure → no delay reported.
+	noTimes := &store.Flight{Status: "Scheduled", ScheduledOut: out}
+	if st := snapshot(noTimes); st.hasDelay {
+		t.Errorf("a flight with only a scheduled time should report no delay: %+v", st)
+	}
+
+	// Estimated-out earlier than scheduled → delay clamps to 0 (not negative).
+	early := out.Add(-20 * time.Minute)
+	earlyF := &store.Flight{Status: "Scheduled", ScheduledOut: out, EstimatedOut: &early}
+	if st := snapshot(earlyF); !st.hasDelay || st.delayMin != 0 {
+		t.Errorf("an early estimate should clamp the delay to 0, got %+v", st)
+	}
+
+	// Actual-out wins over estimated-out for effectiveOut.
+	act := out.Add(40 * time.Minute)
+	est := out.Add(10 * time.Minute)
+	bothF := &store.Flight{Status: "Enroute", ScheduledOut: out, ActualOut: &act, EstimatedOut: &est}
+	if eff := effectiveOut(bothF); eff == nil || !eff.Equal(act) {
+		t.Errorf("effectiveOut should prefer actual_out, got %v", eff)
+	}
+	if st := snapshot(bothF); st.delayMin != 40 {
+		t.Errorf("delay from actual_out = %d, want 40", st.delayMin)
+	}
+
+	// Belt and destination-terminal both fold into the signature.
+	full := alertState{
+		status: "Scheduled", destBelt: "7", destTerminal: "2", originTerminal: "1",
+		originGate: "A1", destGate: "B2", hasDelay: true, delayMin: 30,
+	}
+	sig := alertSignature(full)
+	for _, want := range []string{"delay:30", "ogate:A1", "dgate:B2", "belt:7", "oterm:1", "dterm:2"} {
+		if !strings.Contains(sig, want) {
+			t.Errorf("signature %q missing %q", sig, want)
+		}
+	}
+}
+
+// TestChangeDetail exercises the changeDetail phrasing branches that the
+// end-to-end alert tests don't reach: a delay with no effective-out time, an
+// arrival-gate change, and an arrival-terminal change.
+func TestChangeDetail(t *testing.T) {
+	out := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	noEff := &store.Flight{ScheduledOut: out} // no estimated/actual → no eff time
+	if got := changeDetail("delayed", alertState{}, alertState{}, noEff); got != "now delayed" {
+		t.Errorf("delayed with no eff time = %q, want 'now delayed'", got)
+	}
+
+	// Arrival gate moved (origin unchanged) → arrival phrasing.
+	prev := alertState{}
+	cur := alertState{destGate: "C3"}
+	if got := changeDetail("gate", prev, cur, noEff); got != "now arrives at gate C3" {
+		t.Errorf("dest-gate detail = %q", got)
+	}
+
+	// Arrival terminal moved (origin unchanged) → arrival phrasing.
+	curT := alertState{destTerminal: "4"}
+	if got := changeDetail("terminal", prev, curT, noEff); got != "now arrives at terminal 4" {
+		t.Errorf("dest-terminal detail = %q", got)
+	}
+}
+
+// TestAlert_DedupeSigMatchSuppressesReAlert covers the stored-signature match
+// branch (151-153): a change whose kind is non-empty but whose signature equals
+// the last one we stamped is suppressed. We alert once (stamping the sig), then
+// replay the SAME pre-state so changeKind is still "delayed" but the signature
+// is unchanged.
+func TestAlert_DedupeSigMatchSuppressesReAlert(t *testing.T) {
+	p, s, hub, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "BA700", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	prev := f // no delay
+	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(45*time.Minute))
+	p.maybeAlert(ctx, prev, f.ID) // alerts + stamps sig "delay:45"
+	if got := drainAlerts(t, ch); len(got) != 1 {
+		t.Fatalf("first delay: expected 1 alert, got %d", len(got))
+	}
+
+	// Replay with the same no-delay prev: changeKind is "delayed" again, but the
+	// stored signature already equals the current one → suppressed.
+	p.maybeAlert(ctx, prev, f.ID)
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Fatalf("sig-match replay should be suppressed, got %d", len(got))
+	}
+}
+
+// TestAlert_LookupErrorsAreSwallowed covers the early-return error branches in
+// maybeAlert (FlightPartByID, dedupe-sig read, TrackerPartRow,
+// AlertRecipientsWithPrefs) and the SetFlightPartAlertSig stamp error, all via a
+// cancelled context: maybeAlert must log and bail without panicking and without
+// emitting an alert.
+func TestAlert_LookupErrorsAreSwallowed(t *testing.T) {
+	p, s, hub, cap := alertPoller(t)
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(context.Background(), s, partSeed{
+		Ident: "BA800", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // FlightPartByID errors → maybeAlert returns at the first guard
+
+	p.maybeAlert(ctx, f, f.ID) // must not panic
+
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Fatalf("a cancelled context must not emit an alert, got %d", len(got))
+	}
+	if cap.count() != 0 {
+		t.Fatalf("a cancelled context must not send email, got %d", cap.count())
+	}
+}
+
+// TestPublishAlert_InsertErrorSkipsBroadcast covers the InsertFlightAlert error
+// branch in publishAlert: a cancelled context fails the persist, so no SSE event
+// is pushed (no orphan event without a backing row).
+func TestPublishAlert_InsertErrorSkipsBroadcast(t *testing.T) {
+	p, s, hub, _ := alertPoller(t)
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(context.Background(), s, partSeed{
+		Ident: "BA810", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	tp, err := s.TrackerPartRow(context.Background(), f.ID)
+	if err != nil {
+		t.Fatalf("tracker row: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.publishAlert(ctx, owner, tp, "BA810", "delayed", "now delayed")
+
+	select {
+	case ev := <-ch:
+		t.Errorf("no SSE event expected when the insert fails, got %s", ev.Type)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// TestPublishAlert_MarshalErrorSkipsBroadcast covers the marshal-failure branch
+// in publishAlert: the row persists but the SSE encode fails, so no event is
+// pushed.
+func TestPublishAlert_MarshalErrorSkipsBroadcast(t *testing.T) {
+	p, s, hub, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "BA820", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	tp, err := s.TrackerPartRow(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("tracker row: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	failMarshal(t)
+	p.publishAlert(ctx, owner, tp, "BA820", "delayed", "now delayed")
+
+	select {
+	case ev := <-ch:
+		t.Errorf("no SSE event expected when marshal fails, got %s", ev.Type)
+	case <-time.After(150 * time.Millisecond):
+	}
+	// The backing row was still persisted before the marshal step.
+	rows, _ := s.ListFlightAlerts(ctx, owner, 10)
+	if len(rows) != 1 {
+		t.Fatalf("expected the alert row to persist before the marshal failure, got %d", len(rows))
+	}
+}
+
+// TestPushAlert_KindPrefErrorSwallowed covers the PushKindEnabled error branch
+// in pushAlert: a cancelled context fails the pref lookup, so pushAlert logs and
+// returns without sending (and without panicking).
+func TestPushAlert_KindPrefErrorSwallowed(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	fp := &fakePusher{enabled: true}
+	p.Push = fp
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(context.Background(), s, partSeed{
+		Ident: "BA830", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	tp, err := s.TrackerPartRow(context.Background(), f.ID)
+	if err != nil {
+		t.Fatalf("tracker row: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // PushKindEnabled errors → pushAlert returns before Send
+	p.pushAlert(ctx, owner, tp, "BA830", "now delayed")
+
+	if fp.count() != 0 {
+		t.Fatalf("no push expected when the kind-pref lookup fails, got %d", fp.count())
+	}
+}
+
+// TestSendAlertEmail_Branches covers sendAlertEmail's MailFrom-empty early
+// return, the send==nil fall-back to mailer.Send, and the send-error log path.
+func TestSendAlertEmail_Branches(t *testing.T) {
+	ctx := context.Background()
+
+	// (a) No MailFromAddress configured → early return, nothing sent.
+	p1, _, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p1.sendAlertEmail(ctx, "to@aerly.test", "BA900", "delayed", "now delayed") // no-op
+
+	// (b) Send==nil → defaults to mailer.Send with a no-op sendmail (/bin/true).
+	p2, _, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p2.MailFromAddress = "alerts@aerly.test"
+	p2.SendmailPath = "/bin/true"
+	p2.PublicURL = "http://localhost:8080"
+	p2.sendAlertEmail(ctx, "to@aerly.test", "BA901", "cancelled", "") // default mailer
+
+	// (c) A failing Send is logged and swallowed (no panic, no propagation).
+	p3, _, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p3.MailFromAddress = "alerts@aerly.test"
+	p3.SendmailPath = "/bin/true"
+	p3.SendAlertEmail = func(context.Context, string, string, string) error {
+		return errors.New("sendmail pipe broke")
+	}
+	p3.sendAlertEmail(ctx, "to@aerly.test", "BA902", "gate", "now departs gate B32")
 }
 
 func TestAlert_DelayBelowThresholdDoesNotAlert(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"net/url"
+	"os"
 	"testing"
 	"testing/fstest"
 
@@ -11,6 +13,17 @@ import (
 	"github.com/dpage/aerly/internal/testsupport"
 	"github.com/dpage/aerly/migrations"
 )
+
+// adminURL mirrors testsupport's maintenance connection string. It is used by
+// the error-path tests below that need to open a second pool as a different
+// role (or against a fresh database) to exercise branches that a healthy,
+// already-migrated pool never reaches.
+func adminURL() string {
+	if v := os.Getenv("TEST_DATABASE_URL"); v != "" {
+		return v
+	}
+	return "postgres://aerly:aerly@127.0.0.1:5432/postgres?sslmode=disable"
+}
 
 // openErrFS makes fs.ReadDir(".") fail (Open always errors).
 type openErrFS struct{}
@@ -177,6 +190,95 @@ func TestMigrateRecordInsertErrorRollsBack(t *testing.T) {
 	}
 	if err := db.Migrate(context.Background(), pool, mfs); err == nil {
 		t.Error("expected schema_migrations INSERT error after self-drop")
+	}
+}
+
+// TestMigrateRowScanError covers the rows.Scan(&v) error branch (line 78).
+//
+// The existing TestMigrateVersionQueryError / TestMigrateScanError tests reuse
+// the helper's already-migrated pool, whose connection has cached the
+// `SELECT version` plan as returning an INTEGER. Pointing that connection at a
+// differently-typed `schema_migrations` column surfaces a "cached plan must
+// not change result type" error lazily via rows.Err(), so the scan itself
+// never fails and line 78 stays uncovered.
+//
+// Here we instead open a brand-new pool against an EMPTY, un-migrated database
+// (so no `SELECT version` plan has ever been prepared) and pre-create
+// schema_migrations with a TEXT version column. With a fresh plan the result
+// column really is text, and decoding it into the *int passed to rows.Scan
+// fails at the scan, exercising the rows.Close()/return err branch.
+func TestMigrateRowScanError(t *testing.T) {
+	ctx := context.Background()
+	dsn := testsupport.NewDatabaseURL(t) // empty, un-migrated database
+	if dsn == "" {
+		t.Skip("no DB")
+	}
+	pool, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx,
+		`CREATE TABLE schema_migrations (version text, name text)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO schema_migrations (version, name) VALUES ('5', 'x')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if err := db.Migrate(ctx, pool, migrations.FS); err == nil {
+		t.Error("expected scan error decoding a TEXT version into *int")
+	}
+}
+
+// TestMigrateCreateTableError covers the "create schema_migrations" error
+// branch (line 45). On a healthy superuser pool the CREATE TABLE IF NOT EXISTS
+// never fails, so we connect as a freshly-created, low-privilege role that
+// lacks CREATE on the public schema (with the table dropped first) and confirm
+// Migrate fails before it can list or apply anything.
+func TestMigrateCreateTableError(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	if pool == nil {
+		t.Skip("no DB")
+	}
+	ctx := context.Background()
+
+	var dbname string
+	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&dbname); err != nil {
+		t.Fatalf("current_database: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DROP TABLE schema_migrations`); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	// Use a database-scoped role name so parallel test databases don't collide
+	// on the cluster-global role namespace.
+	role := "lowpriv_" + dbname
+	if _, err := pool.Exec(ctx, `CREATE ROLE "`+role+`" LOGIN PASSWORD 'lowpriv'`); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DROP ROLE IF EXISTS "`+role+`"`) })
+	// Strip CREATE from public so the limited role cannot recreate the table.
+	if _, err := pool.Exec(ctx, `REVOKE CREATE ON SCHEMA public FROM PUBLIC`); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `GRANT USAGE ON SCHEMA public TO "`+role+`"`); err != nil {
+		t.Fatalf("grant usage: %v", err)
+	}
+
+	u, err := url.Parse(adminURL())
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	u.User = url.UserPassword(role, "lowpriv")
+	u.Path = "/" + dbname
+	lp, err := db.Open(ctx, u.String())
+	if err != nil {
+		t.Fatalf("open low-priv pool: %v", err)
+	}
+	defer lp.Close()
+
+	if err := db.Migrate(ctx, lp, migrations.FS); err == nil {
+		t.Error("expected create schema_migrations permission error")
 	}
 }
 

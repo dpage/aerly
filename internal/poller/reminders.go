@@ -2,7 +2,6 @@ package poller
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -111,7 +110,7 @@ func (p *Poller) publishReminder(ctx context.Context, d store.DueReminder, label
 		return err
 	}
 	dto := api.NotificationsDTO{Alert: ptrFlightAlertDTO(api.ToFlightAlertDTO(stored))}
-	payload, err := json.Marshal(dto)
+	payload, err := jsonMarshal(dto)
 	if err != nil {
 		slog.Error("reminder: marshal", "err", err)
 		return nil

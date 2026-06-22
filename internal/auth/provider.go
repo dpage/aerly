@@ -327,9 +327,14 @@ func (h *Handler) exchangeCode(ctx context.Context, p *Provider, code string) (s
 	return out.AccessToken, nil
 }
 
+// randRead is the source of randomness for randomToken. It defaults to
+// crypto/rand.Read and exists only so tests can substitute a failing reader
+// to exercise the (otherwise unreachable) crypto/rand error path.
+var randRead = rand.Read
+
 func randomToken(n int) (string, error) {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randRead(b); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil

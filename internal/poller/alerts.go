@@ -2,7 +2,6 @@ package poller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -48,10 +47,10 @@ const delaySigBucketMin = 1
 // alertState is the minimal snapshot of a flight part used both to detect a
 // meaningful change and to build the dedupe signature.
 type alertState struct {
-	status     string
-	delayMin   int  // departure delay = effective_out - scheduled_out, clamped >= 0
-	hasDelay   bool // false when there's no estimated/actual departure yet
-	terminalDV bool // status is Cancelled or Diverted
+	status         string
+	delayMin       int  // departure delay = effective_out - scheduled_out, clamped >= 0
+	hasDelay       bool // false when there's no estimated/actual departure yet
+	terminalDV     bool // status is Cancelled or Diverted
 	originGate     string
 	destGate       string
 	destBelt       string // arrival baggage belt
@@ -352,7 +351,7 @@ func (p *Poller) publishAlert(ctx context.Context, userID int64, tp *store.Track
 		return
 	}
 	dto := api.NotificationsDTO{Alert: ptrFlightAlertDTO(api.ToFlightAlertDTO(stored))}
-	payload, err := json.Marshal(dto)
+	payload, err := jsonMarshal(dto)
 	if err != nil {
 		slog.Error("alert: marshal", "err", err)
 		return

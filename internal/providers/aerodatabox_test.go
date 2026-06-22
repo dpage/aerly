@@ -324,6 +324,199 @@ func TestAeroDataBoxFirstWhenNoOperator(t *testing.T) {
 	}
 }
 
+// --- ResolveAirport ---------------------------------------------------------
+
+// A well-formed airport lookup returns the resolved Airport with coordinates,
+// name (preferring shortName), timezone, and the uppercased IATA code. The
+// handler also asserts the request path and RapidAPI headers are set.
+func TestResolveAirportSuccess(t *testing.T) {
+	var gotPath string
+	a := newADB(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if r.Header.Get("X-RapidAPI-Key") != "apikey" {
+			t.Errorf("missing rapidapi key header")
+		}
+		if r.Header.Get("X-RapidAPI-Host") == "" {
+			t.Errorf("missing rapidapi host header")
+		}
+		_, _ = w.Write([]byte(`{"iata":"zzz","shortName":"Testville Intl",
+			"name":"Testville International Airport","fullName":"verbose",
+			"timeZone":" Europe/Testville ",
+			"location":{"lat":12.34,"lon":-56.78}}`))
+	})
+	ap, err := a.ResolveAirport(context.Background(), " zzz ")
+	if err != nil {
+		t.Fatalf("ResolveAirport: %v", err)
+	}
+	if gotPath != "/airports/iata/ZZZ" {
+		t.Errorf("path = %q, want /airports/iata/ZZZ (uppercased, trimmed)", gotPath)
+	}
+	if ap.IATA != "ZZZ" {
+		t.Errorf("IATA = %q, want ZZZ (uppercased)", ap.IATA)
+	}
+	if ap.Name != "Testville Intl" {
+		t.Errorf("Name = %q, want shortName 'Testville Intl'", ap.Name)
+	}
+	if ap.TZ != "Europe/Testville" {
+		t.Errorf("TZ = %q, want trimmed Europe/Testville", ap.TZ)
+	}
+	if ap.Lat != 12.34 || ap.Lon != -56.78 {
+		t.Errorf("coords = %v,%v, want 12.34,-56.78", ap.Lat, ap.Lon)
+	}
+}
+
+// When shortName is absent the resolver falls back to name, then fullName, and
+// when the upstream omits the iata field it falls back to the requested code.
+func TestResolveAirportNameFallbacks(t *testing.T) {
+	t.Run("falls back to name", func(t *testing.T) {
+		a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"name":"Verbose Name","location":{"lat":1,"lon":2}}`))
+		})
+		ap, err := a.ResolveAirport(context.Background(), "AAA")
+		if err != nil {
+			t.Fatalf("ResolveAirport: %v", err)
+		}
+		if ap.Name != "Verbose Name" {
+			t.Errorf("Name = %q, want 'Verbose Name'", ap.Name)
+		}
+		if ap.IATA != "AAA" {
+			t.Errorf("IATA = %q, want requested-code fallback AAA", ap.IATA)
+		}
+	})
+	t.Run("falls back to fullName", func(t *testing.T) {
+		a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"fullName":"The Full Name","location":{"lat":1,"lon":2}}`))
+		})
+		ap, err := a.ResolveAirport(context.Background(), "BBB")
+		if err != nil {
+			t.Fatalf("ResolveAirport: %v", err)
+		}
+		if ap.Name != "The Full Name" {
+			t.Errorf("Name = %q, want 'The Full Name'", ap.Name)
+		}
+	})
+}
+
+func TestResolveAirportBadIATA(t *testing.T) {
+	a := NewAeroDataBox("k")
+	for _, code := range []string{"", "AB", "ABCD", "  X "} {
+		if _, err := a.ResolveAirport(context.Background(), code); err == nil {
+			t.Errorf("ResolveAirport(%q): expected an error for a non-3-char code", code)
+		}
+	}
+}
+
+// 404 and 204 both read as a clean ErrAirportNotFound.
+func TestResolveAirportNotFound(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusNoContent} {
+		a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+		})
+		_, err := a.ResolveAirport(context.Background(), "QQQ")
+		if !errors.Is(err, ErrAirportNotFound) {
+			t.Errorf("status %d: err = %v; want ErrAirportNotFound", status, err)
+		}
+	}
+}
+
+func TestResolveAirportServerError(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("upstream down"))
+	})
+	_, err := a.ResolveAirport(context.Background(), "QQQ")
+	if err == nil {
+		t.Fatal("expected an error for a 502")
+	}
+	if errors.Is(err, ErrAirportNotFound) {
+		t.Errorf("502 should be a hard error, not a not-found: %v", err)
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("error should mention the status: %v", err)
+	}
+}
+
+func TestResolveAirportBadJSON(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	})
+	if _, err := a.ResolveAirport(context.Background(), "QQQ"); err == nil {
+		t.Error("expected a JSON parse error")
+	}
+}
+
+// A record with no usable coordinates (lat/lon both zero, or no location at
+// all) is no better than a miss for plotting, so it surfaces as not-found.
+func TestResolveAirportNoCoordinates(t *testing.T) {
+	t.Run("zero location", func(t *testing.T) {
+		a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"iata":"ZZZ","shortName":"Nowhere","location":{"lat":0,"lon":0}}`))
+		})
+		_, err := a.ResolveAirport(context.Background(), "ZZZ")
+		if !errors.Is(err, ErrAirportNotFound) {
+			t.Errorf("err = %v; want ErrAirportNotFound for zero coords", err)
+		}
+	})
+	t.Run("absent location", func(t *testing.T) {
+		a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"iata":"ZZZ","shortName":"Nowhere"}`))
+		})
+		_, err := a.ResolveAirport(context.Background(), "ZZZ")
+		if !errors.Is(err, ErrAirportNotFound) {
+			t.Errorf("err = %v; want ErrAirportNotFound for absent location", err)
+		}
+	})
+}
+
+// The shared rate limiter applies to the airport endpoint too: a cancelled
+// context makes Limiter.Wait fail before any request leaves the process.
+func TestResolveAirportLimiterContextCancelled(t *testing.T) {
+	var calls atomic.Int32
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	// A zero-rate limiter with an already-cancelled context: Wait returns an
+	// error immediately, exercising the limiter-error return.
+	a.Limiter = rate.NewLimiter(rate.Limit(0), 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := a.ResolveAirport(ctx, "QQQ"); err == nil {
+		t.Error("expected an error when the limiter wait is cancelled")
+	}
+	if got := calls.Load(); got != 0 {
+		t.Errorf("server saw %d calls, want 0 (request never sent)", got)
+	}
+}
+
+// --- truncate ----------------------------------------------------------------
+
+func TestTruncate(t *testing.T) {
+	// Short input is returned verbatim.
+	if got := truncate([]byte("hello"), 10); got != "hello" {
+		t.Errorf("truncate short = %q, want hello", got)
+	}
+	// Exactly at the limit is also verbatim.
+	if got := truncate([]byte("hello"), 5); got != "hello" {
+		t.Errorf("truncate exact = %q, want hello", got)
+	}
+	// Plain ASCII over the limit is cut and gets an ellipsis.
+	if got := truncate([]byte("hello world"), 5); got != "hello…" {
+		t.Errorf("truncate ascii = %q, want hello…", got)
+	}
+	// A cut that would land mid-rune backs up to the rune start so we never
+	// split a multi-byte sequence. "é" is two bytes (0xC3 0xA9); cutting at 1
+	// would split it, so truncate must back up to 0.
+	if got := truncate([]byte("é"), 1); got != "…" {
+		t.Errorf("truncate mid-rune = %q, want just the ellipsis", got)
+	}
+	// A multi-byte run where the cut lands inside the second rune backs up to
+	// that rune's start, keeping the first whole rune.
+	if got := truncate([]byte("aébc"), 2); got != "a…" {
+		t.Errorf("truncate backs up to rune boundary = %q, want a…", got)
+	}
+}
+
 func TestParseADBTime(t *testing.T) {
 	cases := []struct {
 		in      string
@@ -432,6 +625,9 @@ func TestIdentVariants(t *testing.T) {
 		{"GIBBERISH", []string{"GIBBERISH"}},
 		{"BA0000", []string{"BA0000"}},
 		{"BA", []string{"BA"}},
+		// Pure-digit "prefix" (no letter) is passed through unchanged: the
+		// regex matches but the letter check rejects it, so we don't pad it.
+		{"12345", []string{"12345"}},
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {

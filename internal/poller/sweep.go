@@ -16,7 +16,11 @@ import (
 // flights once their schedule is published, without burning more than
 // ~6 API calls per stuck row per day. It mirrors flightcoord.Throttle so
 // a row resolved by one sweep tick isn't retried by the next.
-const sweepInterval = flightcoord.Throttle
+//
+// It is a package var (not a const) only so the Run-loop test can shorten it to
+// drive the sweep ticker branch deterministically; production never reassigns
+// it.
+var sweepInterval = flightcoord.Throttle
 
 // Sweep finds every flight with at least one NULL coord column and tries
 // to fill the missing legs — first from the embedded airports table

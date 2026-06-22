@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -102,6 +104,61 @@ func TestDevLoginBootstrapsAndSetsSession(t *testing.T) {
 	}
 	if !sawSession {
 		t.Error("expected session cookie")
+	}
+}
+
+// TestFromLoopbackBareAddr drives the SplitHostPort-error fallback in
+// fromLoopback: when RemoteAddr has no "host:port" shape, the whole string is
+// treated as the host. A bare loopback IP must still be recognised.
+func TestFromLoopbackBareAddr(t *testing.T) {
+	r := httptest.NewRequest("GET", "/auth/dev-info", nil)
+	r.RemoteAddr = "127.0.0.1" // no port → SplitHostPort errors, host falls back
+	if !fromLoopback(r) {
+		t.Error("bare loopback IP should be treated as loopback")
+	}
+	r.RemoteAddr = "203.0.113.7" // bare, but public
+	if fromLoopback(r) {
+		t.Error("bare public IP must not be treated as loopback")
+	}
+}
+
+// TestDevLoginCountUsersError closes the pool so CountUsers fails, exercising
+// the dev-login "count users" error branch (HTTP 500).
+func TestDevLoginCountUsersError(t *testing.T) {
+	h, pool := newTestHandler(t)
+	pool.Close() // subsequent queries fail with "closed pool"
+	w := httptest.NewRecorder()
+	h.devLogin(w, devReq("/auth/dev-login?login=alice"))
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("code = %d, want 500", w.Code)
+	}
+}
+
+// TestDevLoginLinkLoginError forces LinkLogin to fail by feeding a login that
+// makes the synthetic profile invalid. A login of only whitespace is rejected
+// earlier, so instead we close the pool only after CountUsers — not possible
+// without a seam — so we drive the LinkLogin error via a deactivated user
+// whose dev identity already exists.
+func TestDevLoginLinkLoginError(t *testing.T) {
+	h, pool := newTestHandler(t)
+	// Seed a user, link the dev identity for login "ghost", then deactivate
+	// it. LinkLogin matches the existing (inactive) identity and returns
+	// ErrNotFound, which dev-login surfaces as 403.
+	ctx := context.Background()
+	id := testsupport.InsertUser(t, pool, "ghost", false, true)
+	pid := strconv.FormatUint(devSyntheticID("ghost"), 10)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO user_identities (user_id, provider, provider_user_id) VALUES ($1, 'dev', $2)`,
+		id, pid); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET is_active = false WHERE id = $1`, id); err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+	w := httptest.NewRecorder()
+	h.devLogin(w, devReq("/auth/dev-login?login=ghost"))
+	if w.Code != http.StatusForbidden {
+		t.Errorf("code = %d, want 403", w.Code)
 	}
 }
 

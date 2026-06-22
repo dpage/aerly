@@ -22,6 +22,13 @@ type fakeStore struct {
 	failures  map[int64]int                         // by subscription id
 	succeeded map[int64]bool
 	deleted   map[int64]bool
+
+	// Optional error injection so tests can exercise the Sender's
+	// error-logging paths when the store fails.
+	loadErr    error // returned by WebPushSubscriptionsFor
+	deleteErr  error // returned by DeleteWebPushSubscription
+	successErr error // returned by MarkWebPushSuccess
+	bumpErr    error // returned by BumpWebPushFailure
 }
 
 func newFakeStore() *fakeStore {
@@ -40,12 +47,18 @@ func (f *fakeStore) add(userID int64, sub store.WebPushSubscription) {
 func (f *fakeStore) WebPushSubscriptionsFor(_ context.Context, userID int64) ([]store.WebPushSubscription, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.loadErr != nil {
+		return nil, f.loadErr
+	}
 	return f.subs[userID], nil
 }
 
 func (f *fakeStore) DeleteWebPushSubscription(_ context.Context, id int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.deleted[id] = true
 	return nil
 }
@@ -53,6 +66,9 @@ func (f *fakeStore) DeleteWebPushSubscription(_ context.Context, id int64) error
 func (f *fakeStore) MarkWebPushSuccess(_ context.Context, id int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.successErr != nil {
+		return f.successErr
+	}
 	f.succeeded[id] = true
 	f.failures[id] = 0
 	return nil
@@ -61,6 +77,9 @@ func (f *fakeStore) MarkWebPushSuccess(_ context.Context, id int64) error {
 func (f *fakeStore) BumpWebPushFailure(_ context.Context, id int64) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.bumpErr != nil {
+		return 0, f.bumpErr
+	}
 	f.failures[id]++
 	return f.failures[id], nil
 }
@@ -192,6 +211,91 @@ func TestTransientFailurePrunesAtThreshold(t *testing.T) {
 	s.Send(context.Background(), []int64{1}, Payload{Title: "x"})
 	if !f.deleted[10] {
 		t.Error("subscription should be pruned once it reaches maxFailures")
+	}
+}
+
+func TestSendLoadSubscriptionsErrorIsSkipped(t *testing.T) {
+	f := newFakeStore()
+	f.loadErr = errors.New("db down")
+	f.add(1, store.WebPushSubscription{ID: 10, Endpoint: "https://push.example.com/10", UserID: 1})
+	called := false
+	s := senderWith(f, func(context.Context, []byte, *webpush.Subscription, *webpush.Options) (*http.Response, error) {
+		called = true
+		return stubResponse(201), nil
+	})
+	// The store fails to load subscriptions for every user, so no subs are
+	// collected and Send returns early without attempting any delivery.
+	s.Send(context.Background(), []int64{1}, Payload{Title: "x"})
+	if called {
+		t.Error("send attempted despite subscription load error")
+	}
+}
+
+func TestSendSuccessStoreErrorIsLoggedNotFatal(t *testing.T) {
+	f := newFakeStore()
+	f.successErr = errors.New("mark success failed")
+	f.add(1, store.WebPushSubscription{ID: 10, Endpoint: "https://push.example.com/10", UserID: 1})
+	s := senderWith(f, func(context.Context, []byte, *webpush.Subscription, *webpush.Options) (*http.Response, error) {
+		return stubResponse(201), nil
+	})
+	// MarkWebPushSuccess returns an error: it is logged and swallowed, so the
+	// subscription is neither marked nor pruned.
+	s.Send(context.Background(), []int64{1}, Payload{Title: "x"})
+	if f.succeeded[10] {
+		t.Error("subscription marked successful despite store error")
+	}
+	if f.deleted[10] {
+		t.Error("subscription pruned on a successful send")
+	}
+}
+
+func TestSendGoneDeleteErrorIsLoggedNotFatal(t *testing.T) {
+	f := newFakeStore()
+	f.deleteErr = errors.New("delete failed")
+	f.add(1, store.WebPushSubscription{ID: 10, Endpoint: "https://push.example.com/10", UserID: 1})
+	s := senderWith(f, func(context.Context, []byte, *webpush.Subscription, *webpush.Options) (*http.Response, error) {
+		return stubResponse(http.StatusGone), nil
+	})
+	// A 410 prunes the subscription, but the store delete fails; the error is
+	// logged and swallowed, so the subscription stays recorded as un-deleted.
+	s.Send(context.Background(), []int64{1}, Payload{Title: "x"})
+	if f.deleted[10] {
+		t.Error("delete recorded despite store error")
+	}
+}
+
+func TestSendBumpFailureErrorIsLoggedNotFatal(t *testing.T) {
+	f := newFakeStore()
+	f.bumpErr = errors.New("bump failed")
+	f.add(1, store.WebPushSubscription{ID: 10, Endpoint: "https://push.example.com/10", UserID: 1})
+	s := senderWith(f, func(context.Context, []byte, *webpush.Subscription, *webpush.Options) (*http.Response, error) {
+		return stubResponse(http.StatusInternalServerError), nil
+	})
+	// A transient 500 records a failure, but BumpWebPushFailure errors: the
+	// error is logged and we bail out before any prune decision.
+	s.Send(context.Background(), []int64{1}, Payload{Title: "x"})
+	if f.deleted[10] {
+		t.Error("subscription pruned despite bump error")
+	}
+	if f.failures[10] != 0 {
+		t.Errorf("failure count = %d, want 0 (bump errored)", f.failures[10])
+	}
+}
+
+func TestTransientPruneDeleteErrorIsLoggedNotFatal(t *testing.T) {
+	f := newFakeStore()
+	// One failure short of the threshold so this send triggers a prune.
+	f.failures[10] = maxFailures - 1
+	f.deleteErr = errors.New("delete failed")
+	f.add(1, store.WebPushSubscription{ID: 10, Endpoint: "https://push.example.com/10", UserID: 1})
+	s := senderWith(f, func(context.Context, []byte, *webpush.Subscription, *webpush.Options) (*http.Response, error) {
+		return stubResponse(http.StatusInternalServerError), nil
+	})
+	// The bump reaches maxFailures and triggers a prune, but the store delete
+	// errors; the error is logged and swallowed.
+	s.Send(context.Background(), []int64{1}, Payload{Title: "x"})
+	if f.deleted[10] {
+		t.Error("delete recorded despite store error")
 	}
 }
 
