@@ -45,8 +45,10 @@ jobs:
       - name: go vet
         run: go vet ./cmd/... ./internal/... ./migrations ./web
 
-      - name: Go tests
-        run: go test ./cmd/... ./internal/... ./migrations ./web
+      - name: Go tests (per-file 90% coverage gate)
+        run: |
+          go test -covermode=set -coverprofile=coverage.out ./cmd/... ./internal/... ./migrations ./web
+          go run ./cmd/coverage-gate -profile=coverage.out -min=90 -enforce
 
   web:
     runs-on: ubuntu-latest
