@@ -247,10 +247,10 @@ describe('TripList', () => {
   it('renders a flag image for a trip with a country code', () => {
     state.trips = [trip({ id: 1, name: 'Beach', country_code: 'es' })];
     renderList();
-    const img = document.querySelector('img[src*="flagcdn.com"]') as HTMLImageElement | null;
+    const img = document.querySelector('img[src*="/flags/"]') as HTMLImageElement | null;
     expect(img).not.toBeNull();
-    expect(img!.src).toContain('/es.png');
-    expect(img!.srcset).toContain('h160/es.png 2x');
+    // Served same-origin as a local SVG, not hot-linked from a third party.
+    expect(img!.getAttribute('src')).toBe('/flags/es.svg');
   });
 
   it('shows no flag when the country is absent or unknown', () => {
@@ -259,13 +259,13 @@ describe('TripList', () => {
       trip({ id: 2, name: 'Unknown', country_code: 'zz' }),
     ];
     renderList();
-    expect(document.querySelector('img[src*="flagcdn.com"]')).toBeNull();
+    expect(document.querySelector('img[src*="/flags/"]')).toBeNull();
   });
 
   it('hides the flag image if it fails to load', () => {
     state.trips = [trip({ id: 1, name: 'Beach', country_code: 'fr' })];
     renderList();
-    const img = document.querySelector('img[src*="flagcdn.com"]') as HTMLImageElement;
+    const img = document.querySelector('img[src*="/flags/"]') as HTMLImageElement;
     img.dispatchEvent(new Event('error'));
     expect(img.style.display).toBe('none');
   });
@@ -579,7 +579,7 @@ describe('TripList', () => {
     renderList();
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);
     await userEvent.type(filterInput, 'Stock');
-    
+
     expect(screen.getByText('Stockholm Adventure')).toBeInTheDocument();
     expect(screen.queryByText('Paris Weekend')).not.toBeInTheDocument();
     expect(screen.queryByText('Tokyo Business')).not.toBeInTheDocument();
@@ -594,7 +594,7 @@ describe('TripList', () => {
     renderList();
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);
     await userEvent.type(filterInput, 'Sweden');
-    
+
     expect(screen.getByText('Trip A')).toBeInTheDocument();
     expect(screen.queryByText('Trip B')).not.toBeInTheDocument();
   });
@@ -607,7 +607,7 @@ describe('TripList', () => {
     renderList();
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);
     await userEvent.type(filterInput, 'ARN');
-    
+
     expect(screen.getByText('Trip A')).toBeInTheDocument();
     expect(screen.queryByText('Trip B')).not.toBeInTheDocument();
   });
@@ -616,9 +616,9 @@ describe('TripList', () => {
     state.trips = [trip({ id: 1, name: 'Test Trip', starts_on: dateOnly(-10) })];
     renderList();
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);
-    
+
     expect(screen.queryByLabelText(/clear filter/i)).not.toBeInTheDocument();
-    
+
     await userEvent.type(filterInput, 'Test');
     expect(screen.getByLabelText(/clear filter/i)).toBeInTheDocument();
   });
@@ -630,10 +630,10 @@ describe('TripList', () => {
     ];
     renderList();
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);
-    
+
     await userEvent.type(filterInput, 'Stockholm');
     expect(screen.queryByText('Paris Trip')).not.toBeInTheDocument();
-    
+
     await userEvent.click(screen.getByLabelText(/clear filter/i));
     expect(filterInput).toHaveValue('');
     expect(screen.getByText('Paris Trip')).toBeInTheDocument();
@@ -643,10 +643,10 @@ describe('TripList', () => {
     state.trips = [trip({ id: 1, name: 'Test Trip', starts_on: dateOnly(-10) })];
     renderList();
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);
-    
+
     await userEvent.type(filterInput, 'Test');
     expect(filterInput).toHaveValue('Test');
-    
+
     await userEvent.type(filterInput, '{Escape}');
     expect(filterInput).toHaveValue('');
   });
@@ -670,7 +670,7 @@ describe('TripList', () => {
     state.trips = [trip({ id: 1, name: 'Stockholm Trip', starts_on: dateOnly(-10) })];
     renderList();
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);
-    
+
     await userEvent.type(filterInput, 'Nonexistent');
     expect(screen.getByText('No matching trips')).toBeInTheDocument();
     expect(screen.queryByText('Stockholm Trip')).not.toBeInTheDocument();
@@ -682,17 +682,17 @@ describe('TripList', () => {
       trip({ id: 2, name: 'Trip 2024', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
     ];
     renderList();
-    
+
     // Initially should show year sections
     expect(screen.getByText('2024')).toBeInTheDocument();
     expect(screen.getByText('2023')).toBeInTheDocument();
-    
+
     // Filter hides year sections
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);
     await userEvent.type(filterInput, '2023');
     expect(screen.queryByText('2024')).not.toBeInTheDocument(); // Year header gone
     expect(screen.getByText('Trip 2023')).toBeInTheDocument();
-    
+
     // Clear filter restores year sections
     await userEvent.clear(filterInput);
     expect(screen.getByText('2024')).toBeInTheDocument();
@@ -708,10 +708,10 @@ describe('TripList', () => {
       trip({ id: 3, name: 'Trip C', starts_on: '2024-01-05', ends_on: '2024-01-10' }),
     ];
     renderList();
-    
+
     expect(screen.getByText('2024')).toBeInTheDocument();
     expect(screen.getByText('2023')).toBeInTheDocument();
-    
+
     // Should show trip counts per year
     expect(screen.getByText('2')).toBeInTheDocument(); // 2024 has 2 trips
     expect(screen.getByText('1')).toBeInTheDocument(); // 2023 has 1 trip
@@ -723,13 +723,13 @@ describe('TripList', () => {
       trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
     ];
     renderList();
-    
+
     // Most recent year (2024) should be expanded - trips visible
     expect(screen.getByText('Recent Trip')).toBeInTheDocument();
-    
+
     // Older year (2023) should be collapsed - trip not visible
     expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
-    
+
     // But year header should still be there
     expect(screen.getByText('2023')).toBeInTheDocument();
   });
@@ -740,22 +740,22 @@ describe('TripList', () => {
       trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
     ];
     renderList();
-    
+
     // Initially, 2023 section should be collapsed (old trip not visible)
     expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
-    
+
     // Find and click the 2023 year button to expand
     const yearButton = screen.getByText('2023').closest('[role="button"]') as HTMLElement;
     await userEvent.click(yearButton);
-    
+
     // Wait for the expand animation
     await waitFor(() => {
       expect(screen.getByText('Old Trip')).toBeInTheDocument();
     });
-    
+
     // Click again to collapse
     await userEvent.click(yearButton);
-    
+
     // Wait for the collapse animation
     await waitFor(() => {
       expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
@@ -795,16 +795,14 @@ describe('TripList', () => {
       trip({ id: 2, name: 'Trip B', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
     ];
     renderList();
-    
+
     expect(screen.getByLabelText(/Expand all years|Collapse all years/)).toBeInTheDocument();
   });
 
   it('hides expand/collapse all button when only one year exists', () => {
-    state.trips = [
-      trip({ id: 1, name: 'Trip A', starts_on: '2024-06-15', ends_on: '2024-06-20' }),
-    ];
+    state.trips = [trip({ id: 1, name: 'Trip A', starts_on: '2024-06-15', ends_on: '2024-06-20' })];
     renderList();
-    
+
     expect(screen.queryByLabelText(/Expand all years|Collapse all years/)).not.toBeInTheDocument();
   });
 
@@ -814,13 +812,13 @@ describe('TripList', () => {
       trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
     ];
     renderList();
-    
+
     // Initially old trip is collapsed
     expect(screen.queryByText('Old Trip')).not.toBeInTheDocument();
-    
+
     // Click expand all
     await userEvent.click(screen.getByLabelText(/Expand all years/));
-    
+
     // Now both trips should be visible
     expect(screen.getByText('Recent Trip')).toBeInTheDocument();
     expect(screen.getByText('Old Trip')).toBeInTheDocument();
@@ -832,20 +830,20 @@ describe('TripList', () => {
       trip({ id: 2, name: 'Old Trip', starts_on: '2023-03-10', ends_on: '2023-03-15' }),
     ];
     renderList();
-    
+
     // First expand all so we can then collapse all
     const expandAllButton = screen.getByLabelText(/Expand all years/);
     await userEvent.click(expandAllButton);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Recent Trip')).toBeInTheDocument();
       expect(screen.getByText('Old Trip')).toBeInTheDocument();
     });
-    
+
     // Now collapse all - the button text should change to "Collapse all years"
     const collapseAllButton = screen.getByLabelText(/Collapse all years/);
     await userEvent.click(collapseAllButton);
-    
+
     // Both trips should be hidden
     await waitFor(() => {
       expect(screen.queryByText('Recent Trip')).not.toBeInTheDocument();
@@ -857,8 +855,22 @@ describe('TripList', () => {
 
   it('tripMatchesFilter: filters by name, destination, dates, and tags via the rendered UI', async () => {
     state.trips = [
-      trip({ id: 1, name: 'Stockholm Adventure', destination: 'Stockholm, Sweden', starts_on: '2024-06-15', ends_on: '2024-06-20', tags: ['ARN', 'Nordic'] }),
-      trip({ id: 2, name: 'Paris Weekend', destination: 'Paris, France', starts_on: '2024-07-01', ends_on: '2024-07-03', tags: ['CDG'] }),
+      trip({
+        id: 1,
+        name: 'Stockholm Adventure',
+        destination: 'Stockholm, Sweden',
+        starts_on: '2024-06-15',
+        ends_on: '2024-06-20',
+        tags: ['ARN', 'Nordic'],
+      }),
+      trip({
+        id: 2,
+        name: 'Paris Weekend',
+        destination: 'Paris, France',
+        starts_on: '2024-07-01',
+        ends_on: '2024-07-03',
+        tags: ['CDG'],
+      }),
     ];
     renderList();
     const filterInput = screen.getByPlaceholderText(/Filter trips/i);

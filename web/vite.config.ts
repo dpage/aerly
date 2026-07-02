@@ -65,6 +65,12 @@ export default defineConfig({
       // now live in src/sw.ts, ported verbatim.
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
+        // The bundled country flags (public/flags/*.svg, ~250 files) would
+        // otherwise all land in the precache and be re-downloaded on every SW
+        // update. They're not shell assets, so keep them out of precache and
+        // let the runtime route in src/sw.ts cache the handful a user actually
+        // views (which then work offline too).
+        globIgnores: ['**/flags/**'],
       },
     }),
   ],
