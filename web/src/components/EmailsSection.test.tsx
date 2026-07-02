@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
     listMyEmails: vi.fn(),
     addMyEmail: vi.fn(),
     resendMyEmail: vi.fn(),
+    setPrimaryMyEmail: vi.fn(),
     deleteMyEmail: vi.fn(),
   },
   setError: vi.fn(),
@@ -28,6 +29,7 @@ function row(over: Partial<UserEmail> = {}): UserEmail {
     address: 'alice@example.com',
     verified: true,
     created_at: new Date().toISOString(),
+    is_primary: false,
     ...over,
   };
 }
@@ -46,8 +48,44 @@ describe('EmailsSection', () => {
     render(<EmailsSection />);
     await screen.findByText('alice@example.com');
     expect(screen.getByText('alice+2@example.com')).toBeInTheDocument();
-    expect(screen.getByText(/verified/i)).toBeInTheDocument();
-    expect(screen.getByText(/pending/i)).toBeInTheDocument();
+    // Exact match to avoid colliding with the "verified" in the caption copy.
+    expect(screen.getByText('verified')).toBeInTheDocument();
+    expect(screen.getByText('pending')).toBeInTheDocument();
+  });
+
+  it('sets a verified address as primary and reflects the returned list', async () => {
+    h.api.listMyEmails.mockResolvedValue([
+      row({ id: 1, address: 'login@example.com', verified: true, is_primary: true }),
+      row({ id: 2, address: 'other@example.com', verified: true, is_primary: false }),
+    ]);
+    // The server hands back the whole list with primary moved to id 2.
+    h.api.setPrimaryMyEmail.mockResolvedValue([
+      row({ id: 1, address: 'login@example.com', verified: true, is_primary: false }),
+      row({ id: 2, address: 'other@example.com', verified: true, is_primary: true }),
+    ]);
+    render(<EmailsSection />);
+    await screen.findByText('other@example.com');
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /set other@example.com as primary/i }),
+    );
+    await waitFor(() => expect(h.api.setPrimaryMyEmail).toHaveBeenCalledWith(2));
+    // The former primary now offers a "set as primary" action again.
+    await screen.findByRole('button', { name: /set login@example.com as primary/i });
+  });
+
+  it('surfaces set-primary errors via setError', async () => {
+    h.api.listMyEmails.mockResolvedValue([
+      row({ id: 2, address: 'other@example.com', verified: true, is_primary: false }),
+    ]);
+    h.api.setPrimaryMyEmail.mockRejectedValue(new Error('primary boom'));
+    render(<EmailsSection />);
+    await screen.findByText('other@example.com');
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /set other@example.com as primary/i }),
+    );
+    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('primary boom'));
   });
 
   it('adds an email and appends the row', async () => {

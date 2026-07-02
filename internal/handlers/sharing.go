@@ -227,25 +227,17 @@ func actorLabel(u *store.User) string {
 }
 
 // emailUser sends the share notification email to an existing user, addressed
-// to their first verified email. Best-effort: missing config, no verified
-// email, or a send failure are logged and skipped — never fatal.
+// to their primary email. Best-effort: missing config, no verified email, or a
+// send failure are logged and skipped — never fatal.
 func (a *API) emailUser(ctx context.Context, userID int64, actorName, itemName, path string) {
 	if a.Config == nil || a.Config.MailFromAddress == "" {
 		return
 	}
-	addrs, err := a.Store.EmailsByUser(ctx, userID)
+	to, err := a.Store.PrimaryEmail(ctx, userID)
 	if err != nil {
-		slog.Error("notifyShares: load recipient emails", "err", err, "to", userID)
-		return
-	}
-	to := ""
-	for _, e := range addrs {
-		if e.Verified {
-			to = e.Address
-			break
+		if !errors.Is(err, store.ErrNotFound) {
+			slog.Error("notifyShares: load recipient email", "err", err, "to", userID)
 		}
-	}
-	if to == "" {
 		return
 	}
 	a.sendShareEmailTo(ctx, to, actorName, itemName, path)

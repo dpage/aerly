@@ -153,6 +153,7 @@ type UserEmailDTO struct {
 	Verified   bool       `json:"verified"`
 	VerifiedAt *time.Time `json:"verified_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
+	IsPrimary  bool       `json:"is_primary"`
 }
 
 func ToUserEmailDTO(e *store.UserEmail) UserEmailDTO {
@@ -162,6 +163,7 @@ func ToUserEmailDTO(e *store.UserEmail) UserEmailDTO {
 		Verified:   e.Verified,
 		VerifiedAt: e.VerifiedAt,
 		CreatedAt:  e.CreatedAt,
+		IsPrimary:  e.IsPrimary,
 	}
 }
 

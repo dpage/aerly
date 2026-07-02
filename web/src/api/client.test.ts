@@ -171,6 +171,12 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
     expect(last()[1]?.method).toBe('POST');
   });
 
+  it('setPrimaryMyEmail', async () => {
+    await api.setPrimaryMyEmail(7);
+    expect(last()[0]).toBe('/api/me/emails/7/primary');
+    expect(last()[1]?.method).toBe('POST');
+  });
+
   it('deleteMyEmail', async () => {
     mockFetch(() => ({ status: 204, ok: true }) as unknown as Response);
     await api.deleteMyEmail(7);

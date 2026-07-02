@@ -241,3 +241,81 @@ func TestDeleteMyEmail_NotMine(t *testing.T) {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
+
+func TestSetPrimaryMyEmail_HappyPath(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	ctx := context.Background()
+	if err := e.store.UpsertVerifiedEmail(ctx, uid, "first@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.UpsertVerifiedEmail(ctx, uid, "second@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := e.store.EmailsByUser(ctx, uid)
+	var target int64
+	for _, r := range rows {
+		if r.Address == "second@example.com" {
+			target = r.ID
+		}
+	}
+
+	w := e.req(t, "POST", "/api/me/emails/"+itoa(target)+"/primary", nil, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	got := decodeBody[[]api.UserEmailDTO](t, w)
+	for _, d := range got {
+		want := d.Address == "second@example.com"
+		if d.IsPrimary != want {
+			t.Errorf("%s is_primary = %v, want %v", d.Address, d.IsPrimary, want)
+		}
+	}
+}
+
+func TestSetPrimaryMyEmail_Unverified(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	row, _, _ := e.store.InsertUnverifiedEmail(context.Background(), uid, "pending@example.com")
+
+	w := e.req(t, "POST", "/api/me/emails/"+itoa(row.ID)+"/primary", nil, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "verified") {
+		t.Errorf("body = %q, want it to mention verification", w.Body.String())
+	}
+}
+
+func TestSetPrimaryMyEmail_NotMine(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	other := e.user(t, "bob", false)
+	if err := e.store.UpsertVerifiedEmail(context.Background(), other, "bob@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := e.store.EmailsByUser(context.Background(), other)
+
+	w := e.req(t, "POST", "/api/me/emails/"+itoa(rows[0].ID)+"/primary", nil, uid)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestSetPrimaryMyEmail_InvalidID(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	w := e.req(t, "POST", "/api/me/emails/notanumber/primary", nil, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestSetPrimaryMyEmail_DisabledReturns503(t *testing.T) {
+	e := setup(t, nil, &config.Config{}) // EmailIngestEnabled = false
+	uid := e.user(t, "alice", false)
+	w := e.req(t, "POST", "/api/me/emails/1/primary", nil, uid)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", w.Code)
+	}
+}

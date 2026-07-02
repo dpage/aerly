@@ -125,6 +125,9 @@ type UserEmail struct {
 	VerifySentAt *time.Time
 	VerifiedAt   *time.Time
 	CreatedAt    time.Time
+	// IsPrimary marks the single address that user-facing notifications
+	// (share alerts, friend requests) are sent to.
+	IsPrimary bool
 }
 
 // EmailIngest records the outcome of processing one forwarded email.

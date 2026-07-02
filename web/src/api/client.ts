@@ -243,6 +243,7 @@ export const api = {
   listMyEmails: () => request<UserEmail[]>('GET', '/api/me/emails'),
   addMyEmail: (address: string) => request<UserEmail>('POST', '/api/me/emails', { address }),
   resendMyEmail: (id: number) => request<UserEmail>('POST', `/api/me/emails/${id}/resend`),
+  setPrimaryMyEmail: (id: number) => request<UserEmail[]>('POST', `/api/me/emails/${id}/primary`),
   deleteMyEmail: (id: number) => request<void>('DELETE', `/api/me/emails/${id}`),
 
   // "Always share with" defaults: people every new trip the caller creates is
