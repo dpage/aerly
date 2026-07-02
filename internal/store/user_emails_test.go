@@ -317,3 +317,140 @@ func TestDeleteUserEmail_WrongUserNotFound(t *testing.T) {
 		t.Errorf("rightful owner lost their row, got %d", len(got))
 	}
 }
+
+func TestPrimaryEmail_NoVerifiedReturnsNotFound(t *testing.T) {
+	s := newStore(t)
+	u, _ := s.InviteUser(ctx, InvitePayload{Username: "alice"})
+	// An unverified address must not count.
+	if _, _, err := s.InsertUnverifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PrimaryEmail(ctx, u.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// The core regression: a user's login email is flagged primary on sign-in, and
+// adding a newer secondary address must NOT steal notifications away from it.
+func TestPrimaryEmail_PrefersFlaggedPrimaryOverNewerSecondary(t *testing.T) {
+	s := newStore(t)
+	u, _, err := s.LinkLogin(ctx,
+		githubProfile("9001", "alice", "", "", "login@example.com"), true)
+	if err != nil {
+		t.Fatalf("LinkLogin: %v", err)
+	}
+	// A later, verified secondary address (newer created_at).
+	if err := s.UpsertVerifiedEmail(ctx, u.ID, "secondary@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.PrimaryEmail(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("PrimaryEmail: %v", err)
+	}
+	if got != "login@example.com" {
+		t.Errorf("PrimaryEmail = %q, want the login address", got)
+	}
+}
+
+func TestSetPrimaryEmail_MovesPrimary(t *testing.T) {
+	s := newStore(t)
+	u, _, err := s.LinkLogin(ctx,
+		githubProfile("9100", "alice", "", "", "login@example.com"), true)
+	if err != nil {
+		t.Fatalf("LinkLogin: %v", err)
+	}
+	if err := s.UpsertVerifiedEmail(ctx, u.ID, "second@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.EmailsByUser(ctx, u.ID)
+	var target int64
+	for _, r := range rows {
+		if r.Address == "second@example.com" {
+			target = r.ID
+		}
+	}
+	if err := s.SetPrimaryEmail(ctx, u.ID, target); err != nil {
+		t.Fatalf("SetPrimaryEmail: %v", err)
+	}
+	// The chosen address is now primary, and it's the one notifications use.
+	got, err := s.PrimaryEmail(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("PrimaryEmail: %v", err)
+	}
+	if got != "second@example.com" {
+		t.Errorf("primary = %q, want second@example.com", got)
+	}
+	// The old primary was cleared: exactly one row is flagged.
+	rows, _ = s.EmailsByUser(ctx, u.ID)
+	primaries := 0
+	for _, r := range rows {
+		if r.IsPrimary {
+			primaries++
+		}
+	}
+	if primaries != 1 {
+		t.Errorf("primary count = %d, want exactly 1", primaries)
+	}
+}
+
+// Exercises the mid-call "if err != nil { return err }" branches that a healthy
+// database never triggers, by renaming user_emails away so the statements fail
+// (mirrors the pattern in cover_store_g2_faults_test.go).
+func TestPrimaryEmailAndSetPrimary_DBErrors(t *testing.T) {
+	s := newStore(t)
+	u, _ := s.InviteUser(ctx, InvitePayload{Username: "alice"})
+	if _, err := s.pool.Exec(ctx, `ALTER TABLE user_emails RENAME TO user_emails_x`); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if _, err := s.PrimaryEmail(ctx, u.ID); err == nil {
+		t.Error("PrimaryEmail should error when user_emails is gone")
+	}
+	if err := s.SetPrimaryEmail(ctx, u.ID, 1); err == nil {
+		t.Error("SetPrimaryEmail should error when user_emails is gone")
+	}
+}
+
+func TestSetPrimaryEmail_UnverifiedRejected(t *testing.T) {
+	s := newStore(t)
+	u, _ := s.InviteUser(ctx, InvitePayload{Username: "alice"})
+	row, _, err := s.InsertUnverifiedEmail(ctx, u.ID, "pending@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPrimaryEmail(ctx, u.ID, row.ID); !errors.Is(err, ErrNotVerified) {
+		t.Errorf("err = %v, want ErrNotVerified", err)
+	}
+}
+
+func TestSetPrimaryEmail_NotOwnedReturnsNotFound(t *testing.T) {
+	s := newStore(t)
+	u1, _ := s.InviteUser(ctx, InvitePayload{Username: "alice"})
+	u2, _ := s.InviteUser(ctx, InvitePayload{Username: "bob"})
+	if err := s.UpsertVerifiedEmail(ctx, u2.ID, "bob@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.EmailsByUser(ctx, u2.ID)
+	if err := s.SetPrimaryEmail(ctx, u1.ID, rows[0].ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// Legacy rows (pre-migration data that was never flagged primary) fall back to
+// the oldest verified address.
+func TestPrimaryEmail_FallsBackToOldestWhenNoneFlagged(t *testing.T) {
+	s := newStore(t)
+	u, _ := s.InviteUser(ctx, InvitePayload{Username: "alice"})
+	if err := s.UpsertVerifiedEmail(ctx, u.ID, "oldest@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertVerifiedEmail(ctx, u.ID, "newer@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.PrimaryEmail(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("PrimaryEmail: %v", err)
+	}
+	if got != "oldest@example.com" {
+		t.Errorf("PrimaryEmail = %q, want oldest verified", got)
+	}
+}

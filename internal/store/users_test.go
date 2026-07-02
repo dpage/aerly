@@ -271,6 +271,44 @@ func TestLinkLoginUpsertsEmail_ExistingUser(t *testing.T) {
 	}
 }
 
+func TestLinkLoginMarksLoginEmailPrimary(t *testing.T) {
+	s := newStore(t)
+	u, _, err := s.LinkLogin(ctx,
+		githubProfile("6100", "prime", "", "", "login@example.com"), true)
+	if err != nil {
+		t.Fatalf("LinkLogin: %v", err)
+	}
+	got, err := s.PrimaryEmail(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("PrimaryEmail: %v", err)
+	}
+	if got != "login@example.com" {
+		t.Errorf("primary = %q, want the login email", got)
+	}
+}
+
+// Once a primary is set, a later sign-in carrying a different login email must
+// not silently reassign it out from under the user.
+func TestLinkLoginKeepsExistingPrimary(t *testing.T) {
+	s := newStore(t)
+	u, _, err := s.LinkLogin(ctx,
+		githubProfile("6101", "prime", "", "", "first@example.com"), true)
+	if err != nil {
+		t.Fatalf("first LinkLogin: %v", err)
+	}
+	if _, _, err := s.LinkLogin(ctx,
+		githubProfile("6101", "prime", "", "", "second@example.com"), false); err != nil {
+		t.Fatalf("second LinkLogin: %v", err)
+	}
+	got, err := s.PrimaryEmail(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("PrimaryEmail: %v", err)
+	}
+	if got != "first@example.com" {
+		t.Errorf("primary = %q, want the original login email to stick", got)
+	}
+}
+
 func TestLinkLoginEmptyEmailIsNoop(t *testing.T) {
 	s := newStore(t)
 	u, _, err := s.LinkLogin(ctx, githubProfile("7007", "noemail", "", "", ""), true)

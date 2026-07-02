@@ -19,6 +19,7 @@ var (
 	ErrNotSplittable   = errors.New("plan is not splittable")
 	ErrAddressTaken    = errors.New("address already registered")
 	ErrAlreadyVerified = errors.New("address already verified")
+	ErrNotVerified     = errors.New("address not verified")
 	ErrUsernameTaken   = errors.New("username already registered")
 	// ErrLastOwner is returned when removing a trip member would leave the trip
 	// with no owner, locking out non-superuser management of it.
@@ -268,6 +269,25 @@ func upsertEmailTx(ctx context.Context, tx pgx.Tx, userID int64, address string)
 	return tag.RowsAffected() > 0, nil
 }
 
+// ensurePrimaryEmailTx marks the given login address as the user's primary
+// email, but only if they don't already have one. This makes the login email
+// primary for brand-new accounts (and restores a primary if it were ever lost)
+// without overriding an existing primary on every repeat sign-in — so a future
+// "choose your primary address" preference wouldn't be silently reset here.
+func ensurePrimaryEmailTx(ctx context.Context, tx pgx.Tx, userID int64, address string) error {
+	addr := strings.TrimSpace(address)
+	if addr == "" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE user_emails SET is_primary = TRUE
+		WHERE user_id = $1 AND lower(address) = lower($2) AND verified
+		  AND NOT EXISTS (
+		      SELECT 1 FROM user_emails WHERE user_id = $1 AND is_primary)`,
+		userID, addr)
+	return err
+}
+
 // linkIdentityTx writes (or refreshes last_used_at on) the identity row that
 // ties a user to a (provider, provider_user_id) pair.
 func linkIdentityTx(ctx context.Context, tx pgx.Tx, userID int64, provider, providerUserID string) error {
@@ -404,6 +424,13 @@ func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperu
 	claimed, err := upsertEmailTx(ctx, tx, u.ID, p.Email)
 	if err != nil {
 		return nil, 0, err
+	}
+	if claimed {
+		// The login email is owned by this user; make it the primary
+		// notification address if they don't already have one.
+		if err := ensurePrimaryEmailTx(ctx, tx, u.ID, p.Email); err != nil {
+			return nil, 0, err
+		}
 	}
 	if !claimed && strings.TrimSpace(p.Email) != "" {
 		// The provider-asserted verified email is already owned by another

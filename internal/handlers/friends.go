@@ -155,20 +155,12 @@ func (a *API) sendFriendRequestNotification(ctx context.Context, inviter, recipi
 			"from", inviter.ID, "to", recipient.ID)
 		return
 	}
-	addrs, err := a.Store.EmailsByUser(ctx, recipient.ID)
+	to, err := a.Store.PrimaryEmail(ctx, recipient.ID)
 	if err != nil {
-		slog.Error("friend invite: load recipient emails failed", "err", err, "to", recipient.ID)
-		return
-	}
-	to := ""
-	for _, e := range addrs {
-		if e.Verified {
-			to = e.Address
-			break
-		}
-	}
-	if to == "" {
 		// Edge case: matched user has no verified email row anymore.
+		if !errors.Is(err, store.ErrNotFound) {
+			slog.Error("friend invite: load recipient email failed", "err", err, "to", recipient.ID)
+		}
 		return
 	}
 	token := auth.MintFriendAcceptToken(

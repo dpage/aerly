@@ -56,6 +56,8 @@ export interface UserEmail {
   verified: boolean;
   verified_at?: string;
   created_at: string;
+  /** The single address that share/friend notifications are sent to. */
+  is_primary: boolean;
 }
 
 /** Lightweight build identifier (GET /api/version), polled to detect a deploy. */

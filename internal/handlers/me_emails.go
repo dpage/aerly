@@ -110,6 +110,39 @@ func (a *API) resendMyEmail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.ToUserEmailDTO(row))
 }
 
+func (a *API) setPrimaryMyEmail(w http.ResponseWriter, r *http.Request) {
+	if a.Config == nil || !a.Config.EmailIngestEnabled {
+		writeError(w, http.StatusServiceUnavailable, emailIngestDisabledMsg)
+		return
+	}
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid ID.")
+		return
+	}
+	u := auth.UserFrom(r.Context())
+	switch err := a.Store.SetPrimaryEmail(r.Context(), u.ID, id); {
+	case errors.Is(err, store.ErrNotVerified):
+		writeError(w, http.StatusBadRequest, "Only a verified address can be your primary.")
+		return
+	case err != nil:
+		handleStoreErr(w, err)
+		return
+	}
+	// Return the refreshed list so the client reflects both the new primary and
+	// the address that lost it in a single round trip.
+	emails, err := a.Store.EmailsByUser(r.Context(), u.ID)
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	out := make([]api.UserEmailDTO, 0, len(emails))
+	for _, e := range emails {
+		out = append(out, api.ToUserEmailDTO(e))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (a *API) deleteMyEmail(w http.ResponseWriter, r *http.Request) {
 	if a.Config == nil || !a.Config.EmailIngestEnabled {
 		writeError(w, http.StatusServiceUnavailable, emailIngestDisabledMsg)

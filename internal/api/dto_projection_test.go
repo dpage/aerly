@@ -149,9 +149,9 @@ func TestToCalendarTokenDTO_EmbedsURLAndScope(t *testing.T) {
 
 func TestToUserEmailDTO(t *testing.T) {
 	at := time.Now()
-	e := &store.UserEmail{ID: 3, Address: "a@b.com", Verified: true, VerifiedAt: &at, CreatedAt: at}
+	e := &store.UserEmail{ID: 3, Address: "a@b.com", Verified: true, VerifiedAt: &at, CreatedAt: at, IsPrimary: true}
 	dto := ToUserEmailDTO(e)
-	if dto.ID != 3 || dto.Address != "a@b.com" || !dto.Verified || dto.VerifiedAt == nil {
+	if dto.ID != 3 || dto.Address != "a@b.com" || !dto.Verified || dto.VerifiedAt == nil || !dto.IsPrimary {
 		t.Errorf("unexpected user-email dto: %+v", dto)
 	}
 }

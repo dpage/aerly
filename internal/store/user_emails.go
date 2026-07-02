@@ -13,13 +13,13 @@ import (
 )
 
 const userEmailColumns = `id, user_id, address, verified, verify_token,
-	verify_sent_at, verified_at, created_at`
+	verify_sent_at, verified_at, created_at, is_primary`
 
 func scanUserEmail(row pgx.Row) (*UserEmail, error) {
 	var e UserEmail
 	if err := row.Scan(
 		&e.ID, &e.UserID, &e.Address, &e.Verified,
-		&e.VerifyToken, &e.VerifySentAt, &e.VerifiedAt, &e.CreatedAt,
+		&e.VerifyToken, &e.VerifySentAt, &e.VerifiedAt, &e.CreatedAt, &e.IsPrimary,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -111,6 +111,72 @@ func (s *Store) EmailsByUser(ctx context.Context, userID int64) ([]*UserEmail, e
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// PrimaryEmail returns the address that user-facing notifications should be
+// sent to: the user's explicit primary email if one is set and verified,
+// otherwise their oldest verified address as a fallback. Returns ErrNotFound
+// if the user has no verified email at all.
+func (s *Store) PrimaryEmail(ctx context.Context, userID int64) (string, error) {
+	var addr string
+	err := s.pool.QueryRow(ctx,
+		`SELECT address FROM user_emails
+		WHERE user_id = $1 AND verified
+		ORDER BY is_primary DESC, created_at ASC, id ASC
+		LIMIT 1`,
+		userID).Scan(&addr)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return addr, nil
+}
+
+// SetPrimaryEmail makes emailID the user's primary notification address,
+// clearing any previous primary. The target must be a verified address owned by
+// userID: ErrNotFound if it isn't theirs (or doesn't exist), ErrNotVerified if
+// it exists but hasn't been verified. Idempotent — setting the current primary
+// again is a no-op success.
+func (s *Store) SetPrimaryEmail(ctx context.Context, userID, emailID int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Promote the target only if it's owned by the user and verified. The
+	// partial unique index (one primary per user) means we must clear the old
+	// primary first, in the same transaction.
+	if _, err := tx.Exec(ctx,
+		`UPDATE user_emails SET is_primary = FALSE WHERE user_id = $1 AND is_primary`,
+		userID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE user_emails SET is_primary = TRUE
+		WHERE id = $1 AND user_id = $2 AND verified`,
+		emailID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		// Nothing was promoted: either the row isn't the user's (or is missing),
+		// or it exists but isn't verified. Distinguish the two for the caller.
+		var verified bool
+		qErr := tx.QueryRow(ctx,
+			`SELECT verified FROM user_emails WHERE id = $1 AND user_id = $2`,
+			emailID, userID).Scan(&verified)
+		if errors.Is(qErr, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if qErr != nil {
+			return qErr
+		}
+		return ErrNotVerified
+	}
+	return tx.Commit(ctx)
 }
 
 // generateToken returns a 32-byte cryptographically-random URL-safe token.
