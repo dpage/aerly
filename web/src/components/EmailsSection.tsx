@@ -148,16 +148,11 @@ export default function EmailsSection() {
                 <TableRow key={row.id} hover>
                   <TableCell>{row.address}</TableCell>
                   <TableCell align="center">
-                    <Stack direction="row" spacing={0.5} justifyContent="center">
-                      {row.verified ? (
-                        <Chip label="verified" size="small" color="success" variant="outlined" />
-                      ) : (
-                        <Chip label="pending" size="small" color="warning" variant="outlined" />
-                      )}
-                      {row.is_primary && (
-                        <Chip label="primary" size="small" color="primary" variant="filled" />
-                      )}
-                    </Stack>
+                    {row.verified ? (
+                      <Chip label="verified" size="small" color="success" variant="outlined" />
+                    ) : (
+                      <Chip label="pending" size="small" color="warning" variant="outlined" />
+                    )}
                   </TableCell>
                   <TableCell align="right">
                     <Box sx={{ display: 'inline-flex', gap: 0.5 }}>
