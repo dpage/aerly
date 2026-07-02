@@ -12,6 +12,9 @@ web/dist/
 !web/dist/.keep
 web/.vite/
 web/coverage/
+# Flag SVGs copied out of the flag-icons package by scripts/copy-flags.mjs at
+# dev/build time; generated, not source.
+web/public/flags/
 *.tsbuildinfo
 *.log
 

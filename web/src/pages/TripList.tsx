@@ -331,7 +331,12 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
               ),
               endAdornment: filter ? (
                 <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setFilter('')} edge="end" aria-label="Clear filter">
+                  <IconButton
+                    size="small"
+                    onClick={() => setFilter('')}
+                    edge="end"
+                    aria-label="Clear filter"
+                  >
                     <ClearIcon fontSize="small" />
                   </IconButton>
                 </InputAdornment>
@@ -422,9 +427,7 @@ function groupPastByYear(trips: Trip[]): Array<{ year: number; trips: Trip[] }> 
     if (!map.has(year)) map.set(year, []);
     map.get(year)!.push(trip);
   }
-  return [...map.entries()]
-    .sort(([a], [b]) => b - a)
-    .map(([year, trips]) => ({ year, trips }));
+  return [...map.entries()].sort(([a], [b]) => b - a).map(([year, trips]) => ({ year, trips }));
 }
 
 /** Past trips grouped by year with per-year and global fold/unfold controls.
@@ -613,7 +616,11 @@ function TripGroup({ label, trips }: { label: string; trips: Trip[] }) {
         <Typography variant="overline" color="text.secondary">
           {label}
         </Typography>
-        <Chip label={trips.length} size="small" sx={{ height: 18, fontSize: '0.7rem', '& .MuiChip-label': { px: 0.75 } }} />
+        <Chip
+          label={trips.length}
+          size="small"
+          sx={{ height: 18, fontSize: '0.7rem', '& .MuiChip-label': { px: 0.75 } }}
+        />
       </Stack>
       <Stack spacing={1.5}>
         {trips.map((trip) => (
@@ -649,7 +656,6 @@ function TripCard({ trip }: { trip: Trip }) {
         <Box
           component="img"
           src={flag.src}
-          srcSet={flag.srcSet}
           alt=""
           aria-hidden
           onError={(e) => {
@@ -724,15 +730,14 @@ function TripCard({ trip }: { trip: Trip }) {
   );
 }
 
-/** flagcdn.com image URLs for a trip's country, or null when there's no usable
- * country code ("" while underived, "zz" = derived-but-unknown). flagcdn keys on
- * lowercase ISO 3166-1 alpha-2; the h80/h160 heights give a crisp 1x/2x card flag. */
-function flagUrl(code?: string): { src: string; srcSet: string } | null {
+/** Local flag SVG path for a trip's country, or null when there's no usable
+ * country code ("" while underived, "zz" = derived-but-unknown). The SVGs are
+ * served same-origin from /flags (copied out of flag-icons at build time by
+ * scripts/copy-flags.mjs), keyed on lowercase ISO 3166-1 alpha-2. SVG scales
+ * cleanly, so no 1x/2x variants are needed. */
+function flagUrl(code?: string): { src: string } | null {
   if (!code || code === 'zz' || !/^[a-z]{2}$/.test(code)) return null;
-  return {
-    src: `https://flagcdn.com/h80/${code}.png`,
-    srcSet: `https://flagcdn.com/h160/${code}.png 2x`,
-  };
+  return { src: `/flags/${code}.svg` };
 }
 
 function NewTripDialog({

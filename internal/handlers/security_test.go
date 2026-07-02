@@ -42,13 +42,15 @@ func TestSecurityHeaders_SetOnEveryResponse(t *testing.T) {
 		"script-src 'self'",
 		"https://tile.openstreetmap.org",
 		"https://demotiles.maplibre.org",
-		// Image hosts the SPA loads from; omitting flagcdn silently breaks the
-		// trip-card country flags.
-		"https://flagcdn.com",
 	} {
 		if !strings.Contains(csp, frag) {
 			t.Errorf("CSP missing %q\nfull policy: %s", frag, csp)
 		}
+	}
+	// Country flags are served same-origin from /flags now, so the old
+	// third-party flag host must no longer appear in the policy.
+	if strings.Contains(csp, "flagcdn") {
+		t.Errorf("CSP still references flagcdn; flags are same-origin now\nfull policy: %s", csp)
 	}
 	// script-src must NOT permit inline or eval — the whole point of the policy.
 	if strings.Contains(csp, "'unsafe-inline'") && !strings.Contains(csp, "style-src 'self' 'unsafe-inline'") {

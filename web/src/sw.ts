@@ -87,6 +87,21 @@ registerRoute(
   }),
 );
 
+// Bundled country flags (/flags/*.svg) are deliberately kept out of the
+// precache (vite.config.ts globIgnores) so a deploy doesn't re-download ~250
+// files. Cache them on demand instead: the flags a user actually views get
+// stored and then render offline, bounded so the cache stays small.
+registerRoute(
+  ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/flags/'),
+  new CacheFirst({
+    cacheName: 'aerly-flags',
+    plugins: [
+      new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 30 * 24 * 60 * 60 }),
+      new CacheableResponsePlugin({ statuses: [200] }),
+    ],
+  }),
+);
+
 // Client-side routes fall back to the precached index.html when offline, EXCEPT
 // the server APIs — those must hit the network (or their runtime cache).
 registerRoute(
