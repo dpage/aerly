@@ -49,6 +49,10 @@ type API struct {
 	// be mapped. nil → geocoding is skipped (e.g. in tests).
 	Geocoder geocode.Geocoder
 
+	// Overpass resolves nearby points of interest via OpenStreetMap Overpass.
+	// nil → POI lookups return 501.
+	Overpass providers.POIResolver
+
 	// Maps resolves pasted Google Maps URLs (incl. short links) to coordinates
 	// for the plan coordinate override. Defaulted in New().
 	Maps *aerlymaps.Resolver

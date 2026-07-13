@@ -141,6 +141,11 @@ func run(configPath string) error {
 	// Geocode part addresses (hotels, taxis, …) into map coordinates via the
 	// public OSM Nominatim service. The User-Agent identifies us per policy.
 	api.Geocoder = geocode.NewNominatim("aerly (+" + cfg.PublicURL + ")")
+	// POI lookups via OpenStreetMap Overpass — no key, cached for 7 days.
+	api.Overpass = providers.NewCachedPOIs(
+		providers.NewOverpass(cfg.OverpassURL, "aerly (+"+cfg.PublicURL+")"),
+		7*24*time.Hour,
+	)
 	// One-off, best-effort, idempotent startup backfills: geocode any addressed
 	// parts still missing coordinates (e.g. ingested before address geocoding),
 	// then anchor any parts that have coordinates but no timezone to their real
