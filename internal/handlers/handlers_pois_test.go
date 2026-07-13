@@ -11,10 +11,15 @@ import (
 )
 
 // stubPOIs is a fake providers.POIResolver returning a fixed POI set,
-// regardless of the query, for handler tests.
-type stubPOIs struct{ pois []providers.POI }
+// regardless of the query, for handler tests. It records the radius it was
+// last called with so tests can assert the handler's clamping.
+type stubPOIs struct {
+	pois      []providers.POI
+	gotRadius int
+}
 
-func (s stubPOIs) Nearby(ctx context.Context, lat, lon float64, r int, cats []string) ([]providers.POI, error) {
+func (s *stubPOIs) Nearby(ctx context.Context, lat, lon float64, r int, cats []string) ([]providers.POI, error) {
+	s.gotRadius = r
 	return s.pois, nil
 }
 
@@ -31,7 +36,7 @@ func TestGetTripPOIsByCoords(t *testing.T) {
 		t.Fatalf("seed trip: %v", err)
 	}
 
-	e.api.Overpass = stubPOIs{pois: []providers.POI{{
+	e.api.Overpass = &stubPOIs{pois: []providers.POI{{
 		OSMType:   "node",
 		OSMID:     1,
 		Name:      "Example Tower",
@@ -61,7 +66,7 @@ func TestGetTripPOIsRequiresView(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed trip: %v", err)
 	}
-	e.api.Overpass = stubPOIs{}
+	e.api.Overpass = &stubPOIs{}
 
 	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=48.85&lon=2.35", trip.ID), nil, outsider)
 	if w.Code != 404 {
@@ -99,7 +104,7 @@ func TestGetTripPOIsByPlace(t *testing.T) {
 		t.Fatalf("seed trip: %v", err)
 	}
 
-	e.api.Overpass = stubPOIs{pois: []providers.POI{{
+	e.api.Overpass = &stubPOIs{pois: []providers.POI{{
 		OSMType: "way", OSMID: 2, Name: "Example Colosseum", Category: "sights",
 		Lat: 41.89, Lon: 12.49, DistanceM: 10,
 	}}}
@@ -114,5 +119,54 @@ func TestGetTripPOIsByPlace(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"center_label":"Rome"`) {
 		t.Errorf("body missing center_label: %s", w.Body.String())
+	}
+}
+
+// TestGetTripPOIsRadiusClamp locks the clamping in getTripPOIs: an
+// oversized radius is capped at poiMaxRadius (not reset to the default), and
+// a missing/zero radius falls back to poiDefaultRadius.
+func TestGetTripPOIsRadiusClamp(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poiradiususer", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	stub := &stubPOIs{}
+	e.api.Overpass = stub
+
+	// Oversized radius clamps down to the maximum, not the default.
+	if w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12&radius=50000", trip.ID), nil, uid); w.Code != 200 {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if stub.gotRadius != 10000 {
+		t.Errorf("radius = %d, want 10000 (poiMaxRadius)", stub.gotRadius)
+	}
+
+	// Zero/omitted radius falls back to the default.
+	if w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12&radius=0", trip.ID), nil, uid); w.Code != 200 {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if stub.gotRadius != 2000 {
+		t.Errorf("radius = %d, want 2000 (poiDefaultRadius)", stub.gotRadius)
+	}
+}
+
+// TestGetTripPOIsUnavailable covers the nil-Overpass guard: the endpoint
+// returns 501 when POI lookups aren't configured.
+func TestGetTripPOIsUnavailable(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poiunavailuser", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	e.api.Overpass = nil
+
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12", trip.ID), nil, uid)
+	if w.Code != 501 {
+		t.Fatalf("status = %d, want 501, body=%s", w.Code, w.Body.String())
 	}
 }

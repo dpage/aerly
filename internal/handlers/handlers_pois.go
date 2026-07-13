@@ -43,8 +43,10 @@ func (a *API) getTripPOIs(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	radius := atoiDefault(q.Get("radius"), poiDefaultRadius)
-	if radius <= 0 || radius > poiMaxRadius {
+	if radius <= 0 {
 		radius = poiDefaultRadius
+	} else if radius > poiMaxRadius {
+		radius = poiMaxRadius
 	}
 	cats := splitCats(q.Get("cats"))
 	if len(cats) == 0 {
