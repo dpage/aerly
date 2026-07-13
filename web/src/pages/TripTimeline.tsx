@@ -694,20 +694,6 @@ function PartCard({
                 : fmtPartTimeRange(part)}
           </Typography>
 
-          {part.type === 'hotel' && part.start_lat != null && part.start_lon != null && onExplore && (
-            <Button
-              size="small"
-              startIcon={<TravelExploreIcon sx={{ fontSize: 16 }} />}
-              onClick={(e) => {
-                e.stopPropagation();
-                onExplore();
-              }}
-              sx={{ mt: 0.5, display: 'block' }}
-            >
-              Explore nearby
-            </Button>
-          )}
-
           {part.type === 'flight' && part.flight?.ident && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               Flight: {part.flight.ident}
@@ -740,6 +726,22 @@ function PartCard({
             </Typography>
           )}
         </Box>
+
+        {part.type === 'hotel' && part.start_lat != null && part.start_lon != null && onExplore && (
+          <Tooltip title="Explore nearby">
+            <IconButton
+              size="small"
+              aria-label="Explore nearby"
+              onClick={(e) => {
+                e.stopPropagation();
+                onExplore();
+              }}
+              sx={{ color: accent, alignSelf: 'center', flexShrink: 0 }}
+            >
+              <TravelExploreIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
       </Stack>
 
       <Collapse in={expanded} unmountOnExit>

@@ -97,6 +97,9 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
   const [error, setError] = useState<string | undefined>(undefined);
   const [prefill, setPrefill] = useState<PlanPrefill | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
+  // Bumped by the "Try again" button to re-run the fetch after a transient
+  // upstream failure without changing any of the real query inputs.
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Fetches on mount and whenever the category set, radius, place, or centre
   // coordinates change. Coordinates from initialCenter win over the typed place
@@ -133,7 +136,7 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
     return () => {
       cancelled = true;
     };
-  }, [tripId, placeQuery, cats, radius, centerLat, centerLon]);
+  }, [tripId, placeQuery, cats, radius, centerLat, centerLon, reloadKey]);
 
   const toggleCategory = (cat: PoiCategory) => {
     setCats((cs) => (cs.includes(cat) ? cs.filter((c) => c !== cat) : [...cs, cat]));
@@ -156,7 +159,7 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
     : pois;
 
   return (
-    <Stack spacing={2}>
+    <Stack spacing={2} sx={{ p: { xs: 2, sm: 3 }, maxWidth: 900, mx: 'auto', width: '100%' }}>
       <Box
         component="form"
         onSubmit={(e) => {
@@ -217,9 +220,14 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
 
       {loading && <LinearProgress />}
       {error && (
-        <Typography color="error" variant="body2">
-          Couldn’t load nearby places: {error}
-        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Typography color="error" variant="body2">
+            Couldn’t load nearby places: {error}
+          </Typography>
+          <Button size="small" onClick={() => setReloadKey((k) => k + 1)}>
+            Try again
+          </Button>
+        </Stack>
       )}
 
       {!loading && !error && filtered.length === 0 && (

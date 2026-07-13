@@ -206,6 +206,19 @@ describe('ExplorePanel', () => {
     expect(await screen.findByText(/boom|couldn.t|error/i)).toBeInTheDocument();
   });
 
+  it('retries the fetch when "Try again" is clicked after a failure', async () => {
+    h.fetchPois.mockRejectedValueOnce(new Error('temporarily unavailable'));
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText(/temporarily unavailable/i);
+    // The next call succeeds, so clicking Try again should surface the POIs.
+    h.fetchPois.mockResolvedValue({
+      center: { lat: 51.5, lon: -0.12 },
+      pois: [{ id: 'node/1', name: 'Example Tower', category: 'sights', lat: 51.5, lon: -0.12, distance_m: 40 }],
+    });
+    await userEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(await screen.findByText('Example Tower')).toBeInTheDocument();
+  });
+
   it('defaults the place search to empty when no initialPlace is given', async () => {
     render(<ExplorePanel tripId={7} />);
     await screen.findByText('Example Tower');
