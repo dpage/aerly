@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -61,6 +63,14 @@ func (a *API) getTripPOIs(w http.ResponseWriter, r *http.Request) {
 
 	pois, err := a.Overpass.Nearby(r.Context(), lat, lon, radius, cats)
 	if err != nil {
+		if errors.Is(err, providers.ErrPOIUnavailable) {
+			// The upstream OSM instances are rate-limiting or timing out; this
+			// is transient, so tell the user to try again rather than 500.
+			slog.Warn("overpass unavailable", "err", err)
+			writeError(w, http.StatusServiceUnavailable,
+				"Nearby places are temporarily unavailable — please try again in a moment.")
+			return
+		}
 		serverError(w, err)
 		return
 	}

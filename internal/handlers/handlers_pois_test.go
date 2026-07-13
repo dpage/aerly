@@ -16,11 +16,12 @@ import (
 type stubPOIs struct {
 	pois      []providers.POI
 	gotRadius int
+	err       error
 }
 
 func (s *stubPOIs) Nearby(ctx context.Context, lat, lon float64, r int, cats []string) ([]providers.POI, error) {
 	s.gotRadius = r
-	return s.pois, nil
+	return s.pois, s.err
 }
 
 // TestGetTripPOIsByCoords covers the lat/lon query-param branch of
@@ -71,6 +72,27 @@ func TestGetTripPOIsRequiresView(t *testing.T) {
 	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=48.85&lon=2.35", trip.ID), nil, outsider)
 	if w.Code != 404 {
 		t.Fatalf("status = %d, want 404, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetTripPOIsUpstreamUnavailable maps a transient Overpass failure to a 503
+// (try again) rather than a blunt 500.
+func TestGetTripPOIsUpstreamUnavailable(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poiuser503", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	e.api.Overpass = &stubPOIs{err: providers.ErrPOIUnavailable}
+
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12", trip.ID), nil, uid)
+	if w.Code != 503 {
+		t.Fatalf("status = %d, want 503, body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "temporarily unavailable") {
+		t.Errorf("body should explain the transient failure: %s", w.Body.String())
 	}
 }
 

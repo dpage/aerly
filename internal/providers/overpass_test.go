@@ -2,11 +2,13 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -24,6 +26,22 @@ func newOverpass(t *testing.T, h http.HandlerFunc) *Overpass {
 	t.Cleanup(srv.Close)
 	o := NewOverpass(srv.URL, "aerly-test")
 	o.Limiter = rate.NewLimiter(rate.Inf, 1)
+	o.RetryWait = 0
+	return o
+}
+
+// newOverpassEndpoints wires the client to several fake endpoints in order, so
+// fallback behaviour can be exercised. Each handler serves one endpoint.
+func newOverpassEndpoints(t *testing.T, handlers ...http.HandlerFunc) *Overpass {
+	t.Helper()
+	o := NewOverpass("", "aerly-test")
+	o.Limiter = rate.NewLimiter(rate.Inf, 1)
+	o.RetryWait = 0
+	for _, h := range handlers {
+		srv := httptest.NewServer(h)
+		t.Cleanup(srv.Close)
+		o.Endpoints = append(o.Endpoints, srv.URL)
+	}
 	return o
 }
 
@@ -74,6 +92,77 @@ func TestCategoryOf(t *testing.T) {
 		if got := categoryOf(c.tags); got != c.want {
 			t.Errorf("categoryOf(%v) = %s, want %s", c.tags, got, c.want)
 		}
+	}
+}
+
+// TestOverpassFallsBackToSecondEndpoint: a rate-limited first endpoint should
+// fail over to a healthy second one rather than erroring.
+func TestOverpassFallsBackToSecondEndpoint(t *testing.T) {
+	o := newOverpassEndpoints(t,
+		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTooManyRequests) },
+		func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(overpassSample)) },
+	)
+	pois, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"})
+	if err != nil {
+		t.Fatalf("Nearby: %v", err)
+	}
+	if len(pois) != 2 {
+		t.Fatalf("want 2 POIs from the fallback endpoint, got %d", len(pois))
+	}
+}
+
+// TestOverpassAttemptTimeoutFailsOver: a stalled endpoint must not hang the
+// call — the per-attempt timeout fires and we fall over to a healthy endpoint.
+func TestOverpassAttemptTimeoutFailsOver(t *testing.T) {
+	o := newOverpassEndpoints(t,
+		// Doesn't answer within AttemptTimeout, so the client cancels and we
+		// fail over. The timer fallback bounds teardown if the cancellation
+		// doesn't reach the handler promptly.
+		func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(500 * time.Millisecond):
+			}
+		},
+		func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(overpassSample)) },
+	)
+	o.AttemptTimeout = 50 * time.Millisecond
+
+	pois, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"})
+	if err != nil {
+		t.Fatalf("Nearby: %v", err)
+	}
+	if len(pois) != 2 {
+		t.Fatalf("want 2 POIs from the healthy endpoint after the slow one timed out, got %d", len(pois))
+	}
+}
+
+// TestOverpassUnavailableWhenAllTransient: when every endpoint keeps returning
+// a transient status, Nearby reports ErrPOIUnavailable (not a generic error),
+// so the handler can answer 503 rather than 500.
+func TestOverpassUnavailableWhenAllTransient(t *testing.T) {
+	o := newOverpassEndpoints(t,
+		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusGatewayTimeout) },
+		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) },
+	)
+	_, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"})
+	if !errors.Is(err, ErrPOIUnavailable) {
+		t.Fatalf("err = %v, want ErrPOIUnavailable", err)
+	}
+}
+
+// TestOverpassSurfacesHardStatus: a 400 (our malformed query) is a real error,
+// not a transient one — it must surface immediately, never as ErrPOIUnavailable.
+func TestOverpassSurfacesHardStatus(t *testing.T) {
+	o := newOverpass(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	})
+	_, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"})
+	if err == nil || errors.Is(err, ErrPOIUnavailable) {
+		t.Fatalf("err = %v, want a hard status error", err)
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Errorf("err = %v, want it to mention status 400", err)
 	}
 }
 
