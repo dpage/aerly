@@ -41,3 +41,23 @@ func TestCachedPOIsKeyVariesByCats(t *testing.T) {
 		t.Errorf("different cats must miss cache, got %d calls", inner.calls.Load())
 	}
 }
+
+func TestCachedPOIsIsBounded(t *testing.T) {
+	inner := &fakePOIs{out: []POI{{Name: "X"}}}
+	c := NewCachedPOIs(inner, time.Hour)
+
+	// Insert well past the cap, varying the coordinates each call so every
+	// request is a distinct cache key, and confirm the map never grows
+	// beyond maxPOICacheEntries (the clear-on-cap eviction kicks in instead
+	// of accumulating entries forever).
+	for i := 0; i < maxPOICacheEntries*2; i++ {
+		lat := 51.0 + float64(i)*0.01
+		lon := -0.1 + float64(i)*0.01
+		if _, err := c.Nearby(context.Background(), lat, lon, 2000, []string{"sights"}); err != nil {
+			t.Fatal(err)
+		}
+		if len(c.buf) > maxPOICacheEntries {
+			t.Fatalf("cache grew to %d entries, want <= %d", len(c.buf), maxPOICacheEntries)
+		}
+	}
+}

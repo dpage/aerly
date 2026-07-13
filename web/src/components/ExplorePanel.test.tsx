@@ -30,6 +30,7 @@ beforeEach(() => {
         distance_m: 40,
         address: '1 Example Square',
         wikidata: 'Q1',
+        wikipedia: 'en:Example Article',
         website: 'https://example.com',
       },
       {
@@ -89,7 +90,14 @@ describe('ExplorePanel', () => {
     expect(
       towerLinks.some((l) => l.getAttribute('href') === 'https://www.wikidata.org/wiki/Q1'),
     ).toBe(true);
+    expect(
+      towerLinks.some(
+        (l) => l.getAttribute('href') === 'https://en.wikipedia.org/wiki/Example_Article',
+      ),
+    ).toBe(true);
     expect(towerLinks.some((l) => l.getAttribute('href') === 'https://example.com')).toBe(true);
+    // the row caption uses the polished category label, not the raw key
+    expect(screen.getByText('Sights · 40 m away')).toBeInTheDocument();
   });
 
   it('prefers initialCenter coords over place when both are supplied', async () => {

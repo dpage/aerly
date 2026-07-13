@@ -28,6 +28,14 @@ type poiEntry struct {
 	expires time.Time
 }
 
+// maxPOICacheEntries bounds the in-memory cache. Keys derive from
+// caller-supplied coordinates/categories, so without a bound the map could
+// grow for the process lifetime. When the cap is hit the cache is cleared (a
+// coarse but simple eviction for a best-effort cache), mirroring
+// geocode.Nominatim's maxCacheEntries. POI entries carry more data per key
+// than a geocode entry, so the cap here is smaller.
+const maxPOICacheEntries = 4096
+
 // NewCachedPOIs builds a CachedPOIs wrapping inner with the given TTL. A
 // non-positive ttl falls back to a 7-day default.
 func NewCachedPOIs(inner POIResolver, ttl time.Duration) *CachedPOIs {
@@ -53,6 +61,9 @@ func (c *CachedPOIs) Nearby(ctx context.Context, lat, lon float64, radiusM int, 
 		return nil, err
 	}
 	c.mu.Lock()
+	if len(c.buf) >= maxPOICacheEntries {
+		c.buf = map[string]poiEntry{}
+	}
 	c.buf[key] = poiEntry{pois: append([]POI(nil), pois...), expires: now.Add(c.TTL)}
 	c.mu.Unlock()
 	return pois, nil

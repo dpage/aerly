@@ -39,6 +39,10 @@ const CATEGORIES: { value: PoiCategory; label: string }[] = [
   { value: 'food', label: 'Food' },
 ];
 
+const CATEGORY_LABELS: Record<PoiCategory, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.value, c.label]),
+) as Record<PoiCategory, string>;
+
 const DEFAULT_CATS: PoiCategory[] = ['sights', 'museum', 'landmark', 'park'];
 
 const RADII = [1000, 2000, 5000];
@@ -66,6 +70,16 @@ function formatDistance(m: number): string {
 
 function radiusLabel(m: number): string {
   return `${m / 1000} km`;
+}
+
+/** Builds a Wikipedia article URL from an OSM `wikipedia` tag value, which is
+ * formatted as "<lang>:<Article Title>" (e.g. "en:Uffizi Gallery"). Falls
+ * back to the English wiki when the tag has no "<lang>:" prefix. */
+function wikipediaUrl(tag: string): string {
+  const sep = tag.indexOf(':');
+  const lang = sep > 0 ? tag.slice(0, sep) : 'en';
+  const title = sep > 0 ? tag.slice(sep + 1) : tag;
+  return `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
 }
 
 /** Panel for browsing nearby points of interest and adding one to the trip as
@@ -232,7 +246,7 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
                 <Typography variant="body1">{poi.name}</Typography>
               </Stack>
               <Typography variant="caption" color="text.secondary">
-                {poi.category} · {formatDistance(poi.distance_m)} away
+                {CATEGORY_LABELS[poi.category]} · {formatDistance(poi.distance_m)} away
               </Typography>
               <Stack direction="row" spacing={1.5}>
                 <Link href={`https://www.openstreetmap.org/${poi.id}`} target="_blank" rel="noopener">
@@ -245,6 +259,11 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
                     rel="noopener"
                   >
                     Wikidata
+                  </Link>
+                )}
+                {poi.wikipedia && (
+                  <Link href={wikipediaUrl(poi.wikipedia)} target="_blank" rel="noopener">
+                    Wikipedia
                   </Link>
                 )}
                 {poi.website && (
