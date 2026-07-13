@@ -95,3 +95,86 @@ func TestGeoapifyTransientStatus(t *testing.T) {
 		t.Fatalf("err = %v, want ErrPOIUnavailable", err)
 	}
 }
+
+// TestGeoapifyHardStatus: a non-transient status (our malformed request, not
+// Geoapify's fault) must surface as a real error mentioning the status code,
+// never as ErrPOIUnavailable (which would tell the user to just try again).
+func TestGeoapifyHardStatus(t *testing.T) {
+	g := newGeoapify(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	})
+	_, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"})
+	if err == nil || err == ErrPOIUnavailable {
+		t.Fatalf("err = %v, want a hard status error", err)
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Errorf("err = %v, want it to mention status 400", err)
+	}
+}
+
+// TestGeoapifyBadJSON covers the malformed-body branch: a 200 with an
+// unparseable body is a real error, not an empty result.
+func TestGeoapifyBadJSON(t *testing.T) {
+	g := newGeoapify(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("{not json"))
+	})
+	if _, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"}); err == nil {
+		t.Fatal("Nearby with malformed JSON should error")
+	}
+}
+
+// TestGeoapifyEmptyCats covers the empty-cats short-circuit: no categories
+// means nothing to look up, so Nearby must return without ever calling out.
+func TestGeoapifyEmptyCats(t *testing.T) {
+	called := false
+	g := newGeoapify(t, func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, _ = w.Write([]byte(geoapifySample))
+	})
+	pois, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, nil)
+	if err != nil {
+		t.Fatalf("Nearby: %v", err)
+	}
+	if len(pois) != 0 {
+		t.Errorf("pois = %v, want empty", pois)
+	}
+	if called {
+		t.Error("Nearby with no categories should not make an HTTP call")
+	}
+}
+
+// TestGeoapifyUnknownCat covers cats that map to no known Geoapify codes: the
+// union is empty, so — like the empty-cats case — Nearby returns empty
+// without calling out.
+func TestGeoapifyUnknownCat(t *testing.T) {
+	called := false
+	g := newGeoapify(t, func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, _ = w.Write([]byte(geoapifySample))
+	})
+	pois, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"not-a-real-category"})
+	if err != nil {
+		t.Fatalf("Nearby: %v", err)
+	}
+	if len(pois) != 0 {
+		t.Errorf("pois = %v, want empty", pois)
+	}
+	if called {
+		t.Error("Nearby with an unmapped category should not make an HTTP call")
+	}
+}
+
+// TestGeoapifyNetworkError covers the transport-failure branch: HTTP.Do
+// itself erroring (here, the server is closed before the call) must surface
+// as an error.
+func TestGeoapifyNetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	g := NewGeoapify("testkey")
+	g.BaseURL = srv.URL
+	g.Limiter = rate.NewLimiter(rate.Inf, 1)
+	srv.Close() // closed before use, so HTTP.Do fails with a connection error
+
+	if _, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"}); err == nil {
+		t.Fatal("Nearby against a closed server should error")
+	}
+}

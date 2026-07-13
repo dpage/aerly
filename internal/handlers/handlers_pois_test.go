@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,11 +17,13 @@ import (
 type stubPOIs struct {
 	pois      []providers.POI
 	gotRadius int
+	gotCats   []string
 	err       error
 }
 
 func (s *stubPOIs) Nearby(ctx context.Context, lat, lon float64, r int, cats []string) ([]providers.POI, error) {
 	s.gotRadius = r
+	s.gotCats = cats
 	return s.pois, s.err
 }
 
@@ -189,5 +192,150 @@ func TestGetTripPOIsUnavailable(t *testing.T) {
 	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12", trip.ID), nil, uid)
 	if w.Code != 501 {
 		t.Fatalf("status = %d, want 501, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetTripPOIsBadTripID covers the pathID parse-failure branch: a
+// non-numeric {id} path segment must 400 rather than panic or fall through to
+// a store lookup.
+func TestGetTripPOIsBadTripID(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poibadid", false)
+	e.api.POIs = &stubPOIs{}
+
+	w := e.req(t, "GET", "/api/trips/notanumber/pois?lat=51.5&lon=-0.12", nil, uid)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetTripPOIsGenericProviderError covers the plain-error branch of the
+// Nearby error handling: anything other than providers.ErrPOIUnavailable must
+// map to a 500, not the transient 503.
+func TestGetTripPOIsGenericProviderError(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poigenericerr", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	e.api.POIs = &stubPOIs{err: errors.New("boom")}
+
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12", trip.ID), nil, uid)
+	if w.Code != 500 {
+		t.Fatalf("status = %d, want 500, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetTripPOIsFilterByName covers the q= name-filter branch (filterByName):
+// a non-matching POI must be excluded from the response body whilst a
+// matching one survives.
+func TestGetTripPOIsFilterByName(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poinamefilter", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	e.api.POIs = &stubPOIs{pois: []providers.POI{
+		{ID: "node/1", Name: "Example Tower", Category: "sights", Lat: 51.5, Lon: -0.12},
+		{ID: "node/2", Name: "Other Landmark", Category: "landmark", Lat: 51.5, Lon: -0.12},
+	}}
+
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12&q=tower", trip.ID), nil, uid)
+	if w.Code != 200 {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Example Tower") {
+		t.Errorf("body should keep the matching POI: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "Other Landmark") {
+		t.Errorf("body should drop the non-matching POI: %s", w.Body.String())
+	}
+}
+
+// TestGetTripPOIsDefaultCats covers the default-categories branch: an
+// omitted cats= param falls back to the fixed sights/museum/landmark/park set.
+func TestGetTripPOIsDefaultCats(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poidefaultcats", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	stub := &stubPOIs{}
+	e.api.POIs = stub
+
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12", trip.ID), nil, uid)
+	if w.Code != 200 {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	want := []string{"sights", "museum", "landmark", "park"}
+	if len(stub.gotCats) != len(want) {
+		t.Fatalf("gotCats = %v, want %v", stub.gotCats, want)
+	}
+	for i, c := range want {
+		if stub.gotCats[i] != c {
+			t.Errorf("gotCats[%d] = %q, want %q", i, stub.gotCats[i], c)
+		}
+	}
+}
+
+// TestGetTripPOIsBadCoords covers resolvePOICenter's coordinate-parse-failure
+// branch: unparseable lat/lon values must 400 rather than silently falling
+// back to place-based geocoding.
+func TestGetTripPOIsBadCoords(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poibadcoords", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	e.api.POIs = &stubPOIs{}
+
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=abc&lon=def", trip.ID), nil, uid)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetTripPOIsNoLocation covers resolvePOICenter's fallthrough: neither
+// coords nor a place param leaves nothing to search from, so it 400s.
+func TestGetTripPOIsNoLocation(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poinolocation", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	e.api.POIs = &stubPOIs{}
+
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois", trip.ID), nil, uid)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestGetTripPOIsPlaceGeocodeMiss covers resolvePOICenter's geocode-failure
+// branch: a place= that the geocoder can't resolve (ok=false) must 400.
+func TestGetTripPOIsPlaceGeocodeMiss(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "poigeomiss", false)
+	ctx := context.Background()
+	trip, err := e.store.CreateTrip(ctx, store.CreateTripPayload{Name: "London", Destination: "London"}, uid)
+	if err != nil {
+		t.Fatalf("seed trip: %v", err)
+	}
+	e.api.POIs = &stubPOIs{}
+	e.api.Geocoder = stubGeocoder{ok: false}
+
+	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?place=Nowhereville", trip.ID), nil, uid)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
 	}
 }

@@ -563,6 +563,11 @@ func TestPlanQueryErrorPaths(t *testing.T) {
 	if err := s.AddPlanPassenger(cc, 1, 2); err == nil {
 		t.Error("AddPlanPassenger cancelled should error")
 	}
+	// A genuine query error (not pgx.ErrNoRows) must surface as-is, not get
+	// mapped to ErrNotFound.
+	if _, err := s.TripCountryByPlan(cc, 1); err == nil || errors.Is(err, ErrNotFound) {
+		t.Errorf("TripCountryByPlan cancelled = %v, want a plain error", err)
+	}
 }
 
 func TestTripCountryByPlan(t *testing.T) {
@@ -585,5 +590,67 @@ func TestTripCountryByPlan(t *testing.T) {
 	// An unknown plan is ErrNotFound, not a bare empty string.
 	if _, err := s.TripCountryByPlan(ctx, 999999); !errors.Is(err, ErrNotFound) {
 		t.Errorf("TripCountryByPlan(unknown) = %v, want ErrNotFound", err)
+	}
+
+	// A trip with no country set reads back as "", not an error.
+	trip2 := mkTrip(t, s, owner)
+	plan2 := mkPlan(t, s, trip2, owner)
+	code2, err := s.TripCountryByPlan(ctx, plan2)
+	if err != nil {
+		t.Fatalf("TripCountryByPlan (no country): %v", err)
+	}
+	if code2 != "" {
+		t.Errorf("country = %q, want \"\" (no country set)", code2)
+	}
+}
+
+// TestCoalesceTimeAllNil covers the fallback branch of coalesceTime: when
+// every candidate is nil (no actual, no estimated, no scheduled), it must
+// return the zero time rather than panic or dereference a nil pointer.
+func TestCoalesceTimeAllNil(t *testing.T) {
+	if got := coalesceTime(nil, nil, nil); !got.IsZero() {
+		t.Errorf("coalesceTime(nil...) = %v, want zero time", got)
+	}
+	if got := coalesceTime(); !got.IsZero() {
+		t.Errorf("coalesceTime() = %v, want zero time", got)
+	}
+}
+
+// TestListVisiblePlanPartsFiltersByType covers ListVisiblePlanPartsOpts.Type:
+// a caller wanting only one plan type must not see another type's live part
+// bleed through.
+func TestListVisiblePlanPartsFiltersByType(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	start := time.Now()
+
+	flight, err := s.CreatePlan(ctx, CreatePlanPayload{
+		TripID: trip, Type: "flight", Title: "BA1",
+		Parts: []CreatePlanPartPayload{{StartsAt: start, Flight: &FlightDetail{Ident: "BA1", ScheduledOut: start, ScheduledIn: start}}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan flight: %v", err)
+	}
+	hotel, err := s.CreatePlan(ctx, CreatePlanPayload{
+		TripID: trip, Type: "hotel", Title: "Hotel",
+		Parts: []CreatePlanPartPayload{{StartsAt: start, Hotel: &HotelDetail{PropertyName: "Grand"}}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan hotel: %v", err)
+	}
+
+	parts, err := s.ListVisiblePlanParts(ctx, owner, ListVisiblePlanPartsOpts{TripID: trip, Type: "flight"})
+	if err != nil {
+		t.Fatalf("ListVisiblePlanParts: %v", err)
+	}
+	if len(parts) != 1 || parts[0].PlanID != flight.ID {
+		t.Fatalf("parts = %+v, want just the flight plan's part (%d)", parts, flight.ID)
+	}
+	if parts[0].PlanID == hotel.ID {
+		t.Error("hotel part should not appear when filtering Type=flight")
 	}
 }

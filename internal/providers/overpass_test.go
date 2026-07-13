@@ -194,6 +194,94 @@ func TestOverpassSurfacesHardStatus(t *testing.T) {
 	}
 }
 
+// TestOverpassEmptyCats covers the empty-cats short-circuit: no categories
+// means nothing to query, so Nearby returns without touching any endpoint.
+func TestOverpassEmptyCats(t *testing.T) {
+	called := false
+	o := newOverpass(t, func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, _ = w.Write([]byte(overpassSample))
+	})
+	pois, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, nil)
+	if err != nil {
+		t.Fatalf("Nearby: %v", err)
+	}
+	if len(pois) != 0 {
+		t.Errorf("pois = %v, want empty", pois)
+	}
+	if called {
+		t.Error("Nearby with no categories should not make an HTTP call")
+	}
+}
+
+// TestOverpassNoEndpointsConfigured covers the no-endpoints guard: a client
+// built from an empty baseURL has nothing to query and must error rather than
+// silently returning no results.
+func TestOverpassNoEndpointsConfigured(t *testing.T) {
+	o := NewOverpass("", "aerly-test")
+	if _, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"}); err == nil {
+		t.Fatal("Nearby with no endpoints configured should error")
+	}
+}
+
+// TestOverpassBadJSON covers the malformed-body branch: a 200 with an
+// unparseable body is a real error, not an empty result.
+func TestOverpassBadJSON(t *testing.T) {
+	o := newOverpass(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("{not json"))
+	})
+	if _, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"}); err == nil {
+		t.Fatal("Nearby with malformed JSON should error")
+	}
+}
+
+// TestOverpassRetriesBetweenPasses covers the between-pass retry loop: with
+// MaxRetries=1, a first pass that's all-transient must wait RetryWait and
+// take a second pass over the endpoints, succeeding there.
+func TestOverpassRetriesBetweenPasses(t *testing.T) {
+	calls := 0
+	o := newOverpass(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(overpassSample))
+	})
+	o.MaxRetries = 1
+
+	pois, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"})
+	if err != nil {
+		t.Fatalf("Nearby: %v", err)
+	}
+	if len(pois) != 2 {
+		t.Fatalf("want 2 POIs from the retried pass, got %d", len(pois))
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2 (first pass transient, second pass succeeds)", calls)
+	}
+}
+
+// TestOverpassCancelledContext covers the cancelled-caller-context branch:
+// Nearby must surface context.Canceled directly, never masking it as
+// ErrPOIUnavailable (which would wrongly log an "upstream unavailable"
+// warning for what was actually the caller giving up).
+func TestOverpassCancelledContext(t *testing.T) {
+	o := newOverpass(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(overpassSample))
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := o.Nearby(ctx, 51.5, -0.12, 2000, []string{"sights"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if errors.Is(err, ErrPOIUnavailable) {
+		t.Error("a cancelled context must not be reported as ErrPOIUnavailable")
+	}
+}
+
 // TestOverpassFetchLabelAlignment guards against the fetch query and the
 // categoryOf label drifting apart: historic sites must be fetched under
 // "landmark" (categoryOf labels them "landmark"), and "sights" must not
