@@ -30,6 +30,8 @@ import PlanTypeIcon from './PlanTypeIcon';
 import type {
   ConfirmPlanInput,
   CreatePlanInput,
+  FlightDetail,
+  HotelDetail,
   PlanPartInput,
   PlanType,
   ProposedPlan,
@@ -847,6 +849,43 @@ interface DraftPlan {
   applySupersede: boolean;
 }
 
+// A proposal's flight carries provider-resolved, read-only data (gate,
+// terminal, aircraft, baggage belt, the resolved flag and live positions) that
+// the poller fills in and keeps fresh. None of it is part of the create/confirm
+// write contract, and echoing it back trips the server's strict json decoder
+// (DisallowUnknownFields → "unknown field origin_gate"). Send only the editable
+// identifiers; the server resolves the rest after the plan lands.
+function toFlightInput(f: Partial<FlightDetail>): Partial<FlightDetail> {
+  return {
+    ident: f.ident,
+    icao24: f.icao24,
+    callsign: f.callsign,
+    scheduled_out: f.scheduled_out,
+    scheduled_in: f.scheduled_in,
+    estimated_out: f.estimated_out,
+    estimated_in: f.estimated_in,
+    actual_out: f.actual_out,
+    actual_in: f.actual_in,
+    origin_iata: f.origin_iata,
+    dest_iata: f.dest_iata,
+    flight_status: f.flight_status,
+  };
+}
+
+// Likewise a hotel proposal carries derived checkin_suggested/checkout_suggested
+// that the server computes and won't accept back.
+function toHotelInput(h: Partial<HotelDetail>): Partial<HotelDetail> {
+  return {
+    property_name: h.property_name,
+    address: h.address,
+    phone: h.phone,
+    room_type: h.room_type,
+    guests: h.guests,
+    standard_checkin: h.standard_checkin,
+    standard_checkout: h.standard_checkout,
+  };
+}
+
 function toDraft(p: ProposedPlan): DraftPlan {
   return {
     type: p.type,
@@ -876,8 +915,8 @@ function toDraft(p: ProposedPlan): DraftPlan {
       end_lat: part.end_lat,
       end_lon: part.end_lon,
       end_address: part.end_address || undefined,
-      flight: part.flight,
-      hotel: part.hotel,
+      flight: part.flight && toFlightInput(part.flight),
+      hotel: part.hotel && toHotelInput(part.hotel),
       train: part.train,
       ground: part.ground,
       dining: part.dining,

@@ -387,6 +387,103 @@ describe('AddToTripDialog - paste/confirm flow', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('strips provider-resolved read-only flight fields from the confirm payload', async () => {
+    // A flight proposal carries live provider data (gate, terminal, aircraft,
+    // baggage belt, resolved flag, positions). Those aren't part of the write
+    // contract; echoing them back trips the server's strict json decoder
+    // ("unknown field origin_gate"). The confirm payload must send only the
+    // editable subset.
+    h.state.ingest.mockImplementation(async () => {
+      h.state.ingestProposals = [
+        proposal({
+          parts: [
+            part({
+              flight: {
+                ident: 'BA286',
+                callsign: 'BAW286',
+                scheduled_out: '2026-10-12T09:00:00Z',
+                scheduled_in: '2026-10-12T20:00:00Z',
+                origin_iata: 'LHR',
+                dest_iata: 'SFO',
+                flight_status: 'scheduled',
+                origin_gate: 'B32',
+                dest_gate: 'A5',
+                origin_terminal: '5',
+                dest_terminal: 'I',
+                aircraft_type: 'Boeing 777-300ER',
+                dest_baggage_belt: '3',
+                resolved: true,
+                last_polled_at: '2026-10-11T09:00:00Z',
+              },
+            }),
+          ],
+        }),
+      ];
+    });
+    h.state.confirmIngest.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Paste text' }));
+    await userEvent.type(screen.getByLabelText('Confirmation text'), 'BA286');
+    await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const flight = h.state.confirmIngest.mock.calls[0][1][0].parts[0].flight;
+    // The editable identifiers survive.
+    expect(flight.ident).toBe('BA286');
+    expect(flight.origin_iata).toBe('LHR');
+    expect(flight.dest_iata).toBe('SFO');
+    // The provider-resolved read-only fields are gone.
+    expect(flight).not.toHaveProperty('origin_gate');
+    expect(flight).not.toHaveProperty('dest_gate');
+    expect(flight).not.toHaveProperty('origin_terminal');
+    expect(flight).not.toHaveProperty('dest_terminal');
+    expect(flight).not.toHaveProperty('aircraft_type');
+    expect(flight).not.toHaveProperty('dest_baggage_belt');
+    expect(flight).not.toHaveProperty('resolved');
+    expect(flight).not.toHaveProperty('last_polled_at');
+    expect(flight).not.toHaveProperty('latest_position');
+    expect(flight).not.toHaveProperty('track');
+  });
+
+  it('strips derived hotel suggestion fields from the confirm payload', async () => {
+    h.state.ingest.mockImplementation(async () => {
+      h.state.ingestProposals = [
+        proposal({
+          type: 'hotel',
+          parts: [
+            part({
+              type: 'hotel',
+              hotel: {
+                property_name: 'Melia Tortuga Beach Resort and Spa',
+                address: 'Sal, Cape Verde',
+                phone: '',
+                room_type: 'Double',
+                standard_checkin: '15:00',
+                standard_checkout: '11:00',
+                checkin_suggested: '2026-10-12T15:00:00Z',
+                checkout_suggested: '2026-10-25T11:00:00Z',
+              },
+            }),
+          ],
+        }),
+      ];
+    });
+    h.state.confirmIngest.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Paste text' }));
+    await userEvent.type(screen.getByLabelText('Confirmation text'), 'hotel');
+    await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const hotel = h.state.confirmIngest.mock.calls[0][1][0].parts[0].hotel;
+    expect(hotel.property_name).toBe('Melia Tortuga Beach Resort and Spa');
+    expect(hotel.standard_checkin).toBe('15:00');
+    expect(hotel).not.toHaveProperty('checkin_suggested');
+    expect(hotel).not.toHaveProperty('checkout_suggested');
+  });
+
   it('offers a supersession choice and carries it through on confirm', async () => {
     h.state.ingest.mockImplementation(async () => {
       h.state.ingestProposals = [proposal({ supersedes_part_id: 42 })];
