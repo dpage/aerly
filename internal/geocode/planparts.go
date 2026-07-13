@@ -29,6 +29,9 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 	if err != nil {
 		return false, err
 	}
+	// The trip's country biases ambiguous name-only lookups (an addressless
+	// airport label) to the right country. Best-effort: a miss just means no bias.
+	tripCountry, _ := st.TripCountryByPlan(ctx, planID)
 	var changed bool
 	for _, p := range parts {
 		payload := store.UpdatePlanPartPayload{}
@@ -45,13 +48,13 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 		// A pinned endpoint carries a manual coordinate override; never geocode
 		// over it, even if its coordinates were somehow cleared.
 		if startLat == nil && !p.StartCoordsPinned {
-			if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.StartAddress, p.StartLabel); ok {
+			if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.StartAddress, p.StartLabel, tripCountry); ok {
 				payload.StartLat, payload.StartLon = &lat, &lon
 				startLat, startLon = &lat, &lon
 			}
 		}
 		if endLat == nil && !p.EndCoordsPinned {
-			if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.EndAddress, p.EndLabel); ok {
+			if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.EndAddress, p.EndLabel, tripCountry); ok {
 				payload.EndLat, payload.EndLon = &lat, &lon
 				endLat, endLon = &lat, &lon
 			}
@@ -77,14 +80,17 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 //  2. the full postal address (normalised to one line);
 //  3. the place/property name + the address's country tail (non-flight only) —
 //     never the bare name, so a generic name ("Hilton") can't resolve on the
-//     wrong continent; skipped when there's no label or no country tail;
+//     wrong continent; skipped when there's no label, no country tail, or the
+//     label is a generic personal one ("Home") that names no place;
 //  4. tail backoff: progressively shorter versions of the address (drop the
 //     leading segment, first hit wins) — country-agnostic, a postcode rides along
 //     in whatever tail resolves;
-//  5. an airport-like label ("… Airport"/"… Terminal") via the geocoder, bare.
+//  5. an airport-like label ("… Airport"/"… Terminal") via the geocoder, bare,
+//     constrained to tripCountry (the trip's ISO-2 country) when known so an
+//     ambiguous name ("Sal Airport") can't resolve on the wrong continent.
 //
 // Flight parts never use the label. ok=false when nothing resolved.
-func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label string) (float64, float64, bool) {
+func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label, tripCountry string) (float64, float64, bool) {
 	if partType != "flight" {
 		if code := iataIn(label); code != "" {
 			if lat, lon, ok := airports.Lookup(code); ok {
@@ -94,24 +100,24 @@ func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label s
 	}
 	addr := normalizeAddress(address)
 	if addr != "" {
-		if lat, lon, ok, err := g.Geocode(ctx, addr); err == nil && ok {
+		if lat, lon, ok, err := g.Geocode(ctx, addr, ""); err == nil && ok {
 			return lat, lon, true
 		}
 	}
-	if partType != "flight" && strings.TrimSpace(label) != "" {
+	if partType != "flight" && strings.TrimSpace(label) != "" && !isGenericLabel(label) {
 		if country := countryFromAddress(addr); country != "" {
-			if lat, lon, ok, err := g.Geocode(ctx, label+", "+country); err == nil && ok {
+			if lat, lon, ok, err := g.Geocode(ctx, label+", "+country, ""); err == nil && ok {
 				return lat, lon, true
 			}
 		}
 	}
 	for _, tail := range addressTails(addr, 4) {
-		if lat, lon, ok, err := g.Geocode(ctx, tail); err == nil && ok {
+		if lat, lon, ok, err := g.Geocode(ctx, tail, ""); err == nil && ok {
 			return lat, lon, true
 		}
 	}
 	if partType != "flight" && isAirportLabel(label) {
-		if lat, lon, ok, err := g.Geocode(ctx, label); err == nil && ok {
+		if lat, lon, ok, err := g.Geocode(ctx, label, tripCountry); err == nil && ok {
 			return lat, lon, true
 		}
 	}
@@ -120,9 +126,25 @@ func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label s
 
 // Endpoint resolves a single plan-part endpoint to coordinates using the shared
 // fallback chain. Exported so the edit handler resolves a changed address
-// identically to the backfill path.
-func Endpoint(ctx context.Context, g Geocoder, partType, address, label string) (lat, lon float64, ok bool) {
-	return geocodeEndpoint(ctx, g, partType, address, label)
+// identically to the backfill path. tripCountry is the owning trip's ISO-2
+// country code (or "") used to bias an ambiguous bare airport name.
+func Endpoint(ctx context.Context, g Geocoder, partType, address, label, tripCountry string) (lat, lon float64, ok bool) {
+	return geocodeEndpoint(ctx, g, partType, address, label, tripCountry)
+}
+
+// isGenericLabel reports whether a label is a personal or relative place name
+// that names no geocodable location on its own — "Home", "Work", "Office" and
+// the like. Such a label must never be sent to the geocoder qualified only by a
+// country, or it collides with unrelated venues that share the word (e.g.
+// "Home, United Kingdom" resolves to the HOME arts centre in Manchester, not to
+// a traveller's actual home).
+func isGenericLabel(label string) bool {
+	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "home", "my home", "my house", "house", "work", "my work",
+		"office", "the office", "my place", "my flat", "my apartment":
+		return true
+	}
+	return false
 }
 
 // normalizeAddress collapses a multi-line address into a single comma-separated

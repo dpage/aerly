@@ -684,6 +684,9 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 	// backfill uses. Explicit coordinates in the request, if any, still win.
 	if a.Geocoder != nil {
 		if cur, cerr := a.Store.PlanPartByID(r.Context(), id); cerr == nil {
+			// The owning trip's country biases an ambiguous bare airport name to
+			// the right country. Best-effort: a miss just means no bias.
+			tripCountry, _ := a.Store.TripCountryByPlan(r.Context(), cur.PlanID)
 			startLabel := cur.StartLabel
 			if in.StartLabel != nil {
 				startLabel = *in.StartLabel
@@ -717,12 +720,12 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 			startAddrChanged := in.StartAddress != nil && *in.StartAddress != cur.StartAddress
 			endAddrChanged := in.EndAddress != nil && *in.EndAddress != cur.EndAddress
 			if !startPinned && in.StartLat == nil && startAddr != "" && (startAddrChanged || startUnpinned) {
-				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, startAddr, startLabel); ok {
+				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, startAddr, startLabel, tripCountry); ok {
 					in.StartLat, in.StartLon = &lat, &lon
 				}
 			}
 			if !endPinned && in.EndLat == nil && endAddr != "" && (endAddrChanged || endUnpinned) {
-				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, endAddr, endLabel); ok {
+				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, endAddr, endLabel, tripCountry); ok {
 					in.EndLat, in.EndLon = &lat, &lon
 				}
 			}

@@ -326,7 +326,7 @@ func TestIngest_WithPDFAttachment(t *testing.T) {
 // processed.
 type failingGeocoder struct{}
 
-func (failingGeocoder) Geocode(context.Context, string) (float64, float64, bool, error) {
+func (failingGeocoder) Geocode(context.Context, string, string) (float64, float64, bool, error) {
 	return 0, 0, false, errContext("geocode down")
 }
 func (failingGeocoder) GeocodeCountry(context.Context, string) (string, bool, error) {

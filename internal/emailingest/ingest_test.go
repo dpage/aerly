@@ -21,7 +21,7 @@ import (
 // fakeGeocoder resolves every address to a fixed coordinate.
 type fakeGeocoder struct{ lat, lon float64 }
 
-func (f fakeGeocoder) Geocode(context.Context, string) (float64, float64, bool, error) {
+func (f fakeGeocoder) Geocode(context.Context, string, string) (float64, float64, bool, error) {
 	return f.lat, f.lon, true, nil
 }
 

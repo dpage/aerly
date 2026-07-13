@@ -520,6 +520,24 @@ func (s *Store) PlanByID(ctx context.Context, id int64) (*Plan, error) {
 		`SELECT `+planColumns+` FROM plans WHERE id = $1`, id))
 }
 
+// TripCountryByPlan returns the lowercase ISO 3166-1 alpha-2 country code of the
+// trip that owns the given plan, or "" when the plan is unknown or its trip has
+// no country set. Used to bias ambiguous geocoding (e.g. a bare airport name) to
+// the trip's country. ErrNotFound is returned only when the plan doesn't exist.
+func (s *Store) TripCountryByPlan(ctx context.Context, planID int64) (string, error) {
+	var code string
+	err := s.pool.QueryRow(ctx,
+		`SELECT t.country_code FROM plans pl JOIN trips t ON t.id = pl.trip_id WHERE pl.id = $1`,
+		planID).Scan(&code)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
 // PlansByTrip returns the plans in a trip, ordered by id.
 func (s *Store) PlansByTrip(ctx context.Context, tripID int64) ([]*Plan, error) {
 	rows, err := s.pool.Query(ctx,

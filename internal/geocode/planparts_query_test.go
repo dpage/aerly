@@ -5,9 +5,19 @@ import (
 	"testing"
 )
 
-type stubGeo struct{ resolves map[string][2]float64 }
+type stubGeo struct {
+	resolves map[string][2]float64
+	// queries records every (query, countryCode) pair passed to Geocode, so tests
+	// can assert both what was looked up and whether a country bias was applied.
+	queries *[]stubQuery
+}
 
-func (s stubGeo) Geocode(_ context.Context, q string) (float64, float64, bool, error) {
+type stubQuery struct{ q, country string }
+
+func (s stubGeo) Geocode(_ context.Context, q, countryCode string) (float64, float64, bool, error) {
+	if s.queries != nil {
+		*s.queries = append(*s.queries, stubQuery{q, countryCode})
+	}
 	if c, ok := s.resolves[q]; ok {
 		return c[0], c[1], true, nil
 	}
@@ -68,7 +78,7 @@ func TestGeocodeEndpoint(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			lat, _, ok := geocodeEndpoint(ctx, g, c.pt, c.addr, c.label)
+			lat, _, ok := geocodeEndpoint(ctx, g, c.pt, c.addr, c.label, "")
 			if ok != c.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, c.wantOK)
 			}
@@ -76,6 +86,58 @@ func TestGeocodeEndpoint(t *testing.T) {
 				t.Errorf("lat = %v, want %v", lat, c.wantLat)
 			}
 		})
+	}
+}
+
+// A generic personal label ("Home") must never be geocoded qualified only by a
+// country: "Home, United Kingdom" would resolve to an unrelated venue (the HOME
+// arts centre in Manchester). When the full address misses, a specific address
+// tail resolves the real location instead.
+func TestGeocodeEndpoint_GenericLabelNeverNameGeocoded(t *testing.T) {
+	var got []stubQuery
+	g := stubGeo{
+		resolves: map[string][2]float64{
+			// The postcode-bearing tail resolves to the intended village location.
+			"Exampleton, Testford, ZZ9 9ZZ, United Kingdom": {51.6, -1.57},
+			// A trap: if "Home" were name-geocoded, this would win first and land on
+			// an unrelated same-named venue (the real-world failure was Manchester).
+			"Home, United Kingdom": {53.47, -2.25},
+		},
+		queries: &got,
+	}
+	addr := "The Old House, 1 Example Lane, Exampleton, Testford, ZZ9 9ZZ, United Kingdom"
+	lat, _, ok := geocodeEndpoint(context.Background(), g, "ground", addr, "Home", "")
+	if !ok {
+		t.Fatal("expected the address tail to resolve")
+	}
+	if lat != 51.6 {
+		t.Errorf("lat = %v, want 51.6 (the village tail, not the same-named venue)", lat)
+	}
+	for _, q := range got {
+		if q.q == "Home, United Kingdom" {
+			t.Errorf("generic label was name-geocoded as %q", q.q)
+		}
+	}
+}
+
+// An addressless, ambiguous airport label must be geocoded constrained to the
+// trip's country so it can't resolve on the wrong continent ("Sal Airport" →
+// El Salvador rather than Cape Verde).
+func TestGeocodeEndpoint_BareAirportBiasedToTripCountry(t *testing.T) {
+	var got []stubQuery
+	g := stubGeo{resolves: map[string][2]float64{}, queries: &got}
+	geocodeEndpoint(context.Background(), g, "ground", "", "Sal Airport", "cv")
+	found := false
+	for _, q := range got {
+		if q.q == "Sal Airport" {
+			found = true
+			if q.country != "cv" {
+				t.Errorf("bare airport label geocoded with country %q, want \"cv\"", q.country)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected the bare airport label to be geocoded")
 	}
 }
 
@@ -123,7 +185,7 @@ func TestAddressTails(t *testing.T) {
 func TestGeocodeEndpoint_IATAFromLabel(t *testing.T) {
 	// Empty stub: if it resolved anything we'd know the table path wasn't taken.
 	g := stubGeo{resolves: map[string][2]float64{}}
-	lat, lon, ok := geocodeEndpoint(context.Background(), g, "ground", "", "LHR T5")
+	lat, lon, ok := geocodeEndpoint(context.Background(), g, "ground", "", "LHR T5", "")
 	if !ok {
 		t.Fatal("expected LHR T5 to resolve via the airport table")
 	}
@@ -131,7 +193,7 @@ func TestGeocodeEndpoint_IATAFromLabel(t *testing.T) {
 		t.Errorf("coords (%v,%v) don't look like LHR", lat, lon)
 	}
 	// A flight part must NOT use the label path even with an IATA code.
-	if _, _, ok := geocodeEndpoint(context.Background(), g, "flight", "", "LHR T5"); ok {
+	if _, _, ok := geocodeEndpoint(context.Background(), g, "flight", "", "LHR T5", ""); ok {
 		t.Error("flight part should not resolve from an IATA label")
 	}
 }

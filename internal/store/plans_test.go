@@ -525,3 +525,26 @@ func TestPlanQueryErrorPaths(t *testing.T) {
 		t.Error("AddPlanPassenger cancelled should error")
 	}
 }
+
+func TestTripCountryByPlan(t *testing.T) {
+	s := newStore(t)
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	if err := s.SetTripCountry(ctx, trip, "cv"); err != nil {
+		t.Fatalf("SetTripCountry: %v", err)
+	}
+	plan := mkPlan(t, s, trip, owner)
+
+	code, err := s.TripCountryByPlan(ctx, plan)
+	if err != nil {
+		t.Fatalf("TripCountryByPlan: %v", err)
+	}
+	if code != "cv" {
+		t.Errorf("country = %q, want \"cv\"", code)
+	}
+
+	// An unknown plan is ErrNotFound, not a bare empty string.
+	if _, err := s.TripCountryByPlan(ctx, 999999); !errors.Is(err, ErrNotFound) {
+		t.Errorf("TripCountryByPlan(unknown) = %v, want ErrNotFound", err)
+	}
+}

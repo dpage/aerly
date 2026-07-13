@@ -31,14 +31,14 @@ func errServer(t *testing.T, status int, body string) *httptest.Server {
 
 func TestGeocode_Non200(t *testing.T) {
 	n := newTestNominatim(errServer(t, http.StatusInternalServerError, "boom").URL)
-	if _, _, ok, err := n.Geocode(context.Background(), "somewhere"); err == nil || ok {
+	if _, _, ok, err := n.Geocode(context.Background(), "somewhere", ""); err == nil || ok {
 		t.Errorf("got ok=%v err=%v, want an error on status 500", ok, err)
 	}
 }
 
 func TestGeocode_BadJSON(t *testing.T) {
 	n := newTestNominatim(errServer(t, http.StatusOK, "not json").URL)
-	if _, _, ok, err := n.Geocode(context.Background(), "somewhere"); err == nil || ok {
+	if _, _, ok, err := n.Geocode(context.Background(), "somewhere", ""); err == nil || ok {
 		t.Errorf("got ok=%v err=%v, want a decode error", ok, err)
 	}
 }
@@ -47,7 +47,7 @@ func TestGeocode_BadJSON(t *testing.T) {
 // (ok=false) rather than an error — the cache stores the empty result.
 func TestGeocode_UnparseableCoords(t *testing.T) {
 	n := newTestNominatim(errServer(t, http.StatusOK, `[{"lat":"north","lon":"west"}]`).URL)
-	lat, lon, ok, err := n.Geocode(context.Background(), "somewhere")
+	lat, lon, ok, err := n.Geocode(context.Background(), "somewhere", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestGeocode_DoError(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 	n := newTestNominatim(url)
-	if _, _, ok, err := n.Geocode(context.Background(), "somewhere"); err == nil || ok {
+	if _, _, ok, err := n.Geocode(context.Background(), "somewhere", ""); err == nil || ok {
 		t.Errorf("got ok=%v err=%v, want a transport error", ok, err)
 	}
 }

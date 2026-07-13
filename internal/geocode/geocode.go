@@ -32,7 +32,11 @@ const maxCacheEntries = 8192
 // ISO country. ok is false when the query simply couldn't be located (not an
 // error).
 type Geocoder interface {
-	Geocode(ctx context.Context, query string) (lat, lon float64, ok bool, err error)
+	// Geocode resolves free text to coordinates. countryCode, when non-empty, is
+	// a lowercase ISO 3166-1 alpha-2 code that constrains the search to that
+	// country (Nominatim's countrycodes filter) — used to disambiguate names that
+	// collide across borders (e.g. "Sal Airport" in Cape Verde vs El Salvador).
+	Geocode(ctx context.Context, query, countryCode string) (lat, lon float64, ok bool, err error)
 	// GeocodeCountry resolves a place to its lowercase ISO 3166-1 alpha-2
 	// country code (e.g. "es"). ok is false when no country was found.
 	GeocodeCountry(ctx context.Context, query string) (iso2 string, ok bool, err error)
@@ -86,12 +90,19 @@ func NewNominatim(userAgent string) *Nominatim {
 	}
 }
 
-func (n *Nominatim) Geocode(ctx context.Context, query string) (float64, float64, bool, error) {
+func (n *Nominatim) Geocode(ctx context.Context, query, countryCode string) (float64, float64, bool, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return 0, 0, false, nil
 	}
-	if c, hit := n.cached(query); hit {
+	countryCode = strings.ToLower(strings.TrimSpace(countryCode))
+	// Cache per (country, query): the same query filtered to a country can
+	// resolve differently from the unfiltered one, so they must not collide.
+	key := query
+	if countryCode != "" {
+		key = countryCode + "\x00" + query
+	}
+	if c, hit := n.cached(key); hit {
 		return c.lat, c.lon, c.ok, nil
 	}
 
@@ -99,9 +110,11 @@ func (n *Nominatim) Geocode(ctx context.Context, query string) (float64, float64
 		return 0, 0, false, err
 	}
 
-	endpoint := n.BaseURL + "/search?" + url.Values{
-		"q": {query}, "format": {"json"}, "limit": {"1"},
-	}.Encode()
+	vals := url.Values{"q": {query}, "format": {"json"}, "limit": {"1"}}
+	if countryCode != "" {
+		vals.Set("countrycodes", countryCode)
+	}
+	endpoint := n.BaseURL + "/search?" + vals.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return 0, 0, false, err
@@ -130,7 +143,7 @@ func (n *Nominatim) Geocode(ctx context.Context, query string) (float64, float64
 			c = cached{lat: lat, lon: lon, ok: true}
 		}
 	}
-	n.store(query, c)
+	n.store(key, c)
 	return c.lat, c.lon, c.ok, nil
 }
 

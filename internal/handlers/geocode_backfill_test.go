@@ -21,7 +21,7 @@ type fakeGeocoder struct {
 	countryByQuery map[string]string     // when set, GeocodeCountry answers per exact query
 }
 
-func (f fakeGeocoder) Geocode(_ context.Context, q string) (float64, float64, bool, error) {
+func (f fakeGeocoder) Geocode(_ context.Context, q string, _ string) (float64, float64, bool, error) {
 	if f.resolves != nil {
 		if c, ok := f.resolves[q]; ok {
 			return c[0], c[1], true, nil
