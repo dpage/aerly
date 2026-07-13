@@ -56,9 +56,9 @@ func NewOverpass(baseURL, userAgent string) *Overpass {
 // poiCategoryTags maps a UI category key to Overpass tag-filter fragments.
 // Each fragment is appended to node/way selectors, e.g. `["tourism"~"museum|gallery"]`.
 var poiCategoryTags = map[string][]string{
-	"sights":   {`["tourism"~"attraction|viewpoint|artwork"]`, `["historic"]`},
+	"sights":   {`["tourism"~"attraction|viewpoint|artwork"]`},
 	"museum":   {`["tourism"~"museum|gallery"]`},
-	"landmark": {`["amenity"="place_of_worship"]`, `["man_made"="tower"]`},
+	"landmark": {`["historic"]`, `["amenity"="place_of_worship"]`, `["man_made"="tower"]`},
 	"park":     {`["leisure"="park"]`, `["natural"~"peak|beach|wood"]`},
 	"food":     {`["amenity"~"restaurant|cafe|bar"]`},
 }

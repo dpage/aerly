@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,8 +30,7 @@ func newOverpass(t *testing.T, h http.HandlerFunc) *Overpass {
 func TestOverpassNearbyParsesAndFilters(t *testing.T) {
 	var gotBody string
 	o := newOverpass(t, func(w http.ResponseWriter, r *http.Request) {
-		b := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(b)
+		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		if ua := r.Header.Get("User-Agent"); ua != "aerly-test" {
 			t.Errorf("User-Agent = %q", ua)
@@ -74,5 +74,21 @@ func TestCategoryOf(t *testing.T) {
 		if got := categoryOf(c.tags); got != c.want {
 			t.Errorf("categoryOf(%v) = %s, want %s", c.tags, got, c.want)
 		}
+	}
+}
+
+// TestOverpassFetchLabelAlignment guards against the fetch query and the
+// categoryOf label drifting apart: historic sites must be fetched under
+// "landmark" (categoryOf labels them "landmark"), and "sights" must not
+// pull in historic elements it would then mislabel.
+func TestOverpassFetchLabelAlignment(t *testing.T) {
+	o := NewOverpass("http://example.invalid", "aerly-test")
+	sights := o.buildQuery(51.5, -0.12, 2000, []string{"sights"})
+	if strings.Contains(sights, "historic") {
+		t.Errorf("sights query should not fetch historic sites: %s", sights)
+	}
+	landmark := o.buildQuery(51.5, -0.12, 2000, []string{"landmark"})
+	if !strings.Contains(landmark, "historic") {
+		t.Errorf("landmark query should fetch historic sites: %s", landmark)
 	}
 }
