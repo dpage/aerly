@@ -151,6 +151,34 @@ func TestOverpassUnavailableWhenAllTransient(t *testing.T) {
 	}
 }
 
+// TestOverpassTimeoutRemarkIsTransient: Overpass answers a server-side timeout
+// with HTTP 200 + a "remark" and no elements. That must be treated as a
+// transient failure (fail over / try again), NOT as an authoritative empty
+// result — otherwise a busy instance shows the user "no places found".
+func TestOverpassTimeoutRemarkIsTransient(t *testing.T) {
+	const timedOut = `{"elements":[],"remark":"runtime error: Query timed out in \"query\" at line 1"}`
+	// First endpoint 200s-but-timed-out; the second is healthy → we fail over.
+	o := newOverpassEndpoints(t,
+		func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(timedOut)) },
+		func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(overpassSample)) },
+	)
+	pois, err := o.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"})
+	if err != nil {
+		t.Fatalf("Nearby: %v", err)
+	}
+	if len(pois) != 2 {
+		t.Fatalf("want 2 POIs from the healthy endpoint, got %d", len(pois))
+	}
+
+	// With only the timed-out endpoint, it surfaces as unavailable, not empty.
+	o2 := newOverpass(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(timedOut))
+	})
+	if _, err := o2.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"}); !errors.Is(err, ErrPOIUnavailable) {
+		t.Fatalf("err = %v, want ErrPOIUnavailable", err)
+	}
+}
+
 // TestOverpassSurfacesHardStatus: a 400 (our malformed query) is a real error,
 // not a transient one — it must surface immediately, never as ErrPOIUnavailable.
 func TestOverpassSurfacesHardStatus(t *testing.T) {

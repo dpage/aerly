@@ -102,9 +102,11 @@ func (o *Overpass) buildQuery(lat, lon float64, radiusM int, cats []string) stri
 	b.WriteString("[out:json][timeout:25];(")
 	for _, cat := range cats {
 		for _, frag := range poiCategoryTags[cat] {
-			for _, elem := range []string{"node", "way"} {
-				fmt.Fprintf(&b, "%s%s(around:%d,%f,%f);", elem, frag, radiusM, lat, lon)
-			}
+			// nwr matches node+way+relation in one statement, and the extra
+			// ["name"] filters to named features server-side. Since we drop
+			// unnamed elements anyway, this keeps the query cheap enough to
+			// stand a chance on a busy public Overpass instance.
+			fmt.Fprintf(&b, `nwr%s["name"](around:%d,%f,%f);`, frag, radiusM, lat, lon)
 		}
 	}
 	fmt.Fprintf(&b, ");out center %d;", poiResultCap)
@@ -122,6 +124,9 @@ type overpassResponse struct {
 		} `json:"center"`
 		Tags map[string]string `json:"tags"`
 	} `json:"elements"`
+	// Overpass reports a server-side timeout or runtime error here while still
+	// answering HTTP 200 (usually with no elements).
+	Remark string `json:"remark"`
 }
 
 // Nearby queries the Overpass API for named POIs within radiusM metres of
@@ -158,7 +163,15 @@ func (o *Overpass) Nearby(ctx context.Context, lat, lon float64, radiusM int, ca
 			case err != nil:
 				sawTransient = true // network error or per-attempt timeout: fail over
 			case status == http.StatusOK:
-				return parsePOIs(body, lat, lon)
+				pois, timedOut, perr := parsePOIs(body, lat, lon)
+				if perr != nil {
+					return nil, perr
+				}
+				if timedOut {
+					sawTransient = true // 200 but the server gave up mid-query
+					continue
+				}
+				return pois, nil
 			case isTransientStatus(status):
 				sawTransient = true
 			default:
@@ -231,11 +244,16 @@ func isTransientStatus(status int) bool {
 }
 
 // parsePOIs decodes an Overpass JSON body into normalised POIs, dropping
-// unnamed elements and sorting by distance from (lat, lon).
-func parsePOIs(body []byte, lat, lon float64) ([]POI, error) {
+// unnamed elements and sorting by distance from (lat, lon). The bool return is
+// true when Overpass answered 200 but reported a server-side timeout/runtime
+// error (which the caller should treat as transient, not "nothing here").
+func parsePOIs(body []byte, lat, lon float64) ([]POI, bool, error) {
 	var raw overpassResponse
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("overpass: bad JSON: %w", err)
+		return nil, false, fmt.Errorf("overpass: bad JSON: %w", err)
+	}
+	if r := strings.ToLower(raw.Remark); strings.Contains(r, "timed out") || strings.Contains(r, "runtime error") {
+		return nil, true, nil
 	}
 	out := make([]POI, 0, len(raw.Elements))
 	for _, el := range raw.Elements {
@@ -262,7 +280,7 @@ func parsePOIs(body []byte, lat, lon float64) ([]POI, error) {
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].DistanceM < out[j].DistanceM })
-	return out, nil
+	return out, false, nil
 }
 
 // categoryOf classifies a POI from its tags in priority order.
