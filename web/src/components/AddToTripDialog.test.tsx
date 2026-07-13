@@ -404,4 +404,30 @@ describe('AddToTripDialog - prefill', () => {
     expect(screen.getByLabelText(/^Title/)).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Add plan' })).toBeDisabled();
   });
+
+  it('does not wipe a typed title when re-rendered with a content-identical prefill', async () => {
+    // A caller passing an inline object literal hands us a new-but-equal prefill
+    // reference on every re-render; the effect must key on content, not identity,
+    // so an unrelated re-render mustn't overwrite what the user has typed.
+    const prefill = {
+      type: 'excursion' as const,
+      title: 'Example Tower',
+      startLabel: 'Example Tower',
+      startAddress: 'Example Road',
+      startLat: 51.501,
+      startLon: -0.1245,
+    };
+    const { rerender } = render(
+      <AddToTripDialog open tripId={1} onClose={vi.fn()} prefill={prefill} />,
+    );
+
+    const title = screen.getByLabelText(/^Title/);
+    await userEvent.clear(title);
+    await userEvent.type(title, 'My own title');
+    expect(title).toHaveValue('My own title');
+
+    // Fresh object, identical content — the seeding effect must be a no-op.
+    rerender(<AddToTripDialog open tripId={1} onClose={vi.fn()} prefill={{ ...prefill }} />);
+    expect(screen.getByLabelText(/^Title/)).toHaveValue('My own title');
+  });
 });

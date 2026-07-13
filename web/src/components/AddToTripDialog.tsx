@@ -253,6 +253,9 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
   const [contactPhone, setContactPhone] = useState('');
   const [website, setWebsite] = useState('');
   const [notes, setNotes] = useState('');
+  // These five are seeded twice, deliberately: the useState initializers above
+  // handle the common case (a fresh ManualTab mount), and the effect below
+  // re-seeds when a new prefill CONTENT arrives into an already-mounted tab.
   const [startLabel, setStartLabel] = useState(prefill?.startLabel ?? '');
   const [endLabel, setEndLabel] = useState('');
   const [startAddress, setStartAddress] = useState(prefill?.startAddress ?? '');
@@ -264,7 +267,10 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
 
   // Re-seed if a fresh prefill arrives while the tab is already mounted (the
   // dialog stays mounted between opens; a POI tapped a second time supplies a
-  // new prefill object rather than remounting the form).
+  // new prefill object rather than remounting the form). Keyed on the prefill's
+  // CONTENT, not its object identity — a caller that passes an inline object
+  // literal hands us a new-but-equal reference on every unrelated re-render, and
+  // depending on `[prefill]` would then wipe whatever the user has since typed.
   useEffect(() => {
     if (!prefill) return;
     setType(prefill.type);
@@ -273,7 +279,15 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
     setStartAddress(prefill.startAddress ?? '');
     setStartLat(prefill.startLat);
     setStartLon(prefill.startLon);
-  }, [prefill]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed only when the prefill CONTENT changes, not on every new object identity
+  }, [
+    prefill?.type,
+    prefill?.title,
+    prefill?.startLabel,
+    prefill?.startAddress,
+    prefill?.startLat,
+    prefill?.startLon,
+  ]);
 
   // Flight uses the existing lookup affordance (ident + date) per PRD §6.3.
   const [ident, setIdent] = useState('');
