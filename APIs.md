@@ -1,8 +1,8 @@
 # API reference
 
-Aerly currently uses two external APIs — one for flight scheduling/metadata and one for live
-positioning. This document covers both, explains their limitations, and compares the
-alternative unified APIs that handle both concerns from a single integration.
+Aerly uses external APIs for flight scheduling/metadata, live positioning, and points-of-interest
+discovery. This document covers each, explains their limitations, and compares the
+alternative unified APIs that handle the flight concerns from a single integration.
 
 ---
 
@@ -58,6 +58,33 @@ avoid duplicate charges.
   try again closer to the travel date.
 - **icao24 accuracy.** The aircraft assigned to a flight can change. AeroDataBox reports the
   currently scheduled airframe, which may differ from the one that actually operates.
+
+---
+
+### OpenStreetMap Overpass — points of interest
+
+[Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) is a read-only query API over the
+OpenStreetMap database. The trip "Explore" tab and the hotel-tile "Explore nearby" button use it
+to list sightseeing places (attractions, museums, historic landmarks, parks, and optionally food
+and drink) around a location, either the trip destination (geocoded via Nominatim) or a hotel's
+pinned coordinates. Chosen over OpenTripMap (unreliable key issuance, non-commercial-only free
+tier) and Geoapify (requires a key) because it needs no key and shares the OpenStreetMap data
+family Aerly already uses for geocoding.
+
+**Cost:** Free, no key. The data is OpenStreetMap (ODbL); Aerly shows the "Data © OpenStreetMap
+contributors" attribution in the Explore panel. Requests are rate-limited to ~1/second with a
+descriptive `User-Agent`, and results are cached in memory for 7 days, in keeping with the
+[Overpass usage policy](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html).
+
+**Limitations:**
+
+- **Coverage varies by region.** POI density and description quality are excellent in UK and
+  European city centres but thin out in less-mapped regions, so results quality depends on the
+  destination.
+- **Sparse metadata.** Raw OSM POIs rarely carry rich descriptions or photos; Aerly links out to
+  the map and (where tagged) Wikidata and a website rather than showing editorial content.
+- **Shared public endpoint.** The default `OVERPASS_URL` is a community-run server; heavy use
+  should point at a self-hosted Overpass instance.
 
 ---
 
