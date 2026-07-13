@@ -360,6 +360,27 @@ func ToNotificationItemDTO(n store.Notification) NotificationItemDTO {
 	}
 }
 
+// PoiDTO is a point of interest suggested near a location.
+type PoiDTO struct {
+	ID        string  `json:"id"` // "<osmType>/<osmID>", stable for React keys
+	Name      string  `json:"name"`
+	Category  string  `json:"category"`
+	Lat       float64 `json:"lat"`
+	Lon       float64 `json:"lon"`
+	DistanceM int     `json:"distance_m"`
+	Address   string  `json:"address,omitempty"`
+	Wikidata  string  `json:"wikidata,omitempty"`
+	Wikipedia string  `json:"wikipedia,omitempty"`
+	Website   string  `json:"website,omitempty"`
+}
+
+// PoiResponseDTO wraps the resolved search centre and the POIs around it.
+type PoiResponseDTO struct {
+	Center      CoordsDTO `json:"center"`
+	CenterLabel string    `json:"center_label,omitempty"`
+	Pois        []PoiDTO  `json:"pois"`
+}
+
 // =====================================================================
 // Trip-planning DTOs (LOCKED CONTRACT — shared verbatim with the frontend
 // agent). Field names/types must not drift; see the Wave 0a contract in

@@ -178,6 +178,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/trips/{id}/notify-shares", req(http.HandlerFunc(a.notifyTripShares)))
 	mux.Handle("POST /api/trips/{id}/share-by-email", req(http.HandlerFunc(a.shareTripByEmail)))
 	mux.Handle("GET /api/tags/suggest", req(http.HandlerFunc(a.suggestTags)))
+	mux.Handle("GET /api/trips/{id}/pois", req(http.HandlerFunc(a.getTripPOIs)))
 
 	// Trip-scoped iCal feed subscriptions ("external plans"). Feeds are managed
 	// from the Edit trip dialog (edit perm); the cached events are read by any
