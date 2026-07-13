@@ -8,7 +8,9 @@ import {
   Chip,
   Collapse,
   Divider,
+  Drawer,
   FormControlLabel,
+  IconButton,
   Link,
   Stack,
   Switch,
@@ -19,6 +21,8 @@ import LocationOffIcon from '@mui/icons-material/LocationOff';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import PlaceIcon from '@mui/icons-material/Place';
+import TravelExploreIcon from '@mui/icons-material/TravelExplore';
+import CloseIcon from '@mui/icons-material/Close';
 
 import { api } from '../api/client';
 import { useStore } from '../state/store';
@@ -29,6 +33,7 @@ import PlanEditDialog from '../components/PlanEditDialog';
 import PlanAlertToggle from '../components/PlanAlertToggle';
 import PlanReminderOverride from '../components/PlanReminderOverride';
 import AddToTripDialog from '../components/AddToTripDialog';
+import ExplorePanel from '../components/ExplorePanel';
 import { useShowExternalPlans } from '../lib/showExternalPlans';
 import { useFeedsChangedCount } from '../lib/feedsBus';
 import {
@@ -193,6 +198,12 @@ export default function TripTimeline() {
       return next;
     });
   const [addOpen, setAddOpen] = useState(false);
+
+  // The hotel tile whose "Explore nearby" button was clicked, if any. Drives a
+  // drawer hosting ExplorePanel anchored to that hotel's coordinates; cleared
+  // (rather than merely hidden) on close so the panel unmounts and doesn't
+  // keep polling the POI API in the background.
+  const [explorePart, setExplorePart] = useState<PlanPart | null>(null);
 
   // "Link bookings" mode: editors tick 2+ same-type flight/train plans that are
   // really one booking, then confirm to fold them into one multi-part plan (#12).
@@ -362,6 +373,7 @@ export default function TripTimeline() {
                   multiPart={multiPartPlanIds.has(plan.id)}
                   expanded={expanded.has(key)}
                   onToggle={() => toggle(key)}
+                  onExplore={() => setExplorePart(part)}
                   linkMode={linkMode}
                   selectable={isLinkableType(plan.type)}
                   selected={selected.has(plan.id)}
@@ -379,6 +391,55 @@ export default function TripTimeline() {
           </Stack>
         </Box>
       ))}
+
+      <Drawer
+        anchor="right"
+        open={explorePart != null}
+        onClose={() => setExplorePart(null)}
+        slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 }, maxWidth: '100%' } } }}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            pt: 'env(safe-area-inset-top)',
+          }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              p: 1.5,
+              borderBottom: 1,
+              borderColor: 'divider',
+            }}
+          >
+            <Typography variant="subtitle1" sx={{ flexGrow: 1, fontWeight: 600 }}>
+              Explore nearby
+            </Typography>
+            <IconButton onClick={() => setExplorePart(null)} aria-label="Close">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          <Box sx={{ p: 2, overflowY: 'auto', flexGrow: 1 }}>
+            {/* Only rendered while the drawer holds a part, so closing it
+                (which clears explorePart) unmounts ExplorePanel rather than
+                leaving it fetching in the background. */}
+            {explorePart && explorePart.start_lat != null && explorePart.start_lon != null && (
+              <ExplorePanel
+                tripId={currentTrip.id}
+                initialCenter={{
+                  lat: explorePart.start_lat,
+                  lon: explorePart.start_lon,
+                  label: explorePart.start_label,
+                }}
+              />
+            )}
+          </Box>
+        </Box>
+      </Drawer>
     </Box>
   );
 }
@@ -460,6 +521,9 @@ interface PartCardProps {
   multiPart: boolean;
   expanded: boolean;
   onToggle: () => void;
+  /** Opens the Explore-nearby drawer anchored to this part. Only shown for a
+   * hotel part that has coordinates (see the render guard below). */
+  onExplore?: () => void;
   /** Link-selection mode: the card selects its plan instead of expanding. */
   linkMode: boolean;
   /** Whether this plan's type (flight/train) can be linked. */
@@ -481,6 +545,7 @@ function PartCard({
   multiPart,
   expanded,
   onToggle,
+  onExplore,
   linkMode,
   selectable,
   selected,
@@ -628,6 +693,20 @@ function PartCard({
                 ? `Check out · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
                 : fmtPartTimeRange(part)}
           </Typography>
+
+          {part.type === 'hotel' && part.start_lat != null && part.start_lon != null && onExplore && (
+            <Button
+              size="small"
+              startIcon={<TravelExploreIcon sx={{ fontSize: 16 }} />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onExplore();
+              }}
+              sx={{ mt: 0.5, display: 'block' }}
+            >
+              Explore nearby
+            </Button>
+          )}
 
           {part.type === 'flight' && part.flight?.ident && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

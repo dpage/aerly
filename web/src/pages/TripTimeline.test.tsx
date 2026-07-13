@@ -51,6 +51,22 @@ vi.mock('../components/AddToTripDialog', () => ({
     open ? <div role="dialog">Add to trip dialog</div> : null,
 }));
 
+// ExplorePanel pulls in map/POI fetching that's out of scope for the timeline;
+// stub it down to something that exposes the initialCenter it was given, so we
+// can assert the drawer is anchored to the right coordinates.
+vi.mock('../components/ExplorePanel', () => ({
+  default: ({
+    initialCenter,
+  }: {
+    tripId: number;
+    initialCenter?: { lat: number; lon: number; label?: string };
+  }) => (
+    <div data-testid="explore-panel">
+      {initialCenter ? `${initialCenter.lat},${initialCenter.lon},${initialCenter.label ?? ''}` : ''}
+    </div>
+  ),
+}));
+
 import { api } from '../api/client';
 import TripTimeline from './TripTimeline';
 
@@ -969,6 +985,81 @@ describe('TripTimeline', () => {
       await userEvent.click(screen.getByRole('checkbox', { name: /select a train/i }));
       expect(screen.getByRole('button', { name: /^link 2$/i })).toBeDisabled();
       expect(state.linkPlans).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Explore nearby', () => {
+    function hotelWith(over: Partial<PlanPart> = {}) {
+      return tripWith([
+        plan(
+          [
+            part({
+              id: 30,
+              plan_id: 3,
+              type: 'hotel',
+              start_label: 'Hotel Lisboa',
+              end_label: '',
+              start_lat: 51.5,
+              start_lon: -0.12,
+              ...over,
+            }),
+          ],
+          { id: 3, type: 'hotel', title: 'Hotel Lisboa' },
+        ),
+      ]);
+    }
+
+    it('shows an "Explore nearby" button on a hotel tile with coordinates, and opens the drawer anchored to it', async () => {
+      state.currentTrip = hotelWith();
+      renderTimeline();
+      const button = screen.getByRole('button', { name: /explore nearby/i });
+      await userEvent.click(button);
+      expect(screen.getByTestId('explore-panel')).toHaveTextContent('51.5');
+    });
+
+    it('does not toggle the card expanded state when the Explore button is clicked', async () => {
+      state.currentTrip = hotelWith();
+      renderTimeline();
+      const card = screen.getByTestId('part-card-30');
+      await userEvent.click(screen.getByRole('button', { name: /explore nearby/i }));
+      // The expanded body (Edit action) never mounted — the click didn't
+      // propagate up to the card's own onToggle.
+      expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
+    });
+
+    it('hides the button on a hotel tile with no coordinates', () => {
+      state.currentTrip = hotelWith({ start_lat: undefined, start_lon: undefined });
+      renderTimeline();
+      expect(screen.queryByRole('button', { name: /explore nearby/i })).not.toBeInTheDocument();
+    });
+
+    it('hides the button on a non-hotel tile, even with coordinates', () => {
+      state.currentTrip = tripWith([
+        plan(
+          [
+            part({
+              id: 31,
+              plan_id: 1,
+              type: 'ground',
+              start_label: 'Home',
+              start_lat: 51.5,
+              start_lon: -0.12,
+            }),
+          ],
+          { id: 1, type: 'ground', title: 'Taxi' },
+        ),
+      ]);
+      renderTimeline();
+      expect(screen.queryByRole('button', { name: /explore nearby/i })).not.toBeInTheDocument();
+    });
+
+    it('closes the drawer and unmounts the panel via onClose', async () => {
+      state.currentTrip = hotelWith();
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /explore nearby/i }));
+      expect(screen.getByTestId('explore-panel')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
+      await vi.waitFor(() => expect(screen.queryByTestId('explore-panel')).not.toBeInTheDocument());
     });
   });
 });
