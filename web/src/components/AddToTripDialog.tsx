@@ -43,6 +43,21 @@ interface AddToTripDialogProps {
    * from the trip page (the "New plan" action). */
   tripId: number;
   onClose: () => void;
+  /** Seeds the manual form — e.g. from a map POI the user tapped "Add to
+   * trip" on — with a type, title and, when known, a pinned location. */
+  prefill?: PlanPrefill;
+}
+
+/** Seed data for the manual tab, used to open the dialog pre-filled — for
+ * example from a POI on the map, which supplies its own coordinates that
+ * should be pinned rather than re-geocoded from the address. */
+export interface PlanPrefill {
+  type: PlanType;
+  title: string;
+  startLabel?: string;
+  startAddress?: string;
+  startLat?: number;
+  startLon?: number;
 }
 
 type CaptureTab = 'manual' | 'paste' | 'upload' | 'email';
@@ -68,7 +83,12 @@ const LOW_CONFIDENCE = 0.6;
  * `ingest` and render the returned proposals in an editable confirm step
  * (low-confidence flags + proposed supersessions) before `confirmIngest`;
  * "From email" surfaces the forwarding address the backend exposes. */
-export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDialogProps) {
+export default function AddToTripDialog({
+  open,
+  tripId,
+  onClose,
+  prefill,
+}: AddToTripDialogProps) {
   const capabilities = useStore((s) => s.capabilities);
   const createPlan = useStore((s) => s.createPlan);
   const ingest = useStore((s) => s.ingest);
@@ -85,7 +105,9 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
   // ("nothing found") still shows the confirm step's retry affordance.
   const [submitted, setSubmitted] = useState(false);
 
-  // Reset transient state every time the dialog opens.
+  // Reset transient state every time the dialog opens. The Manual tab is
+  // always the default — which also covers a `prefill` (e.g. from a map POI),
+  // since that only ever seeds the manual form.
   useEffect(() => {
     if (!open) return;
     setTab('manual');
@@ -175,7 +197,9 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
               <Tab value="email" label="From email" />
             </Tabs>
 
-            {tab === 'manual' && <ManualTab disabled={working} onCreate={handleManualCreate} />}
+            {tab === 'manual' && (
+              <ManualTab disabled={working} onCreate={handleManualCreate} prefill={prefill} />
+            )}
             {tab === 'paste' && (
               <PasteTab
                 disabled={working}
@@ -213,11 +237,13 @@ export default function AddToTripDialog({ open, tripId, onClose }: AddToTripDial
 interface ManualTabProps {
   disabled: boolean;
   onCreate: (input: CreatePlanInput) => void;
+  /** Seeds the form on mount/refresh — see `PlanPrefill`. */
+  prefill?: PlanPrefill;
 }
 
-function ManualTab({ disabled, onCreate }: ManualTabProps) {
-  const [type, setType] = useState<PlanType>('flight');
-  const [title, setTitle] = useState('');
+function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
+  const [type, setType] = useState<PlanType>(prefill?.type ?? 'flight');
+  const [title, setTitle] = useState(prefill?.title ?? '');
   const [confRef, setConfRef] = useState('');
   const [ticketNumber, setTicketNumber] = useState('');
   const [cost, setCost] = useState('');
@@ -227,12 +253,27 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
   const [contactPhone, setContactPhone] = useState('');
   const [website, setWebsite] = useState('');
   const [notes, setNotes] = useState('');
-  const [startLabel, setStartLabel] = useState('');
+  const [startLabel, setStartLabel] = useState(prefill?.startLabel ?? '');
   const [endLabel, setEndLabel] = useState('');
-  const [startAddress, setStartAddress] = useState('');
+  const [startAddress, setStartAddress] = useState(prefill?.startAddress ?? '');
   const [endAddress, setEndAddress] = useState('');
+  const [startLat, setStartLat] = useState<number | undefined>(prefill?.startLat);
+  const [startLon, setStartLon] = useState<number | undefined>(prefill?.startLon);
   const [startsAt, setStartsAt] = useState<Date | null>(() => defaultStart());
   const [endsAt, setEndsAt] = useState<Date | null>(null);
+
+  // Re-seed if a fresh prefill arrives while the tab is already mounted (the
+  // dialog stays mounted between opens; a POI tapped a second time supplies a
+  // new prefill object rather than remounting the form).
+  useEffect(() => {
+    if (!prefill) return;
+    setType(prefill.type);
+    setTitle(prefill.title);
+    setStartLabel(prefill.startLabel ?? '');
+    setStartAddress(prefill.startAddress ?? '');
+    setStartLat(prefill.startLat);
+    setStartLon(prefill.startLon);
+  }, [prefill]);
 
   // Flight uses the existing lookup affordance (ident + date) per PRD §6.3.
   const [ident, setIdent] = useState('');
@@ -272,6 +313,14 @@ function ManualTab({ disabled, onCreate }: ManualTabProps) {
       start_address: startAddress.trim() || undefined,
       end_address: endAddress.trim() || undefined,
     };
+    // Coordinates from a prefill (e.g. a tapped map POI) are already known and
+    // exact, so pin them rather than leaving the geocoder to guess from the
+    // address text.
+    if (startLat != null && startLon != null) {
+      part.start_lat = startLat;
+      part.start_lon = startLon;
+      part.start_coords_pinned = true;
+    }
     if (type === 'flight' && ident.trim()) {
       part.flight = { ident: ident.trim().toUpperCase() };
     }

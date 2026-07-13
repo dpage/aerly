@@ -360,3 +360,48 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     expect(h.state.setError).toHaveBeenCalledWith('string fail');
   });
 });
+
+describe('AddToTripDialog - prefill', () => {
+  it('pre-fills the manual form from a POI prefill and pins the coordinates on submit', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(
+      <AddToTripDialog
+        open
+        tripId={1}
+        onClose={vi.fn()}
+        prefill={{
+          type: 'excursion',
+          title: 'Example Tower',
+          startLabel: 'Example Tower',
+          startAddress: 'Example Road',
+          startLat: 51.501,
+          startLon: -0.1245,
+        }}
+      />,
+    );
+
+    // Fields are seeded, including the type-specific "Location" label that
+    // only appears for a point-in-time type like excursion.
+    expect(screen.getByLabelText(/^Title/)).toHaveValue('Example Tower');
+    expect(screen.getByLabelText('Location')).toHaveValue('Example Tower');
+    expect(screen.getByLabelText(/Location address/)).toHaveValue('Example Road');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    expect(h.state.createPlan).toHaveBeenCalledTimes(1);
+    const [tripId, input] = h.state.createPlan.mock.calls[0];
+    expect(tripId).toBe(1);
+    expect(input.type).toBe('excursion');
+    expect(input.parts[0]).toMatchObject({
+      start_lat: 51.501,
+      start_lon: -0.1245,
+      start_coords_pinned: true,
+    });
+  });
+
+  it('leaves the manual form at its plain defaults when no prefill is given', () => {
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    expect(screen.getByLabelText(/^Title/)).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Add plan' })).toBeDisabled();
+  });
+});
