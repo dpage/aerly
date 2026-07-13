@@ -109,6 +109,19 @@ describe('ExplorePanel', () => {
     expect(call.place).toBeUndefined();
   });
 
+  it('does not refetch when re-rendered with a content-identical initialCenter object', async () => {
+    const { rerender } = render(
+      <ExplorePanel tripId={7} initialCenter={{ lat: 51.5, lon: -0.12 }} />,
+    );
+    await screen.findByText('Example Tower');
+    h.fetchPois.mockClear();
+    // A parent re-render handing us a brand-new but content-identical object
+    // (the natural inline-literal call style) must not trigger a second fetch:
+    // the effect keys on the coordinate values, not the object identity.
+    rerender(<ExplorePanel tripId={7} initialCenter={{ lat: 51.5, lon: -0.12 }} />);
+    expect(h.fetchPois).not.toHaveBeenCalled();
+  });
+
   it('opens the add dialog pre-filled when a POI is added', async () => {
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');

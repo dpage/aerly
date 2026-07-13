@@ -84,17 +84,23 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
   const [prefill, setPrefill] = useState<PlanPrefill | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
 
-  // Fetches on mount and whenever the category set, radius, place, or
-  // initialCenter change. Coordinates from initialCenter win over the typed
-  // place when both are present (the caller — e.g. a map pin — knows exactly
-  // where it means).
+  // Fetches on mount and whenever the category set, radius, place, or centre
+  // coordinates change. Coordinates from initialCenter win over the typed place
+  // when both are present (the caller — e.g. a map pin — knows exactly where it
+  // means). We key the effect on the coordinate VALUES, not the initialCenter
+  // object, so a caller passing an inline `{ lat, lon, label }` literal doesn't
+  // trigger a needless refetch on every unrelated parent re-render (its label
+  // isn't a fetch input either).
+  const centerLat = initialCenter?.lat;
+  const centerLon = initialCenter?.lon;
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(undefined);
-    const opts = initialCenter
-      ? { lat: initialCenter.lat, lon: initialCenter.lon, cats, radius }
-      : { place: placeQuery, cats, radius };
+    const opts =
+      centerLat != null && centerLon != null
+        ? { lat: centerLat, lon: centerLon, cats, radius }
+        : { place: placeQuery, cats, radius };
     api
       .fetchPois(tripId, opts)
       .then((res) => {
@@ -113,7 +119,7 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
     return () => {
       cancelled = true;
     };
-  }, [tripId, placeQuery, cats, radius, initialCenter]);
+  }, [tripId, placeQuery, cats, radius, centerLat, centerLon]);
 
   const toggleCategory = (cat: PoiCategory) => {
     setCats((cs) => (cs.includes(cat) ? cs.filter((c) => c !== cat) : [...cs, cat]));
