@@ -133,6 +133,45 @@ func TestCreatePlanPersistsTicketAndCost(t *testing.T) {
 	}
 }
 
+func TestCreatePlanPinsCoords(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	lat, lon := 51.5010, -0.1245
+
+	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
+		TripID: trip, Type: "excursion", Title: "Example Tower",
+		Parts: []CreatePlanPartPayload{{
+			StartsAt:          out,
+			StartLabel:        "Example Tower",
+			StartLat:          &lat,
+			StartLon:          &lon,
+			StartCoordsPinned: true,
+			Excursion:         &ExcursionDetail{},
+		}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	parts, err := s.PartsByPlan(ctx, plan.ID)
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("PartsByPlan = %d, %v", len(parts), err)
+	}
+	if !parts[0].StartCoordsPinned {
+		t.Errorf("StartCoordsPinned = false, want true")
+	}
+	if parts[0].EndCoordsPinned {
+		t.Errorf("EndCoordsPinned = true, want false (not set)")
+	}
+	if parts[0].StartLat == nil || *parts[0].StartLat != lat {
+		t.Errorf("StartLat = %v, want %v", parts[0].StartLat, lat)
+	}
+}
+
 func TestFlightDetailForReturnsGateAndTerminal(t *testing.T) {
 	s := newStore(t)
 	if s == nil {

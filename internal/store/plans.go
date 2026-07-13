@@ -241,8 +241,12 @@ type CreatePlanPartPayload struct {
 	EndLat       *float64
 	EndLon       *float64
 	EndAddress   string
-	Status       string
-	SupersedesID *int64
+	// Coords pinned by the caller (a manual override the async geocoder must
+	// not touch), mirroring PlanPart's StartCoordsPinned/EndCoordsPinned.
+	StartCoordsPinned bool
+	EndCoordsPinned   bool
+	Status            string
+	SupersedesID      *int64
 
 	Flight    *FlightDetail
 	Hotel     *HotelDetail
@@ -398,12 +402,14 @@ func insertPartTx(ctx context.Context, tx pgx.Tx, planID int64, planType string,
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO plan_parts (plan_id, seq, starts_at, ends_at, start_tz, end_tz,
 			start_label, start_lat, start_lon, end_label, end_lat, end_lon,
-			status, supersedes_id, start_address, end_address)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+			status, supersedes_id, start_address, end_address,
+			start_coords_pinned, end_coords_pinned)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		RETURNING id`,
 		planID, in.Seq, in.StartsAt, in.EndsAt, in.StartTZ, in.EndTZ,
 		in.StartLabel, in.StartLat, in.StartLon, in.EndLabel, in.EndLat, in.EndLon,
-		status, in.SupersedesID, in.StartAddress, in.EndAddress).Scan(&partID); err != nil {
+		status, in.SupersedesID, in.StartAddress, in.EndAddress,
+		in.StartCoordsPinned, in.EndCoordsPinned).Scan(&partID); err != nil {
 		return err
 	}
 	return insertDetailTx(ctx, tx, partID, planType, in)

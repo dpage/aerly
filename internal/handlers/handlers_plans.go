@@ -34,7 +34,11 @@ type planPartReq struct {
 	EndLat       *float64   `json:"end_lat"`
 	EndLon       *float64   `json:"end_lon"`
 	EndAddress   string     `json:"end_address"`
-	Status       string     `json:"status"`
+	// StartCoordsPinned/EndCoordsPinned: send true alongside start_lat/start_lon
+	// (or end_lat/end_lon) to pin the coordinates against the async geocoder.
+	StartCoordsPinned bool   `json:"start_coords_pinned,omitempty"`
+	EndCoordsPinned   bool   `json:"end_coords_pinned,omitempty"`
+	Status            string `json:"status"`
 
 	Flight    *flightDetailReq    `json:"flight"`
 	Hotel     *hotelDetailReq     `json:"hotel"`
@@ -980,20 +984,22 @@ func (a *API) dismissPlanPart(w http.ResponseWriter, r *http.Request) {
 
 func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPayload {
 	out := store.CreatePlanPartPayload{
-		Seq:          p.Seq,
-		StartsAt:     p.StartsAt,
-		EndsAt:       p.EndsAt,
-		StartTZ:      p.StartTZ,
-		EndTZ:        p.EndTZ,
-		StartLabel:   p.StartLabel,
-		StartLat:     p.StartLat,
-		StartLon:     p.StartLon,
-		StartAddress: p.StartAddress,
-		EndLabel:     p.EndLabel,
-		EndLat:       p.EndLat,
-		EndLon:       p.EndLon,
-		EndAddress:   p.EndAddress,
-		Status:       p.Status,
+		Seq:               p.Seq,
+		StartsAt:          p.StartsAt,
+		EndsAt:            p.EndsAt,
+		StartTZ:           p.StartTZ,
+		EndTZ:             p.EndTZ,
+		StartLabel:        p.StartLabel,
+		StartLat:          p.StartLat,
+		StartLon:          p.StartLon,
+		StartAddress:      p.StartAddress,
+		EndLabel:          p.EndLabel,
+		EndLat:            p.EndLat,
+		EndLon:            p.EndLon,
+		EndAddress:        p.EndAddress,
+		StartCoordsPinned: p.StartCoordsPinned,
+		EndCoordsPinned:   p.EndCoordsPinned,
+		Status:            p.Status,
 	}
 	switch planType {
 	case "flight":

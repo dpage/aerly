@@ -682,6 +682,9 @@ export interface PlanPartInput {
   end_lat?: number;
   end_lon?: number;
   end_address?: string;
+  /** Send true with start_lat/start_lon to pin coordinates against the geocoder. */
+  start_coords_pinned?: boolean;
+  end_coords_pinned?: boolean;
   status?: PlanPartStatus;
   flight?: Partial<FlightDetail>;
   hotel?: Partial<HotelDetail>;
