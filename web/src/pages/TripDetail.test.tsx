@@ -101,6 +101,7 @@ function renderDetail(path: string | { pathname: string; state?: unknown } = '/t
         <Route path="/trips/:id" element={<TripDetail />}>
           <Route index element={<div data-testid="outlet">timeline body</div>} />
           <Route path="map" element={<div data-testid="outlet">map body</div>} />
+          <Route path="explore" element={<div data-testid="outlet">explore body</div>} />
         </Route>
         <Route path="/" element={<div data-testid="trips-list">trips list</div>} />
         <Route path="/friends" element={<div data-testid="friends-list">friends list</div>} />
@@ -357,6 +358,22 @@ describe('TripDetail', () => {
     expect(screen.getByTestId('outlet')).toHaveTextContent('map body');
     await userEvent.click(screen.getByRole('tab', { name: 'Timeline' }));
     await waitFor(() => expect(screen.getByTestId('outlet')).toHaveTextContent('timeline body'));
+  });
+
+  it('switches to the explore tab and back to timeline', async () => {
+    h.state.currentTrip = trip();
+    renderDetail();
+    expect(screen.getByTestId('outlet')).toHaveTextContent('timeline body');
+    await userEvent.click(screen.getByRole('tab', { name: 'Explore' }));
+    await waitFor(() => expect(screen.getByTestId('outlet')).toHaveTextContent('explore body'));
+    await userEvent.click(screen.getByRole('tab', { name: 'Timeline' }));
+    await waitFor(() => expect(screen.getByTestId('outlet')).toHaveTextContent('timeline body'));
+  });
+
+  it('shows the explore tab body on a direct /explore navigation', () => {
+    h.state.currentTrip = trip();
+    renderDetail('/trips/7/explore');
+    expect(screen.getByTestId('outlet')).toHaveTextContent('explore body');
   });
 
   it('warns about out-of-range plans with an Edit hint for editors', () => {

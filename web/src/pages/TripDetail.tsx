@@ -98,7 +98,8 @@ export default function TripDetail() {
   }, [tripId, loadTrip, clearCurrentTrip]);
 
   const onMap = location.pathname.endsWith('/map');
-  const tab = onMap ? 'map' : 'timeline';
+  const onExplore = location.pathname.endsWith('/explore');
+  const tab = onMap ? 'map' : onExplore ? 'explore' : 'timeline';
   const loaded = currentTrip?.id === tripId ? currentTrip : null;
   // No internal id in the placeholder: until the trip loads we show no name
   // rather than "Trip #35". The body below shows a spinner or a clean message.
@@ -313,12 +314,19 @@ export default function TripDetail() {
           <Tabs
             value={tab}
             onChange={(_e, v) =>
-              navigate(v === 'map' ? `/trips/${tripId}/map` : `/trips/${tripId}`)
+              navigate(
+                v === 'map'
+                  ? `/trips/${tripId}/map`
+                  : v === 'explore'
+                    ? `/trips/${tripId}/explore`
+                    : `/trips/${tripId}`,
+              )
             }
             sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}
           >
             <Tab label="Timeline" value="timeline" />
             <Tab label="Map" value="map" />
+            <Tab label="Explore" value="explore" />
           </Tabs>
           <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
             <Outlet />

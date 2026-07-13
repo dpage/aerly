@@ -28,6 +28,7 @@ import TripList from './pages/TripList';
 import TripDetail from './pages/TripDetail';
 import TripTimeline from './pages/TripTimeline';
 import TripMap from './pages/TripMap';
+import TripExplore from './pages/TripExplore';
 import Tracker from './pages/Tracker';
 
 export default function App() {
@@ -205,6 +206,7 @@ export default function App() {
           <Route path="trips/:id" element={<TripDetail />}>
             <Route index element={<TripTimeline />} />
             <Route path="map" element={<TripMap />} />
+            <Route path="explore" element={<TripExplore />} />
           </Route>
           <Route path="tracker" element={<Tracker />} />
         </Route>
