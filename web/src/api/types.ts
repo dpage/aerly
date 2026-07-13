@@ -608,6 +608,30 @@ export interface TagSuggestion {
   label: string;
 }
 
+/** The kind of point of interest returned by the nearby-POI search. */
+export type PoiCategory = 'sights' | 'museum' | 'landmark' | 'park' | 'food';
+
+/** A single nearby point of interest (GET /api/trips/{id}/pois). */
+export interface Poi {
+  id: string;
+  name: string;
+  category: PoiCategory;
+  lat: number;
+  lon: number;
+  distance_m: number;
+  address?: string;
+  wikidata?: string;
+  wikipedia?: string;
+  website?: string;
+}
+
+/** Response payload for GET /api/trips/{id}/pois. */
+export interface PoiResponse {
+  center: { lat: number; lon: number };
+  center_label?: string;
+  pois: Poi[];
+}
+
 // --- Inputs -----------------------------------------------------------------
 
 export interface CreateTripInput {

@@ -29,6 +29,7 @@ import type {
   Plan,
   PlanPart,
   PlanVisibility,
+  PoiResponse,
   ResolveFlightInput,
   ResolvedFlight,
   ShareByEmailTripInput,
@@ -421,6 +422,26 @@ export const api = {
     if (opts?.tag) params.set('tag', opts.tag);
     const qs = params.toString();
     return request<TrackerResponse>('GET', qs ? `/api/tracker?${qs}` : '/api/tracker');
+  },
+
+  // -------------------------------------------------------------------------
+  // Nearby points of interest (Explore panel): sights/museums/landmarks/parks/
+  // food near a plan part's location or a free-text place.
+  // -------------------------------------------------------------------------
+  fetchPois: (
+    tripId: number,
+    opts: { lat?: number; lon?: number; place?: string; radius?: number; cats?: string[]; q?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.lat != null && opts.lon != null) {
+      params.set('lat', String(opts.lat));
+      params.set('lon', String(opts.lon));
+    }
+    if (opts.place) params.set('place', opts.place);
+    if (opts.radius) params.set('radius', String(opts.radius));
+    if (opts.cats?.length) params.set('cats', opts.cats.join(','));
+    if (opts.q) params.set('q', opts.q);
+    return request<PoiResponse>('GET', `/api/trips/${tripId}/pois?${params.toString()}`);
   },
 
   // Resolve a Google short link (maps.app.goo.gl etc.) to coordinates by
