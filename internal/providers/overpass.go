@@ -21,10 +21,9 @@ import (
 // try-again-later response instead of a blunt 500.
 var ErrPOIUnavailable = errors.New("overpass: all endpoints temporarily unavailable")
 
-// POI is a normalised point of interest returned from OpenStreetMap.
+// POI is a normalised point of interest, from whichever provider resolved it.
 type POI struct {
-	OSMType   string
-	OSMID     int64
+	ID        string // stable, provider-scoped id (used as a UI key), e.g. "node/123" or a Geoapify place_id
 	Name      string
 	Category  string
 	Lat, Lon  float64
@@ -266,8 +265,7 @@ func parsePOIs(body []byte, lat, lon float64) ([]POI, bool, error) {
 			plat, plon = el.Center.Lat, el.Center.Lon
 		}
 		out = append(out, POI{
-			OSMType:   el.Type,
-			OSMID:     el.ID,
+			ID:        fmt.Sprintf("%s/%d", el.Type, el.ID),
 			Name:      name,
 			Category:  categoryOf(el.Tags),
 			Lat:       plat,
@@ -279,8 +277,14 @@ func parsePOIs(body []byte, lat, lon float64) ([]POI, bool, error) {
 			Website:   el.Tags["website"],
 		})
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].DistanceM < out[j].DistanceM })
+	sortByDistance(out)
 	return out, false, nil
+}
+
+// sortByDistance orders POIs nearest-first, a stable sort so equal distances
+// keep their source order.
+func sortByDistance(pois []POI) {
+	sort.SliceStable(pois, func(i, j int) bool { return pois[i].DistanceM < pois[j].DistanceM })
 }
 
 // categoryOf classifies a POI from its tags in priority order.

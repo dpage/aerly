@@ -23,7 +23,7 @@ const (
 // around an explicit lat/lon or a geocoded place, restricted to viewers of the
 // trip.
 func (a *API) getTripPOIs(w http.ResponseWriter, r *http.Request) {
-	if a.Overpass == nil {
+	if a.POIs == nil {
 		writeError(w, http.StatusNotImplemented, "POI lookups aren't available.")
 		return
 	}
@@ -61,7 +61,7 @@ func (a *API) getTripPOIs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pois, err := a.Overpass.Nearby(r.Context(), lat, lon, radius, cats)
+	pois, err := a.POIs.Nearby(r.Context(), lat, lon, radius, cats)
 	if err != nil {
 		if errors.Is(err, providers.ErrPOIUnavailable) {
 			// The upstream OSM instances are rate-limiting or timing out; this
@@ -113,7 +113,7 @@ func toPoiDTOs(pois []providers.POI) []api.PoiDTO {
 	out := make([]api.PoiDTO, 0, len(pois))
 	for _, p := range pois {
 		out = append(out, api.PoiDTO{
-			ID:        fmt.Sprintf("%s/%d", p.OSMType, p.OSMID),
+			ID:        p.ID,
 			Name:      p.Name,
 			Category:  p.Category,
 			Lat:       p.Lat,

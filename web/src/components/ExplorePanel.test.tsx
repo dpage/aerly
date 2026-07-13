@@ -84,9 +84,12 @@ describe('ExplorePanel', () => {
     expect(screen.getByText(/1\.8 km away/i)).toBeInTheDocument();
     // out-links present when data is available
     const towerLinks = screen.getAllByRole('link');
-    expect(towerLinks.some((l) => l.getAttribute('href') === 'https://www.openstreetmap.org/node/1')).toBe(
-      true,
-    );
+    expect(
+      towerLinks.some(
+        (l) =>
+          l.getAttribute('href') === 'https://www.openstreetmap.org/?mlat=51.5&mlon=-0.12#map=17/51.5/-0.12',
+      ),
+    ).toBe(true);
     expect(
       towerLinks.some((l) => l.getAttribute('href') === 'https://www.wikidata.org/wiki/Q1'),
     ).toBe(true);

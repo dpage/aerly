@@ -61,30 +61,41 @@ avoid duplicate charges.
 
 ---
 
-### OpenStreetMap Overpass — points of interest
+### Points of interest — Geoapify Places (preferred), Overpass (fallback)
 
-[Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) is a read-only query API over the
-OpenStreetMap database. The trip "Explore" tab and the hotel-tile "Explore nearby" button use it
-to list sightseeing places (attractions, museums, historic landmarks, parks, and optionally food
-and drink) around a location, either the trip destination (geocoded via Nominatim) or a hotel's
-pinned coordinates. Chosen over OpenTripMap (unreliable key issuance, non-commercial-only free
-tier) and Geoapify (requires a key) because it needs no key and shares the OpenStreetMap data
-family Aerly already uses for geocoding.
+The trip "Explore" tab and the hotel-tile "Explore nearby" button list sightseeing places
+(attractions, museums, historic landmarks, parks, and optionally food and drink) around a
+location, either the trip destination (geocoded via Nominatim) or a hotel's pinned coordinates.
+Both back-ends implement the same `providers.POIResolver` interface, and the same 7-day in-memory
+result cache sits in front of whichever is active.
 
-**Cost:** Free, no key. The data is OpenStreetMap (ODbL); Aerly shows the "Data © OpenStreetMap
-contributors" attribution in the Explore panel. Requests are rate-limited to ~1/second with a
-descriptive `User-Agent`, and results are cached in memory for 7 days, in keeping with the
-[Overpass usage policy](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html).
+**[Geoapify Places](https://www.geoapify.com/places-api/) — preferred, used when `GEOAPIFY_API_KEY`
+is set.** A keyed, purpose-built POI service whose dataset is OpenStreetMap-derived. It answers
+categorised, radius-bounded queries directly and reliably, which is why it's preferred over raw
+Overpass.
 
-**Limitations:**
+- **Cost:** free tier (no card, ~3000 requests/day), which the 7-day cache keeps us well within.
+- **Why not just Overpass:** the public Overpass instances rate-limit (429) and time out (504, or a
+  200 with a timeout "remark") a busy server IP, and a multi-category union query over a dense city
+  hits Overpass's own 25s query timeout, so the feature silently returned "no places found" in
+  production. Geoapify avoids both.
+- **Attribution:** the underlying data is OpenStreetMap (ODbL); the Explore panel shows the
+  "Data © OpenStreetMap contributors" attribution.
+
+**[Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) — keyless fallback, used only when
+no Geoapify key is set.** A read-only query API over the OpenStreetMap database. The client accepts
+a comma-separated `OVERPASS_URL` list and fails over across endpoints, caps each attempt, and treats
+rate-limits/timeouts (including the 200-with-remark case) as retryable, surfacing a "try again"
+rather than a hard error. It remains best-effort: only list *global* instances (region-limited
+mirrors such as the Swiss `overpass.osm.ch` silently return an empty 200 outside their area), and
+prefer a self-hosted instance for reliability.
+
+**Shared limitations (both back-ends, since the data is OSM):**
 
 - **Coverage varies by region.** POI density and description quality are excellent in UK and
-  European city centres but thin out in less-mapped regions, so results quality depends on the
-  destination.
-- **Sparse metadata.** Raw OSM POIs rarely carry rich descriptions or photos; Aerly links out to
-  the map and (where tagged) Wikidata and a website rather than showing editorial content.
-- **Shared public endpoint.** The default `OVERPASS_URL` is a community-run server; heavy use
-  should point at a self-hosted Overpass instance.
+  European city centres but thin out in less-mapped regions.
+- **Sparse metadata.** OSM POIs rarely carry rich descriptions or photos; Aerly links out to the
+  map and (where tagged) Wikidata, Wikipedia, and a website rather than showing editorial content.
 
 ---
 

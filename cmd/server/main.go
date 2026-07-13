@@ -141,11 +141,18 @@ func run(configPath string) error {
 	// Geocode part addresses (hotels, taxis, …) into map coordinates via the
 	// public OSM Nominatim service. The User-Agent identifies us per policy.
 	api.Geocoder = geocode.NewNominatim("aerly (+" + cfg.PublicURL + ")")
-	// POI lookups via OpenStreetMap Overpass — no key, cached for 7 days.
-	api.Overpass = providers.NewCachedPOIs(
-		providers.NewOverpass(cfg.OverpassURL, "aerly (+"+cfg.PublicURL+")"),
-		7*24*time.Hour,
-	)
+	// POI lookups for the Explore feature, cached for 7 days. Prefer Geoapify
+	// when a key is set — it's a reliable keyed service — and otherwise fall
+	// back to the keyless (but flaky) public Overpass.
+	var poiResolver providers.POIResolver
+	if cfg.GeoapifyKey != "" {
+		poiResolver = providers.NewGeoapify(cfg.GeoapifyKey)
+		slog.Info("POI resolver: geoapify (cached, ttl=7d)")
+	} else {
+		poiResolver = providers.NewOverpass(cfg.OverpassURL, "aerly (+"+cfg.PublicURL+")")
+		slog.Info("POI resolver: overpass public (cached, ttl=7d)")
+	}
+	api.POIs = providers.NewCachedPOIs(poiResolver, 7*24*time.Hour)
 	// One-off, best-effort, idempotent startup backfills: geocode any addressed
 	// parts still missing coordinates (e.g. ingested before address geocoding),
 	// then anchor any parts that have coordinates but no timezone to their real

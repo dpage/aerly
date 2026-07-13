@@ -37,9 +37,8 @@ func TestGetTripPOIsByCoords(t *testing.T) {
 		t.Fatalf("seed trip: %v", err)
 	}
 
-	e.api.Overpass = &stubPOIs{pois: []providers.POI{{
-		OSMType:   "node",
-		OSMID:     1,
+	e.api.POIs = &stubPOIs{pois: []providers.POI{{
+		ID:        "node/1",
 		Name:      "Example Tower",
 		Category:  "sights",
 		Lat:       51.5,
@@ -67,7 +66,7 @@ func TestGetTripPOIsRequiresView(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed trip: %v", err)
 	}
-	e.api.Overpass = &stubPOIs{}
+	e.api.POIs = &stubPOIs{}
 
 	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=48.85&lon=2.35", trip.ID), nil, outsider)
 	if w.Code != 404 {
@@ -85,7 +84,7 @@ func TestGetTripPOIsUpstreamUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed trip: %v", err)
 	}
-	e.api.Overpass = &stubPOIs{err: providers.ErrPOIUnavailable}
+	e.api.POIs = &stubPOIs{err: providers.ErrPOIUnavailable}
 
 	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12", trip.ID), nil, uid)
 	if w.Code != 503 {
@@ -126,8 +125,8 @@ func TestGetTripPOIsByPlace(t *testing.T) {
 		t.Fatalf("seed trip: %v", err)
 	}
 
-	e.api.Overpass = &stubPOIs{pois: []providers.POI{{
-		OSMType: "way", OSMID: 2, Name: "Example Colosseum", Category: "sights",
+	e.api.POIs = &stubPOIs{pois: []providers.POI{{
+		ID: "way/2", Name: "Example Colosseum", Category: "sights",
 		Lat: 41.89, Lon: 12.49, DistanceM: 10,
 	}}}
 	e.api.Geocoder = stubGeocoder{lat: 41.89, lon: 12.49, ok: true}
@@ -156,7 +155,7 @@ func TestGetTripPOIsRadiusClamp(t *testing.T) {
 		t.Fatalf("seed trip: %v", err)
 	}
 	stub := &stubPOIs{}
-	e.api.Overpass = stub
+	e.api.POIs = stub
 
 	// Oversized radius clamps down to the maximum, not the default.
 	if w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12&radius=50000", trip.ID), nil, uid); w.Code != 200 {
@@ -185,7 +184,7 @@ func TestGetTripPOIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed trip: %v", err)
 	}
-	e.api.Overpass = nil
+	e.api.POIs = nil
 
 	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?lat=51.5&lon=-0.12", trip.ID), nil, uid)
 	if w.Code != 501 {

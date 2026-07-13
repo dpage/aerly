@@ -257,7 +257,11 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
                 {CATEGORY_LABELS[poi.category]} · {formatDistance(poi.distance_m)} away
               </Typography>
               <Stack direction="row" spacing={1.5}>
-                <Link href={`https://www.openstreetmap.org/${poi.id}`} target="_blank" rel="noopener">
+                <Link
+                  href={`https://www.openstreetmap.org/?mlat=${poi.lat}&mlon=${poi.lon}#map=17/${poi.lat}/${poi.lon}`}
+                  target="_blank"
+                  rel="noopener"
+                >
                   Map
                 </Link>
                 {poi.wikidata && (

@@ -23,6 +23,7 @@ type Config struct {
 	OpenSkyEnabled  bool // true if we should query OpenSky even without creds
 	AeroDataBoxKey  string
 	OverpassURL     string
+	GeoapifyKey     string
 	PollInterval    time.Duration
 	DevAuthBypass   bool
 
@@ -106,6 +107,7 @@ func Load() (*Config, error) {
 		OpenSkyEnabled:  os.Getenv("OPENSKY_ENABLED") == "1",
 		AeroDataBoxKey:  os.Getenv("AERODATABOX_RAPIDAPI_KEY"),
 		OverpassURL:     getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter"),
+		GeoapifyKey:     os.Getenv("GEOAPIFY_API_KEY"),
 		PollInterval:    pollInterval,
 		DevAuthBypass:   os.Getenv("DEV_AUTH_BYPASS") == "1",
 		MailFromAddress: os.Getenv("MAIL_FROM_ADDRESS"),
