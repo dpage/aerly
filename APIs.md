@@ -1,8 +1,9 @@
 # API reference
 
-Aerly uses external APIs for flight scheduling/metadata, live positioning, and points-of-interest
-discovery. This document covers each, explains their limitations, and compares the
-alternative unified APIs that handle the flight concerns from a single integration.
+Aerly uses external APIs for flight scheduling/metadata, live positioning, points-of-interest
+discovery, address geocoding, and LLM-based booking extraction. This document covers each,
+explains their limitations, and compares the alternative unified APIs that handle the flight
+concerns from a single integration.
 
 ---
 
@@ -89,6 +90,55 @@ radius-bounded queries directly and reliably.
 - **Sparse metadata.** OSM POIs often lack a description; Aerly shows the OSM `description` tag as a
   blurb where present, and otherwise links out to the map and (where tagged) Wikidata, Wikipedia,
   and a website rather than showing editorial content.
+
+---
+
+### OpenStreetMap Nominatim — geocoding
+
+[Nominatim](https://nominatim.org/) turns a plan's free-text address into coordinates so hotels,
+restaurants, transfers and excursions plot on the map, and it supplies the point Aerly anchors to
+an IANA timezone (via `tzf`) so local times are correct. It also geocodes a typed place name in the
+Explore search box. The public instance is used by default.
+
+**Cost:** Free (the shared public instance at `nominatim.openstreetmap.org`).
+
+**Limitations:**
+
+- **Usage policy.** The public instance permits at most 1 request/second and requires an
+  identifying `User-Agent`; Aerly sends one and rate-limits itself. A heavy deployment should run
+  its own Nominatim or use a commercial geocoder.
+- **Address quality.** Geocoding is only as good as the address text extracted from a booking; a
+  vague or malformed address may not resolve, in which case the venue simply isn't placed on the
+  map (the plan is otherwise unaffected).
+- **Attribution.** Data is OpenStreetMap (ODbL), attributed in the UI alongside the map tiles.
+
+---
+
+### LLM providers — booking extraction
+
+Aerly uses a large language model to extract structured bookings from unstructured input: text
+pasted into the **New plan** dialog, uploaded booking PDFs, and forwarded confirmation emails. The
+model is asked for a strict JSON schema (plan type, places, dates/times, references) which Aerly
+validates before proposing anything. The provider and model are configurable
+(`LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY`).
+
+**Supported providers:** `anthropic` (default, `claude-haiku-4-5`), `openai`, `gemini`, and
+`ollama` (a keyless local runtime).
+
+**Cost:** Pay-per-token at the chosen provider (or free/self-hosted with `ollama`). Aerly favours a
+small, cheap model by default; extraction is a bounded, one-shot call per paste/upload/email, and
+email ingest is additionally rate-limited per user.
+
+**Limitations:**
+
+- **PDF (document) support.** Uploaded and forwarded PDFs are sent as native document blocks, which
+  only `anthropic` and `gemini` support. With `openai` or `ollama` the extractor silently retries
+  text-only: the visible body is still parsed, but attached PDFs are skipped.
+- **Best-effort extraction.** Output is always validated and surfaced for the user to confirm (for
+  pasted/uploaded input) rather than committed blindly; a model miss degrades to "nothing
+  extracted", never to bad data written silently.
+- **Optional.** With no LLM configured, the paste/upload propose endpoints return `503` and the New
+  plan dialog offers manual entry only; email ingest can't be enabled at all.
 
 ---
 

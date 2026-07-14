@@ -2,14 +2,21 @@
 
 [![CI](https://github.com/dpage/aerly/actions/workflows/ci.yml/badge.svg)](https://github.com/dpage/aerly/actions/workflows/ci.yml)
 
-Single-binary Go + React app that tracks your friends' flights on a live world map.
-Built for the small ritual of "who's already in the air to PostgreSQL Conference Europe?"
+Single-binary Go + React app for planning shared trips and tracking your friends' flights on a
+live world map. It gathers a trip's flights, hotels, trains, taxis, meals and excursions onto one
+shared timeline and map, with live flight tracking, nearby-places discovery, calendar/PDF export,
+and push notifications. Built for the small ritual of "who's already in the air to PostgreSQL
+Conference Europe?"
 
-- **Backend**: Go 1.26, `net/http`, `pgx/v5`, GitHub OAuth, Server-Sent Events.
-- **Frontend**: Vite + React 18 + TypeScript + MUI + Zustand + MapLibre GL.
-- **Data sources** (see [APIs.md](APIs.md) for full comparison and alternatives):
+- **Backend**: Go 1.26, `net/http`, `pgx/v5`, GitHub + Google OAuth, Server-Sent Events.
+- **Frontend**: Vite + React 18 + TypeScript + MUI + Zustand + MapLibre GL, packaged as an
+  installable PWA.
+- **Data sources** (see [APIs.md](APIs.md) for full detail, comparison, and alternatives):
   - [OpenSky Network](https://opensky-network.org/) for live ADS-B positions (free for non-commercial use; rate-limited).
   - [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox/) on RapidAPI for schedule + airport + airframe lookups (cheap pay-per-call).
+  - [Geoapify Places](https://www.geoapify.com/places-api/) for the Explore nearby-points-of-interest feature (OpenStreetMap-derived; free tier).
+  - [OpenStreetMap Nominatim](https://nominatim.org/) for geocoding plan venues from their addresses (keyless).
+  - An **LLM** (Anthropic / OpenAI / Gemini / Ollama) that extracts bookings from pasted text, uploaded PDFs, and forwarded emails.
   - An in-memory **stub** that interpolates positions along a great-circle when nothing is configured — useful for demos with no external dependencies.
   - A **dead-reckoner** wraps whichever tracker is in use, extrapolating from the last real fix toward the destination when ADS-B coverage drops out (oceanic gaps, etc.). Estimated positions are flagged so the UI renders them with reduced opacity and a dashed outline.
 - **Deploy**: one statically-linked binary with the SPA embedded via `//go:embed`,
@@ -94,13 +101,50 @@ start if the file is any more permissive.
 | `OPENSKY_USERNAME`         |          |                               | OpenSky account for HTTP Basic Auth. Unlocks higher rate limits than anonymous.        |
 | `OPENSKY_PASSWORD`         |          |                               |                                                                                        |
 | `OPENSKY_ENABLED`          |          | `0`                           | Set to `1` to use OpenSky anonymously (heavily rate-limited).                          |
-| `AERODATABOX_RAPIDAPI_KEY` |          |                               | When set, the Add Flight dialog drops to its minimal "ident + date" form.              |
+| `AERODATABOX_RAPIDAPI_KEY` |          |                               | When set, the Add Flight dialog drops to its minimal "ident + date" form. See **Tracker and resolver modes**. |
+| `GEOAPIFY_API_KEY`         |          |                               | Enables the Explore nearby-points-of-interest feature. Blank = off (the Explore tab, the "Explore nearby" button, and the preference to hide Explore are all withdrawn). Free tier at [Geoapify](https://myprojects.geoapify.com/). |
 | `DEV_AUTH_BYPASS`          |          | `0`                           | Local-only: `1` enables `/auth/dev-login?login=…` to skip OAuth. Refuses non-localhost.|
 | `ATTACHMENTS_STORE`        |          |                               | Enables per-plan file attachments. Blank = off. Set to an absolute filesystem path, or an `s3://bucket[/prefix]` URL. See **Plan attachments** below. |
 
 ¹ At least one OAuth provider (GitHub or Google) must be fully configured, unless `DEV_AUTH_BYPASS=1`. Each provider needs both its ID and secret, or neither.
 
+Four further optional features carry their own configuration, each documented in its own section below: **AI booking extraction** (`LLM_*`), **Web push notifications** (`WEBPUSH_VAPID_*`), **email-forwarded flight ingest** (`EMAIL_INGEST_*`), and **plan attachments** (`ATTACHMENTS_*`).
+
 Database migrations are applied automatically on every startup from the embedded `migrations/` directory.
+
+## AI booking extraction (optional)
+
+The **New plan** dialog can capture a booking from unstructured input: paste a confirmation email or itinerary as text, or upload a booking PDF, and an LLM extracts the plan (flight, hotel, train, taxi, meal or excursion) for you to review and confirm. The same extractor powers the forwarded-email ingest below.
+
+It's enabled by configuring an LLM. With none configured, the paste/upload propose endpoints (`POST /api/trips/{id}/ingest`) return `503` and the New plan dialog falls back to manual entry only; everything else works.
+
+| Variable       | Default            | Notes                                                                              |
+|----------------|--------------------|------------------------------------------------------------------------------------|
+| `LLM_PROVIDER` | `anthropic`        | One of `anthropic` / `openai` / `gemini` / `ollama`.                               |
+| `LLM_MODEL`    | `claude-haiku-4-5` | Model ID for the chosen provider.                                                  |
+| `LLM_API_KEY`  | (required unless `ollama`) | Provider API key. The keyless local `ollama` provider needs no key.        |
+
+PDF uploads (and forwarded PDF attachments) are passed to the model as native document blocks, which only `anthropic` and `gemini` support; with `openai` or `ollama` the extractor silently retries text-only, so the visible text is still parsed but attached PDFs are skipped. See [APIs.md](APIs.md) for provider notes.
+
+## Web push notifications (optional)
+
+Aerly can push flight-change alerts and trip-share notices to a user's device even when the app is closed, via the standard [Web Push](https://developer.mozilla.org/en-US/docs/Web/API/Push_API) / VAPID protocol — no Apple/Google developer account, app store, or certificates. Users opt in per-device from **Preferences → Push**.
+
+Generate a VAPID key pair once and keep the private half in your secret store:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Leave both keys blank to disable push end-to-end: the API reports it disabled, the sender no-ops, and the UI hides the enable-push toggle.
+
+| Variable                    | Default      | Notes                                                                                 |
+|-----------------------------|--------------|---------------------------------------------------------------------------------------|
+| `WEBPUSH_VAPID_PUBLIC_KEY`  |              | Handed to browsers so they can subscribe. Set together with the private key.           |
+| `WEBPUSH_VAPID_PRIVATE_KEY` |              | Signs each push; a **secret**. Set together with the public key.                       |
+| `WEBPUSH_VAPID_SUBJECT`     | `PUBLIC_URL` | VAPID subject: a `mailto:` or `https:` URL identifying this deployment.                 |
+
+On iOS, Web Push only works once Aerly is installed to the Home Screen (see **Install as an app** below).
 
 ## Email-forwarded flight ingest (optional)
 
@@ -172,14 +216,12 @@ trust on).
 | `EMAIL_INGEST_REQUIRE_DKIM` | `1` | Require a DKIM pass aligned with the sender's domain. |
 | `EMAIL_INGEST_DKIM_AUTHSERV_ID` | (required if DKIM on) | The authserv-id your boundary MTA stamps on `Authentication-Results`. Only headers bearing it are trusted. |
 | `EMAIL_INGEST_RATE_LIMIT_PER_DAY` | `50` | Max messages per verified user in a rolling 24h. `0` disables. |
-| `EMAIL_INGEST_MAX_BODY_BYTES` | `1048576` | Truncation guard before LLM call. |
-| `EMAIL_INGEST_SENDMAIL` | `/usr/sbin/sendmail` | Path used for reply mail. |
-| `LLM_PROVIDER` | `anthropic` | One of `anthropic` / `openai` / `gemini` / `ollama`. |
-| `LLM_MODEL` | `claude-haiku-4-5` | Model ID. |
-| `LLM_API_KEY` | (required unless `ollama`) | Provider API key. |
+| `EMAIL_INGEST_MAX_BODY_BYTES` | `1048576` (1 MiB) | Truncation guard before the LLM call. |
+| `EMAIL_INGEST_MAX_ATTACHMENTS` | `5` | Max PDF attachments per message forwarded to the LLM. |
+| `EMAIL_INGEST_MAX_ATTACH_BYTES` | `10485760` (10 MiB) | Max total attachment bytes per message. |
+| `EMAIL_INGEST_SENDMAIL` | (`MAIL_SENDMAIL_PATH`) | Path used for reply mail; defaults to `MAIL_SENDMAIL_PATH`. |
 
-`EMAIL_INGEST_ENABLED=1` requires `AERODATABOX_RAPIDAPI_KEY` (the
-resolver is what turns `{ident, date}` into a full flight record).
+The LLM extractor is configured separately (see **AI booking extraction** above). `EMAIL_INGEST_ENABLED=1` additionally requires both a configured LLM (`LLM_API_KEY`, or `LLM_PROVIDER=ollama`) and `AERODATABOX_RAPIDAPI_KEY` (the resolver is what turns `{ident, date}` into a full flight record); the server refuses to start otherwise.
 
 ### PDF attachments
 
@@ -313,6 +355,34 @@ the ICAO24 (Mode-S hex) address needed to track a flight on OpenSky.
   differ from the one that actually operates. If OpenSky's live positions seem wrong, the
   ICAO24 field can be corrected manually in the flight edit form.
 
+### Geoapify Places — nearby points of interest
+
+[Geoapify Places](https://www.geoapify.com/places-api/) backs the Explore feature: given a
+place (the trip destination, geocoded via Nominatim) or a hotel's pinned coordinates, it returns
+nearby sights, museums, landmarks, places of worship, parks, and food, which you can add to the
+trip as excursions. It's a keyed service over an OpenStreetMap-derived dataset (ODbL, attributed
+in the UI), with results cached for 7 days.
+
+**Limitations:**
+
+- **Region-dependent coverage.** POI density and metadata are excellent in UK and European city
+  centres and thinner elsewhere.
+- **Sparse descriptions.** OSM POIs often lack a description; Aerly shows the OSM `description`
+  tag as a blurb where present and otherwise links out to Wikidata, Wikipedia, and a website.
+- **Requires a key.** With `GEOAPIFY_API_KEY` unset there is no POI resolver, so Explore is
+  withdrawn app-wide (an earlier keyless Overpass fallback was removed for reliability — see
+  [APIs.md](APIs.md)).
+
+### Geocoding and booking extraction
+
+Two more upstreams fill in the rest of a trip:
+
+- **[Nominatim](https://nominatim.org/)** (OpenStreetMap, keyless) geocodes a plan's address to
+  coordinates so hotels, restaurants and transfers plot on the map, and anchors each venue to its
+  IANA timezone. Aerly sends a descriptive `User-Agent` per OSM policy and rate-limits itself.
+- **An LLM** (see **AI booking extraction**) parses pasted text, uploaded PDFs and forwarded
+  emails into structured plans. See [APIs.md](APIs.md) for the provider trade-offs.
+
 ## Install as an app (PWA)
 
 Aerly is a Progressive Web App, so it installs to the home screen on both iOS
@@ -364,13 +434,16 @@ internal/
 ├── geo/             Great-circle helpers (slerp, bearing, haversine).
 ├── geocode/         Nominatim geocoding + timezone anchoring for plan venues.
 ├── geotz/           IANA timezone lookup from coordinates (tzf).
-├── providers/       External flight-data integrations: Tracker (Stub, OpenSky)
-│                    + Resolver (AeroDataBox) + DeadReckoner wrapper.
+├── maps/            Extracts coordinates from Google Maps URLs (short-link expansion, host-allowlisted).
+├── providers/       External integrations: Tracker (Stub, OpenSky) + Resolver
+│                    (AeroDataBox) + DeadReckoner wrapper + POI resolver (Geoapify).
 ├── importics/       TripIt & Kayak .ics parsing into plans/parts.
 ├── feeds/           SSRF-guarded fetch + refresh of trip iCal feed subscriptions.
 ├── emailingest/     Forwarded-email Maildir drain + LLM extraction + auto-reply.
 ├── planops/         Plan propose/commit pipeline incl. rebooking supersession.
 ├── mailer/          Outbound multipart email assembly (alerts, invites, replies).
+├── push/            Web Push (VAPID) delivery to subscribed devices.
+├── attachments/     Out-of-band blob store for plan attachments (filesystem or S3).
 ├── notify/          Visibility-scoped trip/plan SSE event publishing.
 ├── poller/          Background goroutine: refresh active flights, persist, broadcast.
 ├── sse/             Server-Sent Events broadcast hub.
@@ -403,12 +476,17 @@ Then drop `deploy/nginx.conf.example` into `/etc/nginx/sites-available/`, adjust
 
 Pre-release. Tracker and resolver paths are working end-to-end with OpenSky and AeroDataBox. The codebase is well covered by tests: a Go suite (`make test-go`, ~75% statement coverage with a Postgres-backed integration layer) and a Vitest suite for the SPA (`make test-web`) gated at 90% per-file coverage (`make cover-web`).
 
+The Go integration tests create and drop a fresh database per test via a maintenance connection. Point that at your Postgres with `TEST_DATABASE_URL` (default `postgres://aerly:aerly@127.0.0.1:5432/postgres?sslmode=disable`); when Postgres is unreachable those tests **skip** so `go test ./...` stays green, unless you set `AERLY_REQUIRE_DB=1` (as CI does) to make them fail instead.
+
 ## Roadmap / follow-up work
 
 **Open**
 - **Flight data: migrate to FlightAware AeroAPI.** Evaluate replacing AeroDataBox with AeroAPI for richer, fresher gate/terminal and status data. AeroAPI is metered per-query (cost-sensitive at poll cadence — lean on `last_resolved_at` throttling) and coverage varies, so spike against real routes first. Slots in behind the existing `providers.Resolver` interface as a sibling implementation; AeroDataBox stays the default until then.
 
 **Shipped (trip-planning follow-ups)**
+- Explore nearby — the trip **Explore** tab and a hotel-tile **Explore nearby** button surface nearby sights, museums, landmarks, places of worship, parks and food from Geoapify (OSM-derived, cached), addable to the trip as excursions and shown on an in-app mini-map. Gated on `GEOAPIFY_API_KEY`; hideable per-user in **Preferences → Features**.
+- Web push notifications — flight-change alerts and trip shares pushed to a device via the Web Push / VAPID protocol, opt-in per-device in **Preferences → Push**. Gated on `WEBPUSH_VAPID_*`.
+- AI booking capture — paste text or upload a PDF in the **New plan** dialog and an LLM extracts the booking; the same extractor also backs the forwarded-email ingest.
 - External calendar feeds — subscribe a trip to one or more iCal feed URLs (e.g. a conference's published schedule) from the **Edit trip** dialog. The server refreshes them periodically (SSRF-guarded, conditional GETs) and their events render as read-only "external plan" tiles, interleaved into the timeline behind a per-viewer **Show external plans** toggle (off by default, stored in `localStorage`). Sharing is inherited wholesale from the trip — no per-event sharing — and the events are kept out of the map and `.ics` export but included in the trip PDF when the toggle is on.
 - Plan attachments — upload files (PDF tickets, confirmations) to a plan, stored out-of-band in a configured filesystem path or S3 bucket and gated by `ATTACHMENTS_STORE`.
 - Gate-change alerts — gate/terminal parsed from AeroDataBox onto `flight_details`, always-alert branch with dedupe in the poller.
