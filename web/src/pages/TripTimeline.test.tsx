@@ -239,6 +239,38 @@ describe('TripTimeline', () => {
     // Day headers for both the arrival and departure dates.
     expect(screen.getByText(/12 Oct 2026/)).toBeInTheDocument();
     expect(screen.getByText(/15 Oct 2026/)).toBeInTheDocument();
+    // Both tiles carry the "N nights" chip that ties them as one stay (the hotel
+    // equivalent of the flight "multi-part" badge).
+    expect(
+      within(screen.getByTestId('part-card-9-check-in')).getByText('3 nights'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('part-card-9-check-out')).getByText('3 nights'),
+    ).toBeInTheDocument();
+  });
+
+  it('uses the singular "1 night" chip for a one-night stay', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 11,
+            plan_id: 3,
+            type: 'hotel',
+            starts_at: '2026-10-12T15:00:00Z',
+            effective_at: '2026-10-12T15:00:00Z',
+            ends_at: '2026-10-13T10:00:00Z',
+            start_label: 'Hotel Porto',
+            end_label: '',
+          }),
+        ],
+        { id: 3, type: 'hotel', title: 'Hotel Porto' },
+      ),
+    ]);
+    renderTimeline();
+    expect(
+      within(screen.getByTestId('part-card-11-check-in')).getByText('1 night'),
+    ).toBeInTheDocument();
   });
 
   it('greys a cancelled (superseded old) part and tags it, not the replacement', () => {

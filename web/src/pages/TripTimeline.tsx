@@ -44,6 +44,7 @@ import {
   fmtPartPlaces,
   fmtPartTimeRange,
   fmtTimeOfDay,
+  hotelNights,
   planTypeLabel,
 } from '../lib/trip-format';
 import { fmtGate } from '../lib/gate';
@@ -581,6 +582,12 @@ function PartCard({
   const places = fmtPartPlaces(part.type, part.start_label, part.end_label);
   const addr = fmtPartPlaces(part.type, part.start_address, part.end_address);
   const details = partDetailLines(part);
+  // A multi-night hotel stay renders as two tiles (check-in and check-out); the
+  // "N nights" chip on both ties them as one booking and shows the stay length,
+  // the hotel equivalent of a flight's "multi-part" badge. `edge` is only set on
+  // those hotel-band tiles.
+  const nights = edge ? hotelNights(part) : 0;
+  const nightsLabel = nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : '';
 
   const handleDelete = async () => {
     if (!window.confirm(`Delete "${plan.title || planTypeLabel(plan.type)}" from this trip?`))
@@ -658,6 +665,14 @@ function PartCard({
             {multiPart && (
               <Chip
                 label="multi-part"
+                size="small"
+                variant="outlined"
+                sx={{ height: 18, fontSize: 10, borderColor: accent, color: accent }}
+              />
+            )}
+            {nightsLabel && (
+              <Chip
+                label={nightsLabel}
                 size="small"
                 variant="outlined"
                 sx={{ height: 18, fontSize: 10, borderColor: accent, color: accent }}
