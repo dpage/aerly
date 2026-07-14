@@ -351,12 +351,18 @@ describe('TripTimeline', () => {
     renderTimeline();
     const card = screen.getByTestId('part-card-1');
     await userEvent.click(card);
-    expect(within(card).getByLabelText(/Notify me of changes/i)).toBeInTheDocument();
+    // The per-plan alert opt-in now lives in the Notifications dialog, which a
+    // viewer can open (unlike the owner-only Edit/Sharing/Delete controls).
+    await userEvent.click(within(card).getByRole('button', { name: /Notifications/i }));
+    expect(screen.getByLabelText(/Notify me of changes/i)).toBeInTheDocument();
     expect(
       within(card).queryByRole('button', { name: /Sharing/i }),
     ).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
+    // Closing the dialog dismisses the controls again.
+    await userEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(screen.queryByLabelText(/Notify me of changes/i)).not.toBeInTheDocument();
   });
 
   it('opens the empty-state New plan dialog when the link is clicked', async () => {

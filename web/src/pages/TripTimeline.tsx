@@ -30,8 +30,7 @@ import type { ExternalEvent, Plan, PlanPart, Trip } from '../api/types';
 import PlanTypeIcon from '../components/PlanTypeIcon';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
-import PlanAlertToggle from '../components/PlanAlertToggle';
-import PlanReminderOverride from '../components/PlanReminderOverride';
+import PlanNotificationsDialog from '../components/PlanNotificationsDialog';
 import AddToTripDialog from '../components/AddToTripDialog';
 import ExplorePanel from '../components/ExplorePanel';
 import { useShowExternalPlans } from '../lib/showExternalPlans';
@@ -556,6 +555,7 @@ function PartCard({
   const setError = useStore((s) => s.setError);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
@@ -773,38 +773,29 @@ function PartCard({
               {plan.notes}
             </Typography>
           )}
-          <Box sx={{ mt: 1.5 }}>
-            <Divider sx={{ mb: 1 }} />
-            <Typography
-              variant="overline"
-              color="text.secondary"
-              sx={{ display: 'block', lineHeight: 1.5 }}
-            >
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }}>
+            <Button size="small" onClick={() => setNotifOpen(true)}>
               Notifications
-            </Typography>
-            <Stack spacing={1} alignItems="flex-start" sx={{ mt: 0.5 }}>
-              {isViewer && <PlanAlertToggle plan={plan} />}
-              <PlanReminderOverride plan={plan} />
-            </Stack>
-          </Box>
-          {canEdit && (
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              <Button size="small" onClick={() => setEditOpen(true)}>
-                Edit
-              </Button>
-              <Button size="small" onClick={() => setPrivacyOpen(true)}>
-                Sharing
-              </Button>
-              <Button
-                size="small"
-                color="error"
-                onClick={() => void handleDelete()}
-                disabled={busy}
-              >
-                Delete
-              </Button>
-            </Stack>
-          )}
+            </Button>
+            {canEdit && (
+              <>
+                <Button size="small" onClick={() => setEditOpen(true)}>
+                  Edit
+                </Button>
+                <Button size="small" onClick={() => setPrivacyOpen(true)}>
+                  Sharing
+                </Button>
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={() => void handleDelete()}
+                  disabled={busy}
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+          </Stack>
         </Box>
       </Collapse>
 
@@ -818,6 +809,14 @@ function PartCard({
       )}
       {canEdit && editOpen && (
         <PlanEditDialog open={editOpen} plan={plan} onClose={() => setEditOpen(false)} />
+      )}
+      {notifOpen && (
+        <PlanNotificationsDialog
+          open={notifOpen}
+          plan={plan}
+          isViewer={isViewer}
+          onClose={() => setNotifOpen(false)}
+        />
       )}
     </Card>
   );
