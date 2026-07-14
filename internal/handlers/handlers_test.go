@@ -335,3 +335,21 @@ func TestWriteHelpers(t *testing.T) {
 		t.Errorf("500 body leaked the raw store error: %s", w.Body.String())
 	}
 }
+
+func TestDecodeBodySizeCap(t *testing.T) {
+	type body struct {
+		Name string `json:"name"`
+	}
+	// A normal body decodes fine.
+	small := httptest.NewRequest("POST", "/", strings.NewReader(`{"name":"ok"}`))
+	var got body
+	if err := decode(small, &got); err != nil || got.Name != "ok" {
+		t.Fatalf("decode(small) = %v, name=%q; want nil/ok", err, got.Name)
+	}
+	// A body past the cap is rejected rather than buffered/allocated whole.
+	huge := `{"name":"` + strings.Repeat("A", maxJSONBodyBytes+16) + `"}`
+	big := httptest.NewRequest("POST", "/", strings.NewReader(huge))
+	if err := decode(big, &got); err == nil {
+		t.Fatal("decode(oversized) = nil, want body-too-large error")
+	}
+}

@@ -22,6 +22,7 @@ import (
 	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
+	"golang.org/x/time/rate"
 )
 
 type API struct {
@@ -75,6 +76,10 @@ type API struct {
 	// StartedAt is the process start time, used by the superuser "About"
 	// panel to report uptime. Defaulted to time.Now() in New().
 	StartedAt time.Time
+
+	// ingestLimiter caps the per-user rate of the LLM-backed ingest endpoint so
+	// a single editor can't drive unbounded paid-LLM spend. Defaulted in New().
+	ingestLimiter *userRateLimiter
 }
 
 func New(s *store.Store, a *auth.Handler, hub *sse.Hub, cfg *config.Config, r providers.Resolver) *API {
@@ -83,6 +88,10 @@ func New(s *store.Store, a *auth.Handler, hub *sse.Hub, cfg *config.Config, r pr
 	api.Maps = aerlymaps.NewResolver()
 	api.Push = push.NewSender(s, cfg.WebPushVAPIDPublic, cfg.WebPushVAPIDPrivate, cfg.WebPushSubject)
 	api.Feeds = feeds.NewService(s, "aerly (+"+cfg.PublicURL+")", 0)
+	// Per-user cap on the LLM-backed ingest endpoint: ~1 request/6s sustained
+	// with a burst of 10, so an interactive user is never throttled but a script
+	// can't fan unbounded paid-LLM calls. See handlers_ingest.go.
+	api.ingestLimiter = newUserRateLimiter(rate.Every(6*time.Second), 10)
 	return api
 }
 
@@ -308,8 +317,17 @@ func pathID(r *http.Request, name string) (int64, error) {
 	return strconv.ParseInt(r.PathValue(name), 10, 64)
 }
 
+// maxJSONBodyBytes caps a JSON request body. Without it an unbounded
+// json.Decoder over r.Body will buffer and allocate an arbitrarily large token
+// (e.g. one giant string), so a handful of concurrent large requests can drive
+// the process out of memory. 1 MiB comfortably covers every JSON endpoint,
+// including pasted ingest text; binary uploads use their own multipart caps.
+const maxJSONBodyBytes = 1 << 20
+
 func decode(r *http.Request, dst any) error {
-	dec := json.NewDecoder(r.Body)
+	// MaxBytesReader caps the read; the nil ResponseWriter only skips the
+	// proactive connection-close signal (we surface the error as a 400 instead).
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxJSONBodyBytes))
 	dec.DisallowUnknownFields()
 	return dec.Decode(dst)
 }

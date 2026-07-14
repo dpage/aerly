@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/planops"
+	"golang.org/x/time/rate"
 )
 
 // fakeIngestExtractor returns canned plans for the ingest endpoint tests.
@@ -87,6 +89,39 @@ func TestIngestProposeAndConfirm(t *testing.T) {
 	}
 	if plans[0].Parts[0].Hotel.PropertyName != "Hotel Plaza" {
 		t.Errorf("property = %q", plans[0].Parts[0].Hotel.PropertyName)
+	}
+}
+
+// TestIngestPropose_RateLimited: once a user exhausts their ingest budget the
+// propose endpoint returns 429 rather than making another paid-LLM call.
+func TestIngestPropose_RateLimited(t *testing.T) {
+	e := setup(t, nil, nil)
+	e.api.Extractor = &fakeIngestExtractor{}
+	// Tight limiter: burst 1, effectively no refill during the test.
+	e.api.ingestLimiter = newUserRateLimiter(rate.Every(time.Hour), 1)
+	owner := e.user(t, "owner", false)
+	tid := newTrip(t, e, owner, "Trip")
+
+	if w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/ingest", tid), map[string]any{"text": "x"}, owner); w.Code != http.StatusOK {
+		t.Fatalf("first propose = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/ingest", tid), map[string]any{"text": "y"}, owner); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("second propose = %d, want 429", w.Code)
+	}
+}
+
+// TestIngestPropose_TextTooLong: an over-cap text body is rejected before the
+// LLM runs.
+func TestIngestPropose_TextTooLong(t *testing.T) {
+	e := setup(t, nil, nil)
+	e.api.Extractor = &fakeIngestExtractor{}
+	owner := e.user(t, "owner", false)
+	tid := newTrip(t, e, owner, "Trip")
+
+	big := strings.Repeat("a", maxIngestTextBytes+1)
+	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/ingest", tid), map[string]any{"text": big}, owner)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized text propose = %d, want 413: %s", w.Code, w.Body.String())
 	}
 }
 
