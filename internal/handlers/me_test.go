@@ -48,3 +48,41 @@ func TestUpdateMePaperSize(t *testing.T) {
 		t.Errorf("partial patch wrong: %v", me)
 	}
 }
+
+// TestUpdateMeHiddenFeatures: the hide_explore/hide_maps preferences round-trip
+// through PATCH /api/me, are independent, and don't disturb other fields.
+func TestUpdateMeHiddenFeatures(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "hideprefs", false)
+
+	// Hide Explore only.
+	w := e.req(t, "PATCH", "/api/me", map[string]bool{"hide_explore": true}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set hide_explore = %d %s", w.Code, w.Body.String())
+	}
+	me := decodeBody[map[string]any](t, w)
+	if me["hide_explore"] != true {
+		t.Errorf("hide_explore = %v, want true", me["hide_explore"])
+	}
+	// hide_maps stays false; with omitempty it's simply absent.
+	if me["hide_maps"] == true {
+		t.Errorf("hide_maps should still be false, got %v", me["hide_maps"])
+	}
+
+	// Toggling hide_maps leaves hide_explore set (independent, COALESCE).
+	w = e.req(t, "PATCH", "/api/me", map[string]bool{"hide_maps": true}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set hide_maps = %d %s", w.Code, w.Body.String())
+	}
+	me = decodeBody[map[string]any](t, w)
+	if me["hide_maps"] != true || me["hide_explore"] != true {
+		t.Errorf("both flags should be true now: %v", me)
+	}
+
+	// Clearing hide_explore back to false works too.
+	w = e.req(t, "PATCH", "/api/me", map[string]bool{"hide_explore": false}, uid)
+	me = decodeBody[map[string]any](t, w)
+	if me["hide_explore"] == true {
+		t.Errorf("hide_explore should be cleared: %v", me)
+	}
+}

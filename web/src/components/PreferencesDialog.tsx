@@ -6,6 +6,7 @@ import AlertPrefsSection from './AlertPrefsSection';
 import AutoShareSection from './AutoShareSection';
 import HomeAddressSection from './HomeAddressSection';
 import PaperSizeSection from './PaperSizeSection';
+import FeaturesSection from './FeaturesSection';
 import EmailsSection from './EmailsSection';
 import PushSection from './PushSection';
 
@@ -37,6 +38,7 @@ export default function PreferencesDialog({ open, onClose }: Props) {
     { label: 'Sharing', render: () => <AutoShareSection /> },
     { label: 'Home', render: () => <HomeAddressSection /> },
     { label: 'Itinerary', render: () => <PaperSizeSection /> },
+    { label: 'Features', render: () => <FeaturesSection /> },
     ...(emailEnabled ? [{ label: 'Emails', render: () => <EmailsSection /> }] : []),
   ];
   const current = Math.min(tab, tabs.length - 1);

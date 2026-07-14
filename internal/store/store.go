@@ -32,6 +32,11 @@ type User struct {
 	// either "a4" (the default) or "letter". Stored per-user so the formatter
 	// can pick page dimensions without prompting on every download.
 	PaperSize   string
+	// HideExplore / HideMaps let the user hide features they don't use: the
+	// Explore feature (its trip tab + the accommodation-tile button) and the
+	// map features (the trip Map tab + the global tracker). Both default false.
+	HideExplore bool
+	HideMaps    bool
 	LastLoginAt *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

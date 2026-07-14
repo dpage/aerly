@@ -13,6 +13,7 @@ vi.mock('./AlertPrefsSection', () => ({ default: () => <div data-testid="sec-ale
 vi.mock('./AutoShareSection', () => ({ default: () => <div data-testid="sec-sharing" /> }));
 vi.mock('./HomeAddressSection', () => ({ default: () => <div data-testid="sec-home" /> }));
 vi.mock('./PaperSizeSection', () => ({ default: () => <div data-testid="sec-itinerary" /> }));
+vi.mock('./FeaturesSection', () => ({ default: () => <div data-testid="sec-features" /> }));
 vi.mock('./EmailsSection', () => ({ default: () => <div data-testid="sec-emails" /> }));
 vi.mock('./PushSection', () => ({ default: () => <div data-testid="sec-push" /> }));
 
@@ -69,6 +70,12 @@ describe('PreferencesDialog', () => {
     render(<PreferencesDialog open onClose={() => {}} />);
     await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
     expect(screen.getByTestId('sec-itinerary')).toBeInTheDocument();
+  });
+
+  it('switches to the Features tab', async () => {
+    render(<PreferencesDialog open onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Features' }));
+    expect(screen.getByTestId('sec-features')).toBeInTheDocument();
   });
 
   it('resets to the Alerts tab when reopened', async () => {

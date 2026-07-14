@@ -11,6 +11,11 @@ export interface User {
   /** Preferred page size for the PDF itinerary download. Only present on the
    * signed-in user's own record (/api/me); absent for other viewers. */
   paper_size?: PaperSize;
+  /** Feature-hiding preferences (only on the signed-in user's own record).
+   * hide_explore hides the Explore feature; hide_maps hides the map features
+   * (trip Map tab + global tracker). Absent means shown. */
+  hide_explore?: boolean;
+  hide_maps?: boolean;
   last_login_at?: string;
 }
 

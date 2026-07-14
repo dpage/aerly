@@ -20,6 +20,10 @@ type updateMeReq struct {
 	// PaperSize is the PDF-itinerary page-size preference. Pointer so an absent
 	// field leaves it unchanged; only "a4"/"letter" are accepted.
 	PaperSize *string `json:"paper_size"`
+	// HideExplore / HideMaps are the feature-hiding preferences. Pointer so an
+	// absent field leaves it unchanged.
+	HideExplore *bool `json:"hide_explore"`
+	HideMaps    *bool `json:"hide_maps"`
 }
 
 func (a *API) updateMe(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +40,8 @@ func (a *API) updateMe(w http.ResponseWriter, r *http.Request) {
 	u, err := a.Store.UpdateUser(r.Context(), me.ID, store.UpdateUserPayload{
 		HomeAddress: in.HomeAddress,
 		PaperSize:   in.PaperSize,
+		HideExplore: in.HideExplore,
+		HideMaps:    in.HideMaps,
 	})
 	if err != nil {
 		handleStoreErr(w, err)

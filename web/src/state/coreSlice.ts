@@ -94,6 +94,8 @@ export interface CoreSlice {
 
   setHomeAddress: (address: string) => Promise<void>;
   setPaperSize: (paperSize: PaperSize) => Promise<void>;
+  /** Update the feature-hiding preferences (hide_explore / hide_maps). */
+  setHiddenFeatures: (patch: { hide_explore?: boolean; hide_maps?: boolean }) => Promise<void>;
   refreshAutoShares: () => Promise<void>;
   setAutoShare: (userId: number, role: AutoShareRole) => Promise<void>;
   removeAutoShare: (userId: number) => Promise<void>;
@@ -212,6 +214,14 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
 
   async setPaperSize(paperSize) {
     const updated = await api.updateMe({ paper_size: paperSize });
+    set((s) => ({
+      me: updated,
+      users: s.users.map((u) => (u.id === updated.id ? updated : u)),
+    }));
+  },
+
+  async setHiddenFeatures(patch) {
+    const updated = await api.updateMe(patch);
     set((s) => ({
       me: updated,
       users: s.users.map((u) => (u.id === updated.id ? updated : u)),

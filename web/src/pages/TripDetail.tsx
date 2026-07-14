@@ -59,6 +59,8 @@ export default function TripDetail() {
 
   const currentTrip = useStore((s) => s.currentTrip);
   const currentTripStatus = useStore((s) => s.currentTripStatus);
+  const hideMaps = useStore((s) => s.me?.hide_maps ?? false);
+  const hideExplore = useStore((s) => s.me?.hide_explore ?? false);
   const loadTrip = useStore((s) => s.loadTrip);
   const clearCurrentTrip = useStore((s) => s.clearCurrentTrip);
   const online = useOnlineStatus();
@@ -99,7 +101,10 @@ export default function TripDetail() {
 
   const onMap = location.pathname.endsWith('/map');
   const onExplore = location.pathname.endsWith('/explore');
-  const tab = onMap ? 'map' : onExplore ? 'explore' : 'timeline';
+  let tab = onMap ? 'map' : onExplore ? 'explore' : 'timeline';
+  // If the active tab has since been hidden (e.g. a stale URL before the route
+  // redirect lands), fall back to Timeline so MUI Tabs has a matching value.
+  if ((tab === 'map' && hideMaps) || (tab === 'explore' && hideExplore)) tab = 'timeline';
   const loaded = currentTrip?.id === tripId ? currentTrip : null;
   // No internal id in the placeholder: until the trip loads we show no name
   // rather than "Trip #35". The body below shows a spinner or a clean message.
@@ -325,8 +330,8 @@ export default function TripDetail() {
             sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}
           >
             <Tab label="Timeline" value="timeline" />
-            <Tab label="Map" value="map" />
-            <Tab label="Explore" value="explore" />
+            {!hideMaps && <Tab label="Map" value="map" />}
+            {!hideExplore && <Tab label="Explore" value="explore" />}
           </Tabs>
           <Box sx={{ position: 'relative', flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>
             <Outlet />

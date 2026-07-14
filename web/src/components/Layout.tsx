@@ -105,7 +105,10 @@ export default function Layout() {
   const navItems = [
     { to: '/', label: 'My trips', active: onMyTrips, Icon: LuggageIcon },
     { to: '/friends', label: "Friends' trips", active: onFriends, Icon: PeopleIcon },
-    { to: '/tracker', label: 'Tracker', active: onTracker, Icon: RadarIcon },
+    // The Tracker is a map feature, hidden when the user opts out of maps.
+    ...(me?.hide_maps
+      ? []
+      : [{ to: '/tracker', label: 'Tracker', active: onTracker, Icon: RadarIcon }]),
   ];
   // Open help to the topic relevant to the current screen: the Tracker and a
   // trip's Map tab → Map & tracker; another trip view → Plans; else → Trips.

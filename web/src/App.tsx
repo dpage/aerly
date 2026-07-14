@@ -33,6 +33,8 @@ import Tracker from './pages/Tracker';
 
 export default function App() {
   const auth = useStore((s) => s.auth);
+  const hideMaps = useStore((s) => s.me?.hide_maps ?? false);
+  const hideExplore = useStore((s) => s.me?.hide_explore ?? false);
   const init = useStore((s) => s.init);
   const error = useStore((s) => s.error);
   const setError = useStore((s) => s.setError);
@@ -205,10 +207,14 @@ export default function App() {
           <Route path="friends" element={<TripList scope="friends" />} />
           <Route path="trips/:id" element={<TripDetail />}>
             <Route index element={<TripTimeline />} />
-            <Route path="map" element={<TripMap />} />
-            <Route path="explore" element={<TripExplore />} />
+            {/* Hidden features redirect to the trip timeline if reached by URL. */}
+            <Route path="map" element={hideMaps ? <Navigate to=".." replace /> : <TripMap />} />
+            <Route
+              path="explore"
+              element={hideExplore ? <Navigate to=".." replace /> : <TripExplore />}
+            />
           </Route>
-          <Route path="tracker" element={<Tracker />} />
+          <Route path="tracker" element={hideMaps ? <Navigate to="/" replace /> : <Tracker />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

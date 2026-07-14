@@ -284,6 +284,18 @@ describe('user mutations', () => {
     expect(useStore.getState().me?.paper_size).toBe('letter');
     expect(useStore.getState().users[0].paper_size).toBe('letter');
   });
+
+  it('setHiddenFeatures updates me and the users list', async () => {
+    useStore.setState({
+      users: [user({ id: 1, hide_maps: false })],
+      me: user({ id: 1, hide_maps: false }),
+    });
+    mockApi.updateMe.mockResolvedValue(user({ id: 1, hide_maps: true }));
+    await useStore.getState().setHiddenFeatures({ hide_maps: true });
+    expect(mockApi.updateMe).toHaveBeenCalledWith({ hide_maps: true });
+    expect(useStore.getState().me?.hide_maps).toBe(true);
+    expect(useStore.getState().users[0].hide_maps).toBe(true);
+  });
 });
 
 describe('logout / setError', () => {

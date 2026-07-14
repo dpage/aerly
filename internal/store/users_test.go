@@ -110,6 +110,15 @@ func TestUpdateUser(t *testing.T) {
 	if upd.PaperSize != "letter" || upd.Name != "Final" {
 		t.Errorf("paper_size update wrong: %+v", upd)
 	}
+	// Feature-hiding flags default false and update independently.
+	if upd.HideExplore || upd.HideMaps {
+		t.Errorf("hide flags should default false: %+v", upd)
+	}
+	yes := true
+	upd, _ = s.UpdateUser(ctx, u.ID, UpdateUserPayload{HideExplore: &yes})
+	if !upd.HideExplore || upd.HideMaps || upd.PaperSize != "letter" {
+		t.Errorf("hide_explore update wrong (or clobbered others): %+v", upd)
+	}
 	if _, err := s.UpdateUser(ctx, 99999, UpdateUserPayload{Name: &name}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("update missing user → ErrNotFound, got %v", err)
 	}

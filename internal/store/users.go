@@ -31,14 +31,14 @@ var (
 
 const userColumns = `id, username, name, avatar_url,
 	is_superuser, is_active, last_login_at, created_at, updated_at, home_address, session_version,
-	paper_size`
+	paper_size, hide_explore, hide_maps`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	if err := row.Scan(
 		&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-		&u.SessionVersion, &u.PaperSize,
+		&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -149,6 +149,10 @@ type UpdateUserPayload struct {
 	// constraint rejects anything other than "a4"/"letter"; the handler
 	// validates first so a bad value is a clean 400 rather than a 500.
 	PaperSize *string
+	// HideExplore / HideMaps, when non-nil, toggle the user's feature-hiding
+	// preferences.
+	HideExplore *bool
+	HideMaps    *bool
 }
 
 func (s *Store) UpdateUser(ctx context.Context, id int64, in UpdateUserPayload) (*User, error) {
@@ -159,10 +163,13 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, in UpdateUserPayload) 
 			is_active = COALESCE($4, is_active),
 			home_address = COALESCE($5, home_address),
 			paper_size = COALESCE($6, paper_size),
+			hide_explore = COALESCE($7, hide_explore),
+			hide_maps = COALESCE($8, hide_maps),
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING `+userColumns,
-		id, in.Name, in.IsSuperuser, in.IsActive, in.HomeAddress, in.PaperSize))
+		id, in.Name, in.IsSuperuser, in.IsActive, in.HomeAddress, in.PaperSize,
+		in.HideExplore, in.HideMaps))
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
@@ -402,7 +409,7 @@ func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperu
 			u.ID, p.Name, p.AvatarURL,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-			&u.SessionVersion, &u.PaperSize)
+			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -499,7 +506,7 @@ func insertNewUserTx(ctx context.Context, tx pgx.Tx, p OAuthProfile, bootstrapAs
 			candidate, p.Name, p.AvatarURL, bootstrapAsSuperuser,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-			&u.SessionVersion, &u.PaperSize)
+			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps)
 		if err == nil {
 			if _, e := tx.Exec(ctx, `RELEASE SAVEPOINT user_insert`); e != nil {
 				return nil, e
@@ -531,7 +538,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 		p.Provider, p.ProviderUserID,
 	).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-		&u.SessionVersion, &u.PaperSize)
+		&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps)
 	if err == nil {
 		return u, findStepIdentityMatch, nil
 	}
@@ -551,7 +558,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 			p.Email,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-			&u.SessionVersion, &u.PaperSize)
+			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps)
 		if err == nil {
 			return u, findStepEmailMatch, nil
 		}
@@ -573,7 +580,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 			p.Username,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-			&u.SessionVersion, &u.PaperSize)
+			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps)
 		if err == nil {
 			return u, findStepInviteeMatch, nil
 		}

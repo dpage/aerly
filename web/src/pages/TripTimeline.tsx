@@ -89,6 +89,7 @@ export default function TripTimeline() {
   const currentTrip = useStore((s) => s.currentTrip);
   const linkPlans = useStore((s) => s.linkPlans);
   const setError = useStore((s) => s.setError);
+  const hideExplore = useStore((s) => s.me?.hide_explore ?? false);
   const plans = useMemo(() => currentTrip?.plans ?? [], [currentTrip]);
   const tripId = currentTrip?.id;
 
@@ -373,7 +374,7 @@ export default function TripTimeline() {
                   multiPart={multiPartPlanIds.has(plan.id)}
                   expanded={expanded.has(key)}
                   onToggle={() => toggle(key)}
-                  onExplore={() => setExplorePart(part)}
+                  onExplore={hideExplore ? undefined : () => setExplorePart(part)}
                   linkMode={linkMode}
                   selectable={isLinkableType(plan.type)}
                   selected={selected.has(plan.id)}

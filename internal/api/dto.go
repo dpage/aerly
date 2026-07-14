@@ -29,6 +29,10 @@ type UserDTO struct {
 	// HomeAddress it is only populated by ToSelfUserDTO — other viewers have no
 	// use for it and never receive it.
 	PaperSize   string     `json:"paper_size,omitempty"`
+	// HideExplore / HideMaps are the user's feature-hiding preferences, only
+	// populated by ToSelfUserDTO (the account owner's own record).
+	HideExplore bool       `json:"hide_explore,omitempty"`
+	HideMaps    bool       `json:"hide_maps,omitempty"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 }
 
@@ -59,6 +63,8 @@ func ToSelfUserDTO(u *store.User) UserDTO {
 	dto := ToUserDTO(u)
 	dto.HomeAddress = u.HomeAddress
 	dto.PaperSize = u.PaperSize
+	dto.HideExplore = u.HideExplore
+	dto.HideMaps = u.HideMaps
 	return dto
 }
 

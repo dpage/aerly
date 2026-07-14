@@ -149,8 +149,12 @@ export const api = {
   },
 
   getMe: () => request<User>('GET', '/api/me'),
-  updateMe: (patch: { home_address?: string; paper_size?: PaperSize }) =>
-    request<User>('PATCH', '/api/me', patch),
+  updateMe: (patch: {
+    home_address?: string;
+    paper_size?: PaperSize;
+    hide_explore?: boolean;
+    hide_maps?: boolean;
+  }) => request<User>('PATCH', '/api/me', patch),
   getConfig: () => request<Capabilities>('GET', '/api/config'),
   getVersion: () => request<VersionInfo>('GET', '/api/version'),
 
