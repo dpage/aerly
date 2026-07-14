@@ -28,7 +28,7 @@ type UserDTO struct {
 	// PaperSize is the PDF-itinerary page-size preference ("a4"/"letter"). Like
 	// HomeAddress it is only populated by ToSelfUserDTO — other viewers have no
 	// use for it and never receive it.
-	PaperSize   string     `json:"paper_size,omitempty"`
+	PaperSize string `json:"paper_size,omitempty"`
 	// HideExplore / HideMaps are the user's feature-hiding preferences, only
 	// populated by ToSelfUserDTO (the account owner's own record).
 	HideExplore bool       `json:"hide_explore,omitempty"`
@@ -368,16 +368,17 @@ func ToNotificationItemDTO(n store.Notification) NotificationItemDTO {
 
 // PoiDTO is a point of interest suggested near a location.
 type PoiDTO struct {
-	ID        string  `json:"id"` // "<osmType>/<osmID>", stable for React keys
-	Name      string  `json:"name"`
-	Category  string  `json:"category"`
-	Lat       float64 `json:"lat"`
-	Lon       float64 `json:"lon"`
-	DistanceM int     `json:"distance_m"`
-	Address   string  `json:"address,omitempty"`
-	Wikidata  string  `json:"wikidata,omitempty"`
-	Wikipedia string  `json:"wikipedia,omitempty"`
-	Website   string  `json:"website,omitempty"`
+	ID          string  `json:"id"` // "<osmType>/<osmID>", stable for React keys
+	Name        string  `json:"name"`
+	Category    string  `json:"category"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	DistanceM   int     `json:"distance_m"`
+	Address     string  `json:"address,omitempty"`
+	Description string  `json:"description,omitempty"`
+	Wikidata    string  `json:"wikidata,omitempty"`
+	Wikipedia   string  `json:"wikipedia,omitempty"`
+	Website     string  `json:"website,omitempty"`
 }
 
 // PoiResponseDTO wraps the resolved search centre and the POIs around it.

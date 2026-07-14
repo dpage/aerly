@@ -56,6 +56,7 @@ beforeEach(() => {
         lon: -0.12,
         distance_m: 40,
         address: '1 Example Square',
+        description: 'A tall example landmark',
         wikidata: 'Q1',
         wikipedia: 'en:Example Article',
         website: 'https://example.com',
@@ -125,6 +126,16 @@ describe('ExplorePanel', () => {
     expect(towerLinks.some((l) => l.getAttribute('href') === 'https://example.com')).toBe(true);
     // the row caption uses the polished category label, not the raw key
     expect(screen.getByText('Sights · 40 m away')).toBeInTheDocument();
+  });
+
+  it('shows the description line only for POIs that have one', async () => {
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    // The tower carries an OSM description, so its blurb renders.
+    expect(await screen.findByText('A tall example landmark')).toBeInTheDocument();
+    // The museum has no description, so no stray/empty blurb appears for it. Its
+    // row is the one containing "Big Museum"; assert the blurb isn't in it.
+    const museumRow = screen.getByText('Big Museum').closest('li') as HTMLElement;
+    expect(within(museumRow).queryByText('A tall example landmark')).not.toBeInTheDocument();
   });
 
   it('prefers initialCenter coords over place when both are supplied', async () => {

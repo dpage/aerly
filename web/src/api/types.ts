@@ -625,6 +625,9 @@ export interface Poi {
   lon: number;
   distance_m: number;
   address?: string;
+  /** Short free-text blurb from OSM's `description` tag, where present. Sparse,
+   * so the results list shows this line only when it's set. */
+  description?: string;
   wikidata?: string;
   wikipedia?: string;
   website?: string;

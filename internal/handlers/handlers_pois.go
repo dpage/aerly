@@ -113,16 +113,17 @@ func toPoiDTOs(pois []providers.POI) []api.PoiDTO {
 	out := make([]api.PoiDTO, 0, len(pois))
 	for _, p := range pois {
 		out = append(out, api.PoiDTO{
-			ID:        p.ID,
-			Name:      p.Name,
-			Category:  p.Category,
-			Lat:       p.Lat,
-			Lon:       p.Lon,
-			DistanceM: p.DistanceM,
-			Address:   p.Address,
-			Wikidata:  p.Wikidata,
-			Wikipedia: p.Wikipedia,
-			Website:   p.Website,
+			ID:          p.ID,
+			Name:        p.Name,
+			Category:    p.Category,
+			Lat:         p.Lat,
+			Lon:         p.Lon,
+			DistanceM:   p.DistanceM,
+			Address:     p.Address,
+			Description: p.Description,
+			Wikidata:    p.Wikidata,
+			Wikipedia:   p.Wikipedia,
+			Website:     p.Website,
 		})
 	}
 	return out

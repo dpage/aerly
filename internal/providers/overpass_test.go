@@ -15,7 +15,7 @@ import (
 
 // Synthetic Overpass payload — invented landmarks, no real people's data.
 const overpassSample = `{"elements":[
-  {"type":"node","id":1,"lat":51.5010,"lon":-0.1245,"tags":{"tourism":"attraction","name":"Example Tower","wikidata":"Q1","addr:street":"Example Road"}},
+  {"type":"node","id":1,"lat":51.5010,"lon":-0.1245,"tags":{"tourism":"attraction","name":"Example Tower","wikidata":"Q1","addr:street":"Example Road","description":"A tall example landmark"}},
   {"type":"way","id":2,"center":{"lat":51.5008,"lon":-0.1240},"tags":{"tourism":"museum","name":"Example Museum"}},
   {"type":"node","id":3,"lat":51.5,"lon":-0.12,"tags":{"amenity":"bench"}}
 ]}`
@@ -68,6 +68,14 @@ func TestOverpassNearbyParsesAndFilters(t *testing.T) {
 	}
 	if pois[0].Wikidata != "Q1" || pois[0].Address == "" {
 		t.Errorf("expected wikidata + address on poi[0]: %+v", pois[0])
+	}
+	if pois[0].Description != "A tall example landmark" {
+		t.Errorf("expected description from the OSM tag on poi[0]: %+v", pois[0])
+	}
+	// The museum has no description tag, so it must come through empty (the UI
+	// omits the line entirely in that case).
+	if pois[1].Description != "" {
+		t.Errorf("expected no description on poi[1]: %+v", pois[1])
 	}
 	if pois[1].Lat == 0 || pois[1].Lon == 0 {
 		t.Errorf("way should use center coords: %+v", pois[1])

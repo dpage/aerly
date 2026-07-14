@@ -294,44 +294,68 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
                 ? { bgcolor: 'action.selected', borderRadius: 1 }
                 : undefined
             }
-            secondaryAction={
-              <Button size="small" variant="outlined" onClick={() => openAdd(poi)}>
+          >
+            {/* A flex row rather than a ListItem secondaryAction: the button
+                stays in the flow at the top-right instead of being absolutely
+                positioned, so the wrapping links below can never collide with
+                it however many a row has. */}
+            <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ width: '100%' }}>
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <CategoryIcon category={poi.category} />
+                  <Typography variant="body1">{poi.name}</Typography>
+                </Stack>
+                {poi.description && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                    {poi.description}
+                  </Typography>
+                )}
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mt: 0.25 }}
+                >
+                  {CATEGORY_LABELS[poi.category]} · {formatDistance(poi.distance_m)} away
+                </Typography>
+                <Stack
+                  direction="row"
+                  spacing={1.5}
+                  flexWrap="wrap"
+                  useFlexGap
+                  sx={{ mt: 0.5 }}
+                >
+                  <Link component="button" type="button" onClick={() => setSelectedId(poi.id)}>
+                    Show on map
+                  </Link>
+                  {poi.wikidata && (
+                    <Link
+                      href={`https://www.wikidata.org/wiki/${poi.wikidata}`}
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      Wikidata
+                    </Link>
+                  )}
+                  {poi.wikipedia && (
+                    <Link href={wikipediaUrl(poi.wikipedia)} target="_blank" rel="noopener">
+                      Wikipedia
+                    </Link>
+                  )}
+                  {poi.website && (
+                    <Link href={poi.website} target="_blank" rel="noopener">
+                      Website
+                    </Link>
+                  )}
+                </Stack>
+              </Box>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => openAdd(poi)}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
                 Add to trip
               </Button>
-            }
-          >
-            <Stack spacing={0.5} sx={{ pr: 14, width: '100%' }}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <CategoryIcon category={poi.category} />
-                <Typography variant="body1">{poi.name}</Typography>
-              </Stack>
-              <Typography variant="caption" color="text.secondary">
-                {CATEGORY_LABELS[poi.category]} · {formatDistance(poi.distance_m)} away
-              </Typography>
-              <Stack direction="row" spacing={1.5}>
-                <Link component="button" type="button" onClick={() => setSelectedId(poi.id)}>
-                  Show on map
-                </Link>
-                {poi.wikidata && (
-                  <Link
-                    href={`https://www.wikidata.org/wiki/${poi.wikidata}`}
-                    target="_blank"
-                    rel="noopener"
-                  >
-                    Wikidata
-                  </Link>
-                )}
-                {poi.wikipedia && (
-                  <Link href={wikipediaUrl(poi.wikipedia)} target="_blank" rel="noopener">
-                    Wikipedia
-                  </Link>
-                )}
-                {poi.website && (
-                  <Link href={poi.website} target="_blank" rel="noopener">
-                    Website
-                  </Link>
-                )}
-              </Stack>
             </Stack>
           </ListItem>
         ))}

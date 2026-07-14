@@ -133,16 +133,17 @@ func (g *Geoapify) Nearby(ctx context.Context, lat, lon float64, radiusM int, ca
 			website = rawString(p.Datasource.Raw, "website")
 		}
 		out = append(out, POI{
-			ID:        p.PlaceID,
-			Name:      p.Name,
-			Category:  geoapifyCategory(p.Categories),
-			Lat:       p.Lat,
-			Lon:       p.Lon,
-			DistanceM: int(p.Distance),
-			Address:   addr,
-			Wikidata:  rawString(p.Datasource.Raw, "wikidata"),
-			Wikipedia: rawString(p.Datasource.Raw, "wikipedia"),
-			Website:   website,
+			ID:          p.PlaceID,
+			Name:        p.Name,
+			Category:    geoapifyCategory(p.Categories),
+			Lat:         p.Lat,
+			Lon:         p.Lon,
+			DistanceM:   int(p.Distance),
+			Address:     addr,
+			Description: rawString(p.Datasource.Raw, "description"),
+			Wikidata:    rawString(p.Datasource.Raw, "wikidata"),
+			Wikipedia:   rawString(p.Datasource.Raw, "wikipedia"),
+			Website:     website,
 		})
 	}
 	// Geoapify already sorts by the proximity bias, but be explicit so callers

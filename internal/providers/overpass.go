@@ -29,9 +29,13 @@ type POI struct {
 	Lat, Lon  float64
 	DistanceM int
 	Address   string
-	Wikidata  string
-	Wikipedia string
-	Website   string
+	// Description is a short free-text blurb from the OSM `description` tag,
+	// where present. It's sparse (most POIs have none), so callers should treat
+	// it as optional and omit any UI line when it's empty.
+	Description string
+	Wikidata    string
+	Wikipedia   string
+	Website     string
 }
 
 // POIResolver looks up points of interest around a coordinate.
@@ -265,16 +269,17 @@ func parsePOIs(body []byte, lat, lon float64) ([]POI, bool, error) {
 			plat, plon = el.Center.Lat, el.Center.Lon
 		}
 		out = append(out, POI{
-			ID:        fmt.Sprintf("%s/%d", el.Type, el.ID),
-			Name:      name,
-			Category:  categoryOf(el.Tags),
-			Lat:       plat,
-			Lon:       plon,
-			DistanceM: int(haversineM(lat, lon, plat, plon)),
-			Address:   addressOf(el.Tags),
-			Wikidata:  el.Tags["wikidata"],
-			Wikipedia: el.Tags["wikipedia"],
-			Website:   el.Tags["website"],
+			ID:          fmt.Sprintf("%s/%d", el.Type, el.ID),
+			Name:        name,
+			Category:    categoryOf(el.Tags),
+			Lat:         plat,
+			Lon:         plon,
+			DistanceM:   int(haversineM(lat, lon, plat, plon)),
+			Address:     addressOf(el.Tags),
+			Description: el.Tags["description"],
+			Wikidata:    el.Tags["wikidata"],
+			Wikipedia:   el.Tags["wikipedia"],
+			Website:     el.Tags["website"],
 		})
 	}
 	sortByDistance(out)

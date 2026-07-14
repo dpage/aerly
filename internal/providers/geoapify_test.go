@@ -12,7 +12,7 @@ import (
 
 // Synthetic Geoapify GeoJSON — invented places, no real people's data.
 const geoapifySample = `{"features":[
-  {"properties":{"name":"Example Museum","categories":["entertainment.museum","tourism"],"lat":51.5008,"lon":-0.124,"formatted":"Example Museum, London","distance":120,"place_id":"place-museum","datasource":{"raw":{"wikidata":"Q2","website":"https://museum.example"}}}},
+  {"properties":{"name":"Example Museum","categories":["entertainment.museum","tourism"],"lat":51.5008,"lon":-0.124,"formatted":"Example Museum, London","distance":120,"place_id":"place-museum","datasource":{"raw":{"wikidata":"Q2","website":"https://museum.example","description":"A fine example of a museum"}}}},
   {"properties":{"name":"Example Church","categories":["religion.place_of_worship"],"lat":51.5010,"lon":-0.125,"address_line1":"1 Church Street","distance":60,"place_id":"place-church"}},
   {"properties":{"categories":["tourism.attraction"],"lat":51.5,"lon":-0.12,"distance":10,"place_id":"place-noname"}}
 ]}`
@@ -53,6 +53,13 @@ func TestGeoapifyNearbyParsesAndClassifies(t *testing.T) {
 	}
 	if pois[1].Wikidata != "Q2" || pois[1].Website != "https://museum.example" {
 		t.Errorf("museum should carry wikidata + website from datasource.raw: %+v", pois[1])
+	}
+	if pois[1].Description != "A fine example of a museum" {
+		t.Errorf("museum should carry description from datasource.raw: %+v", pois[1])
+	}
+	// The church has no description in its raw tags, so it stays empty.
+	if pois[0].Description != "" {
+		t.Errorf("expected no description on the church: %+v", pois[0])
 	}
 	if pois[1].DistanceM != 120 {
 		t.Errorf("museum distance = %d, want 120", pois[1].DistanceM)
