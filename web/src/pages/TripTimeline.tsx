@@ -746,30 +746,14 @@ function PartCard({
           )}
         </Box>
 
-        {/* Right-hand tile actions, stacked vertically so Explore (hotels with
-            coordinates) sits above Share when both are present. Share is on
-            every tile. */}
+        {/* Right-hand tile actions, stacked vertically so Share (on every tile)
+            sits above Explore (hotels with coordinates) when both are present. */}
         <Stack
           direction="column"
           spacing={0.5}
           alignItems="center"
           sx={{ flexShrink: 0, alignSelf: 'center' }}
         >
-          {part.type === 'hotel' && part.start_lat != null && part.start_lon != null && onExplore && (
-            <Tooltip title="Explore nearby">
-              <IconButton
-                size="small"
-                aria-label="Explore nearby"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onExplore();
-                }}
-                sx={{ color: accent }}
-              >
-                <TravelExploreIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
           <Tooltip title={nativeShare ? 'Share' : 'Copy to clipboard'}>
             <IconButton
               size="small"
@@ -787,6 +771,21 @@ function PartCard({
               )}
             </IconButton>
           </Tooltip>
+          {part.type === 'hotel' && part.start_lat != null && part.start_lon != null && onExplore && (
+            <Tooltip title="Explore nearby">
+              <IconButton
+                size="small"
+                aria-label="Explore nearby"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onExplore();
+                }}
+                sx={{ color: accent }}
+              >
+                <TravelExploreIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
         </Stack>
       </Stack>
 
