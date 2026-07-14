@@ -423,9 +423,11 @@ export default function TripTimeline() {
             <Typography variant="subtitle1" sx={{ flexGrow: 1, fontWeight: 600 }}>
               Explore nearby
             </Typography>
-            <IconButton onClick={() => setExplorePart(null)} aria-label="Close">
-              <CloseIcon />
-            </IconButton>
+            <Tooltip title="Close">
+              <IconButton onClick={() => setExplorePart(null)} aria-label="Close">
+                <CloseIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
           <Box sx={{ p: 2, overflowY: 'auto', flexGrow: 1 }}>
             {/* Only rendered while the drawer holds a part, so closing it
@@ -695,7 +697,7 @@ function PartCard({
             </Typography>
           )}
           {isUnlocated(part) && (
-            <Tooltip title="Address couldn't be located — not shown on the map">
+            <Tooltip title="Address couldn't be located, so it's not shown on the map">
               <Chip
                 size="small"
                 color="warning"

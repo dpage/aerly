@@ -9,6 +9,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -75,13 +76,15 @@ export default function HelpPanel() {
           }}
         >
           {!onOverview && (
-            <IconButton
-              size="small"
-              aria-label="Back to help overview"
-              onClick={() => setCurrentId(OVERVIEW)}
-            >
-              <ArrowBackIcon fontSize="small" />
-            </IconButton>
+            <Tooltip title="Back to help overview">
+              <IconButton
+                size="small"
+                aria-label="Back to help overview"
+                onClick={() => setCurrentId(OVERVIEW)}
+              >
+                <ArrowBackIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           )}
           <Breadcrumbs separator={<ChevronRightIcon fontSize="small" />} sx={{ flexGrow: 1 }}>
             {!onOverview && (
@@ -93,9 +96,11 @@ export default function HelpPanel() {
               {onOverview ? 'Help & guide' : page.label}
             </Typography>
           </Breadcrumbs>
-          <IconButton size="small" aria-label="Close help" onClick={closeHelp}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
+          <Tooltip title="Close help">
+            <IconButton size="small" aria-label="Close help" onClick={closeHelp}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Box>
 
         {/* Topic nav */}

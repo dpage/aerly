@@ -197,6 +197,7 @@ export default function AdminDialog({ open, onClose }: Props) {
                           checked={u.is_superuser}
                           disabled={isMe}
                           onChange={(e) => onToggleSuperuser(u, e.target.checked)}
+                          inputProps={{ 'aria-label': `Superuser for ${u.username}` }}
                         />
                       </TableCell>
                       <TableCell align="center">
@@ -204,12 +205,18 @@ export default function AdminDialog({ open, onClose }: Props) {
                           checked={u.is_active}
                           disabled={isMe}
                           onChange={(e) => onToggleActive(u, e.target.checked)}
+                          inputProps={{ 'aria-label': `Active for ${u.username}` }}
                         />
                       </TableCell>
                       <TableCell align="right">
                         <Tooltip title={isMe ? 'Cannot delete yourself' : 'Delete'}>
                           <span>
-                            <IconButton size="small" disabled={isMe} onClick={() => onDelete(u)}>
+                            <IconButton
+                              size="small"
+                              disabled={isMe}
+                              onClick={() => onDelete(u)}
+                              aria-label={`Delete ${u.username}`}
+                            >
                               <DeleteIcon fontSize="small" />
                             </IconButton>
                           </span>
@@ -300,7 +307,12 @@ function UserCard({ user, isMe, onToggleSuperuser, onToggleActive, onDelete }: U
         </Box>
         <Tooltip title={isMe ? 'Cannot delete yourself' : 'Delete'}>
           <span>
-            <IconButton size="small" disabled={isMe} onClick={onDelete}>
+            <IconButton
+              size="small"
+              disabled={isMe}
+              onClick={onDelete}
+              aria-label={`Delete ${user.username}`}
+            >
               <DeleteIcon fontSize="small" />
             </IconButton>
           </span>

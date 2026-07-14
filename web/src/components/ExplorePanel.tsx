@@ -11,6 +11,7 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
@@ -206,30 +207,42 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
 
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         {CATEGORIES.map((c) => (
-          <Chip
+          <Tooltip
             key={c.value}
-            label={c.label}
-            color={cats.includes(c.value) ? 'primary' : 'default'}
-            variant={cats.includes(c.value) ? 'filled' : 'outlined'}
-            onClick={() => toggleCategory(c.value)}
-          />
+            describeChild
+            title={
+              cats.includes(c.value)
+                ? 'Showing this category, select to hide'
+                : 'Select to show this category'
+            }
+          >
+            <Chip
+              label={c.label}
+              color={cats.includes(c.value) ? 'primary' : 'default'}
+              variant={cats.includes(c.value) ? 'filled' : 'outlined'}
+              onClick={() => toggleCategory(c.value)}
+            />
+          </Tooltip>
         ))}
       </Stack>
 
-      <ToggleButtonGroup
-        value={radius}
-        exclusive
-        size="small"
-        onChange={(_, v: number | null) => {
-          if (v != null) setRadius(v);
-        }}
-      >
-        {RADII.map((r) => (
-          <ToggleButton key={r} value={r}>
-            {radiusLabel(r)}
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
+      <Tooltip describeChild title="How far around the centre to search">
+        <ToggleButtonGroup
+          value={radius}
+          exclusive
+          size="small"
+          aria-label="Search radius"
+          onChange={(_, v: number | null) => {
+            if (v != null) setRadius(v);
+          }}
+        >
+          {RADII.map((r) => (
+            <ToggleButton key={r} value={r}>
+              {radiusLabel(r)}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+      </Tooltip>
 
       <TextField
         label="Filter by name"

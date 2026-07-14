@@ -13,6 +13,7 @@ import {
   Select,
   Stack,
   Switch,
+  Tooltip,
   Typography,
   useMediaQuery,
 } from '@mui/material';
@@ -323,42 +324,53 @@ function TrackerControls({
         onChange={(d) => isValidDate(d) && setTrackerWindow({ to: ymd(d) })}
         slotProps={{ textField: { size: 'small' } }}
       />
-      <FormControlLabel
-        control={
-          <Switch
-            size="small"
-            checked={mineOnly}
-            onChange={(e) => onMineOnlyChange(e.target.checked)}
-          />
-        }
-        label="Mine only"
-        sx={{ ml: 0, whiteSpace: 'nowrap' }}
-      />
+      <Tooltip describeChild title="Show only your own plans, hiding everyone else's">
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={mineOnly}
+              onChange={(e) => onMineOnlyChange(e.target.checked)}
+            />
+          }
+          label="Mine only"
+          sx={{ ml: 0, whiteSpace: 'nowrap' }}
+        />
+      </Tooltip>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
         {FILTER_TYPES.map((type) => {
           const hidden = hiddenTypes.includes(type);
           return (
-            <Chip
+            <Tooltip
               key={type}
-              size="small"
-              data-testid={`type-toggle-${type}`}
-              label={planTypeLabel(type)}
-              variant={hidden ? 'outlined' : 'filled'}
-              aria-pressed={!hidden}
-              onClick={() => onToggleType(type)}
-              icon={
-                <Box
-                  component="span"
-                  sx={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: '50%',
-                    bgcolor: planTypeColor(type),
-                    ml: '8px',
-                  }}
-                />
+              describeChild
+              title={
+                hidden
+                  ? 'Hidden on the map, select to show'
+                  : 'Showing on the map, select to hide'
               }
-            />
+            >
+              <Chip
+                size="small"
+                data-testid={`type-toggle-${type}`}
+                label={planTypeLabel(type)}
+                variant={hidden ? 'outlined' : 'filled'}
+                aria-pressed={!hidden}
+                onClick={() => onToggleType(type)}
+                icon={
+                  <Box
+                    component="span"
+                    sx={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: '50%',
+                      bgcolor: planTypeColor(type),
+                      ml: '8px',
+                    }}
+                  />
+                }
+              />
+            </Tooltip>
           );
         })}
       </Box>

@@ -331,14 +331,16 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
               ),
               endAdornment: filter ? (
                 <InputAdornment position="end">
-                  <IconButton
-                    size="small"
-                    onClick={() => setFilter('')}
-                    edge="end"
-                    aria-label="Clear filter"
-                  >
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
+                  <Tooltip title="Clear filter">
+                    <IconButton
+                      size="small"
+                      onClick={() => setFilter('')}
+                      edge="end"
+                      aria-label="Clear filter"
+                    >
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 </InputAdornment>
               ) : undefined,
             },

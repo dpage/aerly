@@ -145,15 +145,17 @@ export default function Layout() {
       >
         <Toolbar variant="dense">
           {isNarrow && (
-            <IconButton
-              size="small"
-              edge="start"
-              aria-label="Open navigation menu"
-              onClick={() => setNavDrawerOpen(true)}
-              sx={{ mr: 0.5 }}
-            >
-              <MenuIcon />
-            </IconButton>
+            <Tooltip title="Open navigation menu">
+              <IconButton
+                size="small"
+                edge="start"
+                aria-label="Open navigation menu"
+                onClick={() => setNavDrawerOpen(true)}
+                sx={{ mr: 0.5 }}
+              >
+                <MenuIcon />
+              </IconButton>
+            </Tooltip>
           )}
           <AerlyLogo size={28} sx={{ mr: 1 }} />
           <Typography
