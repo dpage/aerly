@@ -33,6 +33,7 @@ import PlanTypeIcon from '../components/PlanTypeIcon';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
 import PlanNotificationsDialog from '../components/PlanNotificationsDialog';
+import MovePlanDialog from '../components/MovePlanDialog';
 import AddToTripDialog from '../components/AddToTripDialog';
 import ExplorePanel from '../components/ExplorePanel';
 import { useShowExternalPlans } from '../lib/showExternalPlans';
@@ -559,6 +560,7 @@ function PartCard({
   const setNotice = useStore((s) => s.setNotice);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -829,6 +831,9 @@ function PartCard({
                 <Button size="small" onClick={() => setPrivacyOpen(true)}>
                   Sharing
                 </Button>
+                <Button size="small" onClick={() => setMoveOpen(true)}>
+                  Move
+                </Button>
                 <Button
                   size="small"
                   color="error"
@@ -853,6 +858,9 @@ function PartCard({
       )}
       {canEdit && editOpen && (
         <PlanEditDialog open={editOpen} plan={plan} onClose={() => setEditOpen(false)} />
+      )}
+      {canEdit && moveOpen && (
+        <MovePlanDialog open={moveOpen} plan={plan} onClose={() => setMoveOpen(false)} />
       )}
       {notifOpen && (
         <PlanNotificationsDialog

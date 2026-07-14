@@ -2,28 +2,22 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { Plan, Trip } from '../api/types';
+import type { Plan } from '../api/types';
 
 const h = vi.hoisted(() => ({
   updatePlan: vi.fn(),
   updatePlanPart: vi.fn(),
-  movePlan: vi.fn(),
   splitPlanPart: vi.fn(),
-  listTrips: vi.fn(),
   setError: vi.fn(),
   setNotice: vi.fn(),
-  state: { trips: [] as Trip[] },
 }));
 
 vi.mock('../state/store', () => ({
   useStore: (sel: (s: Record<string, unknown>) => unknown) =>
     sel({
-      trips: h.state.trips,
       updatePlan: h.updatePlan,
       updatePlanPart: h.updatePlanPart,
-      movePlan: h.movePlan,
       splitPlanPart: h.splitPlanPart,
-      listTrips: h.listTrips,
       setError: h.setError,
       setNotice: h.setNotice,
       // PlanAttachments (mounted by the dialog) reads capabilities; off here so
@@ -59,20 +53,6 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
   };
 }
 
-function trip(over: Partial<Trip> = {}): Trip {
-  return {
-    id: 1,
-    name: 'Trip',
-    destination: '',
-    my_role: 'owner',
-    members: [],
-    tags: [],
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    ...over,
-  };
-}
-
 function plan(over: Partial<Plan> = {}): Plan {
   return {
     id: 42,
@@ -101,11 +81,6 @@ function plan(over: Partial<Plan> = {}): Plan {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.state.trips = [
-    trip({ id: 7, name: 'Lisbon', my_role: 'owner' }), // current trip
-    trip({ id: 8, name: 'Porto', my_role: 'editor' }), // editable elsewhere
-    trip({ id: 9, name: 'Madrid', my_role: 'viewer' }), // not editable
-  ];
 });
 
 function render_(p: Plan = plan()) {
@@ -125,8 +100,6 @@ describe('PlanEditDialog', () => {
       expect(screen.getByRole('textbox', { name: /title/i })).toBeDisabled();
       expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
       expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument();
-      // The move-target picker is disabled offline, so we skip refreshing trips.
-      expect(h.listTrips).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(navigator, 'onLine', { configurable: true, value: original });
     }
@@ -160,11 +133,6 @@ describe('PlanEditDialog', () => {
     expect(h.updatePlan).not.toHaveBeenCalled();
   });
 
-  it('refreshes the trip list on open (for move targets)', () => {
-    render_();
-    expect(h.listTrips).toHaveBeenCalled();
-  });
-
   it('saves edited title/confirmation/notes', async () => {
     h.updatePlan.mockResolvedValue(undefined);
     render_();
@@ -187,31 +155,6 @@ describe('PlanEditDialog', () => {
     );
   });
 
-  it('lists only other trips the viewer can edit as move targets', async () => {
-    render_();
-    await userEvent.click(screen.getByRole('combobox', { name: /move to another trip/i }));
-    expect(await screen.findByRole('option', { name: 'Porto' })).toBeInTheDocument();
-    // Current trip and viewer-only trips are not move targets.
-    expect(screen.queryByRole('option', { name: 'Lisbon' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'Madrid' })).not.toBeInTheDocument();
-  });
-
-  it('moves the plan to the chosen trip', async () => {
-    h.movePlan.mockResolvedValue(undefined);
-    render_();
-    await userEvent.click(screen.getByRole('combobox', { name: /move to another trip/i }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Porto' }));
-    await userEvent.click(screen.getByRole('button', { name: /^move$/i }));
-    await waitFor(() => expect(h.movePlan).toHaveBeenCalledWith(42, 8));
-  });
-
-  it('hides the move control when there is nowhere to move to', () => {
-    h.state.trips = [trip({ id: 7, name: 'Lisbon', my_role: 'owner' })];
-    render_();
-    expect(
-      screen.queryByRole('combobox', { name: /move to another trip/i }),
-    ).not.toBeInTheDocument();
-  });
   it('numbers multiple parts and skips dismissed ones', () => {
     render_(
       plan({
@@ -271,24 +214,6 @@ describe('PlanEditDialog', () => {
       }),
     );
     expect(screen.queryByRole('button', { name: /split out/i })).not.toBeInTheDocument();
-  });
-
-  it('resets the move target to empty when cleared', async () => {
-    render_();
-    const combo = screen.getByRole('combobox', { name: /move to another trip/i });
-    await userEvent.click(combo);
-    await userEvent.click(await screen.findByRole('option', { name: 'Porto' }));
-    // Move is now enabled.
-    expect(screen.getByRole('button', { name: /^move$/i })).toBeEnabled();
-  });
-
-  it('surfaces move errors via setError', async () => {
-    h.movePlan.mockRejectedValue(new Error('move boom'));
-    render_();
-    await userEvent.click(screen.getByRole('combobox', { name: /move to another trip/i }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Porto' }));
-    await userEvent.click(screen.getByRole('button', { name: /^move$/i }));
-    await waitFor(() => expect(h.setError).toHaveBeenCalledWith('move boom'));
   });
 
   it('edits confirmation ref and notes and saves them', async () => {
@@ -384,9 +309,9 @@ describe('PlanEditDialog', () => {
     expect(h.updatePlan).not.toHaveBeenCalled();
   });
 
-  it('does nothing on open=false', () => {
+  it('renders nothing on open=false', () => {
     render(<PlanEditDialog open={false} plan={plan()} onClose={() => {}} />);
-    expect(h.listTrips).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox', { name: /title/i })).not.toBeInTheDocument();
   });
 
   it('surfaces non-Error save failures by stringifying them', async () => {

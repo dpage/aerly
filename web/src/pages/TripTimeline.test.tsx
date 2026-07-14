@@ -339,6 +339,7 @@ describe('TripTimeline', () => {
     await userEvent.click(card);
     expect(within(card).getByRole('button', { name: /Sharing/i })).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: /^Edit$/i })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: /^Move$/i })).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: /Delete/i })).toBeInTheDocument();
     // Owners receive alerts via their own prefs, so the per-plan opt-in is hidden.
     expect(within(card).queryByLabelText(/Notify me of changes/i)).not.toBeInTheDocument();
@@ -360,6 +361,7 @@ describe('TripTimeline', () => {
       within(card).queryByRole('button', { name: /Sharing/i }),
     ).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: /^Move$/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
     // Closing the dialog dismisses the controls again.
     await userEvent.click(screen.getByRole('button', { name: /close/i }));
@@ -485,6 +487,17 @@ describe('TripTimeline', () => {
     await userEvent.click(card);
     await userEvent.click(within(card).getByRole('button', { name: /Sharing/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('opens the move dialog from an expanded tile (owner)', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    await userEvent.click(card);
+    await userEvent.click(within(card).getByRole('button', { name: /^Move$/i }));
+    expect(screen.getByRole('heading', { name: /move plan/i })).toBeInTheDocument();
   });
 
   it('deletes a plan after confirmation', async () => {

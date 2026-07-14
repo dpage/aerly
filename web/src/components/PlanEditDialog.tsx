@@ -9,7 +9,6 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
-  MenuItem,
   Rating,
   Stack,
   TextField,
@@ -374,14 +373,11 @@ function parseCount(v: string): number | undefined {
 
 /** Edit a plan's title / confirmation / notes plus every part's schedule and
  * places — date/time/timezone and start/end label + address for each endpoint
- * (PRD §6.4) — and move it to another trip the viewer can edit (PRD §6.3).
- * Owner/editor only, gated by the caller. */
+ * (PRD §6.4). Moving a plan to another trip is a separate action (see
+ * MovePlanDialog). Owner/editor only, gated by the caller. */
 export default function PlanEditDialog({ open, plan, onClose }: Props) {
-  const trips = useStore((s) => s.trips);
-  const listTrips = useStore((s) => s.listTrips);
   const updatePlan = useStore((s) => s.updatePlan);
   const updatePlanPart = useStore((s) => s.updatePlanPart);
-  const movePlan = useStore((s) => s.movePlan);
   const splitPlanPart = useStore((s) => s.splitPlanPart);
   const setError = useStore((s) => s.setError);
   const setNotice = useStore((s) => s.setNotice);
@@ -404,7 +400,6 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const [contactEmail, setContactEmail] = useState(plan.contact_email);
   const [contactPhone, setContactPhone] = useState(plan.contact_phone);
   const [website, setWebsite] = useState(plan.website);
-  const [moveTarget, setMoveTarget] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
 
   // The editable parts (dismissed ones are hidden) and their initial snapshot.
@@ -417,9 +412,8 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const [forms, setForms] = useState<Record<number, PartForm>>({});
   const [initial, setInitial] = useState<Record<number, PartForm>>({});
 
-  // Re-sync the form when the dialog (re)opens or switches plans, and refresh
-  // the trip list so the move targets reflect what the viewer can edit now.
-  // Not keyed on plan.* fields so an in-flight refetch can't clobber edits.
+  // Re-sync the form when the dialog (re)opens or switches plans. Not keyed on
+  // plan.* fields so an in-flight refetch can't clobber edits.
   useEffect(() => {
     if (!open) return;
     setTitle(plan.title);
@@ -432,27 +426,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     setContactEmail(plan.contact_email);
     setContactPhone(plan.contact_phone);
     setWebsite(plan.website);
-    setMoveTarget('');
     const snap: Record<number, PartForm> = {};
     for (const p of editableParts) snap[p.id] = partForm(p);
     setForms(snap);
     setInitial(snap);
     setCoordsErr({});
     setCoordsBusy({});
-    // Only needed to populate the "move to another trip" picker, which is
-    // disabled offline — skip the fetch (and its avoidable error churn) then.
-    if (!readOnly) void listTrips();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only on (re)open / plan switch
   }, [open, plan.id]);
-
-  // A plan can only move to another trip the viewer can edit (spec §5.2).
-  const moveTargets = useMemo(
-    () =>
-      trips.filter(
-        (t) => t.id !== plan.trip_id && (t.my_role === 'owner' || t.my_role === 'editor'),
-      ),
-    [trips, plan.trip_id],
-  );
 
   const reportError = (err: unknown) => setError(errorMessage(err));
 
@@ -611,19 +592,6 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     try {
       // The leg moves to a new plan; close so the refreshed timeline shows it.
       await splitPlanPart(partId);
-      onClose();
-    } catch (err) {
-      reportError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleMove = async () => {
-    if (moveTarget === '') return;
-    setBusy(true);
-    try {
-      await movePlan(plan.id, moveTarget);
       onClose();
     } catch (err) {
       reportError(err);
@@ -841,45 +809,6 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
               );
             })}
 
-            {moveTargets.length > 0 && (
-              <Box>
-                <Divider sx={{ mb: 1.5 }} />
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  Move to another trip
-                </Typography>
-                <Stack direction="row" spacing={1} alignItems="flex-start">
-                  <TextField
-                    select
-                    size="small"
-                    label="Move to another trip"
-                    fullWidth
-                    value={moveTarget === '' ? '' : String(moveTarget)}
-                    onChange={(e) =>
-                      setMoveTarget(e.target.value === '' ? '' : Number(e.target.value))
-                    }
-                    helperText="Takes the plan and its parts to another trip you can edit."
-                    slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-                  >
-                    <MenuItem value="" disabled>
-                      Choose a trip…
-                    </MenuItem>
-                    {moveTargets.map((t) => (
-                      <MenuItem key={t.id} value={String(t.id)}>
-                        {t.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  <Button
-                    variant="outlined"
-                    onClick={() => void handleMove()}
-                    disabled={busy || moveTarget === ''}
-                    sx={{ mt: 0.5 }}
-                  >
-                    Move
-                  </Button>
-                </Stack>
-              </Box>
-            )}
           </Stack>
         </Box>
       </DialogContent>
