@@ -56,7 +56,11 @@ import { buildPlanShareText, canShareNatively, sharePlan } from '../lib/share';
 // plan's parts all share the same accent stripe and connector, so a return
 // flight's two legs read as one booking even days apart. Colours are assigned
 // by stable order of plan id so the same plan keeps its colour across renders.
-const ACCENTS = ['#1f5fa8', '#d97706', '#2e7d32', '#7b1fa2', '#c2185b', '#00838f', '#5d4037'];
+// Seven distinct accents rotated by plan order (see accentFor). They must read
+// as live, saturated colours on BOTH the light and dark themes; a too-dark
+// entry (the old brown #5d4037) looked muted/disabled on the dark theme, so the
+// warm-earth slot is now a vivid indigo instead.
+const ACCENTS = ['#1f5fa8', '#d97706', '#2e7d32', '#7b1fa2', '#c2185b', '#00838f', '#4f46e5'];
 
 function accentFor(planIds: number[], planId: number): string {
   const idx = planIds.indexOf(planId);
