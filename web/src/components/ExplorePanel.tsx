@@ -179,27 +179,30 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
 
   return (
     <Stack spacing={2} sx={{ p: { xs: 2, sm: 3 }, maxWidth: 900, mx: 'auto', width: '100%' }}>
-      <Box
-        component="form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setPlaceQuery(place);
-        }}
-        sx={{ display: 'flex', gap: 1 }}
-      >
-        <TextField
-          label="Place"
-          placeholder="e.g. Lisbon, or an address"
-          value={place}
-          onChange={(e) => setPlace(e.target.value)}
-          disabled={!!initialCenter}
-          size="small"
-          fullWidth
-        />
-        <Button type="submit" variant="outlined" startIcon={<SearchIcon />} disabled={!!initialCenter}>
-          Search
-        </Button>
-      </Box>
+      {/* When anchored to a fixed point (e.g. a hotel), the place search is
+          irrelevant, so hide it rather than showing a disabled field. */}
+      {!initialCenter && (
+        <Box
+          component="form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPlaceQuery(place);
+          }}
+          sx={{ display: 'flex', gap: 1 }}
+        >
+          <TextField
+            label="Place"
+            placeholder="e.g. Lisbon, or an address"
+            value={place}
+            onChange={(e) => setPlace(e.target.value)}
+            size="small"
+            fullWidth
+          />
+          <Button type="submit" variant="outlined" startIcon={<SearchIcon />}>
+            Search
+          </Button>
+        </Box>
+      )}
 
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         {CATEGORIES.map((c) => (

@@ -142,6 +142,9 @@ describe('ExplorePanel', () => {
     );
     const call = h.fetchPois.mock.calls[0][1] as { place?: string };
     expect(call.place).toBeUndefined();
+    // Anchored to a fixed point, so the place search is hidden, not just disabled.
+    expect(screen.queryByLabelText('Place')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^search$/i })).not.toBeInTheDocument();
   });
 
   it('does not refetch when re-rendered with a content-identical initialCenter object', async () => {
