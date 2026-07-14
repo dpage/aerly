@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, beforeEach } from 'vitest';
 
 // Pin the default locale for date/time formatting so assertions are
 // deterministic regardless of the runner's locale (CI defaults to en-US,
@@ -49,16 +49,27 @@ export function setMatchMedia(matches: boolean): void {
   matchMediaMatches = matches;
 }
 
-window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-  matches: matchMediaMatches,
-  media: query,
-  onchange: null,
-  addListener: vi.fn(),
-  removeListener: vi.fn(),
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  dispatchEvent: vi.fn(),
-}));
+function installMatchMedia(): void {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: matchMediaMatches,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+installMatchMedia();
+
+// Reinstall before every test: a suite that calls vi.restoreAllMocks() in its
+// teardown (e.g. TripTimeline's, to undo api spies) also resets this vi.fn()'s
+// implementation to undefined, which would make matchMedia() return undefined
+// for any component that reads it (canShareNatively, responsive hooks).
+beforeEach(() => {
+  installMatchMedia();
+});
 
 class ResizeObserverStub {
   observe(): void {}

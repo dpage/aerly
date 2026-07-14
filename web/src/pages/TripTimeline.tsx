@@ -22,6 +22,8 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import PlaceIcon from '@mui/icons-material/Place';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
+import IosShareIcon from '@mui/icons-material/IosShare';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CloseIcon from '@mui/icons-material/Close';
 
 import { api } from '../api/client';
@@ -46,6 +48,7 @@ import {
 import { fmtGate } from '../lib/gate';
 import { formatCost } from '../lib/format';
 import { isUnlocated } from '../lib/geo';
+import { buildPlanShareText, canShareNatively, sharePlan } from '../lib/share';
 
 // Accent palette used to visually tie a plan's parts together (PRD §6.2). A
 // plan's parts all share the same accent stripe and connector, so a return
@@ -553,6 +556,7 @@ function PartCard({
 }: PartCardProps) {
   const deletePlan = useStore((s) => s.deletePlan);
   const setError = useStore((s) => s.setError);
+  const setNotice = useStore((s) => s.setNotice);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -582,6 +586,20 @@ function PartCard({
       setError(errorMessage(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // In an installed PWA we open the native share sheet; in a browser tab we copy
+  // the plan to the clipboard. The flag drives the icon/tooltip and is stable
+  // for the session, so computing it per render is cheap.
+  const nativeShare = canShareNatively();
+
+  const handleShare = async () => {
+    try {
+      const outcome = await sharePlan(buildPlanShareText(plan, part), plan.title || planTypeLabel(part.type));
+      if (outcome === 'copied') setNotice({ message: 'Plan copied to clipboard', severity: 'success' });
+    } catch {
+      setError('Could not share this plan');
     }
   };
 
@@ -728,21 +746,48 @@ function PartCard({
           )}
         </Box>
 
-        {part.type === 'hotel' && part.start_lat != null && part.start_lon != null && onExplore && (
-          <Tooltip title="Explore nearby">
+        {/* Right-hand tile actions, stacked vertically so Explore (hotels with
+            coordinates) sits above Share when both are present. Share is on
+            every tile. */}
+        <Stack
+          direction="column"
+          spacing={0.5}
+          alignItems="center"
+          sx={{ flexShrink: 0, alignSelf: 'center' }}
+        >
+          {part.type === 'hotel' && part.start_lat != null && part.start_lon != null && onExplore && (
+            <Tooltip title="Explore nearby">
+              <IconButton
+                size="small"
+                aria-label="Explore nearby"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onExplore();
+                }}
+                sx={{ color: accent }}
+              >
+                <TravelExploreIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title={nativeShare ? 'Share' : 'Copy to clipboard'}>
             <IconButton
               size="small"
-              aria-label="Explore nearby"
+              aria-label={nativeShare ? 'Share plan' : 'Copy plan to clipboard'}
               onClick={(e) => {
                 e.stopPropagation();
-                onExplore();
+                void handleShare();
               }}
-              sx={{ color: accent, alignSelf: 'center', flexShrink: 0 }}
+              sx={{ color: accent }}
             >
-              <TravelExploreIcon fontSize="small" />
+              {nativeShare ? (
+                <IosShareIcon fontSize="small" />
+              ) : (
+                <ContentCopyIcon fontSize="small" />
+              )}
             </IconButton>
           </Tooltip>
-        )}
+        </Stack>
       </Stack>
 
       <Collapse in={expanded} unmountOnExit>

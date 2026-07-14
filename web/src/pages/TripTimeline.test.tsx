@@ -21,6 +21,7 @@ const state = {
   currentTrip: null as (Trip & { plans: Plan[] }) | null,
   deletePlan: vi.fn(async () => {}),
   setError: vi.fn(),
+  setNotice: vi.fn(),
   // Fields the child dialogs (PlanEditDialog/PlanPrivacyDialog/PlanAlertToggle)
   // pull off the store when they're opened from an expanded tile.
   // PlanEditDialog mounts PlanAttachments, which reads capabilities; off here.
@@ -1066,6 +1067,62 @@ describe('TripTimeline', () => {
       expect(screen.getByTestId('explore-panel')).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
       await vi.waitFor(() => expect(screen.queryByTestId('explore-panel')).not.toBeInTheDocument());
+    });
+  });
+
+  describe('Share', () => {
+    it('shows a copy-to-clipboard button on every tile in a browser tab and copies the plan', async () => {
+      const writeText = vi.fn(async () => {});
+      vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+      state.currentTrip = tripWith([
+        plan([part({ id: 1, plan_id: 1, start_label: 'LHR', end_label: 'LIS' })], {
+          id: 1,
+          title: 'Flight out',
+        }),
+      ]);
+      renderTimeline();
+      const button = screen.getByRole('button', { name: /copy plan to clipboard/i });
+      await userEvent.click(button);
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText.mock.calls[0][0]).toContain('Flight out');
+      expect(writeText.mock.calls[0][0]).toContain('LHR → LIS');
+      expect(state.setNotice).toHaveBeenCalledWith({
+        message: 'Plan copied to clipboard',
+        severity: 'success',
+      });
+      vi.unstubAllGlobals();
+    });
+
+    it('does not expand the card when the Share button is clicked', async () => {
+      vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } });
+      state.currentTrip = tripWith([
+        plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+      ]);
+      renderTimeline();
+      const card = screen.getByTestId('part-card-1');
+      await userEvent.click(screen.getByRole('button', { name: /copy plan to clipboard/i }));
+      expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
+      vi.unstubAllGlobals();
+    });
+
+    it('surfaces an error when the copy fails', async () => {
+      vi.stubGlobal('navigator', {
+        ...navigator,
+        clipboard: {
+          writeText: vi.fn(async () => {
+            throw new Error('denied');
+          }),
+        },
+      });
+      state.currentTrip = tripWith([
+        plan([part({ id: 1, plan_id: 1 })], { id: 1, title: 'Flight out' }),
+      ]);
+      renderTimeline();
+      await userEvent.click(screen.getByRole('button', { name: /copy plan to clipboard/i }));
+      await vi.waitFor(() =>
+        expect(state.setError).toHaveBeenCalledWith('Could not share this plan'),
+      );
+      vi.unstubAllGlobals();
     });
   });
 });
