@@ -111,13 +111,16 @@ export default function Layout() {
       : [{ to: '/tracker', label: 'Tracker', active: onTracker, Icon: RadarIcon }]),
   ];
   // Open help to the topic relevant to the current screen: the Tracker and a
-  // trip's Map tab → Map & tracker; another trip view → Plans; else → Trips.
+  // trip's Map tab → Map & tracker; the Explore tab → Explore nearby; another
+  // trip view → Plans; else → Trips.
   const helpContext =
     onTracker || location.pathname.endsWith('/map')
       ? 'tracker'
-      : location.pathname.startsWith('/trips/')
-        ? 'plans'
-        : 'trips';
+      : location.pathname.endsWith('/explore')
+        ? 'explore'
+        : location.pathname.startsWith('/trips/')
+          ? 'plans'
+          : 'trips';
 
   // A non-interactive caption row that heads a group of menu items.
   const sectionLabel = (text: string) => (

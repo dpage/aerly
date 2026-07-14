@@ -10,9 +10,11 @@ describe('HelpContent', () => {
       'trips',
       'plans',
       'tracker',
+      'explore',
       'sharing',
       'alerts',
       'account',
+      'install',
     ]);
     for (const p of HELP_PAGES) {
       expect(p.label).toBeTruthy();
@@ -39,13 +41,29 @@ describe('HelpContent', () => {
     expect(screen.getByText('Tip:')).toBeInTheDocument();
   });
 
-  it('the alerts page covers the inbox, preferences and reminders', () => {
+  it('the alerts page covers the inbox, preferences, push and reminders', () => {
     const alerts = HELP_PAGES.find((p) => p.id === 'alerts')!;
     render(<div>{alerts.body}</div>);
     expect(screen.getByText('Alerts inbox')).toBeInTheDocument();
     expect(screen.getByText('Alert preferences')).toBeInTheDocument();
     expect(screen.getByText('Notify me of changes')).toBeInTheDocument();
+    expect(screen.getByText('Push notifications')).toBeInTheDocument();
     expect(screen.getByText('Reminders')).toBeInTheDocument();
+  });
+
+  it('the explore page covers searching, results and adding to a trip', () => {
+    const explore = HELP_PAGES.find((p) => p.id === 'explore')!;
+    render(<div>{explore.body}</div>);
+    expect(screen.getByText('Categories & radius')).toBeInTheDocument();
+    expect(screen.getByText('Add to trip')).toBeInTheDocument();
+  });
+
+  it('the install page covers iPhone, Android and desktop', () => {
+    const install = HELP_PAGES.find((p) => p.id === 'install')!;
+    render(<div>{install.body}</div>);
+    expect(screen.getByText('Add to Home Screen (Safari)')).toBeInTheDocument();
+    expect(screen.getByText('Android')).toBeInTheDocument();
+    expect(screen.getByText('Desktop')).toBeInTheDocument();
   });
 
   it('the account page covers statistics, home address and calendar feeds', () => {

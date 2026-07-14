@@ -8,9 +8,11 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import LuggageOutlinedIcon from '@mui/icons-material/LuggageOutlined';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
+import TravelExploreOutlinedIcon from '@mui/icons-material/TravelExploreOutlined';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import InstallMobileOutlinedIcon from '@mui/icons-material/InstallMobileOutlined';
 
 // --- content primitives -----------------------------------------------------
 
@@ -88,7 +90,8 @@ export const HELP_PAGES: HelpPage[] = [
         <Body>
           Aerly keeps a trip&apos;s travel in one place. Add flights, hotels, trains, taxis, dinners
           and excursions to a trip, and they appear on a shared timeline and map — with live flight
-          tracking where available.
+          tracking where available. You can browse what&apos;s nearby, share plans with friends, and
+          install Aerly on your phone to get it full-screen with push notifications.
         </Body>
         <SectionTitle>Getting started</SectionTitle>
         <FeatureItem
@@ -105,7 +108,8 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <HelpTip>
           The Map tab and the global Tracker show every mappable plan in time order — click an item
-          in the list or on the map to highlight it and see its details.
+          in the list or on the map to highlight it and see its details. The Explore tab finds
+          points of interest near your trip.
         </HelpTip>
       </Box>
     ),
@@ -187,6 +191,19 @@ export const HELP_PAGES: HelpPage[] = [
           title="Split out"
           description="A multi-leg booking's Edit dialog offers Split out on each leg, to pull a leg back into its own separate plan."
         />
+        <SectionTitle>Per-tile actions</SectionTitle>
+        <FeatureItem
+          title="Share"
+          description="Every tile has a Share button on its right-hand edge. In a browser it copies the plan's details to the clipboard to paste elsewhere; in the installed app it opens your phone's share sheet, so you can send it on to Messages, Notes or anywhere else."
+        />
+        <FeatureItem
+          title="Explore nearby"
+          description="Accommodation tiles also carry an Explore nearby button that opens the Explore view anchored to the hotel, to find things to do around where you're staying. See Explore nearby."
+        />
+        <FeatureItem
+          title="Notifications"
+          description="Open a tile's Notifications button to set your own reminders for that plan, and (as a viewer) to follow its flight changes. See Alerts & reminders."
+        />
       </Box>
     ),
   },
@@ -239,6 +256,51 @@ export const HELP_PAGES: HelpPage[] = [
         <HelpTip>
           The trip Map tab and the Tracker behave identically — the Tracker just adds the date and
           tag controls for spanning multiple trips.
+        </HelpTip>
+      </Box>
+    ),
+  },
+  {
+    id: 'explore',
+    label: 'Explore nearby',
+    Icon: TravelExploreOutlinedIcon,
+    body: (
+      <Box>
+        <Body>
+          Explore finds points of interest around your trip — sights, museums, landmarks, parks and
+          places to eat — and lets you add any of them as an excursion. Open a trip and pick the{' '}
+          <strong>Explore</strong> tab, or tap <strong>Explore nearby</strong> on an accommodation
+          tile to start from the hotel.
+        </Body>
+        <SectionTitle>Searching</SectionTitle>
+        <FeatureItem
+          title="Where to look"
+          description="Type a place or address and search, or let it centre on the hotel when you opened it from an Explore nearby button (the place box is hidden then, since the location is already fixed)."
+        />
+        <FeatureItem
+          title="Categories & radius"
+          description="Tap the category chips (Sights, Museum, Landmark, Park, Food) to choose what to look for, and pick a search radius of 1, 2 or 5 km. Sights, museums, landmarks and parks are on by default."
+        />
+        <FeatureItem
+          title="Filter by name"
+          description="Type in Filter by name to narrow the results already shown without re-searching — handy for finding one place in a long list."
+        />
+        <SectionTitle>Results</SectionTitle>
+        <FeatureItem
+          title="Map and list"
+          description="Matches appear as pins on a mini-map above a list, each row showing the category and how far away it is. Tap a pin or a row's Show on map link to highlight it in both."
+        />
+        <FeatureItem
+          title="Learn more"
+          description="Where a place has them, rows link out to Wikipedia, Wikidata and its own website. Place data comes from OpenStreetMap."
+        />
+        <FeatureItem
+          title="Add to trip"
+          description="Add to trip turns a place into an excursion plan — pre-filled with its name and location — that then shows on the timeline and map like any other."
+        />
+        <HelpTip>
+          Don&apos;t use Explore? You can hide it (the tab and the Explore nearby button) in
+          Preferences → Features. See Your account.
         </HelpTip>
       </Box>
     ),
@@ -326,11 +388,24 @@ export const HELP_PAGES: HelpPage[] = [
         <SectionTitle>Alert preferences</SectionTitle>
         <FeatureItem
           title="How you're notified"
-          description="In Preferences → Alerts choose in-app, email, or both — and set a minimum delay so short hiccups below that many minutes don't alert you."
+          description="In Preferences → Alerts choose in-app, email, or both — and set a minimum delay so short hiccups below that many minutes don't alert you. Push notifications are a separate, per-device channel, set up on the Push tab (see below)."
         />
         <FeatureItem
           title="Notify me of changes"
-          description="As a trip viewer you don't get a plan's flight alerts by default. Open the plan and turn on Notify me of changes for the ones you want to follow. (Owners and editors are alerted via their own preferences.)"
+          description="As a trip viewer you don't get a plan's flight alerts by default. Open the plan's Notifications button and turn on Notify me of changes for the ones you want to follow. (Owners and editors are alerted via their own preferences.)"
+        />
+        <SectionTitle>Push notifications</SectionTitle>
+        <FeatureItem
+          title="Enable on a device"
+          description="In Preferences → Push, turn on Enable push on this device to get alerts pushed to your phone or computer even when Aerly isn't open. Your browser asks permission the first time; it's per-device, so enable it on each one you want."
+        />
+        <FeatureItem
+          title="Choose what's pushed"
+          description="Once enabled, pick which kinds to push: flight alerts and trip shares. If you've blocked notifications, allow them for Aerly in your browser's site settings and try again."
+        />
+        <FeatureItem
+          title="On iPhone or iPad"
+          description="Web push on iOS only works from the installed app: add Aerly to your Home Screen first, then open it from there and enable push. See Install on your phone."
         />
         <SectionTitle>Reminders</SectionTitle>
         <FeatureItem
@@ -356,8 +431,9 @@ export const HELP_PAGES: HelpPage[] = [
       <Box>
         <Body>
           These all live in the account menu under your avatar (top-right). Most of your settings
-          are gathered together under Preferences, a tabbed dialog covering alert delivery, sharing
-          defaults, your home address and forwarding emails.
+          are gathered together under Preferences, a tabbed dialog covering alert delivery, push
+          notifications, sharing defaults, your home address, itinerary paper size, which features
+          are shown, and forwarding emails.
         </Body>
         <SectionTitle>Statistics</SectionTitle>
         <FeatureItem
@@ -387,19 +463,57 @@ export const HELP_PAGES: HelpPage[] = [
           description="On the Itinerary tab, choose A4 or US Letter for the PDF itinerary you download from a trip. A4 is the default."
         />
         <FeatureItem
+          title="Features"
+          description="On the Features tab, hide parts of Aerly you don't use to keep things tidy — Explore (its tab and the Explore nearby button) and maps (the trip Map tab and the Tracker). Everything is shown by default and you can turn it back on any time."
+        />
+        <FeatureItem
           title="Email addresses"
           description="If your Aerly is set up to add flights from forwarded booking emails, use the Emails tab to add and verify the addresses you can forward from. (Hidden when forwarding isn't enabled.)"
         />
         <HelpTip>
-          Preferences also holds alert delivery (see Flight alerts) and the “Always share with”
-          sharing defaults (see Friends &amp; sharing) — each on its own tab. Everything saves as you
-          go, so there's no Save button.
+          Preferences also holds alert delivery and push notifications (see Alerts &amp; reminders)
+          and the “Always share with” sharing defaults (see Friends &amp; sharing) — each on its own
+          tab. Everything saves as you go, so there's no Save button.
         </HelpTip>
         <SectionTitle>Appearance & sessions</SectionTitle>
         <FeatureItem
           title="Theme and signing out"
           description="Switch between Light, Dark and System appearance. Sign out ends this session; Sign out everywhere ends every active session on all your devices."
         />
+      </Box>
+    ),
+  },
+  {
+    id: 'install',
+    label: 'Install on your phone',
+    Icon: InstallMobileOutlinedIcon,
+    body: (
+      <Box>
+        <Body>
+          Aerly is a Progressive Web App, so you can add it to your phone&apos;s Home Screen and run
+          it like an ordinary app — full-screen, with its own icon, working offline from saved data,
+          and able to receive push notifications. There&apos;s nothing to download from an app store.
+        </Body>
+        <SectionTitle>iPhone &amp; iPad</SectionTitle>
+        <FeatureItem
+          title="Add to Home Screen (Safari)"
+          description="Open Aerly in Safari, tap the Share button (the box with an upward arrow), choose Add to Home Screen, then Add. Launch it from the new icon. On iOS this step is also what unlocks push notifications."
+        />
+        <SectionTitle>Android</SectionTitle>
+        <FeatureItem
+          title="Install (Chrome)"
+          description="Open Aerly in Chrome and tap the Install Aerly prompt when it appears, or use the browser menu (⋮) and choose Install app / Add to Home screen."
+        />
+        <SectionTitle>Desktop</SectionTitle>
+        <FeatureItem
+          title="Install from the address bar"
+          description="In Chrome or Edge, click the install icon at the right of the address bar (or the browser menu) to run Aerly in its own window."
+        />
+        <HelpTip>
+          Aerly also shows a one-time install prompt on supported browsers; if you dismissed it, the
+          steps above always work. Once installed, Aerly updates itself — it&apos;ll offer a Refresh
+          when a new version is ready.
+        </HelpTip>
       </Box>
     ),
   },
