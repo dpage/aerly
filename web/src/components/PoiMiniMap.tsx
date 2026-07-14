@@ -22,6 +22,7 @@ const CATEGORY_COLOUR: Record<PoiCategory, string> = {
   sights: '#1565c0',
   museum: '#6a1b9a',
   landmark: '#ad1457',
+  worship: '#00695c',
   park: '#2e7d32',
   food: '#e65100',
 };
