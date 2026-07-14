@@ -7,12 +7,20 @@ import type { User } from '../api/types';
 const h = vi.hoisted(() => ({
   setHiddenFeatures: vi.fn(),
   setError: vi.fn(),
-  state: { me: null as User | null },
+  state: {
+    me: null as User | null,
+    capabilities: { explore_enabled: true } as { explore_enabled?: boolean },
+  },
 }));
 
 vi.mock('../state/store', () => ({
   useStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({ me: h.state.me, setHiddenFeatures: h.setHiddenFeatures, setError: h.setError }),
+    sel({
+      me: h.state.me,
+      capabilities: h.state.capabilities,
+      setHiddenFeatures: h.setHiddenFeatures,
+      setError: h.setError,
+    }),
 }));
 
 import FeaturesSection from './FeaturesSection';
@@ -34,6 +42,7 @@ function user(over: Partial<User> = {}): User {
 beforeEach(() => {
   vi.clearAllMocks();
   h.state.me = user();
+  h.state.capabilities = { explore_enabled: true };
   h.setHiddenFeatures.mockResolvedValue(undefined);
 });
 
@@ -49,6 +58,15 @@ describe('FeaturesSection', () => {
     render(<FeaturesSection />);
     expect(screen.getByRole('checkbox', { name: /hide explore/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /hide maps/i })).toBeChecked();
+  });
+
+  it('drops the "Hide Explore" toggle when Explore is unavailable server-side', () => {
+    h.state.capabilities = { explore_enabled: false };
+    render(<FeaturesSection />);
+    // Nothing to hide when Explore isn't available at all.
+    expect(screen.queryByRole('checkbox', { name: /hide explore/i })).not.toBeInTheDocument();
+    // The maps toggle is unaffected.
+    expect(screen.getByRole('checkbox', { name: /hide maps/i })).toBeInTheDocument();
   });
 
   it('saves hide_explore when the Explore box is ticked', async () => {

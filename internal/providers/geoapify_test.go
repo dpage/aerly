@@ -34,15 +34,16 @@ func TestGeoapifyNearbyParsesAndClassifies(t *testing.T) {
 		_, _ = w.Write([]byte(geoapifySample))
 	})
 
-	pois, err := g.Nearby(context.Background(), 51.5010, -0.1245, 2000, []string{"museum", "landmark"})
+	pois, err := g.Nearby(context.Background(), 51.5010, -0.1245, 2000, []string{"museum", "worship"})
 	if err != nil {
 		t.Fatalf("Nearby: %v", err)
 	}
 	if len(pois) != 2 {
 		t.Fatalf("want 2 named POIs (unnamed dropped), got %d", len(pois))
 	}
-	// Sorted by distance: church (60m) before museum (120m).
-	if pois[0].Name != "Example Church" || pois[0].Category != "landmark" {
+	// Sorted by distance: church (60m) before museum (120m). A place of worship
+	// classifies as "worship", not "landmark".
+	if pois[0].Name != "Example Church" || pois[0].Category != "worship" {
 		t.Errorf("poi[0] = %+v", pois[0])
 	}
 	if pois[0].Address != "1 Church Street" || pois[0].ID != "place-church" {
@@ -80,7 +81,9 @@ func TestGeoapifyClassify(t *testing.T) {
 		want string
 	}{
 		{[]string{"entertainment.museum"}, "museum"},
-		{[]string{"religion.place_of_worship.church"}, "landmark"},
+		{[]string{"religion.place_of_worship.church"}, "worship"},
+		// A historic church is worship first, not landmark (worship wins).
+		{[]string{"religion.place_of_worship", "heritage.unesco"}, "worship"},
 		{[]string{"heritage.unesco"}, "landmark"},
 		{[]string{"leisure.park"}, "park"},
 		{[]string{"natural.forest"}, "park"},

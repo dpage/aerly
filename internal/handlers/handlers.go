@@ -49,7 +49,8 @@ type API struct {
 	// be mapped. nil → geocoding is skipped (e.g. in tests).
 	Geocoder geocode.Geocoder
 
-	// POIs resolves nearby points of interest (Geoapify when keyed, else Overpass).
+	// POIs resolves nearby points of interest (Geoapify; nil when no key is set,
+	// which disables the Explore feature).
 	// nil → POI lookups return 501.
 	POIs providers.POIResolver
 

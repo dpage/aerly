@@ -34,7 +34,10 @@ import Tracker from './pages/Tracker';
 export default function App() {
   const auth = useStore((s) => s.auth);
   const hideMaps = useStore((s) => s.me?.hide_maps ?? false);
-  const hideExplore = useStore((s) => s.me?.hide_explore ?? false);
+  // Explore is off when the user hides it OR the server has no POI resolver
+  // (explore_enabled === false). An unspecified capability means available.
+  const exploreEnabled = useStore((s) => s.capabilities?.explore_enabled ?? true);
+  const hideExplore = useStore((s) => s.me?.hide_explore ?? false) || !exploreEnabled;
   const init = useStore((s) => s.init);
   const error = useStore((s) => s.error);
   const setError = useStore((s) => s.setError);

@@ -10,6 +10,9 @@ export default function FeaturesSection() {
   const me = useStore((s) => s.me);
   const setHiddenFeatures = useStore((s) => s.setHiddenFeatures);
   const setError = useStore((s) => s.setError);
+  // When the server has no POI resolver, Explore is unavailable app-wide, so
+  // there's nothing to offer hiding — drop the toggle entirely.
+  const exploreEnabled = useStore((s) => s.capabilities?.explore_enabled ?? true);
 
   const hideExplore = me?.hide_explore ?? false;
   const hideMaps = me?.hide_maps ?? false;
@@ -29,18 +32,22 @@ export default function FeaturesSection() {
         hide it here, and you can turn anything back on at any time.
       </Typography>
       <FormGroup>
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={hideExplore}
-              onChange={(e) => void save({ hide_explore: e.target.checked })}
+        {exploreEnabled && (
+          <>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={hideExplore}
+                  onChange={(e) => void save({ hide_explore: e.target.checked })}
+                />
+              }
+              label="Hide Explore"
             />
-          }
-          label="Hide Explore"
-        />
-        <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mt: -0.5, mb: 1 }}>
-          Removes the Explore tab and the &ldquo;Explore nearby&rdquo; button on accommodation.
-        </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 4, mt: -0.5, mb: 1 }}>
+              Removes the Explore tab and the &ldquo;Explore nearby&rdquo; button on accommodation.
+            </Typography>
+          </>
+        )}
         <FormControlLabel
           control={
             <Checkbox

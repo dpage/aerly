@@ -139,10 +139,14 @@ func TestGetMeAndConfig(t *testing.T) {
 		t.Errorf("unexpected me: %v", me)
 	}
 
+	e.api.POIs = &stubPOIs{} // a wired POI resolver → Explore is enabled
 	w = e.req(t, "GET", "/api/config", nil, uid)
 	caps := decodeBody[map[string]any](t, w)
 	if caps["resolver_available"] != true {
 		t.Errorf("resolver_available should be true, got %v", caps)
+	}
+	if caps["explore_enabled"] != true {
+		t.Errorf("explore_enabled should be true when a POI resolver is wired, got %v", caps)
 	}
 	// The DTO grew a poll_interval_sec field; just assert it's present so
 	// future shape changes are caught here. The value is whatever the test
@@ -161,6 +165,9 @@ func TestGetMeAndConfig(t *testing.T) {
 	body := decodeBody[map[string]any](t, w)
 	if body["resolver_available"] != false {
 		t.Error("resolver_available should be false")
+	}
+	if body["explore_enabled"] != false {
+		t.Error("explore_enabled should be false when no POI resolver is wired")
 	}
 	if _, ok := body["email_ingest_address"]; ok {
 		t.Error("email_ingest_address should be omitted when ingest is disabled")

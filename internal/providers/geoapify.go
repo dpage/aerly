@@ -15,10 +15,9 @@ import (
 )
 
 // Geoapify resolves POIs via the Geoapify Places API (https://api.geoapify.com).
-// Unlike the public Overpass instances it's a keyed, purpose-built service that
-// answers categorised POI queries directly, so it doesn't suffer the union-query
-// timeouts and overloading that make public Overpass unreliable from a server.
-// The data is OpenStreetMap-derived, so results are in the same spirit.
+// It's a keyed, purpose-built service that answers categorised POI queries
+// directly, and its data is OpenStreetMap-derived (hence the OSM attribution in
+// the UI and the description/wikidata tags we surface).
 type Geoapify struct {
 	APIKey  string
 	BaseURL string
@@ -39,11 +38,14 @@ func NewGeoapify(apiKey string) *Geoapify {
 
 // geoapifyCategoryCodes maps our UI chip keys to Geoapify category codes.
 // Values are unioned into a single request; Geoapify handles multi-category
-// queries server-side without the cost blow-up Overpass has.
+// queries server-side. Places of worship are their own key rather than being
+// folded into landmark, so they can be filtered independently (they're numerous
+// enough to swamp genuine landmarks otherwise).
 var geoapifyCategoryCodes = map[string][]string{
 	"sights":   {"tourism.sights", "tourism.attraction"},
 	"museum":   {"entertainment.museum"},
-	"landmark": {"religion.place_of_worship", "heritage"},
+	"landmark": {"heritage"},
+	"worship":  {"religion.place_of_worship"},
 	"park":     {"leisure.park", "national_park", "natural"},
 	"food":     {"catering.restaurant", "catering.cafe", "catering.bar"},
 }
@@ -147,7 +149,7 @@ func (g *Geoapify) Nearby(ctx context.Context, lat, lon float64, radiusM int, ca
 		})
 	}
 	// Geoapify already sorts by the proximity bias, but be explicit so callers
-	// get the same distance-ascending contract as the Overpass provider.
+	// get a guaranteed distance-ascending contract.
 	sortByDistance(out)
 	return out, nil
 }
@@ -168,7 +170,9 @@ func (g *Geoapify) categoryCodes(cats []string) []string {
 }
 
 // geoapifyCategory classifies a feature into our chip key from its Geoapify
-// category codes, in the same priority order as the Overpass categoryOf.
+// category codes, most-specific first. Worship is checked before heritage so a
+// historic church lands under Worship (what a user filtering on it expects)
+// rather than Landmark.
 func geoapifyCategory(cats []string) string {
 	has := func(prefix string) bool {
 		for _, c := range cats {
@@ -181,7 +185,9 @@ func geoapifyCategory(cats []string) string {
 	switch {
 	case has("entertainment.museum"):
 		return "museum"
-	case has("religion.place_of_worship") || has("heritage"):
+	case has("religion.place_of_worship"):
+		return "worship"
+	case has("heritage"):
 		return "landmark"
 	case has("leisure.park") || has("national_park") || has("natural"):
 		return "park"

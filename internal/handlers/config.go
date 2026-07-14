@@ -20,6 +20,10 @@ type CapabilitiesDTO struct {
 	// oversize files before sending; omitted when attachments are disabled.
 	AttachmentsEnabled  bool  `json:"attachments_enabled"`
 	AttachmentsMaxBytes int64 `json:"attachments_max_bytes,omitempty"`
+	// ExploreEnabled gates the Explore feature (its trip tab, the "Explore
+	// nearby" button, and the preference to hide it). False when no POI
+	// resolver is configured, i.e. GEOAPIFY_API_KEY is unset.
+	ExploreEnabled bool `json:"explore_enabled"`
 }
 
 func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
@@ -37,5 +41,7 @@ func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
 			out.AttachmentsMaxBytes = a.Config.AttachmentsMaxBytes
 		}
 	}
+	// Explore is available exactly when a POI resolver is wired (Geoapify keyed).
+	out.ExploreEnabled = a.POIs != nil
 	writeJSON(w, http.StatusOK, out)
 }

@@ -138,6 +138,65 @@ describe('ExplorePanel', () => {
     expect(within(museumRow).queryByText('A tall example landmark')).not.toBeInTheDocument();
   });
 
+  it('offers a Worship chip that is off by default', async () => {
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    expect(screen.getByRole('button', { name: /^worship$/i })).toBeInTheDocument();
+    const cats = (h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats;
+    expect(cats).not.toContain('worship');
+    expect(cats).toEqual(expect.arrayContaining(['sights', 'museum', 'landmark', 'park']));
+  });
+
+  it('remembers category choices across remounts via localStorage', async () => {
+    const { unmount } = render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    await userEvent.click(screen.getByRole('button', { name: /^worship$/i }));
+    unmount();
+    h.fetchPois.mockClear();
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    const cats = (h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats;
+    expect(cats).toContain('worship');
+  });
+
+  it('restores a stored category selection on mount', async () => {
+    window.localStorage.setItem('aerly.explore.cats', JSON.stringify(['food']));
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual(['food']);
+  });
+
+  it('drops unknown categories from a stored selection', async () => {
+    window.localStorage.setItem('aerly.explore.cats', JSON.stringify(['food', 'bogus']));
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual(['food']);
+  });
+
+  it('falls back to defaults when the stored selection is unparseable', async () => {
+    window.localStorage.setItem('aerly.explore.cats', 'not json');
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual([
+      'sights',
+      'museum',
+      'landmark',
+      'park',
+    ]);
+  });
+
+  it('falls back to defaults when the stored value is not an array', async () => {
+    window.localStorage.setItem('aerly.explore.cats', '{"nope":1}');
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual([
+      'sights',
+      'museum',
+      'landmark',
+      'park',
+    ]);
+  });
+
   it('prefers initialCenter coords over place when both are supplied', async () => {
     render(
       <ExplorePanel

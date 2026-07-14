@@ -60,7 +60,9 @@ export default function TripDetail() {
   const currentTrip = useStore((s) => s.currentTrip);
   const currentTripStatus = useStore((s) => s.currentTripStatus);
   const hideMaps = useStore((s) => s.me?.hide_maps ?? false);
-  const hideExplore = useStore((s) => s.me?.hide_explore ?? false);
+  // Explore hides when the user opts out or the server has no POI resolver.
+  const exploreEnabled = useStore((s) => s.capabilities?.explore_enabled ?? true);
+  const hideExplore = useStore((s) => s.me?.hide_explore ?? false) || !exploreEnabled;
   const loadTrip = useStore((s) => s.loadTrip);
   const clearCurrentTrip = useStore((s) => s.clearCurrentTrip);
   const online = useOnlineStatus();

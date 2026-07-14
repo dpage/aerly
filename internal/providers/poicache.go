@@ -12,8 +12,7 @@ import (
 // CachedPOIs wraps an inner POIResolver with an in-memory (lat, lon, radius,
 // cats) → []POI cache. POI results around a given anchor are effectively
 // static over the short term (OSM edits aside), so a generous TTL avoids
-// hammering the upstream Overpass instance, which enforces its own fair-use
-// rate limit.
+// hammering the upstream POI service, which enforces its own request quota.
 type CachedPOIs struct {
 	Inner POIResolver
 	TTL   time.Duration

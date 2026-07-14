@@ -32,6 +32,7 @@ function anonymousReset(): Partial<StoreState> {
       poll_interval_sec: 60,
       email_ingest_enabled: false,
       attachments_enabled: false,
+      explore_enabled: true,
     },
     notifications: { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 },
     notice: null,

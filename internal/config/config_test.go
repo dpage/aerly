@@ -47,18 +47,6 @@ func TestLoadSuccessDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultsOverpassURL(t *testing.T) {
-	base(t)
-	t.Setenv("OVERPASS_URL", "")
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.OverpassURL != "https://overpass-api.de/api/interpreter" {
-		t.Errorf("OverpassURL = %q", cfg.OverpassURL)
-	}
-}
-
 func TestLoadCustomPollInterval(t *testing.T) {
 	base(t)
 	t.Setenv("POLL_INTERVAL", "5m")

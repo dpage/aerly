@@ -20,6 +20,7 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import ParkIcon from '@mui/icons-material/Park';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
+import ChurchIcon from '@mui/icons-material/Church';
 
 import { api } from '../api/client';
 import { errorMessage } from '../state/helpers';
@@ -38,6 +39,7 @@ const CATEGORIES: { value: PoiCategory; label: string }[] = [
   { value: 'museum', label: 'Museum' },
   { value: 'landmark', label: 'Landmark' },
   { value: 'park', label: 'Park' },
+  { value: 'worship', label: 'Worship' },
   { value: 'food', label: 'Food' },
 ];
 
@@ -45,6 +47,8 @@ const CATEGORY_LABELS: Record<PoiCategory, string> = Object.fromEntries(
   CATEGORIES.map((c) => [c.value, c.label]),
 ) as Record<PoiCategory, string>;
 
+// Worship and food are off by default — both are numerous enough to swamp the
+// more sightseeing-oriented categories on first look.
 const DEFAULT_CATS: PoiCategory[] = ['sights', 'museum', 'landmark', 'park'];
 
 const RADII = [1000, 2000, 5000];
@@ -53,9 +57,38 @@ const CATEGORY_ICONS: Record<PoiCategory, typeof MuseumIcon> = {
   museum: MuseumIcon,
   sights: PhotoCameraIcon,
   landmark: AccountBalanceIcon,
+  worship: ChurchIcon,
   park: ParkIcon,
   food: RestaurantIcon,
 };
+
+// Persist the user's category selection so it survives navigating away and back
+// (and future visits) rather than resetting to the defaults each time.
+const CATS_STORAGE_KEY = 'aerly.explore.cats';
+const VALID_CATS = new Set<PoiCategory>(CATEGORIES.map((c) => c.value));
+
+function loadCats(): PoiCategory[] {
+  try {
+    const raw = window.localStorage.getItem(CATS_STORAGE_KEY);
+    if (raw == null) return DEFAULT_CATS;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_CATS;
+    // Keep only values we still recognise, so a stale stored category (renamed
+    // or removed) can't wedge the filter. An explicit empty set is honoured (the
+    // user turned everything off); only a missing/corrupt entry falls back.
+    return parsed.filter((v): v is PoiCategory => VALID_CATS.has(v as PoiCategory));
+  } catch {
+    return DEFAULT_CATS;
+  }
+}
+
+function saveCats(cats: PoiCategory[]): void {
+  try {
+    window.localStorage.setItem(CATS_STORAGE_KEY, JSON.stringify(cats));
+  } catch {
+    // Best-effort: private-mode/quota errors just mean no persistence.
+  }
+}
 
 /** Maps a POI category to its list-row icon. `PoiCategory` is a closed union,
  * so this covers every value with no dead default branch to test around. */
@@ -91,7 +124,7 @@ function wikipediaUrl(tag: string): string {
 export default function ExplorePanel({ tripId, initialPlace, initialCenter }: ExplorePanelProps) {
   const [place, setPlace] = useState(initialPlace ?? '');
   const [placeQuery, setPlaceQuery] = useState(initialPlace ?? '');
-  const [cats, setCats] = useState<PoiCategory[]>(DEFAULT_CATS);
+  const [cats, setCats] = useState<PoiCategory[]>(loadCats);
   const [radius, setRadius] = useState(2000);
   const [nameQ, setNameQ] = useState('');
   const [pois, setPois] = useState<Poi[]>([]);
@@ -147,6 +180,11 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
       cancelled = true;
     };
   }, [tripId, placeQuery, cats, radius, centerLat, centerLon, reloadKey]);
+
+  // Remember the category selection for next time.
+  useEffect(() => {
+    saveCats(cats);
+  }, [cats]);
 
   const toggleCategory = (cat: PoiCategory) => {
     setCats((cs) => (cs.includes(cat) ? cs.filter((c) => c !== cat) : [...cs, cat]));

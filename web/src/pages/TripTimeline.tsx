@@ -92,7 +92,9 @@ export default function TripTimeline() {
   const currentTrip = useStore((s) => s.currentTrip);
   const linkPlans = useStore((s) => s.linkPlans);
   const setError = useStore((s) => s.setError);
-  const hideExplore = useStore((s) => s.me?.hide_explore ?? false);
+  // Explore hides when the user opts out or the server has no POI resolver.
+  const exploreEnabled = useStore((s) => s.capabilities?.explore_enabled ?? true);
+  const hideExplore = useStore((s) => s.me?.hide_explore ?? false) || !exploreEnabled;
   const plans = useMemo(() => currentTrip?.plans ?? [], [currentTrip]);
   const tripId = currentTrip?.id;
 

@@ -53,6 +53,11 @@ export interface Capabilities {
   attachments_enabled: boolean;
   /** Per-file upload cap in bytes; absent when attachments are disabled. */
   attachments_max_bytes?: number;
+  /** Gates the Explore feature (its tab, the "Explore nearby" button and the
+   * preference to hide it). False when no POI resolver is configured
+   * server-side. Read as "available unless explicitly false", so an
+   * unspecified value (older server, test fixtures) is treated as available. */
+  explore_enabled?: boolean;
 }
 
 export interface UserEmail {
@@ -614,7 +619,7 @@ export interface TagSuggestion {
 }
 
 /** The kind of point of interest returned by the nearby-POI search. */
-export type PoiCategory = 'sights' | 'museum' | 'landmark' | 'park' | 'food';
+export type PoiCategory = 'sights' | 'museum' | 'landmark' | 'worship' | 'park' | 'food';
 
 /** A single nearby point of interest (GET /api/trips/{id}/pois). */
 export interface Poi {
