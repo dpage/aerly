@@ -278,6 +278,17 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 	if w := rawGet(e, "/api/calendar/trip/abc.ics?token="+ownerTok.Token); w.Code != http.StatusNotFound {
 		t.Errorf("bad trip id = %d, want 404", w.Code)
 	}
+
+	// Deactivating the owner revokes their calendar feed token: IsActive is the
+	// revocation primitive, and a previously-issued subscription must stop
+	// serving their itineraries once the account is disabled.
+	inactive := false
+	if _, err := e.store.UpdateUser(context.Background(), owner, store.UpdateUserPayload{IsActive: &inactive}); err != nil {
+		t.Fatalf("deactivate owner: %v", err)
+	}
+	if w := rawGet(e, "/api/calendar/me.ics?token="+ownerTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("deactivated owner feed = %d, want 401", w.Code)
+	}
 }
 
 // TestExportTripICS: the session-authed one-shot export downloads the viewer's

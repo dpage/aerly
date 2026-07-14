@@ -67,8 +67,8 @@ func BuildReply(in ReplyInput) string {
 	encodedSubject := mime.QEncoding.Encode("utf-8", subj)
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", in.FromAddr)
-	fmt.Fprintf(&sb, "To: %s\r\n", in.ToAddr)
+	fmt.Fprintf(&sb, "From: %s\r\n", mailer.SanitizeHeaderValue(in.FromAddr))
+	fmt.Fprintf(&sb, "To: %s\r\n", mailer.SanitizeHeaderValue(in.ToAddr))
 	if in.InReplyTo != "" {
 		fmt.Fprintf(&sb, "In-Reply-To: %s\r\nReferences: %s\r\n", in.InReplyTo, in.InReplyTo)
 	}

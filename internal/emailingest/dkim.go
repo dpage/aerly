@@ -24,10 +24,8 @@ func DKIMPass(headers []string, trustedAuthServID, domain string) bool {
 		return false
 	}
 	for _, header := range boundaryAuthResults(headers, want) {
-		for _, line := range strings.Split(header, "\n") {
-			if dkimLineMatches(line, domain) {
-				return true
-			}
+		if headerAuthenticates(header, domain) {
+			return true
 		}
 	}
 	return false
@@ -77,39 +75,53 @@ func authServMatches(header, want string) bool {
 	return strings.ToLower(h) == want
 }
 
-func dkimLineMatches(line, domain string) bool {
-	line = strings.ToLower(line)
-	// Match dkim=pass as a complete RFC 8601 token, not a substring: an
-	// attacker-controlled field value (e.g. header.i=foo+dkim=pass@example.com)
-	// must not be able to smuggle the result past a real dkim=fail.
-	if !hasAuthResultToken(line, "dkim=pass") {
-		return false
+// headerAuthenticates reports whether a single TRUSTED Authentication-Results
+// header value carries a dkim=pass result whose OWN header.d= equals domain.
+//
+// The pass result and the header.d= must belong to the SAME resinfo clause. An
+// Authentication-Results value is `authserv-id *(";" resinfo)`, and each resinfo
+// is `method "=" result *(CFWS ptype "." property "=" value)` (RFC 8601 §2.2).
+// A single header stamped by our own MTA can therefore legitimately carry
+// several dkim results — e.g. `mta; dkim=fail header.d=victim.com; dkim=pass
+// header.d=attacker.com` when the message bundles a failing victim.com signature
+// with a passing attacker.com one. Matching dkim=pass and header.d= independently
+// across the whole value would then vouch for victim.com off the back of the
+// unrelated attacker.com pass, letting an attacker spoof From: victim@victim.com
+// into the victim's account. Correlating them per clause closes that.
+func headerAuthenticates(header, domain string) bool {
+	// Clauses are ';'-separated; the leading authserv-id clause carries no
+	// dkim= token and is simply skipped by dkimClauseMatches.
+	for _, clause := range strings.Split(header, ";") {
+		if dkimClauseMatches(clause, domain) {
+			return true
+		}
 	}
-	idx := strings.Index(line, "header.d=")
-	if idx < 0 {
-		return false
-	}
-	rest := line[idx+len("header.d="):]
-	rest = strings.TrimLeft(rest, `"' `)
-	end := strings.IndexAny(rest, " \t,;\"'")
-	if end >= 0 {
-		rest = rest[:end]
-	}
-	return rest == domain
+	return false
 }
 
-// hasAuthResultToken reports whether want (e.g. "dkim=pass") appears in line as
-// a complete token — delimited by whitespace or ';' per RFC 8601 — rather than
-// as a substring of another field's value. Without this, a real dkim=fail
-// result could be spoofed by an attacker-controlled identity such as
-// header.i=foo+dkim=pass@example.com, whose value contains the literal
-// "dkim=pass". Callers must lower-case line first.
-func hasAuthResultToken(line, want string) bool {
-	for _, tok := range strings.FieldsFunc(line, func(r rune) bool {
-		return r == ';' || r == ' ' || r == '\t' || r == '\r' || r == '\n'
-	}) {
-		if tok == want {
-			return true
+// dkimClauseMatches reports whether a single resinfo clause is a dkim=pass
+// result aligned to domain. The method-result is the FIRST `dkim=` token in the
+// clause, so a `dkim=pass` smuggled into a later property value (e.g.
+// header.i=foo+dkim=pass@example.com) can't promote a real `dkim=fail`; the
+// header.d= property must then appear in this SAME clause and equal domain.
+func dkimClauseMatches(clause, domain string) bool {
+	fields := strings.Fields(strings.ToLower(clause))
+	result := ""
+	for _, f := range fields {
+		if strings.HasPrefix(f, "dkim=") {
+			result = strings.TrimPrefix(f, "dkim=")
+			break
+		}
+	}
+	if result != "pass" {
+		return false
+	}
+	for _, f := range fields {
+		if strings.HasPrefix(f, "header.d=") {
+			d := strings.Trim(strings.TrimPrefix(f, "header.d="), `"'`)
+			if d == domain {
+				return true
+			}
 		}
 	}
 	return false

@@ -73,6 +73,21 @@ func TestBuildVerifyEmail_TrimsPublicURLTrailingSlash(t *testing.T) {
 	}
 }
 
+func TestBuildVerifyEmail_NeutralisesHeaderInjection(t *testing.T) {
+	// Defence in depth: even if an unvalidated address reached the builder, an
+	// embedded CR/LF must not split the To: header into an injected Bcc/header.
+	got := BuildVerifyEmail(VerifyInput{
+		FromAddr:  "flights@example.com",
+		ToAddr:    "alice@example.com\r\nBcc: victim@evil.example",
+		PublicURL: "https://flights.example.com",
+		Token:     "tok",
+	})
+	if strings.Contains(got, "Bcc:") {
+		t.Errorf("injected Bcc header survived into the message:\n%s", got)
+	}
+	mustContain(t, got, "To: alice@example.com\r\n")
+}
+
 // mustContain asserts that `want` appears in `got`. Quoted-printable soft
 // line breaks (=\r\n) inside the message body are stripped before matching
 // so substring assertions on HTML content survive QP's 76-column wrapping.

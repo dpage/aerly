@@ -3,6 +3,8 @@ package emailingest
 import (
 	"fmt"
 	"strings"
+
+	"github.com/dpage/aerly/internal/mailer"
 )
 
 // VerifyInput is everything BuildVerifyEmail needs to render an RFC822
@@ -27,8 +29,8 @@ func BuildVerifyEmail(in VerifyInput) string {
 	contentType, body := multipartBody(plain, htmlPart)
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", in.FromAddr)
-	fmt.Fprintf(&sb, "To: %s\r\n", in.ToAddr)
+	fmt.Fprintf(&sb, "From: %s\r\n", mailer.SanitizeHeaderValue(in.FromAddr))
+	fmt.Fprintf(&sb, "To: %s\r\n", mailer.SanitizeHeaderValue(in.ToAddr))
 	sb.WriteString("Subject: Verify your email for Aerly\r\n")
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&sb, "Content-Type: %s\r\n\r\n", contentType)

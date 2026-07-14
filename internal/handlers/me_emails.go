@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"net/mail"
 	"strings"
 
 	"github.com/dpage/aerly/internal/api"
@@ -50,8 +51,19 @@ func (a *API) addMyEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Email address is required.")
 		return
 	}
+	// Validate and canonicalise the address before it is stored or composed into
+	// the verification email's To: header. mail.ParseAddress rejects embedded
+	// CR/LF, so a value like "x@x.com\r\nBcc: victim@evil" can't smuggle extra
+	// headers or recipients into the outbound message — matching the friend-invite
+	// and share-by-email flows, which already validate this way.
+	parsed, err := mail.ParseAddress(strings.TrimSpace(in.Address))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid email address.")
+		return
+	}
+	addr := parsed.Address
 	u := auth.UserFrom(r.Context())
-	row, token, err := a.Store.InsertUnverifiedEmail(r.Context(), u.ID, in.Address)
+	row, token, err := a.Store.InsertUnverifiedEmail(r.Context(), u.ID, addr)
 	switch {
 	case errors.Is(err, store.ErrAddressTaken):
 		// The address column is globally unique across accounts, so a conflict
@@ -62,7 +74,7 @@ func (a *API) addMyEmail(w http.ResponseWriter, r *http.Request) {
 		msg := "That email address is already registered to another Aerly account."
 		if mine, e := a.Store.EmailsByUser(r.Context(), u.ID); e == nil {
 			for _, em := range mine {
-				if strings.EqualFold(em.Address, strings.TrimSpace(in.Address)) {
+				if strings.EqualFold(em.Address, addr) {
 					msg = "You've already added that address."
 					break
 				}

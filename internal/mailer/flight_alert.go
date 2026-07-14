@@ -86,8 +86,8 @@ func AssembleRFC822(fromAddr, toAddr, subject, plain, htmlBody string) string {
 	contentType, body := MultipartBody(plain, htmlBody)
 	encodedSubject := mime.QEncoding.Encode("utf-8", subject)
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", fromAddr)
-	fmt.Fprintf(&sb, "To: %s\r\n", toAddr)
+	fmt.Fprintf(&sb, "From: %s\r\n", SanitizeHeaderValue(fromAddr))
+	fmt.Fprintf(&sb, "To: %s\r\n", SanitizeHeaderValue(toAddr))
 	fmt.Fprintf(&sb, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
 	fmt.Fprintf(&sb, "Subject: %s\r\n", encodedSubject)
 	sb.WriteString("MIME-Version: 1.0\r\n")
