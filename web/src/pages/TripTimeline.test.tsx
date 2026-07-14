@@ -336,7 +336,7 @@ describe('TripTimeline', () => {
     renderTimeline();
     const card = screen.getByTestId('part-card-1');
     await userEvent.click(card);
-    expect(within(card).getByRole('button', { name: /Privacy & passengers/i })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: /Sharing/i })).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: /^Edit$/i })).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: /Delete/i })).toBeInTheDocument();
     // Owners receive alerts via their own prefs, so the per-plan opt-in is hidden.
@@ -353,7 +353,7 @@ describe('TripTimeline', () => {
     await userEvent.click(card);
     expect(within(card).getByLabelText(/Notify me of changes/i)).toBeInTheDocument();
     expect(
-      within(card).queryByRole('button', { name: /Privacy & passengers/i }),
+      within(card).queryByRole('button', { name: /Sharing/i }),
     ).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
@@ -476,7 +476,7 @@ describe('TripTimeline', () => {
     renderTimeline();
     const card = screen.getByTestId('part-card-1');
     await userEvent.click(card);
-    await userEvent.click(within(card).getByRole('button', { name: /Privacy & passengers/i }));
+    await userEvent.click(within(card).getByRole('button', { name: /Sharing/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
@@ -644,7 +644,7 @@ describe('TripTimeline', () => {
     renderTimeline();
     const card = screen.getByTestId('part-card-1');
     await userEvent.click(card);
-    await userEvent.click(within(card).getByRole('button', { name: /Privacy & passengers/i }));
+    await userEvent.click(within(card).getByRole('button', { name: /Sharing/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

@@ -291,7 +291,7 @@ export const HELP_PAGES: HelpPage[] = [
         <SectionTitle>Per-plan privacy</SectionTitle>
         <FeatureItem
           title="Who can see this plan?"
-          description="On a plan's Privacy & passengers dialog, choose Everyone on the trip (default), Hidden from… (everyone except the people you pick), or Only visible to… (just the people you pick)."
+          description="On a plan's Sharing dialog, choose Everyone on the trip (default), Hidden from… (everyone except the people you pick), or Only visible to… (just the people you pick)."
         />
         <FeatureItem
           title="Passengers"

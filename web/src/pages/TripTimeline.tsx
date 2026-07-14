@@ -534,7 +534,7 @@ interface PartCardProps {
 
 /** A timeline tile. Tapping the header expands it in place (PRD §6.2 tap-through
  * to the whole plan) to reveal the address, type-specific detail, notes and the
- * per-plan actions — owners/editors get Edit / "Privacy & passengers" / Delete
+ * per-plan actions — owners/editors get Edit / Sharing / Delete
  * (§6.4), viewers get the "Notify me of changes" opt-in (§6.8). */
 function PartCard({
   part,
@@ -792,7 +792,7 @@ function PartCard({
                 Edit
               </Button>
               <Button size="small" onClick={() => setPrivacyOpen(true)}>
-                Privacy &amp; passengers
+                Sharing
               </Button>
               <Button
                 size="small"

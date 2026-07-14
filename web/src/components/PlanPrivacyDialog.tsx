@@ -214,7 +214,7 @@ export default function PlanPrivacyDialog({ open, plan, members, onClose }: Prop
 
   return (
     <Dialog open={open} onClose={() => void handleClose()} maxWidth="sm" fullWidth>
-      <DialogTitle>Privacy &amp; passengers</DialogTitle>
+      <DialogTitle>Sharing</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={3}>
           <FormControl>
