@@ -12,6 +12,33 @@ vi.mock('./AddToTripDialog', () => ({
   default: ({ open, prefill }: { open: boolean; prefill?: { title: string } }) =>
     open ? <div data-testid="add-dialog">{prefill?.title}</div> : null,
 }));
+// PoiMiniMap needs WebGL (MapLibre); stub it and expose a "pin" per POI plus the
+// current selection, so the list↔map wiring can be asserted without a real map.
+vi.mock('./PoiMiniMap', () => ({
+  default: ({
+    pois,
+    selectedId,
+    onSelectPoi,
+  }: {
+    pois: { id: string; name: string }[];
+    selectedId?: string;
+    onSelectPoi: (id: string) => void;
+  }) => (
+    <div data-testid="poi-mini-map" data-selected={selectedId ?? ''}>
+      {pois.map((p) => (
+        <button
+          key={p.id}
+          data-testid={`map-pin-${p.id}`}
+          aria-label={`map pin ${p.id}`}
+          onClick={() => onSelectPoi(p.id)}
+        />
+      ))}
+    </div>
+  ),
+}));
+
+// jsdom doesn't implement scrollIntoView; the panel calls it on row selection.
+Element.prototype.scrollIntoView = vi.fn();
 
 import ExplorePanel from './ExplorePanel';
 
@@ -84,12 +111,9 @@ describe('ExplorePanel', () => {
     expect(screen.getByText(/1\.8 km away/i)).toBeInTheDocument();
     // out-links present when data is available
     const towerLinks = screen.getAllByRole('link');
-    expect(
-      towerLinks.some(
-        (l) =>
-          l.getAttribute('href') === 'https://www.openstreetmap.org/?mlat=51.5&mlon=-0.12#map=17/51.5/-0.12',
-      ),
-    ).toBe(true);
+    // Location is now shown in-app via the mini-map, not an external OSM link.
+    expect(screen.getAllByRole('button', { name: /show on map/i }).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('poi-mini-map')).toBeInTheDocument();
     expect(
       towerLinks.some((l) => l.getAttribute('href') === 'https://www.wikidata.org/wiki/Q1'),
     ).toBe(true);
@@ -140,6 +164,20 @@ describe('ExplorePanel', () => {
     expect(row).not.toBeNull();
     await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /add to trip/i }));
     expect(screen.getByTestId('add-dialog')).toHaveTextContent('Example Tower');
+  });
+
+  it('syncs selection both ways between the list and the map', async () => {
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+
+    // Map → list: clicking a map pin selects that POI (reflected on the map stub).
+    await userEvent.click(screen.getByTestId('map-pin-node/1'));
+    expect(screen.getByTestId('poi-mini-map')).toHaveAttribute('data-selected', 'node/1');
+
+    // List → map: "Show on map" on a row sets the selection to that POI.
+    const row = screen.getByText('Big Museum').closest('li') as HTMLElement;
+    await userEvent.click(within(row).getByRole('button', { name: /show on map/i }));
+    expect(screen.getByTestId('poi-mini-map')).toHaveAttribute('data-selected', 'node/2');
   });
 
   it('re-fetches with updated categories when a category chip is toggled off', async () => {

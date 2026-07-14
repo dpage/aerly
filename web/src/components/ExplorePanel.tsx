@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Box,
   Button,
@@ -23,6 +23,7 @@ import RestaurantIcon from '@mui/icons-material/Restaurant';
 import { api } from '../api/client';
 import { errorMessage } from '../state/helpers';
 import AddToTripDialog, { type PlanPrefill } from './AddToTripDialog';
+import PoiMiniMap from './PoiMiniMap';
 import type { Poi, PoiCategory } from '../api/types';
 
 export interface ExplorePanelProps {
@@ -100,6 +101,13 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
   // Bumped by the "Try again" button to re-run the fetch after a transient
   // upstream failure without changing any of the real query inputs.
   const [reloadKey, setReloadKey] = useState(0);
+  // The resolved search centre (from the response) for the mini-map anchor, and
+  // the currently-selected POI (set by clicking a map pin) for row highlighting.
+  const [center, setCenter] = useState<{ lat: number; lon: number } | undefined>(
+    initialCenter ? { lat: initialCenter.lat, lon: initialCenter.lon } : undefined,
+  );
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   // Fetches on mount and whenever the category set, radius, place, or centre
   // coordinates change. Coordinates from initialCenter win over the typed place
@@ -123,6 +131,7 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
       .then((res) => {
         if (cancelled) return;
         setPois(res.pois);
+        setCenter(res.center);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -157,6 +166,16 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
   const filtered = nameQ.trim()
     ? pois.filter((p) => p.name.toLowerCase().includes(nameQ.trim().toLowerCase()))
     : pois;
+
+  // Bring the row for a map-selected POI into view. Guarded because jsdom
+  // doesn't implement scrollIntoView.
+  useEffect(() => {
+    if (!selectedId) return;
+    const row = rowRefs.current[selectedId];
+    if (row && typeof row.scrollIntoView === 'function') {
+      row.scrollIntoView({ block: 'nearest' });
+    }
+  }, [selectedId]);
 
   return (
     <Stack spacing={2} sx={{ p: { xs: 2, sm: 3 }, maxWidth: 900, mx: 'auto', width: '100%' }}>
@@ -237,11 +256,28 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
         </Typography>
       )}
 
+      {!error && filtered.length > 0 && (
+        <PoiMiniMap
+          pois={filtered}
+          center={center}
+          selectedId={selectedId}
+          onSelectPoi={setSelectedId}
+        />
+      )}
+
       <List>
         {filtered.map((poi) => (
           <ListItem
             key={poi.id}
             divider
+            ref={(el: HTMLLIElement | null) => {
+              rowRefs.current[poi.id] = el;
+            }}
+            sx={
+              poi.id === selectedId
+                ? { bgcolor: 'action.selected', borderRadius: 1 }
+                : undefined
+            }
             secondaryAction={
               <Button size="small" variant="outlined" onClick={() => openAdd(poi)}>
                 Add to trip
@@ -257,12 +293,8 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
                 {CATEGORY_LABELS[poi.category]} · {formatDistance(poi.distance_m)} away
               </Typography>
               <Stack direction="row" spacing={1.5}>
-                <Link
-                  href={`https://www.openstreetmap.org/?mlat=${poi.lat}&mlon=${poi.lon}#map=17/${poi.lat}/${poi.lon}`}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Map
+                <Link component="button" type="button" onClick={() => setSelectedId(poi.id)}>
+                  Show on map
                 </Link>
                 {poi.wikidata && (
                   <Link

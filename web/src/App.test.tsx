@@ -64,6 +64,7 @@ vi.mock('./pages/TripList', () => ({ default: () => <div>TRIP_LIST</div> }));
 vi.mock('./pages/TripDetail', () => ({ default: () => <div>TRIP_DETAIL</div> }));
 vi.mock('./pages/TripTimeline', () => ({ default: () => <div>TRIP_TIMELINE</div> }));
 vi.mock('./pages/TripMap', () => ({ default: () => <div>TRIP_MAP</div> }));
+vi.mock('./pages/TripExplore', () => ({ default: () => <div>TRIP_EXPLORE</div> }));
 vi.mock('./pages/Tracker', () => ({ default: () => <div>TRACKER</div> }));
 vi.mock('./components/Login', () => ({ default: () => <div>LOGIN</div> }));
 vi.mock('./components/PrivacyPolicy', () => ({ default: () => <div>PRIVACY_POLICY</div> }));

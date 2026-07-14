@@ -3,7 +3,6 @@ import maplibregl, {
   type LngLatBoundsLike,
   type Map as MlMap,
   type MapGeoJSONFeature,
-  type StyleSpecification,
 } from 'maplibre-gl';
 import {
   Alert,
@@ -26,6 +25,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 
 import type { PlanPart } from '../api/types';
 import { unlocatedCount } from '../lib/geo';
+import { osmRasterStyle } from '../lib/map-style';
 import {
   fmtScrubTime,
   parseMs,
@@ -44,20 +44,7 @@ import FlightDetailCard from './FlightDetailCard';
 import PartDetailBlock from './PartDetailBlock';
 import BottomSheet, { PEEK_PX, sheetHeightPx, type SheetSnap } from './BottomSheet';
 
-const STYLE: StyleSpecification = {
-  version: 8,
-  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-    },
-  },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-};
+const STYLE = osmRasterStyle;
 
 const LEGS = 'pmv-legs';
 const TRACK = 'pmv-track';
