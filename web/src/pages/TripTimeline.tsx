@@ -12,6 +12,8 @@ import {
   FormControlLabel,
   IconButton,
   Link,
+  Menu,
+  MenuItem,
   Stack,
   Switch,
   Tooltip,
@@ -24,6 +26,7 @@ import PlaceIcon from '@mui/icons-material/Place';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
 import IosShareIcon from '@mui/icons-material/IosShare';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DirectionsIcon from '@mui/icons-material/Directions';
 import CloseIcon from '@mui/icons-material/Close';
 
 import { api } from '../api/client';
@@ -51,6 +54,7 @@ import { fmtGate } from '../lib/gate';
 import { formatCost } from '../lib/format';
 import { isUnlocated } from '../lib/geo';
 import { buildPlanShareText, canShareNatively, sharePlan } from '../lib/share';
+import { MAPS_PROVIDERS, canRouteTo, directionsUrl } from '../lib/directions';
 
 // Accent palette used to visually tie a plan's parts together (PRD §6.2). A
 // plan's parts all share the same accent stripe and connector, so a return
@@ -571,6 +575,7 @@ function PartCard({
   const [editOpen, setEditOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [directionsAnchor, setDirectionsAnchor] = useState<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false);
 
   const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
@@ -592,6 +597,16 @@ function PartCard({
   // those hotel-band tiles.
   const nights = edge ? hotelNights(part) : 0;
   const nightsLabel = nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : '';
+  // Where a "Directions" launch would route to: the plan's own location (its
+  // start point — the airport, hotel, venue…), by coordinates when we have them
+  // and by address/label otherwise. The maps app supplies the current location
+  // as the origin, so no device GPS is needed.
+  const directionsTarget = {
+    lat: part.start_lat,
+    lon: part.start_lon,
+    query: part.start_address || part.start_label,
+  };
+  const canRoute = canRouteTo(directionsTarget);
 
   const handleDelete = async () => {
     if (!window.confirm(`Delete "${plan.title || planTypeLabel(plan.type)}" from this trip?`))
@@ -619,6 +634,8 @@ function PartCard({
       setError('Could not share this plan');
     }
   };
+
+  const closeDirections = () => setDirectionsAnchor(null);
 
   // Clicks inside the expanded body shouldn't fold the card back up.
   const stop = (e: MouseEvent) => e.stopPropagation();
@@ -799,6 +816,45 @@ function PartCard({
               )}
             </IconButton>
           </Tooltip>
+          {canRoute && (
+            <Tooltip title="Directions">
+              <IconButton
+                size="small"
+                aria-label="Directions"
+                aria-haspopup="true"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDirectionsAnchor(e.currentTarget);
+                }}
+                sx={{ color: accent }}
+              >
+                <DirectionsIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {canRoute && (
+            // Portalled, so React events bubble to this card's onClick; stop
+            // them so choosing an app (or dismissing) doesn't fold the tile.
+            <Menu
+              anchorEl={directionsAnchor}
+              open={Boolean(directionsAnchor)}
+              onClose={closeDirections}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {MAPS_PROVIDERS.map((p) => (
+                <MenuItem
+                  key={p.value}
+                  component="a"
+                  href={directionsUrl(p.value, directionsTarget)}
+                  target="_blank"
+                  rel="noopener"
+                  onClick={closeDirections}
+                >
+                  {p.label}
+                </MenuItem>
+              ))}
+            </Menu>
+          )}
           {part.type === 'hotel' && part.start_lat != null && part.start_lon != null && onExplore && (
             <Tooltip title="Explore nearby">
               <IconButton

@@ -1170,6 +1170,60 @@ describe('TripTimeline', () => {
       vi.unstubAllGlobals();
     });
   });
+
+  describe('Directions', () => {
+    it('offers a Directions menu linking each maps app to the plan location', async () => {
+      state.currentTrip = tripWith([
+        plan([part({ id: 1, plan_id: 1, start_lat: 48.11, start_lon: 16.57, start_label: 'VIE' })], {
+          id: 1,
+          title: 'Flight out',
+        }),
+      ]);
+      renderTimeline();
+      const card = screen.getByTestId('part-card-1');
+      await userEvent.click(within(card).getByRole('button', { name: /directions/i }));
+      expect(await screen.findByRole('menuitem', { name: /apple maps/i })).toHaveAttribute(
+        'href',
+        'https://maps.apple.com/?daddr=48.11,16.57&dirflg=d',
+      );
+      expect(screen.getByRole('menuitem', { name: /google maps/i })).toHaveAttribute(
+        'href',
+        'https://www.google.com/maps/dir/?api=1&destination=48.11,16.57',
+      );
+      expect(screen.getByRole('menuitem', { name: /waze/i })).toHaveAttribute(
+        'href',
+        'https://waze.com/ul?ll=48.11,16.57&navigate=yes',
+      );
+      // Choosing an app closes the menu (and, being portalled, must not fold the
+      // tile — the expanded Edit action never appears).
+      await userEvent.click(screen.getByRole('menuitem', { name: /google maps/i }));
+      await vi.waitFor(() =>
+        expect(screen.queryByRole('menuitem', { name: /google maps/i })).not.toBeInTheDocument(),
+      );
+      expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
+    });
+
+    it('hides the Directions button when the plan has no location to route to', () => {
+      state.currentTrip = tripWith([
+        plan(
+          [
+            part({
+              id: 2,
+              plan_id: 2,
+              start_lat: undefined,
+              start_lon: undefined,
+              start_label: '',
+              start_address: '',
+              end_label: '',
+            }),
+          ],
+          { id: 2, title: 'No location' },
+        ),
+      ]);
+      renderTimeline();
+      expect(screen.queryByRole('button', { name: /directions/i })).not.toBeInTheDocument();
+    });
+  });
 });
 
 describe('TripTimeline external plans', () => {
