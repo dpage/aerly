@@ -478,7 +478,7 @@ function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: st
       <Stack
         direction="row"
         spacing={1.5}
-        sx={{ p: 1.5, '&:hover': { bgcolor: 'action.hover' } }}
+        sx={{ p: 1.5, '@media (hover: hover)': { '&:hover': { bgcolor: 'action.hover' } } }}
         alignItems="flex-start"
       >
         <CalendarMonthIcon sx={{ color: accent, mt: 0.25 }} />
@@ -646,7 +646,10 @@ function PartCard({
         sx={{
           p: 1.5,
           cursor: linkMode && !selectable ? 'default' : 'pointer',
-          '&:hover': { bgcolor: 'action.hover' },
+          // Only shade on hover-capable (mouse) devices: on touch, :hover sticks
+          // after a tap and would leave a "selected"-looking grey background on
+          // the tile until something else was tapped (iOS Safari especially).
+          '@media (hover: hover)': { '&:hover': { bgcolor: 'action.hover' } },
         }}
         alignItems="flex-start"
       >

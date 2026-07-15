@@ -545,7 +545,10 @@ function PastTripGroup({
                   px: 0.5,
                   py: 0.25,
                   mb: isCollapsed ? 0 : 1,
-                  '&:hover': { bgcolor: 'action.hover' },
+                  // Hover only on hover-capable devices: on touch, :hover sticks
+                  // after a tap and would leave this header greyed until you
+                  // tapped elsewhere.
+                  '@media (hover: hover)': { '&:hover': { bgcolor: 'action.hover' } },
                   userSelect: 'none',
                 }}
                 onClick={() => toggleYear(year)}
