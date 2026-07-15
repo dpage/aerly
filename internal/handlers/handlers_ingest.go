@@ -19,6 +19,11 @@ import (
 // parsing bounded. 20 MiB comfortably covers boarding-pass / itinerary PDFs.
 const maxUploadBytes = 20 << 20
 
+// maxIngestTextBytes caps the pasted/typed text forwarded to the LLM. A few
+// hundred KiB dwarfs any real itinerary paste while keeping the per-request LLM
+// cost bounded regardless of the overall body limit.
+const maxIngestTextBytes = 256 << 10
+
 // Wave 2A: the ingest pipeline. POST /api/trips/{id}/ingest proposes plans from
 // pasted text / uploaded documents (the LLM seam, with a rebooking match
 // against the trip's existing flights); POST /api/trips/{id}/ingest/confirm
@@ -67,9 +72,26 @@ func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 	if err := a.requireTripEdit(r.Context(), tripID, me, w); err != nil {
 		return
 	}
+	// A document (PDF) ingest streams a multi-MiB body, so give it a longer read
+	// deadline than the short global ReadTimeout (harmless for the text path).
+	extendUploadDeadline(w)
+	// Per-user rate limit: propose runs the paid LLM extractor, so cap how fast
+	// one editor can call it. Checked after auth so only a real editor consumes
+	// a token, and a 429 tells the client to back off.
+	if a.ingestLimiter != nil && !a.ingestLimiter.allow(me.ID) {
+		writeError(w, http.StatusTooManyRequests, "Too many ingest requests; please wait a moment and try again.")
+		return
+	}
 	text, docs, err := parseIngestBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Cap the text handed to the LLM. The overall body is already bounded (JSON
+	// by maxJSONBodyBytes, uploads by maxUploadBytes), but a large pasted body
+	// would still be forwarded verbatim to a paid model; reject it up front.
+	if len(text) > maxIngestTextBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "That text is too long to process; please shorten it.")
 		return
 	}
 	// An .ics from a recognised source (e.g. a TripIt export) is structured, so

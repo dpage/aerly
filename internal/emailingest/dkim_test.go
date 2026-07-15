@@ -128,6 +128,39 @@ func TestDKIMPass_NoTokenSmuggling(t *testing.T) {
 	}
 }
 
+func TestDKIMPass_ClauseCorrelation(t *testing.T) {
+	// A single genuine boundary-MTA header can carry several dkim results
+	// (';'-separated resinfo clauses) when a message bundles multiple
+	// signatures. The check must bind dkim=pass to the header.d= in its OWN
+	// clause — matching the pass and the domain independently would let an
+	// attacker spoof From: victim by ordering a failing victim.com signature
+	// before a passing attacker-controlled one.
+	h := []string{"mail.example; dkim=fail header.d=example.com; dkim=pass header.d=attacker.com"}
+	if DKIMPass(h, trustedID, "example.com") {
+		t.Error("a pass for attacker.com must not authenticate example.com whose own result failed")
+	}
+	// The attacker's own domain, which genuinely passed, still authenticates —
+	// but only for itself.
+	if !DKIMPass(h, trustedID, "attacker.com") {
+		t.Error("the clause that genuinely passed should authenticate its own domain")
+	}
+	// pass + aligned header.d in the same clause still authenticates even when a
+	// different, failing clause precedes it.
+	h = []string{"mail.example; dkim=fail header.d=other.com; dkim=pass header.d=example.com"}
+	if !DKIMPass(h, trustedID, "example.com") {
+		t.Error("a pass clause aligned to the domain must authenticate")
+	}
+}
+
+func TestDKIMPass_PassClauseWithComment(t *testing.T) {
+	// A verifier may annotate the result with a parenthesised comment before the
+	// properties; the leading dkim= token is still the method-result.
+	h := []string{"mail.example; dkim=pass (good signature) header.d=example.com"}
+	if !DKIMPass(h, trustedID, "example.com") {
+		t.Error("expected pass despite a parenthesised comment after the result")
+	}
+}
+
 func TestFromDomain(t *testing.T) {
 	cases := []struct {
 		in, want string

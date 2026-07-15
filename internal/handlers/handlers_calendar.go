@@ -101,6 +101,17 @@ func (a *API) calendarTokenInfo(w http.ResponseWriter, r *http.Request, wantScop
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return nil, false
 	}
+	// Honour account deactivation. IsActive is the app's revocation primitive —
+	// the session middleware and LinkLogin both reject inactive users — but a
+	// feed token resolves straight to its owner with no such check, so a
+	// previously-issued calendar subscription would otherwise keep serving the
+	// user's itineraries after their access was revoked. Reject the token when
+	// the owner is gone or deactivated.
+	owner, err := a.Store.UserByID(r.Context(), info.UserID)
+	if err != nil || !owner.IsActive {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return nil, false
+	}
 	return info, true
 }
 

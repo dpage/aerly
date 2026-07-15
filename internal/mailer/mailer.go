@@ -84,6 +84,20 @@ Sent by Aerly · <a href="` + safeSite + `" style="color:` + BrandColor + `;text
 // HTMLEscape escapes user-supplied content for safe inclusion in HTML.
 func HTMLEscape(s string) string { return html.EscapeString(s) }
 
+// SanitizeHeaderValue neutralises header injection by truncating a header value
+// at the first CR or LF. RFC822 headers are newline-delimited, so an embedded
+// CR/LF in a caller-supplied From/To address (or any header value) would
+// otherwise start a new header — letting an unvalidated address smuggle extra
+// recipients (Bcc:) or headers into the outbound message. Callers should still
+// validate addresses up front (mail.ParseAddress); this is the last-line guard
+// applied at every header write so no code path can inject regardless.
+func SanitizeHeaderValue(v string) string {
+	if i := strings.IndexAny(v, "\r\n"); i >= 0 {
+		return v[:i]
+	}
+	return v
+}
+
 // MultipartBody renders the multipart/alternative body (boundary + two
 // parts) and returns the Content-Type header value and the body. The
 // text/plain part comes first; text/html last, so MIME-aware clients

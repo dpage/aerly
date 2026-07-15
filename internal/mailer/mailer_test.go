@@ -137,3 +137,29 @@ func TestSend_PassesMessageToBinary(t *testing.T) {
 		t.Errorf("Send(stub) = %v, want nil", err)
 	}
 }
+
+func TestSanitizeHeaderValue(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"alice@example.com", "alice@example.com"},
+		{"alice@example.com\r\nBcc: victim@evil", "alice@example.com"},
+		{"alice@example.com\ninjected", "alice@example.com"},
+		{"alice@example.com\rinjected", "alice@example.com"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := SanitizeHeaderValue(c.in); got != c.want {
+			t.Errorf("SanitizeHeaderValue(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestAssembleRFC822_NeutralisesHeaderInjection(t *testing.T) {
+	msg := AssembleRFC822("from@example.com", "to@example.com\r\nBcc: victim@evil",
+		"Subject line", "plain", "<p>html</p>")
+	if strings.Contains(msg, "Bcc:") {
+		t.Errorf("injected Bcc survived:\n%s", msg)
+	}
+	if !strings.Contains(msg, "To: to@example.com\r\n") {
+		t.Errorf("To header not sanitised as expected:\n%s", msg)
+	}
+}

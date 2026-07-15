@@ -2,6 +2,7 @@ package feeds
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,61 @@ func TestFetchTransportError(t *testing.T) {
 	f := NewFetcher("test")
 	if _, err := f.Fetch(context.Background(), srv.URL, "", "", ""); err == nil {
 		t.Fatal("Fetch through guarded dialer to loopback = nil, want transport error")
+	}
+}
+
+// TestGuardedDialAllowPrivateLiteral exercises guardedDial's IP-literal success
+// path: with AllowPrivate the guarded transport connects to the loopback IP that
+// httptest binds to (proving the pin-and-dial path reaches the server).
+func TestGuardedDialAllowPrivateLiteral(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/calendar")
+		_, _ = w.Write([]byte(sampleICS))
+	}))
+	defer srv.Close()
+	f := NewFetcher("test")
+	f.AllowPrivate = true
+	if _, err := f.Fetch(context.Background(), srv.URL, "", "", ""); err != nil {
+		t.Fatalf("Fetch via guarded transport (AllowPrivate, IP literal) = %v, want success", err)
+	}
+}
+
+// TestGuardedDialAllowPrivateHostname exercises the hostname branch: guardedDial
+// resolves "localhost" once and dials the resolved IP directly.
+func TestGuardedDialAllowPrivateHostname(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/calendar")
+		_, _ = w.Write([]byte(sampleICS))
+	}))
+	defer srv.Close()
+	url := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	f := NewFetcher("test")
+	f.AllowPrivate = true
+	if _, err := f.Fetch(context.Background(), url, "", "", ""); err != nil {
+		t.Fatalf("Fetch localhost via guarded transport (AllowPrivate) = %v, want success", err)
+	}
+}
+
+// TestGuardedDialBlocksHostnameResolvingPrivate covers the security path: with
+// the guard on, a hostname that resolves to loopback is rejected at dial time —
+// resolved once, then vetted and refused before any connect.
+func TestGuardedDialBlocksHostnameResolvingPrivate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sampleICS))
+	}))
+	defer srv.Close()
+	url := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	f := NewFetcher("test")
+	if _, err := f.Fetch(context.Background(), url, "", "", ""); err == nil {
+		t.Fatal("Fetch localhost through guard = nil, want blocked (resolves to loopback)")
+	}
+}
+
+// TestGuardedDialBadAddr covers the SplitHostPort-error branch.
+func TestGuardedDialBadAddr(t *testing.T) {
+	f := NewFetcher("test")
+	if _, err := f.guardedDial(context.Background(), &net.Dialer{}, "tcp", "missing-port"); err == nil {
+		t.Fatal("guardedDial(missing-port) = nil, want SplitHostPort error")
 	}
 }
 

@@ -115,6 +115,30 @@ func TestBuildReply_SubjectHeaderInjection(t *testing.T) {
 	}
 }
 
+func TestBuildReply_InReplyToHeaderInjection(t *testing.T) {
+	// InReplyTo echoes the inbound Message-ID; a crafted value with CR/LF must
+	// not inject its own header line into the reply.
+	body := BuildReply(ReplyInput{
+		FromAddr:  "flights@flights.example",
+		ToAddr:    "victim@example.com",
+		Subject:   "hi",
+		InReplyTo: "<msg@x>\r\nBcc: attacker@evil.example",
+		PublicURL: "https://flights.example",
+	})
+	headerEnd := strings.Index(body, "\r\n\r\n")
+	if headerEnd < 0 {
+		t.Fatalf("no header/body separator in:\n%s", body)
+	}
+	for _, line := range strings.Split(body[:headerEnd], "\r\n") {
+		if strings.HasPrefix(strings.ToLower(line), "bcc:") {
+			t.Errorf("injected Bcc header survived as its own line:\n%s", body[:headerEnd])
+		}
+	}
+	if !strings.Contains(body, "In-Reply-To: <msg@x>\r\n") {
+		t.Errorf("In-Reply-To not sanitised to a single line:\n%s", body[:headerEnd])
+	}
+}
+
 func TestBuildReply_PartialFailure(t *testing.T) {
 	in := ReplyInput{
 		FromAddr: "flights@flights.example", ToAddr: "u@x", PublicURL: "https://flights.example/",

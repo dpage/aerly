@@ -35,6 +35,9 @@ func (a *API) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A 25 MiB upload over a slow link can outlast the short global ReadTimeout,
+	// so extend this request's read deadline before streaming the body.
+	extendUploadDeadline(w)
 	maxBytes := a.Config.AttachmentsMaxBytes
 	// Cap the whole request body (file + multipart overhead) so a client can't
 	// stream gigabytes into ParseMultipartForm before we reject it.

@@ -44,33 +44,77 @@ type Fetcher struct {
 }
 
 // NewFetcher builds a Fetcher whose dialer refuses to connect to private,
-// loopback or link-local addresses (checked after DNS resolution, so it also
-// defeats DNS-rebinding). userAgent identifies us to feed publishers.
+// loopback or link-local addresses. The dialer resolves each hostname once and
+// connects to the vetted IP directly (see guardedDial), so a DNS-rebinding
+// attacker can't slip a private address in between the check and the connect.
+// userAgent identifies us to feed publishers.
 func NewFetcher(userAgent string) *Fetcher {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+	f := &Fetcher{UserAgent: userAgent}
+	f.HTTP = &http.Client{
+		Timeout: 20 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return f.guardedDial(ctx, dialer, network, addr)
+			},
+		},
+		// Re-validate the destination on every redirect hop, and cap the
+		// chain so a feed can't bounce us around indefinitely.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("too many redirects")
+			}
+			return validateURL(req.URL, false)
+		},
+	}
+	return f
+}
+
+// guardedDial resolves addr's host at most once and dials a VALIDATED public IP
+// directly. Dialing the resolved IP — rather than handing the hostname back to
+// the dialer for a second, unchecked resolution — is what actually closes the
+// DNS-rebinding TOCTOU: the address we vet is exactly the address we connect to.
+// AllowPrivate (test-only) skips the public-IP checks so tests can reach a
+// loopback httptest server through the real guarded transport.
+func (f *Fetcher) guardedDial(ctx context.Context, dialer *net.Dialer, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	// A literal IP has nothing to resolve: validate it and dial as-is.
+	if net.ParseIP(host) != nil {
+		if !f.AllowPrivate {
 			if err := guardAddr(addr); err != nil {
 				return nil, err
 			}
-			return dialer.DialContext(ctx, network, addr)
-		},
+		}
+		return dialer.DialContext(ctx, network, addr)
 	}
-	return &Fetcher{
-		HTTP: &http.Client{
-			Timeout:   20 * time.Second,
-			Transport: transport,
-			// Re-validate the destination on every redirect hop, and cap the
-			// chain so a feed can't bounce us around indefinitely.
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 5 {
-					return errors.New("too many redirects")
-				}
-				return validateURL(req.URL, false)
-			},
-		},
-		UserAgent: userAgent,
+	// A hostname: resolve once, then try each answer — but only after vetting it
+	// and only by dialing that exact IP, never the hostname.
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
 	}
+	var lastErr error
+	for _, ipa := range ips {
+		ipPort := net.JoinHostPort(ipa.IP.String(), port)
+		if !f.AllowPrivate {
+			if err := guardAddr(ipPort); err != nil {
+				lastErr = err
+				continue
+			}
+		}
+		conn, derr := dialer.DialContext(ctx, network, ipPort)
+		if derr == nil {
+			return conn, nil
+		}
+		lastErr = derr
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("feeds: no usable address for %s", host)
+	}
+	return nil, lastErr
 }
 
 // Result is the outcome of a successful (200) fetch + parse.
@@ -264,10 +308,11 @@ func validateURL(u *url.URL, allowPrivate bool) error {
 	return nil
 }
 
-// guardAddr blocks a dialled "host:port" whose resolved IPs include any
-// non-public address. Run from the transport's DialContext, it catches both
-// hostnames that resolve to private space and DNS-rebinding between the
-// validate and the connect.
+// guardAddr reports whether a "host:port" is allowed: it rejects a literal
+// non-public IP outright, and rejects a hostname any of whose resolved IPs is
+// non-public. guardedDial calls it to validate the concrete IP it is about to
+// dial (so the anti-rebinding guarantee comes from guardedDial pinning that IP,
+// not from this check); it is also the standalone validator used in tests.
 func guardAddr(addr string) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -298,9 +343,19 @@ func isPublicIP(ip net.IP) bool {
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
 		return false
 	}
-	// Block the IPv4 shared/CGNAT range 100.64.0.0/10, which IsPrivate misses.
-	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
-		return false
+	if v4 := ip.To4(); v4 != nil {
+		switch {
+		// 0.0.0.0/8 ("this network"): IsUnspecified only catches 0.0.0.0, but
+		// the kernel can route the rest of the block to the local host.
+		case v4[0] == 0:
+			return false
+		// 100.64.0.0/10 shared/CGNAT space, which IsPrivate misses.
+		case v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127:
+			return false
+		// 255.255.255.255 limited broadcast.
+		case v4[0] == 255 && v4[1] == 255 && v4[2] == 255 && v4[3] == 255:
+			return false
+		}
 	}
 	return true
 }

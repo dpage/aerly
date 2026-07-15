@@ -158,6 +158,24 @@ func TestAddMyEmail_EmptyAddress(t *testing.T) {
 	}
 }
 
+func TestAddMyEmail_InvalidAddressRejected(t *testing.T) {
+	e := setup(t, nil, &config.Config{EmailIngestEnabled: true})
+	uid := e.user(t, "alice", false)
+	// If this reached the store/mailer it would be a header-injection vector;
+	// the handler must reject a malformed address (embedded CR/LF) with 400.
+	sent := false
+	e.api.SendVerifyEmail = func(context.Context, string, string) error { sent = true; return nil }
+
+	w := e.req(t, "POST", "/api/me/emails",
+		map[string]string{"address": "x@example.com\r\nBcc: victim@evil.example"}, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if sent {
+		t.Error("verification email must not be sent for an invalid address")
+	}
+}
+
 func TestAddMyEmail_DisabledReturns503(t *testing.T) {
 	e := setup(t, nil, &config.Config{}) // EmailIngestEnabled = false
 	uid := e.user(t, "alice", false)
