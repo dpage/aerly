@@ -48,7 +48,7 @@ func TestNormalizeURL(t *testing.T) {
 }
 
 func TestGuardAddrBlocksPrivate(t *testing.T) {
-	for _, addr := range []string{"127.0.0.1:443", "10.1.2.3:80", "192.168.0.1:443", "[::1]:443", "100.64.0.1:80"} {
+	for _, addr := range []string{"127.0.0.1:443", "10.1.2.3:80", "192.168.0.1:443", "[::1]:443", "100.64.0.1:80", "0.1.2.3:80", "255.255.255.255:80"} {
 		if err := guardAddr(addr); err == nil {
 			t.Errorf("guardAddr(%q) = nil, want blocked", addr)
 		}

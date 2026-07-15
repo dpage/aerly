@@ -72,6 +72,9 @@ func (a *API) ingestTrip(w http.ResponseWriter, r *http.Request) {
 	if err := a.requireTripEdit(r.Context(), tripID, me, w); err != nil {
 		return
 	}
+	// A document (PDF) ingest streams a multi-MiB body, so give it a longer read
+	// deadline than the short global ReadTimeout (harmless for the text path).
+	extendUploadDeadline(w)
 	// Per-user rate limit: propose runs the paid LLM extractor, so cap how fast
 	// one editor can call it. Checked after auth so only a real editor consumes
 	// a token, and a 429 tells the client to back off.

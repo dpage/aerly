@@ -289,6 +289,18 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 	if w := rawGet(e, "/api/calendar/me.ics?token="+ownerTok.Token); w.Code != http.StatusUnauthorized {
 		t.Errorf("deactivated owner feed = %d, want 401", w.Code)
 	}
+	// The per-trip and per-plan feed routes share the same calendarTokenInfo
+	// chokepoint, so deactivating a token's owner must revoke those too.
+	// Deactivate the member (holder of the trip/plan tokens) and check both.
+	if _, err := e.store.UpdateUser(context.Background(), member, store.UpdateUserPayload{IsActive: &inactive}); err != nil {
+		t.Fatalf("deactivate member: %v", err)
+	}
+	if w := rawGet(e, "/api/calendar/trip/"+itoa(trip)+".ics?token="+memberTripTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("deactivated member trip feed = %d, want 401", w.Code)
+	}
+	if w := rawGet(e, "/api/calendar/plan/"+itoa(hid)+".ics?token="+memberPlanTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("deactivated member plan feed = %d, want 401", w.Code)
+	}
 }
 
 // TestExportTripICS: the session-authed one-shot export downloads the viewer's

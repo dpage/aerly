@@ -307,11 +307,13 @@ func run(configPath string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		// ReadTimeout bounds the whole request read, so a client can't hold a
 		// connection open by dribbling the body a byte at a time (slow-body
-		// Slowloris) after the headers land. It's generous enough for a large
-		// (25 MiB default) attachment upload on a slow link. IdleTimeout reaps
-		// idle keep-alive connections so they can't accumulate. WriteTimeout is
-		// deliberately left unset: /api/events streams Server-Sent Events for the
-		// life of the client session, and a write deadline would sever it.
+		// Slowloris) after the headers land. Kept short for the general case; the
+		// upload handlers (attachments, document ingest) extend their own
+		// per-request read deadline via extendUploadDeadline so a large file on a
+		// slow link isn't cut off. IdleTimeout reaps idle keep-alive connections
+		// so they can't accumulate. WriteTimeout is deliberately left unset:
+		// /api/events streams Server-Sent Events for the life of the client
+		// session, and a write deadline would sever it.
 		ReadTimeout:    5 * time.Minute,
 		IdleTimeout:    2 * time.Minute,
 		MaxHeaderBytes: 1 << 20,

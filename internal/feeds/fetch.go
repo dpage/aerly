@@ -343,9 +343,19 @@ func isPublicIP(ip net.IP) bool {
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
 		return false
 	}
-	// Block the IPv4 shared/CGNAT range 100.64.0.0/10, which IsPrivate misses.
-	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
-		return false
+	if v4 := ip.To4(); v4 != nil {
+		switch {
+		// 0.0.0.0/8 ("this network"): IsUnspecified only catches 0.0.0.0, but
+		// the kernel can route the rest of the block to the local host.
+		case v4[0] == 0:
+			return false
+		// 100.64.0.0/10 shared/CGNAT space, which IsPrivate misses.
+		case v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127:
+			return false
+		// 255.255.255.255 limited broadcast.
+		case v4[0] == 255 && v4[1] == 255 && v4[2] == 255 && v4[3] == 255:
+			return false
+		}
 	}
 	return true
 }

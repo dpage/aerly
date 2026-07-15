@@ -116,12 +116,14 @@ func dkimClauseMatches(clause, domain string) bool {
 	if result != "pass" {
 		return false
 	}
+	// Bind to the FIRST header.d= in the clause, symmetric with taking the first
+	// dkim= as the result: a legitimate resinfo carries exactly one signing
+	// domain, so a later stray header.d= token can't be used to vouch for a
+	// second domain off one pass.
 	for _, f := range fields {
 		if strings.HasPrefix(f, "header.d=") {
 			d := strings.Trim(strings.TrimPrefix(f, "header.d="), `"'`)
-			if d == domain {
-				return true
-			}
+			return d == domain
 		}
 	}
 	return false

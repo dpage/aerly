@@ -324,6 +324,21 @@ func pathID(r *http.Request, name string) (int64, error) {
 // including pasted ingest text; binary uploads use their own multipart caps.
 const maxJSONBodyBytes = 1 << 20
 
+// uploadReadTimeout is the read deadline a large-body handler (attachment or
+// document upload) grants itself. The server's global ReadTimeout is kept short
+// to blunt slow-body attacks, which would otherwise cut off a legitimate
+// multi-MiB upload over a slow mobile link; upload handlers extend their own
+// per-request read deadline instead, so the general case stays tight while
+// uploads get headroom.
+const uploadReadTimeout = 15 * time.Minute
+
+// extendUploadDeadline lengthens the read deadline for the current request's
+// body, for handlers that accept a large upload. Best-effort: a no-op where the
+// connection can't set a deadline (e.g. httptest's ResponseRecorder).
+func extendUploadDeadline(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadReadTimeout))
+}
+
 func decode(r *http.Request, dst any) error {
 	// MaxBytesReader caps the read; the nil ResponseWriter only skips the
 	// proactive connection-close signal (we surface the error as a 400 instead).
