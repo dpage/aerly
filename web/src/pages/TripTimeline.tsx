@@ -54,7 +54,7 @@ import { fmtGate } from '../lib/gate';
 import { formatCost } from '../lib/format';
 import { isUnlocated } from '../lib/geo';
 import { buildPlanShareText, canShareNatively, sharePlan } from '../lib/share';
-import { MAPS_PROVIDERS, canRouteTo, directionsUrl, planDirectionsTarget } from '../lib/directions';
+import { MAPS_PROVIDERS, canRouteTo, directionsUrl } from '../lib/directions';
 
 // Accent palette used to visually tie a plan's parts together (PRD §6.2). A
 // plan's parts all share the same accent stripe and connector, so a return
@@ -597,18 +597,15 @@ function PartCard({
   // those hotel-band tiles.
   const nights = edge ? hotelNights(part) : 0;
   const nightsLabel = nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : '';
-  // Where a "Directions" launch routes to: the plan's own location (its start
-  // point — the airport, hotel, venue…). Pinned coordinates are used exactly;
-  // an auto-geocoded location prefers its address so the maps app re-geocodes it
-  // (more accurate than our stored Nominatim point). The maps app supplies the
-  // current location as the origin, so no device GPS is needed.
-  const directionsTarget = planDirectionsTarget({
+  // Where a "Directions" launch would route to: the plan's own location (its
+  // start point — the airport, hotel, venue…), by coordinates when we have them
+  // and by address/label otherwise. The maps app supplies the current location
+  // as the origin, so no device GPS is needed.
+  const directionsTarget = {
     lat: part.start_lat,
     lon: part.start_lon,
-    pinned: part.start_coords_pinned,
-    address: part.start_address,
-    label: part.start_label,
-  });
+    query: part.start_address || part.start_label,
+  };
   const canRoute = canRouteTo(directionsTarget);
 
   const handleDelete = async () => {

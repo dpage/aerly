@@ -26,30 +26,6 @@ export function canRouteTo(t: DirectionsTarget): boolean {
   return hasCoords(t) || (t.query ?? '').trim() !== '';
 }
 
-/** Build the Directions target for a plan endpoint, choosing between its
- * coordinates and its human address:
- *
- *   - Pinned coordinates (dropped-pin / map link / Explore POI) are
- *     authoritative, so route to the exact point.
- *   - Auto-geocoded coordinates are only as good as Nominatim's guess (which can
- *     miss a rural address by a few hundred metres), so prefer the address text
- *     and let the maps app apply its own, usually better, geocoder.
- *   - Fall back to coordinates when there's no usable address at all.
- */
-export function planDirectionsTarget(p: {
-  lat?: number | null;
-  lon?: number | null;
-  pinned?: boolean;
-  address?: string;
-  label?: string;
-}): DirectionsTarget {
-  const coords = { lat: p.lat, lon: p.lon };
-  const query = (p.address || p.label || '').trim();
-  if (p.pinned && hasCoords(coords)) return coords;
-  if (query) return { query };
-  return coords;
-}
-
 function hasCoords(t: DirectionsTarget): boolean {
   return t.lat != null && t.lon != null;
 }

@@ -1172,21 +1172,12 @@ describe('TripTimeline', () => {
   });
 
   describe('Directions', () => {
-    it('links each maps app to pinned coordinates exactly', async () => {
+    it('offers a Directions menu linking each maps app to the plan location', async () => {
       state.currentTrip = tripWith([
-        plan(
-          [
-            part({
-              id: 1,
-              plan_id: 1,
-              start_lat: 48.11,
-              start_lon: 16.57,
-              start_coords_pinned: true,
-              start_label: 'VIE',
-            }),
-          ],
-          { id: 1, title: 'Flight out' },
-        ),
+        plan([part({ id: 1, plan_id: 1, start_lat: 48.11, start_lon: 16.57, start_label: 'VIE' })], {
+          id: 1,
+          title: 'Flight out',
+        }),
       ]);
       renderTimeline();
       const card = screen.getByTestId('part-card-1');
@@ -1210,34 +1201,6 @@ describe('TripTimeline', () => {
         expect(screen.queryByRole('menuitem', { name: /google maps/i })).not.toBeInTheDocument(),
       );
       expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
-    });
-
-    it('routes to the address (not our auto-geocoded coords) for an unpinned location', async () => {
-      // The stored coords are Nominatim's guess (which mislands rural addresses),
-      // so an unpinned plan hands the maps app its address to re-geocode.
-      state.currentTrip = tripWith([
-        plan(
-          [
-            part({
-              id: 1,
-              plan_id: 1,
-              start_lat: 51.602,
-              start_lon: -1.565,
-              start_coords_pinned: false,
-              start_label: 'Home',
-              start_address: 'Old Orchard, Uffington, SN7 7RL',
-            }),
-          ],
-          { id: 1, title: 'Home to Gatwick' },
-        ),
-      ]);
-      renderTimeline();
-      const card = screen.getByTestId('part-card-1');
-      await userEvent.click(within(card).getByRole('button', { name: /directions/i }));
-      expect(await screen.findByRole('menuitem', { name: /google maps/i })).toHaveAttribute(
-        'href',
-        'https://www.google.com/maps/dir/?api=1&destination=Old%20Orchard%2C%20Uffington%2C%20SN7%207RL',
-      );
     });
 
     it('hides the Directions button when the plan has no location to route to', () => {

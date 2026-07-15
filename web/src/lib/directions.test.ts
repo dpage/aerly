@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canRouteTo, directionsUrl, planDirectionsTarget } from './directions';
+import { canRouteTo, directionsUrl } from './directions';
 
 describe('canRouteTo', () => {
   it('is true with coordinates', () => {
@@ -12,38 +12,6 @@ describe('canRouteTo', () => {
     expect(canRouteTo({})).toBe(false);
     expect(canRouteTo({ query: '   ' })).toBe(false);
     expect(canRouteTo({ lat: 48.1 })).toBe(false); // lon missing
-  });
-});
-
-describe('planDirectionsTarget', () => {
-  it('uses exact coordinates when they were pinned', () => {
-    expect(
-      planDirectionsTarget({ lat: 48.1, lon: 16.5, pinned: true, address: 'Somewhere' }),
-    ).toEqual({ lat: 48.1, lon: 16.5 });
-  });
-
-  it('prefers the address over auto-geocoded (unpinned) coordinates', () => {
-    // The stored coords are Nominatim's imperfect guess, so defer to the maps
-    // app geocoding the human address instead.
-    expect(
-      planDirectionsTarget({
-        lat: 51.602,
-        lon: -1.565,
-        pinned: false,
-        address: 'Old Orchard, Uffington, SN7 7RL',
-      }),
-    ).toEqual({ query: 'Old Orchard, Uffington, SN7 7RL' });
-  });
-
-  it('falls back to the label, then to coordinates, when no address is set', () => {
-    expect(planDirectionsTarget({ lat: 1, lon: 2, pinned: false, label: 'VIE' })).toEqual({
-      query: 'VIE',
-    });
-    expect(planDirectionsTarget({ lat: 1, lon: 2, pinned: false })).toEqual({ lat: 1, lon: 2 });
-  });
-
-  it('is not routable when there is neither a pin, coordinates, nor text', () => {
-    expect(canRouteTo(planDirectionsTarget({ pinned: false }))).toBe(false);
   });
 });
 
