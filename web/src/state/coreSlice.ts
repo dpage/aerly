@@ -94,6 +94,8 @@ export interface CoreSlice {
   deleteUser: (id: number) => Promise<void>;
 
   setHomeAddress: (address: string) => Promise<void>;
+  /** Pin the exact home coordinates, or clear the pin by passing null. */
+  setHomeCoords: (coords: { lat: number; lon: number } | null) => Promise<void>;
   setPaperSize: (paperSize: PaperSize) => Promise<void>;
   /** Update the feature-hiding preferences (hide_explore / hide_maps). */
   setHiddenFeatures: (patch: { hide_explore?: boolean; hide_maps?: boolean }) => Promise<void>;
@@ -207,6 +209,16 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
 
   async setHomeAddress(address) {
     const updated = await api.updateMe({ home_address: address });
+    set((s) => ({
+      me: updated,
+      users: s.users.map((u) => (u.id === updated.id ? updated : u)),
+    }));
+  },
+
+  async setHomeCoords(coords) {
+    const updated = await api.updateMe({
+      home_coords: coords ? { lat: coords.lat, lon: coords.lon } : { lat: null, lon: null },
+    });
     set((s) => ({
       me: updated,
       users: s.users.map((u) => (u.id === updated.id ? updated : u)),

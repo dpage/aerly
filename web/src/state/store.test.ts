@@ -273,6 +273,29 @@ describe('user mutations', () => {
     expect(useStore.getState().users[0].home_address).toBe('1 Main St');
   });
 
+  it('setHomeCoords pins coordinates and updates me and the users list', async () => {
+    useStore.setState({
+      users: [user({ id: 1 })],
+      me: user({ id: 1 }),
+    });
+    mockApi.updateMe.mockResolvedValue(user({ id: 1, home_lat: 51.5, home_lon: -0.12 }));
+    await useStore.getState().setHomeCoords({ lat: 51.5, lon: -0.12 });
+    expect(mockApi.updateMe).toHaveBeenCalledWith({ home_coords: { lat: 51.5, lon: -0.12 } });
+    expect(useStore.getState().me?.home_lat).toBe(51.5);
+    expect(useStore.getState().users[0].home_lon).toBe(-0.12);
+  });
+
+  it('setHomeCoords(null) clears the pin via null lat/lon', async () => {
+    useStore.setState({
+      users: [user({ id: 1, home_lat: 51.5, home_lon: -0.12 })],
+      me: user({ id: 1, home_lat: 51.5, home_lon: -0.12 }),
+    });
+    mockApi.updateMe.mockResolvedValue(user({ id: 1 }));
+    await useStore.getState().setHomeCoords(null);
+    expect(mockApi.updateMe).toHaveBeenCalledWith({ home_coords: { lat: null, lon: null } });
+    expect(useStore.getState().me?.home_lat).toBeUndefined();
+  });
+
   it('setPaperSize updates me and the users list', async () => {
     useStore.setState({
       users: [user({ id: 1, paper_size: 'a4' })],

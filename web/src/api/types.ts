@@ -8,6 +8,12 @@ export interface User {
   has_logged_in: boolean;
   /** Free-text home address, used as ingest context (e.g. "taxi from home"). */
   home_address: string;
+  /** Optionally-pinned exact home coordinates (only on the signed-in user's own
+   * record). When set, a "from home" plan plots here instead of geocoding the
+   * address, and the "Use my home" button in the plan editor fills them in.
+   * Both present or both absent. */
+  home_lat?: number;
+  home_lon?: number;
   /** Preferred page size for the PDF itinerary download. Only present on the
    * signed-in user's own record (/api/me); absent for other viewers. */
   paper_size?: PaperSize;

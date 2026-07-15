@@ -5,6 +5,53 @@ import (
 	"testing"
 )
 
+// TestUpdateMeHomeCoords: the pinned home coordinates round-trip through
+// PATCH /api/me via the home_coords object, can be cleared, and reject a lone
+// coordinate or out-of-range values.
+func TestUpdateMeHomeCoords(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "homepin", false)
+
+	// Unset by default.
+	w := e.req(t, "GET", "/api/me", nil, uid)
+	if me := decodeBody[map[string]any](t, w); me["home_lat"] != nil {
+		t.Errorf("default home_lat = %v, want absent", me["home_lat"])
+	}
+
+	// Pin a location.
+	w = e.req(t, "PATCH", "/api/me", map[string]any{"home_coords": map[string]any{"lat": 51.5, "lon": -0.12}}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("pin home = %d %s", w.Code, w.Body.String())
+	}
+	if me := decodeBody[map[string]any](t, w); me["home_lat"] != 51.5 || me["home_lon"] != -0.12 {
+		t.Errorf("pinned coords = (%v,%v), want (51.5,-0.12)", me["home_lat"], me["home_lon"])
+	}
+
+	// A patch that omits home_coords leaves the pin untouched.
+	w = e.req(t, "PATCH", "/api/me", map[string]any{"home_address": "Home"}, uid)
+	if me := decodeBody[map[string]any](t, w); me["home_lat"] != 51.5 {
+		t.Errorf("unrelated patch cleared the pin: %v", me["home_lat"])
+	}
+
+	// A lone coordinate is rejected.
+	if w := e.req(t, "PATCH", "/api/me", map[string]any{"home_coords": map[string]any{"lat": 51.5}}, uid); w.Code != http.StatusBadRequest {
+		t.Errorf("lone lat = %d, want 400", w.Code)
+	}
+	// Out of range is rejected.
+	if w := e.req(t, "PATCH", "/api/me", map[string]any{"home_coords": map[string]any{"lat": 200.0, "lon": 0.0}}, uid); w.Code != http.StatusBadRequest {
+		t.Errorf("out-of-range lat = %d, want 400", w.Code)
+	}
+
+	// Clearing: present home_coords with null lat/lon nulls the pin.
+	w = e.req(t, "PATCH", "/api/me", map[string]any{"home_coords": map[string]any{"lat": nil, "lon": nil}}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear home = %d %s", w.Code, w.Body.String())
+	}
+	if me := decodeBody[map[string]any](t, w); me["home_lat"] != nil {
+		t.Errorf("cleared home_lat = %v, want absent", me["home_lat"])
+	}
+}
+
 // TestUpdateMePaperSize: the page-size preference round-trips through
 // PATCH /api/me, defaults to "a4", and rejects an unknown value with a 400.
 func TestUpdateMePaperSize(t *testing.T) {

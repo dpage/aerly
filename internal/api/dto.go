@@ -31,8 +31,12 @@ type UserDTO struct {
 	PaperSize string `json:"paper_size,omitempty"`
 	// HideExplore / HideMaps are the user's feature-hiding preferences, only
 	// populated by ToSelfUserDTO (the account owner's own record).
-	HideExplore bool       `json:"hide_explore,omitempty"`
-	HideMaps    bool       `json:"hide_maps,omitempty"`
+	HideExplore bool `json:"hide_explore,omitempty"`
+	HideMaps    bool `json:"hide_maps,omitempty"`
+	// HomeLat / HomeLon are the user's pinned home coordinates (nil when unset).
+	// Self-only, like HomeAddress.
+	HomeLat     *float64   `json:"home_lat,omitempty"`
+	HomeLon     *float64   `json:"home_lon,omitempty"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 }
 
@@ -65,6 +69,8 @@ func ToSelfUserDTO(u *store.User) UserDTO {
 	dto.PaperSize = u.PaperSize
 	dto.HideExplore = u.HideExplore
 	dto.HideMaps = u.HideMaps
+	dto.HomeLat = u.HomeLat
+	dto.HomeLon = u.HomeLon
 	return dto
 }
 

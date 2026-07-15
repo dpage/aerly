@@ -154,6 +154,9 @@ export const api = {
     paper_size?: PaperSize;
     hide_explore?: boolean;
     hide_maps?: boolean;
+    /** Present with numeric lat/lon pins the home location; present with null
+     * lat/lon clears it; absent leaves the pin unchanged. */
+    home_coords?: { lat: number | null; lon: number | null };
   }) => request<User>('PATCH', '/api/me', patch),
   getConfig: () => request<Capabilities>('GET', '/api/config'),
   getVersion: () => request<VersionInfo>('GET', '/api/version'),

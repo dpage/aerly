@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { Plan, Trip } from '../api/types';
+import type { Plan, Trip, User } from '../api/types';
 
 const h = vi.hoisted(() => ({
   updatePlan: vi.fn(),
@@ -12,13 +12,14 @@ const h = vi.hoisted(() => ({
   listTrips: vi.fn(),
   setError: vi.fn(),
   setNotice: vi.fn(),
-  state: { trips: [] as Trip[] },
+  state: { trips: [] as Trip[], me: null as User | null },
 }));
 
 vi.mock('../state/store', () => ({
   useStore: (sel: (s: Record<string, unknown>) => unknown) =>
     sel({
       trips: h.state.trips,
+      me: h.state.me,
       updatePlan: h.updatePlan,
       updatePlanPart: h.updatePlanPart,
       movePlan: h.movePlan,
@@ -101,12 +102,27 @@ function plan(over: Partial<Plan> = {}): Plan {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.state.me = null;
   h.state.trips = [
     trip({ id: 7, name: 'Lisbon', my_role: 'owner' }), // current trip
     trip({ id: 8, name: 'Porto', my_role: 'editor' }), // editable elsewhere
     trip({ id: 9, name: 'Madrid', my_role: 'viewer' }), // not editable
   ];
 });
+
+function me(over: Partial<User> = {}): User {
+  return {
+    id: 1,
+    username: 'octocat',
+    name: 'Octo Cat',
+    avatar_url: '',
+    is_superuser: false,
+    is_active: true,
+    has_logged_in: true,
+    home_address: '',
+    ...over,
+  };
+}
 
 function render_(p: Plan = plan()) {
   return render(<PlanEditDialog open plan={p} onClose={() => {}} />);
@@ -218,6 +234,43 @@ describe('PlanEditDialog — places & coordinates', () => {
     const [, patch] = h.updatePlanPart.mock.calls[0];
     expect(patch.start_coords_pinned).toBe(false);
     expect(patch.start_lat).toBeUndefined();
+  });
+
+  it('offers no "Use my home" button when no home location is pinned', () => {
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [part({ type: 'hotel', start_label: 'Lake', end_label: '' })],
+      }),
+    );
+    expect(screen.queryByRole('button', { name: /use my home/i })).not.toBeInTheDocument();
+  });
+
+  it('fills the coordinate override from the pinned home when "Use my home" is clicked', async () => {
+    h.state.me = me({ home_lat: 51.50735, home_lon: -0.12776 });
+    h.updatePlanPart.mockResolvedValue(part({ type: 'hotel' }));
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({
+            type: 'hotel',
+            start_label: 'Lake',
+            start_lat: undefined,
+            start_lon: undefined,
+            end_label: '',
+          }),
+        ],
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: /use my home/i }));
+    expect(screen.getByLabelText(/coordinates/i)).toHaveValue('51.50735, -0.12776');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.start_lat).toBe(51.50735);
+    expect(patch.start_lon).toBe(-0.12776);
+    expect(patch.start_coords_pinned).toBe(true);
   });
 
   it('blocks save on an unparseable coordinate override', async () => {

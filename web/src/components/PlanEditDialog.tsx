@@ -381,6 +381,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const splitPlanPart = useStore((s) => s.splitPlanPart);
   const setError = useStore((s) => s.setError);
   const setNotice = useStore((s) => s.setNotice);
+  const me = useStore((s) => s.me);
+  // The signed-in user's pinned home coordinates, offered as a one-tap fill on
+  // any location field so an existing "from home" plan can be corrected without
+  // hunting for a map link. Null unless they've pinned an exact home location.
+  const homeCoords =
+    me?.home_lat != null && me?.home_lon != null
+      ? { lat: me.home_lat, lon: me.home_lon }
+      : null;
   // Offline: the dialog still opens so you can read a plan's full details (more
   // than the timeline tile shows), but every control is read-only and Save is
   // disabled — editing needs the server.
@@ -731,6 +739,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                     onResolveCoords={() => void resolveCoords(part.id, 'start')}
                     coordsResolving={!!coordsBusy[coordsKey(part.id, 'start')]}
                     coordsError={coordsErr[coordsKey(part.id, 'start')] ?? ''}
+                    homeCoords={homeCoords}
                   />
                   {withEnd && (
                     <Box sx={{ mt: 1.5 }}>
@@ -746,6 +755,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                         onResolveCoords={() => void resolveCoords(part.id, 'end')}
                         coordsResolving={!!coordsBusy[coordsKey(part.id, 'end')]}
                         coordsError={coordsErr[coordsKey(part.id, 'end')] ?? ''}
+                        homeCoords={homeCoords}
                       />
                     </Box>
                   )}
@@ -1175,6 +1185,7 @@ function EndFields({
   onResolveCoords,
   coordsResolving = false,
   coordsError = '',
+  homeCoords = null,
 }: {
   heading: string;
   form: EndForm;
@@ -1184,6 +1195,7 @@ function EndFields({
   onResolveCoords?: () => void;
   coordsResolving?: boolean;
   coordsError?: string;
+  homeCoords?: { lat: number; lon: number } | null;
 }) {
   return (
     <Stack spacing={1.5}>
@@ -1242,6 +1254,17 @@ function EndFields({
           }
           fullWidth
         />
+      )}
+      {!timeOnly && homeCoords && (
+        <Box sx={{ mt: -0.5 }}>
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => onChange('coords', `${homeCoords.lat}, ${homeCoords.lon}`)}
+          >
+            🏠 Use my home
+          </Button>
+        </Box>
       )}
       <Stack direction="row" spacing={1}>
         <TextField

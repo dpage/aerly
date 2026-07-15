@@ -32,6 +32,10 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 	// The trip's country biases ambiguous name-only lookups (an addressless
 	// airport label) to the right country. Best-effort: a miss just means no bias.
 	tripCountry, _ := st.TripCountryByPlan(ctx, planID)
+	// A plan owner's pinned home coordinates (when set) override geocoding of any
+	// endpoint whose address matches their home address, so a "from home" plan
+	// plots on the exact pinned spot instead of a fuzzy geocode.
+	homeAddr, homeLat, homeLon := planOwnerHome(ctx, st, planID)
 	var changed bool
 	for _, p := range parts {
 		payload := store.UpdatePlanPartPayload{}
@@ -47,14 +51,21 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 		// not pre-empt with a fuzzy name lookup.
 		// A pinned endpoint carries a manual coordinate override; never geocode
 		// over it, even if its coordinates were somehow cleared.
+		pinned := true
 		if startLat == nil && !p.StartCoordsPinned {
-			if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.StartAddress, p.StartLabel, tripCountry); ok {
+			if homeLat != nil && addressIsHome(p.StartAddress, homeAddr) {
+				payload.StartLat, payload.StartLon, payload.StartCoordsPinned = homeLat, homeLon, &pinned
+				startLat, startLon = homeLat, homeLon
+			} else if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.StartAddress, p.StartLabel, tripCountry); ok {
 				payload.StartLat, payload.StartLon = &lat, &lon
 				startLat, startLon = &lat, &lon
 			}
 		}
 		if endLat == nil && !p.EndCoordsPinned {
-			if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.EndAddress, p.EndLabel, tripCountry); ok {
+			if homeLat != nil && addressIsHome(p.EndAddress, homeAddr) {
+				payload.EndLat, payload.EndLon, payload.EndCoordsPinned = homeLat, homeLon, &pinned
+				endLat, endLon = homeLat, homeLon
+			} else if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.EndAddress, p.EndLabel, tripCountry); ok {
 				payload.EndLat, payload.EndLon = &lat, &lon
 				endLat, endLon = &lat, &lon
 			}
@@ -72,6 +83,35 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 		}
 	}
 	return changed, nil
+}
+
+// planOwnerHome returns the plan owner's normalised home address and pinned home
+// coordinates, or ("", nil, nil) when the owner has no home pin. Best-effort: any
+// lookup miss just means no home substitution.
+func planOwnerHome(ctx context.Context, st *store.Store, planID int64) (string, *float64, *float64) {
+	pl, err := st.PlanByID(ctx, planID)
+	if err != nil || pl.CreatedBy == nil {
+		return "", nil, nil
+	}
+	u, err := st.UserByID(ctx, *pl.CreatedBy)
+	if err != nil || u == nil || u.HomeLat == nil || u.HomeLon == nil {
+		return "", nil, nil
+	}
+	return normAddr(u.HomeAddress), u.HomeLat, u.HomeLon
+}
+
+// addressIsHome reports whether an endpoint address is the owner's home address.
+// homeAddr must already be normalised; a blank home address never matches.
+func addressIsHome(addr, homeAddr string) bool {
+	return homeAddr != "" && normAddr(addr) == homeAddr
+}
+
+// normAddr normalises an address for a home match: lowercased, inner whitespace
+// collapsed, and trailing spaces/punctuation trimmed.
+func normAddr(s string) string {
+	s = strings.ToLower(s)
+	s = strings.Join(strings.Fields(s), " ")
+	return strings.TrimRight(s, " .,")
 }
 
 // geocodeEndpoint resolves an endpoint to coordinates, most reliable signal first:

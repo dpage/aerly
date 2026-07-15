@@ -31,12 +31,17 @@ type User struct {
 	// PaperSize is the user's preferred page size for the PDF itinerary export,
 	// either "a4" (the default) or "letter". Stored per-user so the formatter
 	// can pick page dimensions without prompting on every download.
-	PaperSize   string
+	PaperSize string
 	// HideExplore / HideMaps let the user hide features they don't use: the
 	// Explore feature (its trip tab + the accommodation-tile button) and the
 	// map features (the trip Map tab + the global tracker). Both default false.
 	HideExplore bool
 	HideMaps    bool
+	// HomeLat / HomeLon are the user's optionally-pinned home coordinates. Nil
+	// when unset; when present they override geocoding of the home address so a
+	// "from home" plan plots exactly. Only ever exposed to the user themselves.
+	HomeLat     *float64
+	HomeLon     *float64
 	LastLoginAt *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

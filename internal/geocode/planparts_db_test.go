@@ -193,3 +193,61 @@ func TestPlanParts_PartsError(t *testing.T) {
 		t.Error("expected an error from PartsByPlan on a closed pool")
 	}
 }
+
+// TestPlanParts_HomeSubstitution: when the plan owner has pinned home
+// coordinates, an endpoint whose address matches their home address is filled
+// from the pin (and flagged pinned) instead of being geocoded — even when the
+// stored address differs in case/spacing/trailing punctuation.
+func TestPlanParts_HomeSubstitution(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	if pool == nil {
+		return
+	}
+	st := store.New(pool)
+	ctx := context.Background()
+
+	owner := testsupport.InsertUser(t, pool, "home-owner", false, true)
+	homeAddr := "Honeysuckle Cottage, Exampleton, ZZ9 9ZZ"
+	hlat, hlon := 51.507, -0.128
+	if _, err := st.UpdateUser(ctx, owner, store.UpdateUserPayload{
+		HomeAddress: &homeAddr, SetHome: true, HomeLat: &hlat, HomeLon: &hlon,
+	}); err != nil {
+		t.Fatalf("pin home: %v", err)
+	}
+
+	trip := mkTripDB(t, pool, owner)
+	starts := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	plan, err := st.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip, Type: "ground", Title: "Home to Airport",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt:   starts,
+			StartLabel: "Home",
+			// Differs from the saved home address in case, spacing and trailing
+			// punctuation, to prove normalisation matches it.
+			StartAddress: "  honeysuckle cottage,  exampleton, zz9 9zz.  ",
+		}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+
+	// A geocoder that would send the home address to the WRONG place, proving the
+	// pin is used instead of geocoding.
+	g := stubGeo{resolves: map[string][2]float64{
+		"honeysuckle cottage,  exampleton, zz9 9zz.": {99, 99},
+	}}
+	if _, err := PlanParts(ctx, st, g, plan.ID); err != nil {
+		t.Fatalf("PlanParts: %v", err)
+	}
+	parts, err := st.PartsByPlan(ctx, plan.ID)
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("PartsByPlan = %d, %v", len(parts), err)
+	}
+	p := parts[0]
+	if p.StartLat == nil || *p.StartLat != hlat || p.StartLon == nil || *p.StartLon != hlon {
+		t.Errorf("start coords = (%v,%v), want home (%v,%v)", p.StartLat, p.StartLon, hlat, hlon)
+	}
+	if !p.StartCoordsPinned {
+		t.Error("home substitution should mark the endpoint pinned")
+	}
+}
