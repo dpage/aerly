@@ -207,10 +207,29 @@ export default function TripMembersDialog({
     onClose();
   };
 
-  const handleRole = async (userId: number, next: TripRole) => {
+  /** Change a member's effective role from the per-row picker. 'passenger' isn't
+   * a trip_members role — it's a trip-level traveller status (issue #20) layered
+   * on a viewer membership — so converting to/from it routes through the
+   * passenger endpoints instead of the members upsert:
+   * - editor/viewer → passenger: add them as a trip passenger (they travel on
+   *   every plan; their membership is kept);
+   * - passenger → editor/viewer: drop the passenger status first (this also
+   *   clears the auto-created viewer membership), then set the plain role;
+   * - editor ↔ viewer: a plain members upsert.
+   * This lets an owner/editor retag an auto-shared member (e.g. a friend who got
+   * viewer access automatically) as a fellow traveller without remove-and-re-add. */
+  const changeMemberRole = async (userId: number, currentlyPassenger: boolean, next: AddRole) => {
     try {
-      // The members endpoint upserts, so changing a role is a re-add.
-      await addTripMember(tripId, { user_id: userId, role: next });
+      if (next === 'passenger') {
+        if (currentlyPassenger) return;
+        await addTripPassenger(tripId, userId);
+      } else {
+        if (currentlyPassenger) {
+          await removeTripPassenger(tripId, userId);
+        }
+        // The members endpoint upserts, so setting a role is a re-add.
+        await addTripMember(tripId, { user_id: userId, role: next });
+      }
     } catch (err) {
       reportError(err);
     }
@@ -370,9 +389,9 @@ export default function TripMembersDialog({
                   const label = memberLabel(m.user_id);
                   const u = userIndex.get(m.user_id);
                   const isOwner = m.role === 'owner';
-                  // A trip passenger travels on every plan; show that rather than
-                  // their underlying 'viewer' membership, and don't offer the
-                  // editor/viewer role select for them (remove + re-add to change).
+                  // A trip passenger travels on every plan; the picker shows
+                  // 'passenger' for them (rather than their underlying 'viewer'
+                  // membership) and offers switching between editor/viewer/passenger.
                   const isPassenger = passengerSet.has(m.user_id);
                   return (
                     <TableRow key={m.user_id} hover>
@@ -385,7 +404,7 @@ export default function TripMembersDialog({
                         </Box>
                       </TableCell>
                       <TableCell>
-                        {isOwner || isPassenger || !canManage ? (
+                        {isOwner || !canManage ? (
                           <Chip
                             label={isPassenger ? 'passenger' : m.role}
                             size="small"
@@ -396,12 +415,19 @@ export default function TripMembersDialog({
                             select
                             size="small"
                             label={`Role for ${label}`}
-                            value={m.role}
-                            onChange={(e) => void handleRole(m.user_id, e.target.value as TripRole)}
+                            value={isPassenger ? 'passenger' : m.role}
+                            onChange={(e) =>
+                              void changeMemberRole(
+                                m.user_id,
+                                isPassenger,
+                                e.target.value as AddRole,
+                              )
+                            }
                             sx={{ minWidth: 130 }}
                           >
                             <MenuItem value="editor">Editor</MenuItem>
                             <MenuItem value="viewer">Viewer</MenuItem>
+                            <MenuItem value="passenger">Passenger</MenuItem>
                           </TextField>
                         )}
                       </TableCell>

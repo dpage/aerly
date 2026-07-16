@@ -175,8 +175,8 @@ describe('TripMembersDialog', () => {
       [2],
     );
 
-    // Displayed as a passenger, not a plain viewer.
-    expect(screen.getByText('passenger')).toBeInTheDocument();
+    // The role picker reflects passenger status, not the underlying viewer role.
+    expect(screen.getByLabelText('Role for Bob')).toHaveTextContent('Passenger');
 
     await userEvent.click(screen.getByRole('button', { name: /remove bob/i }));
     await waitFor(() => expect(h.removeTripPassenger).toHaveBeenCalledWith(7, 2));
@@ -208,6 +208,42 @@ describe('TripMembersDialog', () => {
     await waitFor(() =>
       expect(h.addTripMember).toHaveBeenCalledWith(7, { user_id: 2, role: 'editor' }),
     );
+  });
+
+  it('converts an existing member into a trip passenger via the per-row select (#20)', async () => {
+    h.addTripPassenger.mockResolvedValue(undefined);
+    // Bob was auto-shared as a viewer; retag him as a fellow traveller.
+    render_([
+      { user_id: 100, role: 'owner' },
+      { user_id: 2, role: 'viewer' },
+    ]);
+
+    await userEvent.click(screen.getByLabelText('Role for Bob'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Passenger' }));
+
+    await waitFor(() => expect(h.addTripPassenger).toHaveBeenCalledWith(7, 2));
+    expect(h.addTripMember).not.toHaveBeenCalled();
+    expect(h.removeTripPassenger).not.toHaveBeenCalled();
+  });
+
+  it('converts a trip passenger back to an editor, dropping passenger status first (#20)', async () => {
+    h.removeTripPassenger.mockResolvedValue(undefined);
+    h.addTripMember.mockResolvedValue(undefined);
+    // Bob is a viewer member who is also a trip passenger.
+    render_(
+      [
+        { user_id: 100, role: 'owner' },
+        { user_id: 2, role: 'viewer' },
+      ],
+      'owner',
+      [2],
+    );
+
+    await userEvent.click(screen.getByLabelText('Role for Bob'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Editor' }));
+
+    await waitFor(() => expect(h.removeTripPassenger).toHaveBeenCalledWith(7, 2));
+    expect(h.addTripMember).toHaveBeenCalledWith(7, { user_id: 2, role: 'editor' });
   });
 
   it('removes a member after confirm', async () => {
