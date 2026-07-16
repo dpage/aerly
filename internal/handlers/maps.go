@@ -15,8 +15,10 @@ type resolveMapsURLInput struct {
 
 // resolveMapsURL turns a pasted Google Maps URL into coordinates: full URLs are
 // parsed directly, short maps.app.goo.gl links are followed (server-side) under
-// the resolver's host allowlist. 400 for a missing/unsupported URL, 422 when no
-// coordinates can be read (e.g. a place-only link).
+// the resolver's host allowlist. 400 for a missing/unsupported URL, 422 when the
+// link carries no coordinates (e.g. an iOS "Share" link, which names the place
+// by feature ID only — Google won't hand its pin to a key-less server request,
+// so we decline rather than guess).
 func (a *API) resolveMapsURL(w http.ResponseWriter, r *http.Request) {
 	var in resolveMapsURLInput
 	if err := decode(r, &in); err != nil {
@@ -38,7 +40,8 @@ func (a *API) resolveMapsURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusUnprocessableEntity, "Could not read a location from that link.")
+		writeError(w, http.StatusUnprocessableEntity,
+			"That Google Maps link doesn't contain a location. In Google Maps, long-press the pin and paste the coordinates it copies.")
 		return
 	}
 	writeJSON(w, http.StatusOK, api.CoordsDTO{Lat: lat, Lon: lon})

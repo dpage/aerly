@@ -22,7 +22,7 @@ import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
 import { coordsFromText, isMapsUrl } from '../lib/maps-url';
-import { resolveCoordsFromInput } from '../lib/resolve-coords';
+import { MAPS_NO_COORDS, resolveCoordsFromInput } from '../lib/resolve-coords';
 import {
   isTransferType,
   planTypeLabel,
@@ -453,14 +453,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   };
 
   // Per-endpoint blur-resolution of a pasted Google Maps URL. A URL that already
-  // carries coordinates is decoded client-side; anything else — a short link, or
-  // a place URL that names a spot without embedding its coordinates — is
-  // resolved by the backend (which follows the redirect and reads the map page).
-  // Busy/error are keyed by "partId:which" so each field is independent.
+  // carries coordinates is decoded client-side; a short link is followed by the
+  // backend, which yields coordinates only when its destination URL contains
+  // them. A link that merely names a place (an iOS "Share" link) has no exact
+  // coordinate to read, so we guide rather than guess. Busy/error are keyed by
+  // "partId:which" so each field is independent.
   const [coordsBusy, setCoordsBusy] = useState<Record<string, boolean>>({});
   const [coordsErr, setCoordsErr] = useState<Record<string, string>>({});
   const coordsKey = (partId: number, which: 'start' | 'end') => `${partId}:${which}`;
-  const COORDS_FAIL = "Couldn't read a location from that link; paste the coordinates instead.";
 
   const resolveCoords = async (partId: number, which: 'start' | 'end') => {
     const key = coordsKey(partId, which);
@@ -477,15 +477,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
       return;
     }
     setCoordsBusy((p) => ({ ...p, [key]: true }));
-    try {
-      const c = await resolveCoordsFromInput(value);
-      if (c) patchEnd(partId, which, 'coords', `${c.lat}, ${c.lon}`);
-      else setCoordsErr((p) => ({ ...p, [key]: COORDS_FAIL }));
-    } catch {
-      setCoordsErr((p) => ({ ...p, [key]: COORDS_FAIL }));
-    } finally {
-      setCoordsBusy((p) => ({ ...p, [key]: false }));
-    }
+    const c = await resolveCoordsFromInput(value);
+    if (c) patchEnd(partId, which, 'coords', `${c.lat}, ${c.lon}`);
+    else setCoordsErr((p) => ({ ...p, [key]: MAPS_NO_COORDS }));
+    setCoordsBusy((p) => ({ ...p, [key]: false }));
   };
 
   const patchFlight = (partId: number, field: keyof FlightForm, value: string) => {

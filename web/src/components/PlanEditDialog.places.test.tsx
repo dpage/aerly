@@ -439,13 +439,15 @@ describe('PlanEditDialog — places & coordinates', () => {
       expect(ha.resolveMapsUrl).toHaveBeenCalledWith('https://maps.app.goo.gl/abc123');
     });
 
-    it('shows an inline error when a short link cannot be resolved', async () => {
-      ha.resolveMapsUrl.mockRejectedValue(new Error('nope'));
+    it('guides the user when a short link resolves to no coordinates', async () => {
+      // The backend followed the redirect but the destination named a place
+      // without any coordinates (an iOS "Share" link). We guide, never guess.
+      ha.resolveMapsUrl.mockRejectedValue(new Error('no coords'));
       const field = openHotelCoords();
       await userEvent.clear(field);
       await userEvent.type(field, 'https://maps.app.goo.gl/abc123');
       field.blur();
-      expect(await screen.findByText(/couldn't read a location/i)).toBeInTheDocument();
+      expect(await screen.findByText(/no coordinates/i)).toBeInTheDocument();
     });
 
     it('leaves a bare lat,lng pair untouched and makes no call', async () => {
@@ -457,26 +459,16 @@ describe('PlanEditDialog — places & coordinates', () => {
       expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
     });
 
-    it('resolves a full Maps URL with no embedded coordinates via the backend', async () => {
-      // A place-only URL names a spot but embeds no coordinates. The backend
-      // follows it and reads the location off the rendered map page, so we hand
-      // it over rather than giving up client-side.
-      ha.resolveMapsUrl.mockResolvedValue({ lat: 48.8584, lon: 2.2945 });
+    it('guides on a full Maps URL with no coordinates without calling the backend', async () => {
+      // A place-only full URL carries no coordinates and is not a short link, so
+      // there is nothing to follow — surface the guidance inline rather than
+      // dropping a wrong pin or making a pointless request.
       const field = openHotelCoords();
       await userEvent.clear(field);
       await userEvent.type(field, 'https://maps.google.com/maps/place/Somewhere');
       field.blur();
-      await waitFor(() => expect(field.value).toBe('48.8584, 2.2945'));
-      expect(ha.resolveMapsUrl).toHaveBeenCalledWith('https://maps.google.com/maps/place/Somewhere');
-    });
-
-    it('shows an inline error when the backend cannot read a location', async () => {
-      ha.resolveMapsUrl.mockRejectedValue(new Error('unprocessable'));
-      const field = openHotelCoords();
-      await userEvent.clear(field);
-      await userEvent.type(field, 'https://maps.google.com/maps/place/Somewhere');
-      field.blur();
-      expect(await screen.findByText(/couldn't read a location/i)).toBeInTheDocument();
+      expect(await screen.findByText(/no coordinates/i)).toBeInTheDocument();
+      expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
     });
 
     it('shows the resolving hint whilst a short link is in flight', async () => {

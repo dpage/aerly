@@ -91,18 +91,18 @@ func (r *Resolver) ResolveURL(ctx context.Context, rawURL string) (lat, lon floa
 		if derr != nil {
 			return 0, 0, false, derr
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+		// We only need the redirect headers; a Google Maps place page never
+		// carries the pin's coordinates for a key-less, session-less request
+		// (it just re-centres on the caller's IP), so reading the body would
+		// only invite a wrong guess. Drain and discard it.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBody))
 		_ = resp.Body.Close()
 		if resp.StatusCode < 300 || resp.StatusCode >= 400 {
-			// A terminal page: the rendered map embeds the place's coordinates
-			// even when none appeared in the URL (a feature-ID-only place link).
-			la, lo, found := ExtractLatLonFromHTML(string(body))
-			return la, lo, found, nil
+			return 0, 0, false, nil
 		}
 		loc := resp.Header.Get("Location")
 		if loc == "" {
-			la, lo, found := ExtractLatLonFromHTML(string(body))
-			return la, lo, found, nil
+			return 0, 0, false, nil
 		}
 		next, nerr := u.Parse(loc)
 		if nerr != nil {

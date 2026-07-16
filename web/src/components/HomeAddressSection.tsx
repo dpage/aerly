@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Box, Button, Stack, TextField, Typography } from '@mui/material';
 
-import { resolveCoordsFromInput } from '../lib/resolve-coords';
+import { MAPS_NO_COORDS, resolveCoordsFromInput } from '../lib/resolve-coords';
 import { errorMessage } from '../state/helpers';
 import { useStore } from '../state/store';
 
@@ -47,13 +47,12 @@ export default function HomeAddressSection() {
   const applyPin = async () => {
     setSaving(true);
     try {
-      // Resolves a bare pair or coords-bearing URL locally, and follows a short
-      // link or a place URL through the backend to read its coordinates.
+      // Reads a bare pair or a coords-bearing URL locally, and follows a short
+      // link through the backend — which only yields coordinates when they're
+      // actually in the link. A place-only link has no exact spot to pin.
       const coords = await resolveCoordsFromInput(pinText);
       if (!coords) {
-        setError(
-          'Could not read coordinates from that. Paste a Google Maps link or a "latitude, longitude" pair.',
-        );
+        setError(MAPS_NO_COORDS);
         return;
       }
       await setHomeCoords(coords);
