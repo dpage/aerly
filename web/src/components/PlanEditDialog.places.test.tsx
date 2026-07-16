@@ -457,16 +457,26 @@ describe('PlanEditDialog — places & coordinates', () => {
       expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
     });
 
-    it('errors on a full Maps URL with no coordinates without calling the backend', async () => {
-      // A place-only URL on a full Maps host: isMapsUrl is true, but there are
-      // no coordinates to extract and it is not a short link, so we surface the
-      // failure inline rather than hitting the resolver.
+    it('resolves a full Maps URL with no embedded coordinates via the backend', async () => {
+      // A place-only URL names a spot but embeds no coordinates. The backend
+      // follows it and reads the location off the rendered map page, so we hand
+      // it over rather than giving up client-side.
+      ha.resolveMapsUrl.mockResolvedValue({ lat: 48.8584, lon: 2.2945 });
+      const field = openHotelCoords();
+      await userEvent.clear(field);
+      await userEvent.type(field, 'https://maps.google.com/maps/place/Somewhere');
+      field.blur();
+      await waitFor(() => expect(field.value).toBe('48.8584, 2.2945'));
+      expect(ha.resolveMapsUrl).toHaveBeenCalledWith('https://maps.google.com/maps/place/Somewhere');
+    });
+
+    it('shows an inline error when the backend cannot read a location', async () => {
+      ha.resolveMapsUrl.mockRejectedValue(new Error('unprocessable'));
       const field = openHotelCoords();
       await userEvent.clear(field);
       await userEvent.type(field, 'https://maps.google.com/maps/place/Somewhere');
       field.blur();
       expect(await screen.findByText(/couldn't read a location/i)).toBeInTheDocument();
-      expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
     });
 
     it('shows the resolving hint whilst a short link is in flight', async () => {

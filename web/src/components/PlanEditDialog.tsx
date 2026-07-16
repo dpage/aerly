@@ -16,18 +16,13 @@ import {
 } from '@mui/material';
 
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
-import { api } from '../api/client';
 import PlanAttachments from './PlanAttachments';
 import TimezoneSelect from './TimezoneSelect';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
-import {
-  coordsFromText,
-  extractLatLonFromMapsUrl,
-  isMapsUrl,
-  isShortMapsUrl,
-} from '../lib/maps-url';
+import { coordsFromText, isMapsUrl } from '../lib/maps-url';
+import { resolveCoordsFromInput } from '../lib/resolve-coords';
 import {
   isTransferType,
   planTypeLabel,
@@ -457,10 +452,11 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     }));
   };
 
-  // Per-endpoint blur-resolution of a pasted Google Maps URL. A full URL is
-  // decoded client-side; a short link is resolved by the backend (which follows
-  // its redirect). Busy/error are keyed by "partId:which" so each field is
-  // independent.
+  // Per-endpoint blur-resolution of a pasted Google Maps URL. A URL that already
+  // carries coordinates is decoded client-side; anything else — a short link, or
+  // a place URL that names a spot without embedding its coordinates — is
+  // resolved by the backend (which follows the redirect and reads the map page).
+  // Busy/error are keyed by "partId:which" so each field is independent.
   const [coordsBusy, setCoordsBusy] = useState<Record<string, boolean>>({});
   const [coordsErr, setCoordsErr] = useState<Record<string, string>>({});
   const coordsKey = (partId: number, which: 'start' | 'end') => `${partId}:${which}`;
@@ -472,20 +468,19 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     // by the time a blur fires; read its current value directly.
     const value = forms[partId][which].coords.trim();
     setCoordsErr((p) => ({ ...p, [key]: '' }));
+    // Leave a bare pair or a coords-bearing URL to the synchronous path, and
+    // ignore anything that is not a Maps URL at all (handleSave validates it).
     if (value === '' || parseLatLon(value) || !isMapsUrl(value)) return;
-    const local = extractLatLonFromMapsUrl(value);
+    const local = coordsFromText(value);
     if (local) {
       patchEnd(partId, which, 'coords', `${local.lat}, ${local.lon}`);
       return;
     }
-    if (!isShortMapsUrl(value)) {
-      setCoordsErr((p) => ({ ...p, [key]: COORDS_FAIL }));
-      return;
-    }
     setCoordsBusy((p) => ({ ...p, [key]: true }));
     try {
-      const c = await api.resolveMapsUrl(value);
-      patchEnd(partId, which, 'coords', `${c.lat}, ${c.lon}`);
+      const c = await resolveCoordsFromInput(value);
+      if (c) patchEnd(partId, which, 'coords', `${c.lat}, ${c.lon}`);
+      else setCoordsErr((p) => ({ ...p, [key]: COORDS_FAIL }));
     } catch {
       setCoordsErr((p) => ({ ...p, [key]: COORDS_FAIL }));
     } finally {

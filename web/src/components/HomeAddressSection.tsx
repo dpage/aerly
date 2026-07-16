@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Box, Button, Stack, TextField, Typography } from '@mui/material';
 
-import { coordsFromText } from '../lib/maps-url';
+import { resolveCoordsFromInput } from '../lib/resolve-coords';
 import { errorMessage } from '../state/helpers';
 import { useStore } from '../state/store';
 
@@ -45,15 +45,17 @@ export default function HomeAddressSection() {
   };
 
   const applyPin = async () => {
-    const coords = coordsFromText(pinText);
-    if (!coords) {
-      setError(
-        'Could not read coordinates from that. Paste a Google Maps link or a "latitude, longitude" pair.',
-      );
-      return;
-    }
     setSaving(true);
     try {
+      // Resolves a bare pair or coords-bearing URL locally, and follows a short
+      // link or a place URL through the backend to read its coordinates.
+      const coords = await resolveCoordsFromInput(pinText);
+      if (!coords) {
+        setError(
+          'Could not read coordinates from that. Paste a Google Maps link or a "latitude, longitude" pair.',
+        );
+        return;
+      }
       await setHomeCoords(coords);
       setPinText('');
     } catch (err) {

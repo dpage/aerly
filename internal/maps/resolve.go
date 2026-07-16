@@ -91,14 +91,18 @@ func (r *Resolver) ResolveURL(ctx context.Context, rawURL string) (lat, lon floa
 		if derr != nil {
 			return 0, 0, false, derr
 		}
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBody))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 		_ = resp.Body.Close()
 		if resp.StatusCode < 300 || resp.StatusCode >= 400 {
-			return 0, 0, false, nil
+			// A terminal page: the rendered map embeds the place's coordinates
+			// even when none appeared in the URL (a feature-ID-only place link).
+			la, lo, found := ExtractLatLonFromHTML(string(body))
+			return la, lo, found, nil
 		}
 		loc := resp.Header.Get("Location")
 		if loc == "" {
-			return 0, 0, false, nil
+			la, lo, found := ExtractLatLonFromHTML(string(body))
+			return la, lo, found, nil
 		}
 		next, nerr := u.Parse(loc)
 		if nerr != nil {

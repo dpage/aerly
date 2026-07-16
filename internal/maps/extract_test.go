@@ -32,3 +32,45 @@ func TestExtractLatLon(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractLatLonFromHTML(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantLat float64
+		wantLon float64
+		wantOK  bool
+	}{
+		{
+			"canonical link rel then href",
+			`<head><link rel="canonical" href="https://www.google.com/maps/place/Hôtel/@48.8584,2.2945,17z/data=!3d48.8584!4d2.2945"></head>`,
+			48.8584, 2.2945, true,
+		},
+		{
+			"canonical link href then rel",
+			`<link href="https://www.google.com/maps/place/X/@51.5074,-0.1278,15z" rel="canonical"/>`,
+			51.5074, -0.1278, true,
+		},
+		{
+			"og:image staticmap centre with entity-encoded ampersands",
+			`<meta property="og:image" content="https://maps.google.com/maps/api/staticmap?center=40.7128,-74.006&amp;zoom=15">`,
+			40.7128, -74.006, true,
+		},
+		{
+			"no coordinates anywhere",
+			`<link rel="canonical" href="https://www.google.com/maps/place/Somewhere+Cafe"><title>hi</title>`,
+			0, 0, false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			lat, lon, ok := ExtractLatLonFromHTML(c.body)
+			if ok != c.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, c.wantOK)
+			}
+			if ok && (lat != c.wantLat || lon != c.wantLon) {
+				t.Fatalf("got (%v,%v), want (%v,%v)", lat, lon, c.wantLat, c.wantLon)
+			}
+		})
+	}
+}
