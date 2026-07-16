@@ -246,6 +246,19 @@ describe('TripMembersDialog', () => {
     expect(h.addTripMember).toHaveBeenCalledWith(7, { user_id: 2, role: 'editor' });
   });
 
+  it("shows a viewer their own 'passenger' status as a read-only chip they can leave (#20)", async () => {
+    // A non-managing viewer (canManage=false) can't retag anyone, so every row
+    // renders as a static chip — a passenger's shows 'passenger', not 'viewer'.
+    // They may still remove themselves: a passenger may always leave.
+    render_([{ user_id: 100, role: 'viewer' }], 'viewer', [100]);
+
+    // The chip reflects passenger status, and there is no role picker.
+    expect(screen.getByText('passenger')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Role for Me')).not.toBeInTheDocument();
+    // A passenger may remove themselves even without manage rights.
+    expect(screen.getByRole('button', { name: /remove me/i })).toBeInTheDocument();
+  });
+
   it('removes a member after confirm', async () => {
     h.removeTripMember.mockResolvedValue(undefined);
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);

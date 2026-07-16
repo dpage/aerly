@@ -23,7 +23,6 @@ export async function resolveCoordsFromInput(
   raw: string,
 ): Promise<{ lat: number; lon: number } | null> {
   const s = raw.trim();
-  if (s === '') return null;
   const local = coordsFromText(s);
   if (local) return local;
   if (!isShortMapsUrl(s)) return null;
