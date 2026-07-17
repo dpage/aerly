@@ -198,7 +198,11 @@ func (r *Resolver) Suggest(ctx context.Context, text string) (Candidate, bool) {
 	}
 	cands, err := r.Geo.Candidates(ctx, Query{Text: text})
 	if err != nil {
-		slog.Warn("suggest lookup failed", "text", text, "err", err)
+		// Deliberately not logging text: this runs on user-typed and pasted
+		// addresses, and a Warn is enabled in production, so echoing it here
+		// would put someone's home or hotel address straight into the log
+		// file. The length is enough to tell a genuine failure from a fluke.
+		slog.Warn("suggest lookup failed", "text_len", len(text), "err", err)
 		return Candidate{}, false
 	}
 	d := Choose(cands, r.MinConfidence, r.Margin)
@@ -206,7 +210,11 @@ func (r *Resolver) Suggest(ctx context.Context, text string) (Candidate, bool) {
 		return d.Best, true
 	}
 	if d.Outcome == OutcomeAmbiguous && r.Rerank != nil {
-		if idx, ok, _ := r.Rerank.Pick(ctx, text, d.Ranked); ok {
+		// Match resolve's contract: a pick is only trusted when err == nil.
+		// LLMReranker never returns ok=true alongside a non-nil error, but
+		// Reranker is an exported interface and another implementation
+		// might, so both callers must reject that combination the same way.
+		if idx, ok, err := r.Rerank.Pick(ctx, text, d.Ranked); err == nil && ok {
 			return d.Ranked[idx], true
 		}
 	}
@@ -223,8 +231,13 @@ func (r *Resolver) resolve(ctx context.Context, q Query) (float64, float64, bool
 	cands, err := r.Geo.Candidates(ctx, q)
 	if err != nil {
 		// A failed lookup is not a miss: log it and plot nothing rather than
-		// letting a 429 masquerade as "this address doesn't exist".
-		slog.Warn("geocode lookup failed", "query", q.Text, "err", err)
+		// letting a 429 masquerade as "this address doesn't exist". q.Text is
+		// deliberately absent: this runs inside BackfillPartCoordinates, a
+		// startup sweep over every stored plan-part address, so a Geoapify
+		// outage or an exhausted quota (a normal, expected state, not a rare
+		// one) would otherwise write every traveller's address into the logs.
+		// The length is enough to diagnose the failure without the PII.
+		slog.Warn("geocode lookup failed", "query_len", len(q.Text), "err", err)
 		return 0, 0, false
 	}
 	d := Choose(cands, r.MinConfidence, r.Margin)

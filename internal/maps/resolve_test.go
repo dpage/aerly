@@ -62,6 +62,20 @@ func TestResolveURL_FullURLNeedsNoNetwork(t *testing.T) {
 	}
 }
 
+// TestResolveURL_AcceptsGoogleCoUK checks the UK Google domain (the address bar
+// a UK-based traveller pastes from) is on the allowlist and resolves exactly
+// like google.com, needing no network call since the URL already carries a
+// pinned coordinate.
+func TestResolveURL_AcceptsGoogleCoUK(t *testing.T) {
+	r := NewResolver()
+	r.HTTP = nil
+	lat, lon, ok, err := r.ResolveURL(context.Background(),
+		"https://www.google.co.uk/maps/place/X/data=!3d51.5!4d-0.14")
+	if err != nil || !ok || lat != 51.5 || lon != -0.14 {
+		t.Fatalf("got (%v,%v) ok=%v err=%v, want (51.5,-0.14) ok=true err=nil", lat, lon, ok, err)
+	}
+}
+
 func TestResolveURL_NoCoordsIsNotOK(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

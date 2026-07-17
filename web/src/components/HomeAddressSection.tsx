@@ -96,6 +96,10 @@ export default function HomeAddressSection() {
 
   const clearPin = async () => {
     setSaving(true);
+    // An unanswered geocode confirmation must not survive a clear: it would
+    // otherwise still be sitting there afterwards, offering to pin a location
+    // the user just asked to remove.
+    setPendingCoords(null);
     try {
       await setHomeCoords(null);
     } catch (err) {

@@ -21,6 +21,15 @@ func TestChoose(t *testing.T) {
 			[]Candidate{{Confidence: 0.8}, {Confidence: 0.2}, {Confidence: 0.1}}, OutcomeAccept},
 		{"all doubtful is ambiguous",
 			[]Candidate{{Confidence: 0.2}, {Confidence: 0.1}}, OutcomeAmbiguous},
+		// These two pin the >= boundary on both thresholds against a future
+		// calibration pass silently flipping it to a strict >. Choose's doc
+		// says a candidate must "clear" minConf and lead "by at least"
+		// margin, so a candidate sitting exactly on either line must still
+		// be accepted.
+		{"confidence exactly at minConf is accepted",
+			[]Candidate{{Confidence: 0.5}}, OutcomeAccept},
+		{"gap exactly equal to margin is accepted",
+			[]Candidate{{Confidence: 0.9}, {Confidence: 0.75}}, OutcomeAccept},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

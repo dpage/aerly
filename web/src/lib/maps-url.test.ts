@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { coordsFromText, extractLatLonFromMapsUrl, isMapsUrl, isShortMapsUrl } from './maps-url';
+import { coordsFromText, extractLatLonFromMapsUrl, isMapsUrl } from './maps-url';
 
 describe('extractLatLonFromMapsUrl', () => {
   it('prefers the !3d!4d place coordinates over the @ viewport', () => {
@@ -67,19 +67,6 @@ describe('isMapsUrl', () => {
     expect(isMapsUrl('48.2105, 4.0823')).toBe(false);
     expect(isMapsUrl('https://example.com/maps')).toBe(false);
     expect(isMapsUrl('not a url')).toBe(false);
-  });
-});
-
-describe('isShortMapsUrl', () => {
-  it('detects the short-link hosts', () => {
-    expect(isShortMapsUrl('https://maps.app.goo.gl/abcD123')).toBe(true);
-    expect(isShortMapsUrl('https://goo.gl/maps/abcD123')).toBe(true);
-    expect(isShortMapsUrl('https://app.goo.gl/x')).toBe(true);
-    expect(isShortMapsUrl('https://g.co/kgs/x')).toBe(true);
-  });
-
-  it('is false for full Maps URLs', () => {
-    expect(isShortMapsUrl('https://www.google.com/maps/@1,2,3z')).toBe(false);
   });
 });
 

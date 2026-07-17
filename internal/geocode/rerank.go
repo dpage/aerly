@@ -76,7 +76,11 @@ func (r *LLMReranker) Pick(ctx context.Context, text string, cands []Candidate) 
 	}
 	idx, ok := parseRerankIndex(out, len(cands))
 	if !ok {
-		slog.Debug("geocode re-rank declined", "reply", truncate(out, 120))
+		// Deliberately not logging the reply: it can echo fragments of the
+		// booking text back (see the same judgement in planparts.go's Warn
+		// calls). Debug is off in production, so this is lower risk, but
+		// there's no reason to keep the exposure for consistency's sake.
+		slog.Debug("geocode re-rank declined", "reply_len", len(out))
 	}
 	return idx, ok, nil
 }
@@ -103,9 +107,3 @@ func parseRerankIndex(out string, n int) (int, bool) {
 	return *reply.Index, true
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
-}

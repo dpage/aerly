@@ -29,9 +29,6 @@ type Candidate struct {
 	SourceName  string // datasource.sourcename
 }
 
-// BetterThan reports whether c outranks o.
-func (c Candidate) BetterThan(o Candidate) bool { return c.Confidence > o.Confidence }
-
 // Query is a forward-geocoding request. The zero value queries nothing.
 type Query struct {
 	Text        string

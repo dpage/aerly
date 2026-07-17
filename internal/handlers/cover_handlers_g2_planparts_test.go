@@ -175,7 +175,8 @@ func TestUpdatePlanPartFlightReresolveNoResolverG2(t *testing.T) {
 
 // TestUpdatePlanPartGeocodeG2 covers updatePlanPart's geocode fallback paths: a
 // changed address on an unpinned endpoint triggers a geocode, and the unpin
-// path re-geocodes. A fakeGeocoder is wired so geocode.Endpoint resolves.
+// path re-geocodes. A fakeGeocoder is wired so the resolver's Endpoint method
+// resolves.
 func TestUpdatePlanPartGeocodeG2(t *testing.T) {
 	e := setup(t, nil, nil)
 	geo := fakeGeocoder{lat: 51.5, lon: -0.1}

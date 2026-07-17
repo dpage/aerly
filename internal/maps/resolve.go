@@ -40,8 +40,14 @@ func NewResolver() *Resolver {
 			Timeout:       httpWait,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
-		UserAgent:    "aerly/1.0 (+https://aerly.me)",
-		AllowedHosts: []string{"google.com", "goo.gl", "g.co"},
+		UserAgent: "aerly/1.0 (+https://aerly.me)",
+		// google.co.uk is listed explicitly (not a wildcard) alongside
+		// google.com: this is an SSRF guard on a user-supplied URL, so a
+		// loose google.<tld> pattern could admit an attacker-controlled
+		// host. hostAllowed's suffix match still lets any *.google.co.uk
+		// subdomain through, same as for google.com, and that's fine since
+		// those subdomains are Google-controlled.
+		AllowedHosts: []string{"google.com", "google.co.uk", "goo.gl", "g.co"},
 	}
 }
 

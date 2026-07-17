@@ -25,13 +25,6 @@ export function isMapsUrl(s: string): boolean {
   );
 }
 
-/** True for a Google short link, which carries no coordinates and must be
- * resolved server-side by following its redirect. */
-export function isShortMapsUrl(s: string): boolean {
-  const u = parseUrl(s);
-  return u != null && SHORT_HOSTS.has(u.hostname.toLowerCase());
-}
-
 function inRange(lat: number, lon: number): boolean {
   return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }

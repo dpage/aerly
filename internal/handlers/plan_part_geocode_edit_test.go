@@ -11,9 +11,10 @@ import (
 )
 
 // TestEditAddressUsesFallbackChain proves the PATCH edit path geocodes a changed
-// address through the shared fallback chain (geocode.Endpoint), not a single raw
-// lookup: the full messy address doesn't resolve, but the property name + country
-// tail does, so the part ends up with the fallback coordinates.
+// address through the resolver's ordered signals (*geocode.Resolver.Endpoint),
+// not a single raw lookup: the full messy address doesn't resolve, but the
+// property name + country tail does, so the part ends up with those
+// coordinates instead.
 func TestEditAddressUsesFallbackChain(t *testing.T) {
 	e := setup(t, nil, nil)
 	// Only the name+country query resolves — the raw full address does not.
@@ -55,7 +56,7 @@ func TestEditAddressUsesFallbackChain(t *testing.T) {
 
 	got, _ := e.store.PlanPartByID(ctx, partID)
 	if got.StartLat == nil || got.StartLon == nil {
-		t.Fatalf("part not geocoded via fallback chain: %+v", got)
+		t.Fatalf("part not geocoded via the resolver: %+v", got)
 	}
 	if *got.StartLat != 37.1 || *got.StartLon != -8.38 {
 		t.Errorf("coords = (%v, %v), want (37.1, -8.38)", *got.StartLat, *got.StartLon)

@@ -284,16 +284,6 @@ func (g *Geoapify) ReversePlace(ctx context.Context, lat, lon float64) (string, 
 	return place, code, place != "", nil
 }
 
-// firstNonEmpty returns the first trimmed non-empty string, or "".
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if t := strings.TrimSpace(v); t != "" {
-			return t
-		}
-	}
-	return ""
-}
-
 // joinPlace renders "City, Country", or whichever single part is known.
 func joinPlace(city, country string) string {
 	switch {
