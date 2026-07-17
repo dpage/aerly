@@ -23,12 +23,73 @@ func DKIMPass(headers []string, trustedAuthServID, domain string) bool {
 	if domain == "" || want == "" {
 		return false
 	}
-	for _, header := range boundaryAuthResults(headers, want) {
+	// Strip CFWS comments up front so neither the authserv-id check nor the
+	// per-clause correlation below can be derailed by punctuation inside a
+	// comment — see stripComments.
+	stripped := make([]string, len(headers))
+	for i, header := range headers {
+		stripped[i] = stripComments(header)
+	}
+	for _, header := range boundaryAuthResults(stripped, want) {
 		if headerAuthenticates(header, domain) {
 			return true
 		}
 	}
 	return false
+}
+
+// stripComments removes RFC 5322 CFWS comments from an Authentication-Results
+// header value, replacing each with a single space (a comment is semantically
+// whitespace, so eliding it outright could weld two tokens together).
+//
+// This is required for correctness, not tidiness: comment text is arbitrary and
+// routinely contains the very delimiters the parsing relies on. OpenDKIM stamps
+// `dkim=pass (2048-bit key; unprotected) header.d=example.com`, and that
+// SEMICOLON inside the comment would otherwise split the resinfo in two, leaving
+// dkim=pass in one clause and its header.d= in the next, so a perfectly good
+// signature fails to align and legitimate mail is rejected.
+//
+// Comments nest, and a quoted-pair (`\(`) escapes a parenthesis rather than
+// opening or closing one; parentheses inside a quoted string are literal data
+// and not comment delimiters (RFC 5322 §3.2.1–3.2.4). Semicolons that separate
+// resinfo clauses are never inside a comment by definition, so removing comments
+// only ever discards non-delimiter punctuation and cannot merge two clauses.
+// An unterminated comment swallows the rest of the value, which fails closed:
+// the properties it would have carried disappear and nothing authenticates.
+func stripComments(header string) string {
+	var sb strings.Builder
+	sb.Grow(len(header))
+	depth, inQuotes := 0, false
+	for i := 0; i < len(header); i++ {
+		c := header[i]
+		switch {
+		case c == '\\' && (inQuotes || depth > 0):
+			// Quoted-pair: consume the escaped octet with its backslash so an
+			// escaped delimiter can't open or close a comment or quoted string.
+			if depth == 0 {
+				sb.WriteByte(c)
+				if i+1 < len(header) {
+					sb.WriteByte(header[i+1])
+				}
+			}
+			i++
+		case c == '"' && depth == 0:
+			inQuotes = !inQuotes
+			sb.WriteByte(c)
+		case c == '(' && !inQuotes:
+			if depth == 0 {
+				sb.WriteByte(' ')
+			}
+			depth++
+		case c == ')' && !inQuotes && depth > 0:
+			depth--
+		default:
+			if depth == 0 {
+				sb.WriteByte(c)
+			}
+		}
+	}
+	return sb.String()
 }
 
 // boundaryAuthResults returns the leading contiguous run of Authentication-
@@ -77,6 +138,8 @@ func authServMatches(header, want string) bool {
 
 // headerAuthenticates reports whether a single TRUSTED Authentication-Results
 // header value carries a dkim=pass result whose OWN header.d= equals domain.
+// The value must have had its comments removed by stripComments already, or a
+// semicolon inside a comment will split a resinfo clause in two.
 //
 // The pass result and the header.d= must belong to the SAME resinfo clause. An
 // Authentication-Results value is `authserv-id *(";" resinfo)`, and each resinfo
