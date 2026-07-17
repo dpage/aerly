@@ -459,16 +459,28 @@ describe('PlanEditDialog — places & coordinates', () => {
       expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
     });
 
-    it('guides on a full Maps URL with no coordinates without calling the backend', async () => {
-      // A place-only full URL carries no coordinates and is not a short link, so
-      // there is nothing to follow — surface the guidance inline rather than
-      // dropping a wrong pin or making a pointless request.
+    it('sends a place-only full Maps URL to the backend to be geocoded', async () => {
+      // A "/maps/place/…" link carries no coordinates of its own and isn't a
+      // short link either, but it does name a place, so it's still worth
+      // sending to the backend, which can geocode the readable text. Whatever
+      // it finds is a guess, so the result must ask for confirmation rather
+      // than being pinned outright (see the confirmation tests below).
+      ha.resolveMapsUrl.mockResolvedValue({
+        lat: 48.85,
+        lon: 2.29,
+        label: 'Test Cafe, Example Street',
+        needs_confirmation: true,
+      });
       const field = openHotelCoords();
       await userEvent.clear(field);
       await userEvent.type(field, 'https://maps.google.com/maps/place/Somewhere');
       field.blur();
-      expect(await screen.findByText(/no coordinates/i)).toBeInTheDocument();
-      expect(ha.resolveMapsUrl).not.toHaveBeenCalled();
+      expect(await screen.findByText(/we found/i)).toBeInTheDocument();
+      expect(ha.resolveMapsUrl).toHaveBeenCalledWith(
+        'https://maps.google.com/maps/place/Somewhere',
+      );
+      // Never pinned until accepted.
+      expect(field.value).toBe('https://maps.google.com/maps/place/Somewhere');
     });
 
     it('shows the resolving hint whilst a short link is in flight', async () => {
@@ -486,6 +498,73 @@ describe('PlanEditDialog — places & coordinates', () => {
       expect(await screen.findByText(/resolving link/i)).toBeInTheDocument();
       release({ lat: 1, lon: 2 });
       await waitFor(() => expect(field.value).toBe('1, 2'));
+    });
+
+    describe('confirming a geocoded guess', () => {
+      function mockGeocodedGuess() {
+        ha.resolveMapsUrl.mockResolvedValue({
+          lat: 48.85,
+          lon: 2.29,
+          label: 'Test Cafe, Example Street',
+          needs_confirmation: true,
+        });
+      }
+
+      it('accepting the guess pins its coordinates', async () => {
+        mockGeocodedGuess();
+        const field = openHotelCoords();
+        await userEvent.clear(field);
+        await userEvent.type(field, 'https://maps.app.goo.gl/abc123');
+        field.blur();
+        await screen.findByText(/we found/i);
+        expect(screen.getByText('Test Cafe, Example Street')).toBeInTheDocument();
+        await userEvent.click(screen.getByRole('button', { name: 'Use this location' }));
+        await waitFor(() => expect(field.value).toBe('48.85, 2.29'));
+        expect(screen.queryByText(/we found/i)).not.toBeInTheDocument();
+      });
+
+      it('rejecting the guess falls back to the no-coordinates guidance', async () => {
+        mockGeocodedGuess();
+        const field = openHotelCoords();
+        await userEvent.clear(field);
+        await userEvent.type(field, 'https://maps.app.goo.gl/abc123');
+        field.blur();
+        await screen.findByText(/we found/i);
+        await userEvent.click(screen.getByRole('button', { name: 'Reject this location' }));
+        expect(await screen.findByText(/no coordinates/i)).toBeInTheDocument();
+        // Rejected, not pinned: the field still holds the pasted link.
+        expect(field.value).toBe('https://maps.app.goo.gl/abc123');
+      });
+
+      // A transfer part (e.g. a flight) has both a "From" and a "To" location,
+      // each with its own independent coordinates field: exercise the "To"
+      // one too, since it's driven by its own set of callbacks.
+      function openTransferEndCoords() {
+        render_(plan({ parts: [part()] }));
+        return screen.getAllByLabelText('Coordinates (lat, lng)')[1] as HTMLInputElement;
+      }
+
+      it('accepting the guess on the "To" endpoint pins its coordinates', async () => {
+        mockGeocodedGuess();
+        const field = openTransferEndCoords();
+        await userEvent.clear(field);
+        await userEvent.type(field, 'https://maps.app.goo.gl/abc123');
+        field.blur();
+        await screen.findByText(/we found/i);
+        await userEvent.click(screen.getByRole('button', { name: 'Use this location' }));
+        await waitFor(() => expect(field.value).toBe('48.85, 2.29'));
+      });
+
+      it('rejecting the guess on the "To" endpoint falls back to the guidance', async () => {
+        mockGeocodedGuess();
+        const field = openTransferEndCoords();
+        await userEvent.clear(field);
+        await userEvent.type(field, 'https://maps.app.goo.gl/abc123');
+        field.blur();
+        await screen.findByText(/we found/i);
+        await userEvent.click(screen.getByRole('button', { name: 'Reject this location' }));
+        expect(await screen.findByText(/no coordinates/i)).toBeInTheDocument();
+      });
     });
   });
 });

@@ -460,7 +460,21 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   // "partId:which" so each field is independent.
   const [coordsBusy, setCoordsBusy] = useState<Record<string, boolean>>({});
   const [coordsErr, setCoordsErr] = useState<Record<string, string>>({});
+  // A geocoded guess awaiting the user's accept/reject, keyed like the two
+  // records above. Never written into the field until they confirm it: a
+  // geocoded link is a lead, not the pin the user actually chose.
+  const [coordsPending, setCoordsPending] = useState<
+    Record<string, { lat: number; lon: number; label?: string }>
+  >({});
   const coordsKey = (partId: number, which: 'start' | 'end') => `${partId}:${which}`;
+
+  const clearCoordsPending = (key: string) =>
+    setCoordsPending((p) => {
+      if (!(key in p)) return p;
+      const next = { ...p };
+      delete next[key];
+      return next;
+    });
 
   const resolveCoords = async (partId: number, which: 'start' | 'end') => {
     const key = coordsKey(partId, which);
@@ -468,6 +482,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     // by the time a blur fires; read its current value directly.
     const value = forms[partId][which].coords.trim();
     setCoordsErr((p) => ({ ...p, [key]: '' }));
+    clearCoordsPending(key);
     // Leave a bare pair or a coords-bearing URL to the synchronous path, and
     // ignore anything that is not a Maps URL at all (handleSave validates it).
     if (value === '' || parseLatLon(value) || !isMapsUrl(value)) return;
@@ -477,10 +492,32 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
       return;
     }
     setCoordsBusy((p) => ({ ...p, [key]: true }));
-    const c = await resolveCoordsFromInput(value);
-    if (c) patchEnd(partId, which, 'coords', `${c.lat}, ${c.lon}`);
-    else setCoordsErr((p) => ({ ...p, [key]: MAPS_NO_COORDS }));
+    const r = await resolveCoordsFromInput(value);
+    if (r?.needsConfirmation) {
+      // A geocoded guess: show it and wait for acceptCoords/rejectCoords.
+      setCoordsPending((p) => ({ ...p, [key]: { lat: r.lat, lon: r.lon, label: r.label } }));
+    } else if (r) {
+      patchEnd(partId, which, 'coords', `${r.lat}, ${r.lon}`);
+    } else {
+      setCoordsErr((p) => ({ ...p, [key]: MAPS_NO_COORDS }));
+    }
     setCoordsBusy((p) => ({ ...p, [key]: false }));
+  };
+
+  // Accept pins the geocoded guess exactly like a directly-read coordinate;
+  // reject drops it and falls back to the same guidance shown for a link that
+  // couldn't be resolved at all, since the user has just told us it was wrong.
+  const acceptCoords = (partId: number, which: 'start' | 'end') => {
+    const key = coordsKey(partId, which);
+    const pending = coordsPending[key];
+    if (!pending) return;
+    patchEnd(partId, which, 'coords', `${pending.lat}, ${pending.lon}`);
+    clearCoordsPending(key);
+  };
+  const rejectCoords = (partId: number, which: 'start' | 'end') => {
+    const key = coordsKey(partId, which);
+    clearCoordsPending(key);
+    setCoordsErr((p) => ({ ...p, [key]: MAPS_NO_COORDS }));
   };
 
   const patchFlight = (partId: number, field: keyof FlightForm, value: string) => {
@@ -729,6 +766,9 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                     onResolveCoords={() => void resolveCoords(part.id, 'start')}
                     coordsResolving={!!coordsBusy[coordsKey(part.id, 'start')]}
                     coordsError={coordsErr[coordsKey(part.id, 'start')] ?? ''}
+                    coordsPending={coordsPending[coordsKey(part.id, 'start')]}
+                    onAcceptCoords={() => acceptCoords(part.id, 'start')}
+                    onRejectCoords={() => rejectCoords(part.id, 'start')}
                     homeCoords={homeCoords}
                   />
                   {withEnd && (
@@ -745,6 +785,9 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                         onResolveCoords={() => void resolveCoords(part.id, 'end')}
                         coordsResolving={!!coordsBusy[coordsKey(part.id, 'end')]}
                         coordsError={coordsErr[coordsKey(part.id, 'end')] ?? ''}
+                        coordsPending={coordsPending[coordsKey(part.id, 'end')]}
+                        onAcceptCoords={() => acceptCoords(part.id, 'end')}
+                        onRejectCoords={() => rejectCoords(part.id, 'end')}
                         homeCoords={homeCoords}
                       />
                     </Box>
@@ -1175,6 +1218,9 @@ function EndFields({
   onResolveCoords,
   coordsResolving = false,
   coordsError = '',
+  coordsPending,
+  onAcceptCoords,
+  onRejectCoords,
   homeCoords = null,
 }: {
   heading: string;
@@ -1185,6 +1231,11 @@ function EndFields({
   onResolveCoords?: () => void;
   coordsResolving?: boolean;
   coordsError?: string;
+  /** A geocoded guess awaiting accept/reject (see resolveCoords), undefined
+   * when there is nothing pending confirmation for this endpoint. */
+  coordsPending?: { lat: number; lon: number; label?: string };
+  onAcceptCoords?: () => void;
+  onRejectCoords?: () => void;
   homeCoords?: { lat: number; lon: number } | null;
 }) {
   return (
@@ -1244,6 +1295,28 @@ function EndFields({
           }
           fullWidth
         />
+      )}
+      {!timeOnly && coordsPending && (
+        // We geocoded the link's text rather than reading a coordinate from
+        // it, so it's a good lead rather than the pin the user chose: it
+        // waits here until they say which it is.
+        <Alert
+          severity="info"
+          sx={{ py: 0 }}
+          action={
+            <Stack direction="row" spacing={1}>
+              <Button size="small" onClick={onAcceptCoords} aria-label="Use this location">
+                Use it
+              </Button>
+              <Button size="small" onClick={onRejectCoords} aria-label="Reject this location">
+                No
+              </Button>
+            </Stack>
+          }
+        >
+          We found <strong>{coordsPending.label ?? `${coordsPending.lat}, ${coordsPending.lon}`}</strong>.
+          Use this location?
+        </Alert>
       )}
       {!timeOnly && homeCoords && (
         <Box sx={{ mt: -0.5 }}>

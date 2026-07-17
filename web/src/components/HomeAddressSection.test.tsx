@@ -21,6 +21,12 @@ vi.mock('../state/store', () => ({
     }),
 }));
 
+const ha = vi.hoisted(() => ({ resolveMapsUrl: vi.fn() }));
+vi.mock('../api/client', () => ({
+  api: { resolveMapsUrl: ha.resolveMapsUrl },
+  ApiError: class extends Error {},
+}));
+
 import HomeAddressSection from './HomeAddressSection';
 
 function user(over: Partial<User> = {}): User {
@@ -131,5 +137,57 @@ describe('HomeAddressSection', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Pin' }));
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('pin boom'));
+  });
+
+  describe('a place-only Maps link that needs geocoding', () => {
+    beforeEach(() => {
+      ha.resolveMapsUrl.mockReset();
+      ha.resolveMapsUrl.mockResolvedValue({
+        lat: 48.85,
+        lon: 2.29,
+        label: 'Test Cafe, Example Street',
+        needs_confirmation: true,
+      });
+    });
+
+    it('shows the geocoded guess for confirmation rather than pinning it outright', async () => {
+      render(<HomeAddressSection />);
+      await userEvent.type(
+        screen.getByRole('textbox', { name: 'Map link or coordinates' }),
+        'https://maps.google.com/maps/place/Somewhere',
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Pin' }));
+      expect(await screen.findByText(/we found/i)).toBeInTheDocument();
+      expect(screen.getByText('Test Cafe, Example Street')).toBeInTheDocument();
+      expect(h.setHomeCoords).not.toHaveBeenCalled();
+    });
+
+    it('accepting the guess pins its coordinates and clears the input', async () => {
+      render(<HomeAddressSection />);
+      const field = screen.getByRole('textbox', { name: 'Map link or coordinates' });
+      await userEvent.type(field, 'https://maps.google.com/maps/place/Somewhere');
+      await userEvent.click(screen.getByRole('button', { name: 'Pin' }));
+      await screen.findByText(/we found/i);
+      await userEvent.click(screen.getByRole('button', { name: 'Use this location' }));
+      await waitFor(() =>
+        expect(h.setHomeCoords).toHaveBeenCalledWith({ lat: 48.85, lon: 2.29 }),
+      );
+      expect(field).toHaveValue('');
+      expect(screen.queryByText(/we found/i)).not.toBeInTheDocument();
+    });
+
+    it('rejecting the guess falls back to the no-coordinates guidance without pinning', async () => {
+      render(<HomeAddressSection />);
+      await userEvent.type(
+        screen.getByRole('textbox', { name: 'Map link or coordinates' }),
+        'https://maps.google.com/maps/place/Somewhere',
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Pin' }));
+      await screen.findByText(/we found/i);
+      await userEvent.click(screen.getByRole('button', { name: 'Reject this location' }));
+      await waitFor(() => expect(h.setError).toHaveBeenCalled());
+      expect(h.setError.mock.calls[0][0]).toMatch(/no coordinates/i);
+      expect(h.setHomeCoords).not.toHaveBeenCalled();
+    });
   });
 });

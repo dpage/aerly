@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material';
 
 import { MAPS_NO_COORDS, resolveCoordsFromInput } from '../lib/resolve-coords';
 import { errorMessage } from '../state/helpers';
@@ -23,6 +23,11 @@ export default function HomeAddressSection() {
   const [value, setValue] = useState(canonical);
   const [pinText, setPinText] = useState('');
   const [saving, setSaving] = useState(false);
+  // A geocoded guess awaiting accept/reject (see applyPin). Never pinned until
+  // the user confirms it: a geocoded link is a lead, not the pin they chose.
+  const [pendingCoords, setPendingCoords] = useState<
+    { lat: number; lon: number; label?: string } | null
+  >(null);
 
   useEffect(() => {
     setValue(canonical);
@@ -46,22 +51,47 @@ export default function HomeAddressSection() {
 
   const applyPin = async () => {
     setSaving(true);
+    setPendingCoords(null);
     try {
-      // Reads a bare pair or a coords-bearing URL locally, and follows a short
-      // link through the backend — which only yields coordinates when they're
-      // actually in the link. A place-only link has no exact spot to pin.
-      const coords = await resolveCoordsFromInput(pinText);
-      if (!coords) {
+      // Reads a bare pair or a coords-bearing URL locally, and sends anything
+      // else that's a Maps link to the backend, which follows a short link or
+      // geocodes a place-only link's text. A geocoded result waits for
+      // acceptPending/rejectPending rather than being pinned straight away.
+      const r = await resolveCoordsFromInput(pinText);
+      if (!r) {
         setError(MAPS_NO_COORDS);
         return;
       }
-      await setHomeCoords(coords);
+      if (r.needsConfirmation) {
+        setPendingCoords(r);
+        return;
+      }
+      await setHomeCoords({ lat: r.lat, lon: r.lon });
       setPinText('');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
+  };
+
+  const acceptPending = async () => {
+    if (!pendingCoords) return;
+    setSaving(true);
+    try {
+      await setHomeCoords({ lat: pendingCoords.lat, lon: pendingCoords.lon });
+      setPinText('');
+      setPendingCoords(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const rejectPending = () => {
+    setPendingCoords(null);
+    setError(MAPS_NO_COORDS);
   };
 
   const clearPin = async () => {
@@ -133,6 +163,39 @@ export default function HomeAddressSection() {
             {pinned ? 'Update' : 'Pin'}
           </Button>
         </Stack>
+        {pendingCoords && (
+          // We geocoded the link's text rather than reading a coordinate from
+          // it, so it's a good lead rather than the pin the user chose: it
+          // waits here until they say which it is.
+          <Alert
+            severity="info"
+            sx={{ mt: 1.5 }}
+            action={
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  onClick={() => void acceptPending()}
+                  disabled={saving}
+                  aria-label="Use this location"
+                >
+                  Use it
+                </Button>
+                <Button
+                  size="small"
+                  onClick={rejectPending}
+                  disabled={saving}
+                  aria-label="Reject this location"
+                >
+                  No
+                </Button>
+              </Stack>
+            }
+          >
+            We found{' '}
+            <strong>{pendingCoords.label ?? `${pendingCoords.lat}, ${pendingCoords.lon}`}</strong>.
+            Use this location?
+          </Alert>
+        )}
       </Box>
     </Stack>
   );

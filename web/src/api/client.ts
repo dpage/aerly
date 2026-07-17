@@ -451,10 +451,18 @@ export const api = {
     return request<PoiResponse>('GET', `/api/trips/${tripId}/pois?${params.toString()}`);
   },
 
-  // Resolve a Google short link (maps.app.goo.gl etc.) to coordinates by
-  // following its redirect server-side; full URLs are decoded client-side.
+  // Resolve a Google Maps link to a location server-side: a short link is
+  // followed to its destination, and a place-only link (no coordinates of its
+  // own) is geocoded from its readable text. `needs_confirmation` is present
+  // and true only for the latter, a geocoded guess the caller must show
+  // (via `label`) and let the user accept or reject before pinning; it is
+  // absent when the coordinates were read directly from the link.
   resolveMapsUrl: (url: string) =>
-    request<{ lat: number; lon: number }>('POST', '/api/maps/resolve', { url }),
+    request<{ lat: number; lon: number; label?: string; needs_confirmation?: boolean }>(
+      'POST',
+      '/api/maps/resolve',
+      { url },
+    ),
 
   // -------------------------------------------------------------------------
   // Alerts (spec §5.2 / §9).
