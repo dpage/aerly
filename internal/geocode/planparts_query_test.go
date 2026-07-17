@@ -190,8 +190,8 @@ func TestEndpointSignalPriority(t *testing.T) {
 		"1 Main St":                         {1, 2},
 		"Alicante Airport":                  {38, -0.5},
 		"London Heathrow Terminal 5":        {51, -0.4},
-		"Ukino Palmeiras Village, Portugal": {37.1, -8.38}, // name + country
-		"Honeysuckle Cottage":               {9, 9},        // bare name — must NEVER be queried
+		"Ukino Palmeiras Village, Portugal": {37.1, -8.38},   // name + country
+		"Honeysuckle Cottage":               {9, 9},          // bare name — must NEVER be queried
 		"Terminal 3":                        {-6.12, 106.66}, // Jakarta CGK T3 — must NEVER be queried bare
 	}}
 	ctx := context.Background()
