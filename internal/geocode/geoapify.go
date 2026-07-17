@@ -32,14 +32,6 @@ const maxResponseBytes = 1 << 20
 // (a coarse but simple eviction for a best-effort cache).
 const maxCacheEntries = 8192
 
-// cached is a memoised forward-geocode result (kept for parity with the cache
-// bound above; ok is false for a remembered miss, distinct from "not yet looked
-// up").
-type cached struct {
-	lat, lon float64
-	ok       bool
-}
-
 // Geocoder is satisfied by *Geoapify; asserted here so a future signature drift
 // fails at build time rather than at the call site.
 var _ Geocoder = (*Geoapify)(nil)
