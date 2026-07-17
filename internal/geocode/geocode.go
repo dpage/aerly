@@ -34,7 +34,7 @@ const maxCacheEntries = 8192
 type Geocoder interface {
 	// Geocode resolves free text to coordinates. countryCode, when non-empty, is
 	// a lowercase ISO 3166-1 alpha-2 code that constrains the search to that
-	// country (Nominatim's countrycodes filter) — used to disambiguate names that
+	// country (Nominatim's countrycodes filter); used to disambiguate names that
 	// collide across borders (e.g. "Sal Airport" in Cape Verde vs El Salvador).
 	Geocode(ctx context.Context, query, countryCode string) (lat, lon float64, ok bool, err error)
 	// GeocodeCountry resolves a place to its lowercase ISO 3166-1 alpha-2
