@@ -179,3 +179,105 @@ func (g *Geoapify) Geocode(ctx context.Context, query, countryCode string) (floa
 	}
 	return cands[0].Lat, cands[0].Lon, true, nil
 }
+
+// reverse fetches the first reverse-geocoding result for a coordinate.
+func (g *Geoapify) reverse(ctx context.Context, lat, lon float64) (geoapifyResult, bool, error) {
+	if err := g.throttle(ctx); err != nil {
+		return geoapifyResult{}, false, err
+	}
+	vals := url.Values{
+		"lat":    {strconv.FormatFloat(lat, 'f', -1, 64)},
+		"lon":    {strconv.FormatFloat(lon, 'f', -1, 64)},
+		"format": {"json"},
+		"apiKey": {g.APIKey},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		g.BaseURL+"/v1/geocode/reverse?"+vals.Encode(), nil)
+	if err != nil {
+		return geoapifyResult{}, false, err
+	}
+	resp, err := g.HTTP.Do(req)
+	if err != nil {
+		return geoapifyResult{}, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return geoapifyResult{}, false, fmt.Errorf("geoapify: status %d", resp.StatusCode)
+	}
+	var out geoapifyResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&out); err != nil {
+		return geoapifyResult{}, false, err
+	}
+	if len(out.Results) == 0 {
+		return geoapifyResult{}, false, nil
+	}
+	return out.Results[0], true, nil
+}
+
+// GeocodeCountry resolves a place to its lowercase ISO country code.
+func (g *Geoapify) GeocodeCountry(ctx context.Context, query string) (string, bool, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "", false, nil
+	}
+	g.countryMu.RLock()
+	c, hit := g.countryCache[query]
+	g.countryMu.RUnlock()
+	if hit {
+		return c, c != "", nil
+	}
+	cands, err := g.Candidates(ctx, Query{Text: query, Limit: 1})
+	if err != nil {
+		return "", false, err
+	}
+	code := ""
+	if len(cands) > 0 {
+		code = cands[0].CountryCode
+	}
+	g.storeCountry(query, code)
+	return code, code != "", nil
+}
+
+// ReverseCountry resolves a coordinate to its lowercase ISO country code. ok is
+// false when the point isn't in any country (e.g. open ocean).
+func (g *Geoapify) ReverseCountry(ctx context.Context, lat, lon float64) (string, bool, error) {
+	key := fmt.Sprintf("rev:%.5f,%.5f", lat, lon)
+	g.countryMu.RLock()
+	c, hit := g.countryCache[key]
+	g.countryMu.RUnlock()
+	if hit {
+		return c, c != "", nil
+	}
+	r, ok, err := g.reverse(ctx, lat, lon)
+	if err != nil {
+		return "", false, err
+	}
+	code := ""
+	if ok {
+		code = strings.ToLower(strings.TrimSpace(r.CountryCode))
+	}
+	g.storeCountry(key, code)
+	return code, code != "", nil
+}
+
+// ReversePlace resolves a coordinate to a "City, Country" label and its
+// lowercase ISO country code. Not cached: called at most once per trip
+// derivation, which is rare.
+func (g *Geoapify) ReversePlace(ctx context.Context, lat, lon float64) (string, string, bool, error) {
+	r, ok, err := g.reverse(ctx, lat, lon)
+	if err != nil || !ok {
+		return "", "", false, err
+	}
+	code := strings.ToLower(strings.TrimSpace(r.CountryCode))
+	place := joinPlace(strings.TrimSpace(r.City), strings.TrimSpace(r.Country))
+	return place, code, place != "", nil
+}
+
+func (g *Geoapify) storeCountry(key, code string) {
+	g.countryMu.Lock()
+	if len(g.countryCache) >= maxCacheEntries {
+		g.countryCache = map[string]string{}
+	}
+	g.countryCache[key] = code
+	g.countryMu.Unlock()
+}

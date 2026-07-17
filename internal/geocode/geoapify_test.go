@@ -94,3 +94,42 @@ func TestGeocodeEmptyQueryIsMiss(t *testing.T) {
 		t.Fatalf("blank query must miss without a request: ok=%v err=%v", ok, err)
 	}
 }
+
+const reverseFixture = `{"results":[{"lat":51.5,"lon":-0.14,
+  "city":"London","country":"United Kingdom","country_code":"gb",
+  "formatted":"Example Street, London","rank":{"confidence":1,"match_type":"full_match"},
+  "datasource":{"sourcename":"openstreetmap"}}]}`
+
+func TestReversePlace(t *testing.T) {
+	g, _ := newTestGeoapify(t, reverseFixture, http.StatusOK)
+	place, iso, ok, err := g.ReversePlace(context.Background(), 51.5, -0.14)
+	if err != nil || !ok {
+		t.Fatalf("want a hit: ok=%v err=%v", ok, err)
+	}
+	if place != "London, United Kingdom" || iso != "gb" {
+		t.Errorf("got %q / %q", place, iso)
+	}
+}
+
+func TestReverseCountry(t *testing.T) {
+	g, _ := newTestGeoapify(t, reverseFixture, http.StatusOK)
+	iso, ok, err := g.ReverseCountry(context.Background(), 51.5, -0.14)
+	if err != nil || !ok || iso != "gb" {
+		t.Fatalf("got %q ok=%v err=%v", iso, ok, err)
+	}
+}
+
+func TestGeocodeCountry(t *testing.T) {
+	g, _ := newTestGeoapify(t, searchFixture, http.StatusOK)
+	iso, ok, err := g.GeocodeCountry(context.Background(), "Test Hotel, London")
+	if err != nil || !ok || iso != "gb" {
+		t.Fatalf("got %q ok=%v err=%v", iso, ok, err)
+	}
+}
+
+func TestReversePlaceOceanIsMiss(t *testing.T) {
+	g, _ := newTestGeoapify(t, `{"results":[]}`, http.StatusOK)
+	if _, _, ok, err := g.ReversePlace(context.Background(), 0, 0); ok || err != nil {
+		t.Fatalf("open ocean must miss cleanly: ok=%v err=%v", ok, err)
+	}
+}
