@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/emailingest"
+	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -325,6 +326,11 @@ func TestIngest_WithPDFAttachment(t *testing.T) {
 // branch (non-fatal) is exercised: the plan still commits and the message is
 // processed.
 type failingGeocoder struct{}
+
+// Candidates is unused by these tests: they exercise callers of Geocode only.
+func (failingGeocoder) Candidates(context.Context, geocode.Query) ([]geocode.Candidate, error) {
+	return nil, nil
+}
 
 func (failingGeocoder) Geocode(context.Context, string, string) (float64, float64, bool, error) {
 	return 0, 0, false, errContext("geocode down")

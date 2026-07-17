@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -19,6 +20,11 @@ type fakeGeocoder struct {
 	placeByCoord   map[[2]float64]string // ReversePlace label per coordinate
 	resolves       map[string][2]float64 // when set, Geocode answers per exact query
 	countryByQuery map[string]string     // when set, GeocodeCountry answers per exact query
+}
+
+// Candidates is unused by these tests: they exercise callers of Geocode only.
+func (f fakeGeocoder) Candidates(_ context.Context, _ geocode.Query) ([]geocode.Candidate, error) {
+	return nil, nil
 }
 
 func (f fakeGeocoder) Geocode(_ context.Context, q string, _ string) (float64, float64, bool, error) {

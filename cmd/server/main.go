@@ -138,9 +138,17 @@ func run(configPath string) error {
 	if adb != nil {
 		api.AirportResolver = adb
 	}
-	// Geocode part addresses (hotels, taxis, …) into map coordinates via the
-	// public OSM Nominatim service. The User-Agent identifies us per policy.
-	api.Geocoder = geocode.NewNominatim("aerly (+" + cfg.PublicURL + ")")
+	// Geocoding runs on Geoapify, which needs a key. Without one the Geocoder
+	// stays nil, which every handler already guards for: addresses simply don't
+	// plot, exactly as the Explore tab withdraws without the same key. The public
+	// Nominatim instance was dropped because its usage policy caps bulk scripts
+	// at 4 requests/minute and forbids autocomplete, and because it offers no
+	// match-confidence signal with which to reject a wrong result.
+	if cfg.GeoapifyKey != "" {
+		api.Geocoder = geocode.NewGeoapify(cfg.GeoapifyKey)
+	} else {
+		slog.Warn("no GEOAPIFY_API_KEY: addresses will not be geocoded or plotted")
+	}
 	// POI lookups for the Explore feature, cached for 7 days. Geoapify is a
 	// reliable keyed service backed by OpenStreetMap data; without a key the
 	// Explore feature is simply unavailable (the handler guards a nil resolver

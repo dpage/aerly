@@ -1,5 +1,18 @@
 package geocode
 
+import "context"
+
+// Geocoder turns free text into coordinates. Candidates exposes the ranked list
+// so callers can apply their own confidence policy; the other methods keep their
+// historical signatures so existing handlers need no changes.
+type Geocoder interface {
+	Candidates(ctx context.Context, q Query) ([]Candidate, error)
+	Geocode(ctx context.Context, query, countryCode string) (lat, lon float64, ok bool, err error)
+	GeocodeCountry(ctx context.Context, query string) (iso2 string, ok bool, err error)
+	ReverseCountry(ctx context.Context, lat, lon float64) (iso2 string, ok bool, err error)
+	ReversePlace(ctx context.Context, lat, lon float64) (place, iso2 string, ok bool, err error)
+}
+
 // LatLon is a geographic point.
 type LatLon struct{ Lat, Lon float64 }
 

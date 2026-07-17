@@ -14,6 +14,13 @@ type stubGeo struct {
 
 type stubQuery struct{ q, country string }
 
+// Candidates is unused by these tests: they exercise geocodeEndpoint, which
+// only calls Geocode. A later task rewrites this stub to test the
+// confidence-based resolver directly.
+func (s stubGeo) Candidates(context.Context, Query) ([]Candidate, error) {
+	return nil, nil
+}
+
 func (s stubGeo) Geocode(_ context.Context, q, countryCode string) (float64, float64, bool, error) {
 	if s.queries != nil {
 		*s.queries = append(*s.queries, stubQuery{q, countryCode})

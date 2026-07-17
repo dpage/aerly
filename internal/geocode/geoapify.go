@@ -21,6 +21,29 @@ const geoapifyRPS = 5
 
 const defaultGeoapifyBase = "https://api.geoapify.com"
 
+// maxResponseBytes caps how much of a response we read before decoding, so a
+// misbehaving/compromised endpoint can't stream an unbounded body into memory.
+// Real search/reverse responses are a few KiB.
+const maxResponseBytes = 1 << 20
+
+// maxCacheEntries bounds each in-memory cache. Geocode keys derive from
+// user-supplied free text / coordinates, so without a bound a user could grow
+// the maps for the process lifetime. When the cap is hit the cache is cleared
+// (a coarse but simple eviction for a best-effort cache).
+const maxCacheEntries = 8192
+
+// cached is a memoised forward-geocode result (kept for parity with the cache
+// bound above; ok is false for a remembered miss, distinct from "not yet looked
+// up").
+type cached struct {
+	lat, lon float64
+	ok       bool
+}
+
+// Geocoder is satisfied by *Geoapify; asserted here so a future signature drift
+// fails at build time rather than at the call site.
+var _ Geocoder = (*Geoapify)(nil)
+
 // Geoapify geocodes via the Geoapify API. It is transport only: it ranks
 // nothing and decides nothing, so all confidence policy lives in the resolver.
 type Geoapify struct {
@@ -29,9 +52,6 @@ type Geoapify struct {
 	HTTP    *http.Client
 
 	limiter *rate.Limiter
-
-	cacheMu sync.RWMutex
-	cache   map[string]cached
 
 	candMu    sync.RWMutex
 	candCache map[string][]Candidate
@@ -49,7 +69,6 @@ func NewGeoapify(apiKey string) *Geoapify {
 		BaseURL:      defaultGeoapifyBase,
 		HTTP:         &http.Client{Timeout: 10 * time.Second},
 		limiter:      rate.NewLimiter(rate.Every(time.Second/geoapifyRPS), 1),
-		cache:        map[string]cached{},
 		candCache:    map[string][]Candidate{},
 		countryCache: map[string]string{},
 	}
@@ -271,6 +290,28 @@ func (g *Geoapify) ReversePlace(ctx context.Context, lat, lon float64) (string, 
 	code := strings.ToLower(strings.TrimSpace(r.CountryCode))
 	place := joinPlace(strings.TrimSpace(r.City), strings.TrimSpace(r.Country))
 	return place, code, place != "", nil
+}
+
+// firstNonEmpty returns the first trimmed non-empty string, or "".
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if t := strings.TrimSpace(v); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// joinPlace renders "City, Country", or whichever single part is known.
+func joinPlace(city, country string) string {
+	switch {
+	case city != "" && country != "":
+		return city + ", " + country
+	case country != "":
+		return country
+	default:
+		return city
+	}
 }
 
 func (g *Geoapify) storeCountry(key, code string) {

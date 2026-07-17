@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,6 +26,13 @@ type Config struct {
 	GeoapifyKey     string
 	PollInterval    time.Duration
 	DevAuthBypass   bool
+
+	// GeocodeMinConfidence and GeocodeMargin are the confidence policy for
+	// accepting a geocoding candidate without a re-rank. Both defaults are
+	// provisional and uncalibrated: nobody has run a real address corpus
+	// through Geoapify yet. See the spec's follow-up 1.
+	GeocodeMinConfidence float64
+	GeocodeMargin        float64
 
 	// Outbound mail (always optional). Used for side-channel notifications
 	// like "a new sign-in method was linked to your account" plus
@@ -111,6 +119,12 @@ func Load() (*Config, error) {
 		MailFromAddress: os.Getenv("MAIL_FROM_ADDRESS"),
 		SendmailPath:    getenv("MAIL_SENDMAIL_PATH", "/usr/sbin/sendmail"),
 	}
+
+	// Confidence policy for accepting a geocoding candidate without a re-rank.
+	// Both defaults are provisional and uncalibrated: nobody has run a real
+	// address corpus through Geoapify yet. See the spec's follow-up 1.
+	cfg.GeocodeMinConfidence = getenvFloat("GEOCODE_MIN_CONFIDENCE", 0.5)
+	cfg.GeocodeMargin = getenvFloat("GEOCODE_MARGIN", 0.15)
 
 	cfg.WebPushVAPIDPublic = strings.TrimSpace(os.Getenv("WEBPUSH_VAPID_PUBLIC_KEY"))
 	cfg.WebPushVAPIDPrivate = strings.TrimSpace(os.Getenv("WEBPUSH_VAPID_PRIVATE_KEY"))
@@ -341,6 +355,22 @@ func getenv(k, dflt string) string {
 		return v
 	}
 	return dflt
+}
+
+// getenvFloat reads a float env var, falling back to def when unset or
+// unparseable. A malformed value is a config error the operator should see, so
+// it is logged rather than silently defaulted.
+func getenvFloat(key string, def float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		slog.Warn("ignoring malformed float env var", "key", key, "value", raw, "default", def)
+		return def
+	}
+	return v
 }
 
 // parseBool01 reads a strict 0/1 boolean env var, returning dflt when unset or

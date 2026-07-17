@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/emailingest"
+	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
@@ -20,6 +21,11 @@ import (
 
 // fakeGeocoder resolves every address to a fixed coordinate.
 type fakeGeocoder struct{ lat, lon float64 }
+
+// Candidates is unused by these tests: they exercise callers of Geocode only.
+func (f fakeGeocoder) Candidates(context.Context, geocode.Query) ([]geocode.Candidate, error) {
+	return nil, nil
+}
 
 func (f fakeGeocoder) Geocode(context.Context, string, string) (float64, float64, bool, error) {
 	return f.lat, f.lon, true, nil

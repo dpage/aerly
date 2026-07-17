@@ -133,3 +133,15 @@ func TestReversePlaceOceanIsMiss(t *testing.T) {
 		t.Fatalf("open ocean must miss cleanly: ok=%v err=%v", ok, err)
 	}
 }
+
+// TestReverseCountryOceanIsMiss mirrors TestReversePlaceOceanIsMiss for
+// ReverseCountry: a coordinate with no reverse result (open ocean) must miss
+// cleanly rather than error. Ported from the deleted Nominatim test
+// TestNominatimReverseCountry_NoResult so the provider-agnostic guarantee
+// stays covered.
+func TestReverseCountryOceanIsMiss(t *testing.T) {
+	g, _ := newTestGeoapify(t, `{"results":[]}`, http.StatusOK)
+	if iso, ok, err := g.ReverseCountry(context.Background(), 0, 0); ok || err != nil || iso != "" {
+		t.Fatalf("open ocean must miss cleanly: iso=%q ok=%v err=%v", iso, ok, err)
+	}
+}

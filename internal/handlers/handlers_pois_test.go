@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -102,6 +103,11 @@ func TestGetTripPOIsUpstreamUnavailable(t *testing.T) {
 type stubGeocoder struct {
 	lat, lon float64
 	ok       bool
+}
+
+// Candidates is unused by these tests: they exercise callers of Geocode only.
+func (s stubGeocoder) Candidates(ctx context.Context, q geocode.Query) ([]geocode.Candidate, error) {
+	return nil, nil
 }
 
 func (s stubGeocoder) Geocode(ctx context.Context, query, countryCode string) (float64, float64, bool, error) {
