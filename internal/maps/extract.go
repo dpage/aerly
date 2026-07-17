@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 const num = `(-?\d+(?:\.\d+)?)`
@@ -18,6 +19,9 @@ var (
 	queryRe = regexp.MustCompile(`[?&](?:q|ll|query|destination|center)=` + num + `,` + num)
 	// The viewport centre: a fallback, close to but not always the pin.
 	atRe = regexp.MustCompile(`@` + num + `,` + num)
+	// placePathRe captures the name segment of a /maps/place/<name> URL, stopping
+	// at the next path segment (Google appends /data=... and /@... segments).
+	placePathRe = regexp.MustCompile(`/maps/place/([^/?#]+)`)
 )
 
 // ExtractLatLon pulls coordinates from a full Google Maps URL, in precedence
@@ -45,4 +49,39 @@ func ExtractLatLon(rawURL string) (lat, lon float64, ok bool) {
 		return la, lo, true
 	}
 	return 0, 0, false
+}
+
+// ExtractHint pulls the human-readable place text out of a Google Maps URL that
+// carries no coordinates: the q= parameter (which the iOS "Share" link's
+// destination carries alongside its feature ID) or the /maps/place/<name>
+// segment.
+//
+// This is deliberately not a coordinate: there is no supported way to turn a
+// Google feature ID (ftid) or CID into a location, and reading the rendered page
+// is both unreliable (Google re-centres on the caller's IP) and against their
+// terms. The text is a lead to geocode and show the user for confirmation, never
+// a pin to plot silently.
+//
+// ok=false when the URL names no place.
+func ExtractHint(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+	if q := strings.TrimSpace(u.Query().Get("q")); q != "" {
+		if _, _, isCoord := ExtractLatLon("?q=" + url.QueryEscape(q)); !isCoord {
+			return q, true
+		}
+		return "", false
+	}
+	if m := placePathRe.FindStringSubmatch(u.EscapedPath()); m != nil {
+		name, err := url.PathUnescape(strings.ReplaceAll(m[1], "+", " "))
+		if err != nil {
+			return "", false
+		}
+		if name = strings.TrimSpace(name); name != "" {
+			return name, true
+		}
+	}
+	return "", false
 }

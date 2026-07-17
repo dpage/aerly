@@ -2,6 +2,56 @@ package maps
 
 import "testing"
 
+func TestExtractHint(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"q parameter from an iOS share link",
+			"https://www.google.com/maps/search/?api=1&q=Test+Hotel%2C+Example+Street%2C+London&ftid=0x487f:0xabc",
+			"Test Hotel, Example Street, London"},
+		{"place path segment",
+			"https://www.google.com/maps/place/Test+Hotel+London",
+			"Test Hotel London"},
+		{"place path with trailing data segment",
+			"https://www.google.com/maps/place/Test+Caf%C3%A9/data=!4m2!3m1",
+			"Test Café"},
+		{"q wins over the place path",
+			"https://www.google.com/maps/place/Ignore+Me?q=Test+Hotel",
+			"Test Hotel"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ExtractHint(tt.url)
+			if !ok || got != tt.want {
+				t.Errorf("got %q ok=%v, want %q", got, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractHintNoText(t *testing.T) {
+	for _, u := range []string{
+		"https://www.google.com/maps/@51.5,-0.14,15z",
+		"https://www.google.com/maps",
+		"https://maps.app.goo.gl/abc123",
+		"https://www.google.com/maps/place/",
+	} {
+		if got, ok := ExtractHint(u); ok {
+			t.Errorf("%s: want no hint, got %q", u, got)
+		}
+	}
+}
+
+// A hint that is itself a coordinate pair is not a hint: ExtractLatLon already
+// handles those exactly, and geocoding them would be a pointless round trip.
+func TestExtractHintIgnoresCoordinateQuery(t *testing.T) {
+	if got, ok := ExtractHint("https://www.google.com/maps?q=51.5,-0.14"); ok {
+		t.Errorf("want no hint for a coordinate q, got %q", got)
+	}
+}
+
 func TestExtractLatLon(t *testing.T) {
 	cases := []struct {
 		name    string
