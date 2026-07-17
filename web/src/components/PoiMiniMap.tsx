@@ -84,7 +84,12 @@ export default function PoiMiniMap({ pois, center, selectedId, onSelectPoi }: Po
       zoom: 12,
       attributionControl: false,
     });
-    map.addControl(new maplibregl.AttributionControl({ compact: true }));
+    map.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: 'Powered by <a href="https://www.geoapify.com/">Geoapify</a>',
+      })
+    );
     mapRef.current = map;
     return () => {
       map.remove();

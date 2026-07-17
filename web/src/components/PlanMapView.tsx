@@ -252,7 +252,10 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const ctrl = new maplibregl.AttributionControl({ compact: true });
+    const ctrl = new maplibregl.AttributionControl({
+      compact: true,
+      customAttribution: 'Powered by <a href="https://www.geoapify.com/">Geoapify</a>',
+    });
     map.addControl(ctrl, mobile ? 'bottom-right' : 'top-left');
     return () => {
       // On unmount the map-init effect's cleanup runs first and calls

@@ -15,7 +15,7 @@ Conference Europe?"
   - [OpenSky Network](https://opensky-network.org/) for live ADS-B positions (free for non-commercial use; rate-limited).
   - [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox/) on RapidAPI for schedule + airport + airframe lookups (cheap pay-per-call).
   - [Geoapify Places](https://www.geoapify.com/places-api/) for the Explore nearby-points-of-interest feature (OpenStreetMap-derived; free tier).
-  - [OpenStreetMap Nominatim](https://nominatim.org/) for geocoding plan venues from their addresses (keyless).
+  - [Geoapify Geocoding](https://www.geoapify.com/geocoding-api/) for geocoding plan venues from their addresses (OpenStreetMap-derived; free tier, shares the same key as Places).
   - An **LLM** (Anthropic / OpenAI / Gemini / Ollama) that extracts bookings from pasted text, uploaded PDFs, and forwarded emails.
   - An in-memory **stub** that interpolates positions along a great-circle when nothing is configured — useful for demos with no external dependencies.
   - A **dead-reckoner** wraps whichever tracker is in use, extrapolating from the last real fix toward the destination when ADS-B coverage drops out (oceanic gaps, etc.). Estimated positions are flagged so the UI renders them with reduced opacity and a dashed outline.
@@ -102,7 +102,9 @@ start if the file is any more permissive.
 | `OPENSKY_PASSWORD`         |          |                               |                                                                                        |
 | `OPENSKY_ENABLED`          |          | `0`                           | Set to `1` to use OpenSky anonymously (heavily rate-limited).                          |
 | `AERODATABOX_RAPIDAPI_KEY` |          |                               | When set, the Add Flight dialog drops to its minimal "ident + date" form. See **Tracker and resolver modes**. |
-| `GEOAPIFY_API_KEY`         |          |                               | Enables the Explore nearby-points-of-interest feature. Blank = off (the Explore tab, the "Explore nearby" button, and the preference to hide Explore are all withdrawn). Free tier at [Geoapify](https://myprojects.geoapify.com/). |
+| `GEOAPIFY_API_KEY`         |          |                               | Enables the Explore nearby-points-of-interest feature and plan-venue geocoding. Blank = off (the Explore tab, the "Explore nearby" button, and the preference to hide Explore are all withdrawn, and addresses simply don't plot on the map). Free tier at [Geoapify](https://myprojects.geoapify.com/). |
+| `GEOCODE_MIN_CONFIDENCE`   |          | `0.5`                         | Minimum `rank.confidence` Geoapify's top candidate must clear before Aerly plots it. Uncalibrated: nobody has run a real address corpus through Geoapify yet. |
+| `GEOCODE_MARGIN`           |          | `0.15`                        | Minimum confidence lead the top candidate must hold over the runner-up. Catches the case (e.g. a hotel chain) where several candidates all score confidence 1.0. |
 | `DEV_AUTH_BYPASS`          |          | `0`                           | Local-only: `1` enables `/auth/dev-login?login=…` to skip OAuth. Refuses non-localhost.|
 | `ATTACHMENTS_STORE`        |          |                               | Enables per-plan file attachments. Blank = off. Set to an absolute filesystem path, or an `s3://bucket[/prefix]` URL. See **Plan attachments** below. |
 
@@ -358,7 +360,7 @@ the ICAO24 (Mode-S hex) address needed to track a flight on OpenSky.
 ### Geoapify Places — nearby points of interest
 
 [Geoapify Places](https://www.geoapify.com/places-api/) backs the Explore feature: given a
-place (the trip destination, geocoded via Nominatim) or a hotel's pinned coordinates, it returns
+place (the trip destination, geocoded via Geoapify) or a hotel's pinned coordinates, it returns
 nearby sights, museums, landmarks, places of worship, parks, and food, which you can add to the
 trip as excursions. It's a keyed service over an OpenStreetMap-derived dataset (ODbL, attributed
 in the UI), with results cached for 7 days.
@@ -377,9 +379,11 @@ in the UI), with results cached for 7 days.
 
 Two more upstreams fill in the rest of a trip:
 
-- **[Nominatim](https://nominatim.org/)** (OpenStreetMap, keyless) geocodes a plan's address to
-  coordinates so hotels, restaurants and transfers plot on the map, and anchors each venue to its
-  IANA timezone. Aerly sends a descriptive `User-Agent` per OSM policy and rate-limits itself.
+- **[Geoapify Geocoding](https://www.geoapify.com/geocoding-api/)** (OpenStreetMap-derived, keyed
+  on the same `GEOAPIFY_API_KEY` as Places) geocodes a plan's address to coordinates so hotels,
+  restaurants and transfers plot on the map, and anchors each venue to its IANA timezone. A
+  candidate is only accepted when it clears `GEOCODE_MIN_CONFIDENCE` and leads the runner-up by
+  `GEOCODE_MARGIN`; see [APIs.md](APIs.md) for the full acceptance policy.
 - **An LLM** (see **AI booking extraction**) parses pasted text, uploaded PDFs and forwarded
   emails into structured plans. See [APIs.md](APIs.md) for the provider trade-offs.
 
@@ -432,7 +436,7 @@ internal/
 ├── auth/            GitHub + Google OAuth, HMAC-signed session cookies, middleware.
 ├── airports/        Embedded IATA → (lat, lon) table.
 ├── geo/             Great-circle helpers (slerp, bearing, haversine).
-├── geocode/         Nominatim geocoding + timezone anchoring for plan venues.
+├── geocode/         Geoapify geocoding + timezone anchoring for plan venues.
 ├── geotz/           IANA timezone lookup from coordinates (tzf).
 ├── maps/            Extracts coordinates from Google Maps URLs (short-link expansion, host-allowlisted).
 ├── providers/       External integrations: Tracker (Stub, OpenSky) + Resolver

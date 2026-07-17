@@ -66,7 +66,7 @@ avoid duplicate charges.
 
 The trip "Explore" tab and the hotel-tile "Explore nearby" button list sightseeing places
 (attractions, museums, historic landmarks, places of worship, parks, and optionally food and drink)
-around a location, either the trip destination (geocoded via Nominatim) or a hotel's pinned
+around a location, either the trip destination (geocoded via Geoapify) or a hotel's pinned
 coordinates. The resolver implements `providers.POIResolver`, with a 7-day in-memory result cache
 in front of it.
 
@@ -93,24 +93,62 @@ radius-bounded queries directly and reliably.
 
 ---
 
-### OpenStreetMap Nominatim — geocoding
+### Geoapify Geocoding — address geocoding
 
-[Nominatim](https://nominatim.org/) turns a plan's free-text address into coordinates so hotels,
-restaurants, transfers and excursions plot on the map, and it supplies the point Aerly anchors to
-an IANA timezone (via `tzf`) so local times are correct. It also geocodes a typed place name in the
-Explore search box. The public instance is used by default.
+[Geoapify Geocoding](https://www.geoapify.com/geocoding-api/) turns a plan's free-text address
+into coordinates so hotels, restaurants, transfers and excursions plot on the map, and it supplies
+the point Aerly anchors to an IANA timezone (via `tzf`) so local times are correct. It also
+geocodes a typed place name in the Explore search box. Aerly moved onto Geoapify from the public
+Nominatim instance, whose usage policy capped bulk lookups at 4 requests/minute and offered no
+match-confidence signal with which to reject a wrong result (see **Why not Google Maps Platform**
+below for the alternative that was also ruled out along the way).
 
-**Cost:** Free (the shared public instance at `nominatim.openstreetmap.org`).
+- **Cost:** free tier (no card required), 3,000 credits/day. This reuses the same
+  `GEOAPIFY_API_KEY` already required for Places, so there's no separate key to provision.
+- **Attribution:** "Powered by Geoapify", alongside the underlying "Data © OpenStreetMap
+  contributors" (ODbL) credit; both are shown on the map.
+- **How a result is chosen.** Geoapify returns a ranked candidate list, each carrying a
+  `rank.confidence` score. Aerly accepts the top candidate only when it clears
+  `GEOCODE_MIN_CONFIDENCE` (default `0.5`) *and* leads the runner-up by at least `GEOCODE_MARGIN`
+  (default `0.15`). A result that fails either test is ambiguous rather than wrong, so it's handed
+  to the configured LLM, which either picks a candidate by index or declines; with no LLM
+  configured, or if it declines, nothing is plotted. A missing pin is always preferred to a wrong
+  one.
 
 **Limitations:**
 
-- **Usage policy.** The public instance permits at most 1 request/second and requires an
-  identifying `User-Agent`; Aerly sends one and rate-limits itself. A heavy deployment should run
-  its own Nominatim or use a commercial geocoder.
-- **Address quality.** Geocoding is only as good as the address text extracted from a booking; a
-  vague or malformed address may not resolve, in which case the venue simply isn't placed on the
-  map (the plan is otherwise unaffected).
-- **Attribution.** Data is OpenStreetMap (ODbL), attributed in the UI alongside the map tiles.
+- **Coverage varies by region.** The data is OpenStreetMap-derived, so it's excellent in UK and
+  European city centres and noticeably thinner elsewhere.
+- **The confidence thresholds are uncalibrated guesses.** Nobody has yet run a real address corpus
+  through Geoapify to tune `GEOCODE_MIN_CONFIDENCE` or `GEOCODE_MARGIN`; the defaults are a
+  starting point, not a measured result.
+- **`rank.confidence` alone cannot disambiguate a chain.** Verified against the live API on 17
+  July 2026: querying "Premier Inn Manchester" returns five different Premier Inns, every one at
+  confidence `1.0`. Confidence tells you the match is good, not that it's the *right* one; the
+  margin check is what catches this case, which is exactly why it exists.
+- **`rank.match_type` is not a quality signal.** One live result returned confidence `0` alongside
+  `match_type: "full_match"`, so Aerly doesn't branch on it at all.
+- **No key means no geocoding at all.** With `GEOAPIFY_API_KEY` unset, addresses simply don't
+  plot, exactly as the Explore tab withdraws without the same key.
+
+#### Why not Google Maps Platform
+
+Google's Maps Platform was investigated and ruled out, recorded here so nobody re-runs the
+investigation the next time someone asks "why don't we just use Google?":
+
+- The Maps Platform Terms §3.2.3(e), together with the Service Specific Terms §6.2 (Geocoding)
+  and §14.2 (Places), forbid using Google's geocoding or places content "in conjunction with a
+  non-Google map". Aerly renders with MapLibre, which disqualifies Google outright regardless of
+  call volume.
+- Google's more permissive EEA terms only apply to accounts with an EEA billing address; the UK
+  is not in the EEA, so they don't help Aerly.
+- Cost was never the blocker: at Aerly's volume, geocoding would be free either way (Google's free
+  tier covers 10,000 geocodes/month).
+- There is no supported route from a Google feature ID (`ftid`) or CID to coordinates under any
+  Google API, so holding a Google key would not have fixed the pasted-share-link case (a Google
+  Maps link carrying no coordinates in the URL) that motivated part of this work anyway.
+- Google also prohibits scraping its Maps content, which is the second reason the abandoned
+  `og:image`-scraping approach for share links was the wrong direction.
 
 ---
 
