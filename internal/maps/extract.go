@@ -62,6 +62,14 @@ func ExtractLatLon(rawURL string) (lat, lon float64, ok bool) {
 // terms. The text is a lead to geocode and show the user for confirmation, never
 // a pin to plot silently.
 //
+// CALLING CONTRACT: only call this once ExtractLatLon has already returned
+// ok=false for the same URL. ExtractHint checks only whether the q= value is
+// itself a coordinate pair; it does not know about the !3d!4d or @lat,lon forms,
+// so a URL like /maps/place/X/@48.86,2.29,17z/data=!3d48.8584!4d2.2945 would
+// yield the near-useless hint "X" even though it carries an exact pin. Exact
+// coordinates always win: a geocoded hint is a guess we must ask the user about,
+// whereas the pin in the URL is the answer they already chose.
+//
 // ok=false when the URL names no place.
 func ExtractHint(rawURL string) (string, bool) {
 	u, err := url.Parse(rawURL)
