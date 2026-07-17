@@ -1,0 +1,181 @@
+package geocode
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/time/rate"
+)
+
+// geoapifyRPS is Geoapify's documented free-tier ceiling. We self-limit rather
+// than rely on being told off with a 429.
+const geoapifyRPS = 5
+
+const defaultGeoapifyBase = "https://api.geoapify.com"
+
+// Geoapify geocodes via the Geoapify API. It is transport only: it ranks
+// nothing and decides nothing, so all confidence policy lives in the resolver.
+type Geoapify struct {
+	APIKey  string
+	BaseURL string
+	HTTP    *http.Client
+
+	limiter *rate.Limiter
+
+	cacheMu sync.RWMutex
+	cache   map[string]cached
+
+	candMu    sync.RWMutex
+	candCache map[string][]Candidate
+
+	countryMu    sync.RWMutex
+	countryCache map[string]string
+}
+
+// NewGeoapify builds a Geoapify geocoder. A blank key yields a client that will
+// fail every request; callers must not construct one without a key (main.go
+// leaves the Geocoder nil instead, which every handler already guards for).
+func NewGeoapify(apiKey string) *Geoapify {
+	return &Geoapify{
+		APIKey:       apiKey,
+		BaseURL:      defaultGeoapifyBase,
+		HTTP:         &http.Client{Timeout: 10 * time.Second},
+		limiter:      rate.NewLimiter(rate.Every(time.Second/geoapifyRPS), 1),
+		cache:        map[string]cached{},
+		candCache:    map[string][]Candidate{},
+		countryCache: map[string]string{},
+	}
+}
+
+func (g *Geoapify) throttle(ctx context.Context) error { return g.limiter.Wait(ctx) }
+
+// geoapifyResult mirrors the API's format=json response. Verified against a
+// live response on 17 July 2026; do not change these tags without re-checking.
+type geoapifyResult struct {
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	Formatted   string  `json:"formatted"`
+	CountryCode string  `json:"country_code"`
+	City        string  `json:"city"`
+	Country     string  `json:"country"`
+	Rank        struct {
+		Confidence float64 `json:"confidence"`
+		MatchType  string  `json:"match_type"`
+	} `json:"rank"`
+	Datasource struct {
+		SourceName string `json:"sourcename"`
+	} `json:"datasource"`
+}
+
+type geoapifyResponse struct {
+	Results []geoapifyResult `json:"results"`
+}
+
+func (q Query) cacheKey() string {
+	b := &strings.Builder{}
+	b.WriteString(q.Text)
+	b.WriteByte(0)
+	b.WriteString(q.CountryCode)
+	b.WriteByte(0)
+	b.WriteString(q.Type)
+	b.WriteByte(0)
+	if q.Bias != nil {
+		fmt.Fprintf(b, "%.4f,%.4f", q.Bias.Lat, q.Bias.Lon)
+	}
+	b.WriteByte(0)
+	b.WriteString(strconv.Itoa(q.Limit))
+	return b.String()
+}
+
+// Candidates returns Geoapify's ranked results for a query. An empty slice
+// means nothing matched (not an error); a non-nil error means the lookup
+// failed and the caller must not treat it as a miss.
+func (g *Geoapify) Candidates(ctx context.Context, q Query) ([]Candidate, error) {
+	q.Text = strings.TrimSpace(q.Text)
+	if q.Text == "" {
+		return nil, nil
+	}
+	if q.Limit <= 0 {
+		q.Limit = DefaultLimit
+	}
+	key := q.cacheKey()
+	g.candMu.RLock()
+	hit, found := g.candCache[key]
+	g.candMu.RUnlock()
+	if found {
+		return hit, nil
+	}
+	if err := g.throttle(ctx); err != nil {
+		return nil, err
+	}
+
+	vals := url.Values{
+		"text":   {q.Text},
+		"format": {"json"},
+		"limit":  {strconv.Itoa(q.Limit)},
+		"apiKey": {g.APIKey},
+	}
+	if q.CountryCode != "" {
+		vals.Set("filter", "countrycode:"+strings.ToLower(q.CountryCode))
+	}
+	if q.Bias != nil {
+		vals.Set("bias", fmt.Sprintf("proximity:%v,%v", q.Bias.Lon, q.Bias.Lat))
+	}
+	if q.Type != "" {
+		vals.Set("type", q.Type)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		g.BaseURL+"/v1/geocode/search?"+vals.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := g.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("geoapify: status %d", resp.StatusCode)
+	}
+	var out geoapifyResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&out); err != nil {
+		return nil, err
+	}
+	cands := make([]Candidate, 0, len(out.Results))
+	for _, r := range out.Results {
+		cands = append(cands, Candidate{
+			Lat: r.Lat, Lon: r.Lon,
+			Confidence:  r.Rank.Confidence,
+			MatchType:   r.Rank.MatchType,
+			Formatted:   r.Formatted,
+			CountryCode: strings.ToLower(strings.TrimSpace(r.CountryCode)),
+			SourceName:  r.Datasource.SourceName,
+		})
+	}
+	g.candMu.Lock()
+	if len(g.candCache) >= maxCacheEntries {
+		g.candCache = map[string][]Candidate{}
+	}
+	g.candCache[key] = cands
+	g.candMu.Unlock()
+	return cands, nil
+}
+
+// Geocode returns the top-ranked result for a query, applying no confidence
+// policy. Callers wanting a confidence decision use Candidates + Choose.
+func (g *Geoapify) Geocode(ctx context.Context, query, countryCode string) (float64, float64, bool, error) {
+	cands, err := g.Candidates(ctx, Query{Text: query, CountryCode: countryCode, Limit: 1})
+	if err != nil || len(cands) == 0 {
+		return 0, 0, false, err
+	}
+	return cands[0].Lat, cands[0].Lon, true, nil
+}
