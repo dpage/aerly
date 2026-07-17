@@ -81,3 +81,31 @@ func TestParseBool01(t *testing.T) {
 		}
 	}
 }
+
+func TestGetenvFloat(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		set  bool
+		def  float64
+		want float64
+	}{
+		{name: "unset returns default", set: false, def: 0.5, want: 0.5},
+		{name: "empty returns default", env: "", set: true, def: 0.5, want: 0.5},
+		{name: "blank returns default", env: "   ", set: true, def: 0.5, want: 0.5},
+		{name: "valid float parses", env: "0.72", set: true, def: 0.5, want: 0.72},
+		{name: "surrounding space trimmed", env: " 0.3 ", set: true, def: 0.5, want: 0.3},
+		{name: "malformed falls back to default", env: "not-a-number", set: true, def: 0.15, want: 0.15},
+	}
+	// The unset case runs first, whilst the variable is genuinely absent.
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.set {
+				t.Setenv("AERLY_TEST_FLOAT", c.env)
+			}
+			if got := getenvFloat("AERLY_TEST_FLOAT", c.def); got != c.want {
+				t.Errorf("env=%q: got %v, want %v", c.env, got, c.want)
+			}
+		})
+	}
+}

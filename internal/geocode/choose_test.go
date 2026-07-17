@@ -55,3 +55,37 @@ func TestChooseDoesNotMutateInput(t *testing.T) {
 		t.Fatal("Choose must not reorder its caller's slice")
 	}
 }
+
+func TestOutcomeString(t *testing.T) {
+	cases := []struct {
+		o    Outcome
+		want string
+	}{
+		{OutcomeNone, "none"},
+		{OutcomeAccept, "accept"},
+		{OutcomeAmbiguous, "ambiguous"},
+		{Outcome(99), "none"}, // unknown values render as "none"
+	}
+	for _, c := range cases {
+		if got := c.o.String(); got != c.want {
+			t.Errorf("Outcome(%d).String() = %q, want %q", c.o, got, c.want)
+		}
+	}
+}
+
+// TestChooseEqualConfidenceIsAmbiguous exercises the sort comparator's
+// equal-confidence branch and confirms a tie is ambiguous (a zero margin never
+// clears GEOCODE_MARGIN), so two equally-good candidates are never silently
+// resolved to the first.
+func TestChooseEqualConfidenceIsAmbiguous(t *testing.T) {
+	d := Choose([]Candidate{
+		{Confidence: 0.9, Formatted: "a"},
+		{Confidence: 0.9, Formatted: "b"},
+	}, 0.5, 0.15)
+	if d.Outcome != OutcomeAmbiguous {
+		t.Fatalf("equal-confidence pair should be ambiguous, got %v", d.Outcome)
+	}
+	if len(d.Ranked) != 2 {
+		t.Fatalf("both candidates should survive in Ranked, got %d", len(d.Ranked))
+	}
+}

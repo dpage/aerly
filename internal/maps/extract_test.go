@@ -37,6 +37,8 @@ func TestExtractHintNoText(t *testing.T) {
 		"https://www.google.com/maps",
 		"https://maps.app.goo.gl/abc123",
 		"https://www.google.com/maps/place/",
+		"http://foo\x7fbar",                            // unparseable: a control character
+		"https://www.google.com/maps/place/%zz",        // place name with invalid percent-encoding
 	} {
 		if got, ok := ExtractHint(u); ok {
 			t.Errorf("%s: want no hint, got %q", u, got)
