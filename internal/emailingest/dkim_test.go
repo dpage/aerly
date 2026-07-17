@@ -161,6 +161,93 @@ func TestDKIMPass_PassClauseWithComment(t *testing.T) {
 	}
 }
 
+func TestDKIMPass_CommentContainingSemicolon(t *testing.T) {
+	// Regression: OpenDKIM annotates the result with a key-size comment that
+	// itself contains a semicolon. Splitting the value on ';' without first
+	// removing comments cut the resinfo in two — `dkim=pass (2048-bit key` in one
+	// clause, `unprotected) header.d=…` in the next — so the pass lost its
+	// header.d= and every DKIM-signed message was rejected as unaligned.
+	h := []string{"mail.example;\r\n\tdkim=pass (2048-bit key; unprotected) header.d=example.com header.i=@example.com header.a=rsa-sha256 header.s=20251104 header.b=AbCd1234;\r\n\tdkim-atps=neutral"}
+	if !DKIMPass(h, trustedID, "example.com") {
+		t.Error("a genuine pass must authenticate despite a semicolon inside the result comment")
+	}
+}
+
+func TestDKIMPass_CommentSemicolonDoesNotBreakCorrelation(t *testing.T) {
+	// The H1 spoof, now wearing comments: a failing victim signature bundled
+	// ahead of a passing attacker-controlled one. Stripping comments must not
+	// smear the pass across clause boundaries and vouch for example.com.
+	h := []string{"mail.example; dkim=fail (2048-bit key; unprotected) header.d=example.com; dkim=pass (1024-bit key; unprotected) header.d=attacker.com"}
+	if DKIMPass(h, trustedID, "example.com") {
+		t.Error("a pass for attacker.com must not authenticate example.com, comments or not")
+	}
+	if !DKIMPass(h, trustedID, "attacker.com") {
+		t.Error("the clause that genuinely passed should still authenticate its own domain")
+	}
+}
+
+func TestDKIMPass_NoResultSmugglingInsideComment(t *testing.T) {
+	// Comment text is attacker-influenced in the general case (it can echo parts
+	// of the signature), so a forged clause hidden inside a comment must be
+	// discarded wholesale rather than parsed as a real result.
+	h := []string{"mail.example; dkim=fail (nice try; dkim=pass header.d=example.com) header.d=example.com"}
+	if DKIMPass(h, trustedID, "example.com") {
+		t.Error("a dkim=pass smuggled inside a comment must not authenticate")
+	}
+}
+
+func TestDKIMPass_NestedAndEscapedComments(t *testing.T) {
+	// Comments nest, and a quoted-pair escapes a paren rather than closing the
+	// comment; mis-tracking either would strand header.d= inside the comment.
+	h := []string{"mail.example; dkim=pass (outer (inner; nested) still comment) header.d=example.com"}
+	if !DKIMPass(h, trustedID, "example.com") {
+		t.Error("expected pass with nested comments stripped")
+	}
+	h = []string{`mail.example; dkim=pass (escaped paren \) not a close; here) header.d=example.com`}
+	if !DKIMPass(h, trustedID, "example.com") {
+		t.Error("expected pass with an escaped paren inside the comment")
+	}
+}
+
+func TestDKIMPass_UnterminatedCommentFailsClosed(t *testing.T) {
+	h := []string{"mail.example; dkim=pass (unterminated header.d=example.com"}
+	if DKIMPass(h, trustedID, "example.com") {
+		t.Error("an unterminated comment must fail closed, not authenticate")
+	}
+}
+
+func TestDKIMPass_ParenInQuotedStringIsLiteral(t *testing.T) {
+	// A parenthesis inside a quoted string is data, not a comment delimiter, so
+	// it must not open a comment that swallows the rest of the clause.
+	h := []string{`mail.example; dkim=pass header.d="example.com" header.b="a(b;c"`}
+	if !DKIMPass(h, trustedID, "example.com") {
+		t.Error("a paren inside a quoted string must not be treated as a comment")
+	}
+}
+
+func TestDKIMPass_CommentSeparatesTokens(t *testing.T) {
+	// A comment is semantically whitespace: eliding it entirely would weld the
+	// result onto the next token and destroy both.
+	h := []string{"mail.example; dkim=pass(2048-bit key; unprotected)header.d=example.com"}
+	if !DKIMPass(h, trustedID, "example.com") {
+		t.Error("a comment between tokens must act as a separator")
+	}
+}
+
+func TestDKIMPass_CommentBeforeAuthServID(t *testing.T) {
+	// CFWS may precede the authserv-id (RFC 8601 §2.2); a leading comment must
+	// not be mistaken for the authserv-id itself and drop a genuine result.
+	h := []string{"(stamped by our MTA) mail.example; dkim=pass header.d=example.com"}
+	if !DKIMPass(h, trustedID, "example.com") {
+		t.Error("a comment before the authserv-id must not defeat the trust check")
+	}
+	// ...and it must not let a foreign header masquerade as ours either.
+	h = []string{"(mail.example) attacker.invalid; dkim=pass header.d=example.com"}
+	if DKIMPass(h, trustedID, "example.com") {
+		t.Error("our authserv-id appearing inside a comment must not confer trust")
+	}
+}
+
 func TestFromDomain(t *testing.T) {
 	cases := []struct {
 		in, want string
