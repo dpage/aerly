@@ -435,6 +435,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     setInitial(snap);
     setCoordsErr({});
     setCoordsBusy({});
+    setCoordsPending({});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only on (re)open / plan switch
   }, [open, plan.id]);
 
@@ -453,10 +454,12 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   };
 
   // Per-endpoint blur-resolution of a pasted Google Maps URL. A URL that already
-  // carries coordinates is decoded client-side; a short link is followed by the
-  // backend, which yields coordinates only when its destination URL contains
-  // them. A link that merely names a place (an iOS "Share" link) has no exact
-  // coordinate to read, so we guide rather than guess. Busy/error are keyed by
+  // carries coordinates is decoded client-side; any other Maps URL is followed by
+  // the backend. When its destination carries coordinates we pin them directly.
+  // When it merely names a place (an iOS "Share" link, which identifies its place
+  // by a feature ID Google exposes through no API), the backend geocodes the
+  // readable text the link does carry and flags the result for confirmation, so
+  // the user sees our best guess and decides. Busy/error/pending are keyed by
   // "partId:which" so each field is independent.
   const [coordsBusy, setCoordsBusy] = useState<Record<string, boolean>>({});
   const [coordsErr, setCoordsErr] = useState<Record<string, string>>({});
