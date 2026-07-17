@@ -182,6 +182,7 @@ func TestG3BackfillQueryErrs(t *testing.T) {
 	// BackfillPartCoordinates → PlanIDsNeedingGeocode.
 	e4 := setup(t, nil, nil)
 	e4.api.Geocoder = geo
+	e4.api.GeoResolver = geoResolver(geo)
 	g1dropTable(t, e4, "plan_parts")
 	e4.api.BackfillPartCoordinates(context.Background())
 }

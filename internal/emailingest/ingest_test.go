@@ -22,9 +22,18 @@ import (
 // fakeGeocoder resolves every address to a fixed coordinate.
 type fakeGeocoder struct{ lat, lon float64 }
 
-// Candidates is unused by these tests: they exercise callers of Geocode only.
+// Candidates answers with a single confident candidate at the fixed coordinate,
+// so a permissive Resolver (see geoResolver) accepts it exactly as the old
+// direct Geocode call did.
 func (f fakeGeocoder) Candidates(context.Context, geocode.Query) ([]geocode.Candidate, error) {
-	return nil, nil
+	return []geocode.Candidate{{Lat: f.lat, Lon: f.lon, Confidence: 1}}, nil
+}
+
+// geoResolver wraps a Geocoder in a Resolver with a permissive confidence
+// policy, so these tests can drive geocode.PlanParts's Resolver-shaped
+// dependency without caring about the confidence/margin thresholds themselves.
+func geoResolver(g geocode.Geocoder) *geocode.Resolver {
+	return &geocode.Resolver{Geo: g, MinConfidence: 0.5, Margin: 0.15}
 }
 
 func (f fakeGeocoder) Geocode(context.Context, string, string) (float64, float64, bool, error) {
@@ -516,7 +525,7 @@ func TestIngest_GeocodesAndPublishes(t *testing.T) {
 	h := newHarness(t, llmResp, nil, false)
 	hub := sse.NewHub()
 	h.svc.Hub = hub
-	h.svc.Geocoder = fakeGeocoder{lat: 50.8466, lon: 4.3528}
+	h.svc.GeoResolver = geoResolver(fakeGeocoder{lat: 50.8466, lon: 4.3528})
 
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})

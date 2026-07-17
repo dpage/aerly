@@ -46,9 +46,17 @@ type API struct {
 	// return 503.
 	Extractor planops.Extractor
 
-	// Geocoder fills missing part coordinates from their addresses so they can
-	// be mapped. nil → geocoding is skipped (e.g. in tests).
+	// Geocoder is the raw ranked-candidate lookup, used directly by the handlers
+	// that aren't resolving a plan-part endpoint: Explore search, country lookups
+	// and trip destination derivation. nil → those lookups are skipped (e.g. in
+	// tests, or when GEOAPIFY_API_KEY is unset).
 	Geocoder geocode.Geocoder
+
+	// GeoResolver applies the confidence policy (and, optionally, the LLM
+	// re-ranker) on top of Geocoder to resolve a plan-part endpoint's address/
+	// label to coordinates. nil → endpoint geocoding is skipped. Built once in
+	// main.go alongside Geocoder.
+	GeoResolver *geocode.Resolver
 
 	// POIs resolves nearby points of interest (Geoapify; nil when no key is set,
 	// which disables the Explore feature).

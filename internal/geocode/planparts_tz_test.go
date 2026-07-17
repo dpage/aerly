@@ -1,7 +1,6 @@
 package geocode
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -108,16 +107,6 @@ func TestResolvePartTZ(t *testing.T) {
 			t.Error("start tz should still be resolved")
 		}
 	})
-}
-
-// Endpoint is a thin exported wrapper over geocodeEndpoint; verify it forwards
-// through the shared chain.
-func TestEndpointWrapper(t *testing.T) {
-	g := stubGeo{resolves: map[string][2]float64{"1 Main St": {1, 2}}}
-	lat, lon, ok := Endpoint(context.Background(), g, "hotel", "1 Main St", "Hotel", "")
-	if !ok || lat != 1 || lon != 2 {
-		t.Errorf("Endpoint = (%v,%v,%v), want (1,2,true)", lat, lon, ok)
-	}
 }
 
 // isAllDigits's empty-string guard (the only uncovered branch) returns false.

@@ -143,7 +143,7 @@ func (a *API) geocodeAndDeriveImportedTripAsync(tripID int64, planIDs []int64) {
 		defer cancel()
 		geocodeFailed := false
 		for _, planID := range planIDs {
-			changed, err := geocode.PlanParts(ctx, a.Store, a.Geocoder, planID)
+			changed, err := geocode.PlanParts(ctx, a.Store, a.GeoResolver, planID)
 			if err != nil {
 				// A hard geocode failure (not a best-effort miss) means some parts
 				// aren't plotted; deriving now could pick a partial destination, so

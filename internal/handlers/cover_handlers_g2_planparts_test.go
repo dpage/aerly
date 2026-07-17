@@ -178,7 +178,9 @@ func TestUpdatePlanPartFlightReresolveNoResolverG2(t *testing.T) {
 // path re-geocodes. A fakeGeocoder is wired so geocode.Endpoint resolves.
 func TestUpdatePlanPartGeocodeG2(t *testing.T) {
 	e := setup(t, nil, nil)
-	e.api.Geocoder = fakeGeocoder{lat: 51.5, lon: -0.1}
+	geo := fakeGeocoder{lat: 51.5, lon: -0.1}
+	e.api.Geocoder = geo
+	e.api.GeoResolver = geoResolver(geo)
 	owner := e.user(t, "g2ppgeo", false)
 	_, _, partID := g2makePlanOfType(t, e, owner, "hotel", map[string]any{"property_name": "H"})
 

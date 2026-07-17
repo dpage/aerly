@@ -17,13 +17,13 @@ import (
 // republishes the plan so open clients pick up the changes over SSE. The
 // per-part work lives in geocode.PlanParts so the email-ingest path can reuse it.
 func (a *API) geocodePlanAsync(tripID, planID int64) {
-	if a.Geocoder == nil {
+	if a.GeoResolver == nil {
 		return
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		changed, err := geocode.PlanParts(ctx, a.Store, a.Geocoder, planID)
+		changed, err := geocode.PlanParts(ctx, a.Store, a.GeoResolver, planID)
 		if err != nil {
 			return
 		}
@@ -385,7 +385,7 @@ func (a *API) BackfillTripCountries(ctx context.Context) {
 // itself; we don't publish SSE per plan — open clients pick the coordinates up
 // on their next trip fetch.
 func (a *API) BackfillPartCoordinates(ctx context.Context) {
-	if a.Geocoder == nil {
+	if a.GeoResolver == nil {
 		return
 	}
 	planIDs, err := a.Store.PlanIDsNeedingGeocode(ctx)
@@ -395,7 +395,7 @@ func (a *API) BackfillPartCoordinates(ctx context.Context) {
 	}
 	var fixed int
 	for _, planID := range planIDs {
-		changed, gerr := geocode.PlanParts(ctx, a.Store, a.Geocoder, planID)
+		changed, gerr := geocode.PlanParts(ctx, a.Store, a.GeoResolver, planID)
 		if gerr != nil {
 			slog.Warn("geocode backfill: plan failed", "err", gerr, "plan", planID)
 			continue

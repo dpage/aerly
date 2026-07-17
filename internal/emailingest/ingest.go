@@ -53,10 +53,10 @@ type Service struct {
 	// + date-proximity trip selection). Its Store/Extractor/Resolver must be
 	// set for ingest to do anything useful.
 	PlanDeps planops.Deps
-	// Geocoder fills missing part coordinates from their addresses (hotels,
+	// GeoResolver fills missing part coordinates from their addresses (hotels,
 	// transfers, …) so an ingested plan plots on the map, mirroring the HTTP
 	// path. Optional — nil disables geocoding.
-	Geocoder geocode.Geocoder
+	GeoResolver *geocode.Resolver
 	// Hub publishes trip.updated / plan.updated so open clients pick up an
 	// ingested booking live (the trips list + the open trip), without a manual
 	// refresh. Optional — nil disables live updates.
@@ -414,7 +414,7 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 		for _, pl := range committed {
 			// Best-effort: geocoding runs synchronously here (the ingest loop
 			// is already off the request path) and a failure is non-fatal.
-			if _, gerr := geocode.PlanParts(ctx, s.Store, s.Geocoder, pl.ID); gerr != nil {
+			if _, gerr := geocode.PlanParts(ctx, s.Store, s.GeoResolver, pl.ID); gerr != nil {
 				slog.Warn("emailingest: geocode plan", "err", gerr, "plan", pl.ID)
 			}
 			// plan.updated drives the tracker + open-trip refresh (App.tsx

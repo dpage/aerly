@@ -12,7 +12,6 @@ import (
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/flightcoord"
-	"github.com/dpage/aerly/internal/geocode"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -683,10 +682,10 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// A changed address is re-located via the shared geocode fallback chain
-	// (address → name+country → tail backoff → airport label), the same path the
+	// A changed address is re-located via the shared resolver (address →
+	// name+country → airport label, judged by confidence), the same path the
 	// backfill uses. Explicit coordinates in the request, if any, still win.
-	if a.Geocoder != nil {
+	if a.GeoResolver != nil {
 		if cur, cerr := a.Store.PlanPartByID(r.Context(), id); cerr == nil {
 			// The owning trip's country biases an ambiguous bare airport name to
 			// the right country. Best-effort: a miss just means no bias.
@@ -724,12 +723,12 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 			startAddrChanged := in.StartAddress != nil && *in.StartAddress != cur.StartAddress
 			endAddrChanged := in.EndAddress != nil && *in.EndAddress != cur.EndAddress
 			if !startPinned && in.StartLat == nil && startAddr != "" && (startAddrChanged || startUnpinned) {
-				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, startAddr, startLabel, tripCountry); ok {
+				if lat, lon, ok := a.GeoResolver.Endpoint(r.Context(), cur.Type, startAddr, startLabel, tripCountry); ok {
 					in.StartLat, in.StartLon = &lat, &lon
 				}
 			}
 			if !endPinned && in.EndLat == nil && endAddr != "" && (endAddrChanged || endUnpinned) {
-				if lat, lon, ok := geocode.Endpoint(r.Context(), a.Geocoder, cur.Type, endAddr, endLabel, tripCountry); ok {
+				if lat, lon, ok := a.GeoResolver.Endpoint(r.Context(), cur.Type, endAddr, endLabel, tripCountry); ok {
 					in.EndLat, in.EndLon = &lat, &lon
 				}
 			}

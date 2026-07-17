@@ -327,9 +327,10 @@ func TestIngest_WithPDFAttachment(t *testing.T) {
 // processed.
 type failingGeocoder struct{}
 
-// Candidates is unused by these tests: they exercise callers of Geocode only.
+// Candidates errors on every lookup, exercising the Resolver's failed-lookup
+// branch (log + no pin, not a crash).
 func (failingGeocoder) Candidates(context.Context, geocode.Query) ([]geocode.Candidate, error) {
-	return nil, nil
+	return nil, errContext("geocode down")
 }
 
 func (failingGeocoder) Geocode(context.Context, string, string) (float64, float64, bool, error) {
@@ -354,7 +355,7 @@ func TestIngest_GeocodeFailureNonFatal(t *testing.T) {
 		{"type":"hotel","confidence":"high","start_date":"2026-06-12","end_date":"2026-06-15","start_address":"1 Main St","hotel":{"property_name":"Plaza","address":"1 Main St"}}
 	]}]}`
 	h := newHarness(t, llmResp, nil, false)
-	h.svc.Geocoder = failingGeocoder{}
+	h.svc.GeoResolver = geoResolver(failingGeocoder{})
 	ctx := context.Background()
 	u, _ := h.store.InviteUser(ctx, aliceInvite())
 	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {

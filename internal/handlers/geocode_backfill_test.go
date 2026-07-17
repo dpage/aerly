@@ -22,9 +22,25 @@ type fakeGeocoder struct {
 	countryByQuery map[string]string     // when set, GeocodeCountry answers per exact query
 }
 
-// Candidates is unused by these tests: they exercise callers of Geocode only.
-func (f fakeGeocoder) Candidates(_ context.Context, _ geocode.Query) ([]geocode.Candidate, error) {
-	return nil, nil
+// Candidates mirrors Geocode's answer as a single confident candidate, so a
+// permissive Resolver (see geoResolver) accepts it exactly as the old direct
+// Geocode call did.
+func (f fakeGeocoder) Candidates(_ context.Context, q geocode.Query) ([]geocode.Candidate, error) {
+	if f.resolves != nil {
+		c, ok := f.resolves[q.Text]
+		if !ok {
+			return nil, nil
+		}
+		return []geocode.Candidate{{Lat: c[0], Lon: c[1], Confidence: 1}}, nil
+	}
+	return []geocode.Candidate{{Lat: f.lat, Lon: f.lon, Confidence: 1}}, nil
+}
+
+// geoResolver wraps a Geocoder in a Resolver with a permissive confidence
+// policy, so tests can drive the GeoResolver-shaped call paths (PlanParts,
+// Endpoint) without caring about the confidence/margin thresholds themselves.
+func geoResolver(g geocode.Geocoder) *geocode.Resolver {
+	return &geocode.Resolver{Geo: g, MinConfidence: 0.5, Margin: 0.15}
 }
 
 func (f fakeGeocoder) Geocode(_ context.Context, q string, _ string) (float64, float64, bool, error) {
@@ -75,7 +91,9 @@ func (f fakeGeocoder) ReversePlace(_ context.Context, lat, lon float64) (string,
 // geocoding existed), so it can finally plot on the map.
 func TestBackfillPartCoordinates(t *testing.T) {
 	e := setup(t, nil, nil)
-	e.api.Geocoder = fakeGeocoder{lat: 50.8489, lon: 4.3491}
+	geo := fakeGeocoder{lat: 50.8489, lon: 4.3491}
+	e.api.Geocoder = geo
+	e.api.GeoResolver = geoResolver(geo)
 	ctx := context.Background()
 	uid := e.user(t, "traveller", false)
 

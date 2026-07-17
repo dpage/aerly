@@ -33,7 +33,9 @@ func g2seedHotelPlan(t *testing.T, e *testEnv, owner int64) (tripID, planID int6
 // and stored. We observe completion by polling the trip's country_code.
 func TestGeocodeDeriveAsyncChangedAndDeriveG2(t *testing.T) {
 	e := setup(t, nil, nil)
-	e.api.Geocoder = fakeGeocoder{lat: 41.9028, lon: 12.4964, country: "it"}
+	geo := fakeGeocoder{lat: 41.9028, lon: 12.4964, country: "it"}
+	e.api.Geocoder = geo
+	e.api.GeoResolver = geoResolver(geo)
 	owner := e.user(t, "g2asyncok", false)
 	tripID, planID := g2seedHotelPlan(t, e, owner)
 
@@ -61,7 +63,9 @@ func TestGeocodeDeriveAsyncChangedAndDeriveG2(t *testing.T) {
 // the goroutine time to run and exit cleanly).
 func TestGeocodeDeriveAsyncGeocodeFailsG2(t *testing.T) {
 	e := setup(t, nil, nil)
-	e.api.Geocoder = fakeGeocoder{lat: 1, lon: 2, country: "it"}
+	geo := fakeGeocoder{lat: 1, lon: 2, country: "it"}
+	e.api.Geocoder = geo
+	e.api.GeoResolver = geoResolver(geo)
 	owner := e.user(t, "g2asyncfail", false)
 	tripID, planID := g2seedHotelPlan(t, e, owner)
 
@@ -80,7 +84,9 @@ func TestGeocodeDeriveAsyncGeocodeFailsG2(t *testing.T) {
 // is gone. Observed indirectly: the goroutine logs and returns without deriving.
 func TestGeocodeDeriveAsyncTripByIDErrG2(t *testing.T) {
 	e := setup(t, nil, nil)
-	e.api.Geocoder = fakeGeocoder{lat: 41.9, lon: 12.5, country: "it"}
+	geo := fakeGeocoder{lat: 41.9, lon: 12.5, country: "it"}
+	e.api.Geocoder = geo
+	e.api.GeoResolver = geoResolver(geo)
 	owner := e.user(t, "g2asynctbid", false)
 	tripID, planID := g2seedHotelPlan(t, e, owner)
 

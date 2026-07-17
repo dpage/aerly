@@ -16,7 +16,9 @@ import (
 func TestPinnedCoordsSurviveAddressEdit(t *testing.T) {
 	e := setup(t, nil, nil)
 	// The geocoder resolves every address to this (deliberately "wrong") spot.
-	e.api.Geocoder = fakeGeocoder{lat: 50.0, lon: 4.0}
+	geo := fakeGeocoder{lat: 50.0, lon: 4.0}
+	e.api.Geocoder = geo
+	e.api.GeoResolver = geoResolver(geo)
 	ctx := context.Background()
 	uid := e.user(t, "traveller", false)
 

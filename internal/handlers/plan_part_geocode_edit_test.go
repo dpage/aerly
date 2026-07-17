@@ -17,9 +17,11 @@ import (
 func TestEditAddressUsesFallbackChain(t *testing.T) {
 	e := setup(t, nil, nil)
 	// Only the name+country query resolves — the raw full address does not.
-	e.api.Geocoder = fakeGeocoder{resolves: map[string][2]float64{
+	geo := fakeGeocoder{resolves: map[string][2]float64{
 		"Ukino Palmeiras Village, Portugal": {37.1, -8.38},
 	}}
+	e.api.Geocoder = geo
+	e.api.GeoResolver = geoResolver(geo)
 	ctx := context.Background()
 	uid := e.user(t, "traveller", false)
 

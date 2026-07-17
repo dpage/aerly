@@ -88,7 +88,9 @@ func TestImportGeocodeDeriveAsyncG2(t *testing.T) {
 	e := setup(t, nil, nil)
 	// Resolve every address to a fixed point and a fixed reverse-geocoded country
 	// so the derive step has something to store.
-	e.api.Geocoder = fakeGeocoder{lat: 50.8489, lon: 4.3491, country: "be"}
+	geo := fakeGeocoder{lat: 50.8489, lon: 4.3491, country: "be"}
+	e.api.Geocoder = geo
+	e.api.GeoResolver = geoResolver(geo)
 	owner := e.user(t, "g2impgeo", false)
 
 	body := map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}

@@ -138,14 +138,36 @@ func run(configPath string) error {
 	if adb != nil {
 		api.AirportResolver = adb
 	}
-	// Geocoding runs on Geoapify, which needs a key. Without one the Geocoder
-	// stays nil, which every handler already guards for: addresses simply don't
-	// plot, exactly as the Explore tab withdraws without the same key. The public
-	// Nominatim instance was dropped because its usage policy caps bulk scripts
-	// at 4 requests/minute and forbids autocomplete, and because it offers no
-	// match-confidence signal with which to reject a wrong result.
+	// Geocoding runs on Geoapify, which needs a key. Without one both Geocoder and
+	// GeoResolver stay nil, which every handler already guards for: addresses
+	// simply don't plot, exactly as the Explore tab withdraws without the same
+	// key. The public Nominatim instance was dropped because its usage policy
+	// caps bulk scripts at 4 requests/minute and forbids autocomplete, and
+	// because it offers no match-confidence signal with which to reject a wrong
+	// result.
+	//
+	// GeoResolver applies the confidence policy (Choose) on top of the raw
+	// ranked candidates, re-ranking with an LLM only when a lookup is genuinely
+	// ambiguous (a confident, clear leader never reaches the LLM). Re-ranking is
+	// optional: without a configured LLM the resolver simply falls back to its
+	// confidence-only decision.
 	if cfg.GeoapifyKey != "" {
 		api.Geocoder = geocode.NewGeoapify(cfg.GeoapifyKey)
+		res := &geocode.Resolver{
+			Geo:           api.Geocoder,
+			MinConfidence: cfg.GeocodeMinConfidence,
+			Margin:        cfg.GeocodeMargin,
+		}
+		if cfg.LLMConfigured() {
+			if l, err := emailingest.NewRealLLM(cfg.LLMProvider, cfg.LLMModel, cfg.LLMAPIKey); err == nil {
+				res.Rerank = geocode.NewLLMReranker(func(ctx context.Context, p string) (string, error) {
+					return l.Complete(ctx, p, nil)
+				})
+			} else {
+				slog.Warn("no LLM re-ranker for geocoding", "err", err)
+			}
+		}
+		api.GeoResolver = res
 	} else {
 		slog.Warn("no GEOAPIFY_API_KEY: addresses will not be geocoded or plotted")
 	}
@@ -277,8 +299,8 @@ func run(configPath string) error {
 			// Geocode addressed parts + publish live updates, mirroring the HTTP
 			// confirm path so emailed hotels/transfers plot on the map and new
 			// trips/plans appear without a manual refresh.
-			Geocoder: api.Geocoder,
-			Hub:      hub,
+			GeoResolver: api.GeoResolver,
+			Hub:         hub,
 		}
 		go func() {
 			if err := svc.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {

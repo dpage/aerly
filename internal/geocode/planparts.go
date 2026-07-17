@@ -2,6 +2,7 @@ package geocode
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -14,15 +15,16 @@ import (
 // addresses, then anchors any still-floating local times to the real timezone of
 // their coordinates. It is best-effort: a geocode miss or a single failed update
 // is skipped rather than aborting the rest. Returns whether any part changed so
-// the caller can decide to republish over SSE. A nil geocoder is a no-op (e.g. in
-// tests), as is a nil store.
+// the caller can decide to republish over SSE. A nil resolver (or a resolver with
+// a nil Geo) is a no-op (e.g. in tests, or when GEOAPIFY_API_KEY is unset), as is
+// a nil store.
 //
 // This is the shared core behind the HTTP handler's geocodePlanAsync and the
 // email-ingest path — both need a committed plan's addressed parts plotted on the
 // map, so the logic lives here in the neutral geocode package (handlers already
 // imports emailingest, so emailingest can't import handlers).
-func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (bool, error) {
-	if st == nil || g == nil {
+func PlanParts(ctx context.Context, st *store.Store, r *Resolver, planID int64) (bool, error) {
+	if st == nil || r == nil || r.Geo == nil {
 		return false, nil
 	}
 	parts, err := st.PartsByPlan(ctx, planID)
@@ -56,7 +58,7 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 			if homeLat != nil && addressIsHome(p.StartAddress, homeAddr) {
 				payload.StartLat, payload.StartLon, payload.StartCoordsPinned = homeLat, homeLon, &pinned
 				startLat, startLon = homeLat, homeLon
-			} else if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.StartAddress, p.StartLabel, tripCountry); ok {
+			} else if lat, lon, ok := r.Endpoint(ctx, p.Type, p.StartAddress, p.StartLabel, tripCountry); ok {
 				payload.StartLat, payload.StartLon = &lat, &lon
 				startLat, startLon = &lat, &lon
 			}
@@ -65,7 +67,7 @@ func PlanParts(ctx context.Context, st *store.Store, g Geocoder, planID int64) (
 			if homeLat != nil && addressIsHome(p.EndAddress, homeAddr) {
 				payload.EndLat, payload.EndLon, payload.EndCoordsPinned = homeLat, homeLon, &pinned
 				endLat, endLon = homeLat, homeLon
-			} else if lat, lon, ok := geocodeEndpoint(ctx, g, p.Type, p.EndAddress, p.EndLabel, tripCountry); ok {
+			} else if lat, lon, ok := r.Endpoint(ctx, p.Type, p.EndAddress, p.EndLabel, tripCountry); ok {
 				payload.EndLat, payload.EndLon = &lat, &lon
 				endLat, endLon = &lat, &lon
 			}
@@ -114,23 +116,37 @@ func normAddr(s string) string {
 	return strings.TrimRight(s, " .,")
 }
 
-// geocodeEndpoint resolves an endpoint to coordinates, most reliable signal first:
-//  1. an IATA airport code in the label via the airport table (non-flight only) —
-//     deterministic, no network;
-//  2. the full postal address (normalised to one line);
-//  3. the place/property name + the address's country tail (non-flight only) —
+// Resolver turns an endpoint's address and label into coordinates. It holds all
+// the judgement: the provider ranks, the resolver decides.
+type Resolver struct {
+	Geo           Geocoder
+	Rerank        Reranker // optional; nil disables re-ranking
+	MinConfidence float64
+	Margin        float64
+}
+
+// Endpoint resolves a single plan-part endpoint to coordinates, most reliable
+// signal first:
+//
+//  1. an IATA airport code in the label via the airport table (non-flight only)
+//     (deterministic, offline, and better than any geocoder for this case);
+//  2. the full postal address (normalised to one line), country-filtered;
+//  3. the place/property name + the address's country tail (non-flight only):
 //     never the bare name, so a generic name ("Hilton") can't resolve on the
 //     wrong continent; skipped when there's no label, no country tail, or the
 //     label is a generic personal one ("Home") that names no place;
-//  4. tail backoff: progressively shorter versions of the address (drop the
-//     leading segment, first hit wins) — country-agnostic, a postcode rides along
-//     in whatever tail resolves;
-//  5. an airport-like label ("… Airport"/"… Terminal") via the geocoder, bare,
-//     constrained to tripCountry (the trip's ISO-2 country) when known so an
-//     ambiguous name ("Sal Airport") can't resolve on the wrong continent.
+//  4. an airport-like label ("… Airport"/"… Terminal") via the geocoder, bare,
+//     constrained to tripCountry so an ambiguous name ("Sal Airport") can't
+//     resolve on the wrong continent.
+//
+// Each geocoder query returns a ranked candidate list which Choose accepts only
+// on a confident, clear leader. An ambiguous list goes to the re-ranker when one
+// is configured, and otherwise yields nothing. Returning no coordinates is always
+// an acceptable outcome: an unplotted part is a small annoyance, a part plotted
+// in the wrong country is a real problem.
 //
 // Flight parts never use the label. ok=false when nothing resolved.
-func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label, tripCountry string) (float64, float64, bool) {
+func (r *Resolver) Endpoint(ctx context.Context, partType, address, label, tripCountry string) (float64, float64, bool) {
 	if partType != "flight" {
 		if code := iataIn(label); code != "" {
 			if lat, lon, ok := airports.Lookup(code); ok {
@@ -140,36 +156,54 @@ func geocodeEndpoint(ctx context.Context, g Geocoder, partType, address, label, 
 	}
 	addr := normalizeAddress(address)
 	if addr != "" {
-		if lat, lon, ok, err := g.Geocode(ctx, addr, ""); err == nil && ok {
+		if lat, lon, ok := r.resolve(ctx, Query{Text: addr, CountryCode: tripCountry}); ok {
 			return lat, lon, true
 		}
 	}
 	if partType != "flight" && strings.TrimSpace(label) != "" && !isGenericLabel(label) {
 		if country := countryFromAddress(addr); country != "" {
-			if lat, lon, ok, err := g.Geocode(ctx, label+", "+country, ""); err == nil && ok {
+			if lat, lon, ok := r.resolve(ctx, Query{Text: label + ", " + country, Type: "amenity"}); ok {
 				return lat, lon, true
 			}
 		}
 	}
-	for _, tail := range addressTails(addr, 4) {
-		if lat, lon, ok, err := g.Geocode(ctx, tail, ""); err == nil && ok {
-			return lat, lon, true
-		}
-	}
 	if partType != "flight" && isAirportLabel(label) {
-		if lat, lon, ok, err := g.Geocode(ctx, label, tripCountry); err == nil && ok {
+		if lat, lon, ok := r.resolve(ctx, Query{Text: label, CountryCode: tripCountry}); ok {
 			return lat, lon, true
 		}
 	}
 	return 0, 0, false
 }
 
-// Endpoint resolves a single plan-part endpoint to coordinates using the shared
-// fallback chain. Exported so the edit handler resolves a changed address
-// identically to the backfill path. tripCountry is the owning trip's ISO-2
-// country code (or "") used to bias an ambiguous bare airport name.
-func Endpoint(ctx context.Context, g Geocoder, partType, address, label, tripCountry string) (lat, lon float64, ok bool) {
-	return geocodeEndpoint(ctx, g, partType, address, label, tripCountry)
+// resolve runs one query and applies the confidence policy, re-ranking only when
+// the outcome is genuinely ambiguous so the LLM stays off the happy path (this
+// runs once per plan-part endpoint in a backfill loop).
+func (r *Resolver) resolve(ctx context.Context, q Query) (float64, float64, bool) {
+	if r.Geo == nil {
+		return 0, 0, false
+	}
+	cands, err := r.Geo.Candidates(ctx, q)
+	if err != nil {
+		// A failed lookup is not a miss: log it and plot nothing rather than
+		// letting a 429 masquerade as "this address doesn't exist".
+		slog.Warn("geocode lookup failed", "query", q.Text, "err", err)
+		return 0, 0, false
+	}
+	d := Choose(cands, r.MinConfidence, r.Margin)
+	switch d.Outcome {
+	case OutcomeAccept:
+		return d.Best.Lat, d.Best.Lon, true
+	case OutcomeNone:
+		return 0, 0, false
+	}
+	if r.Rerank == nil {
+		return 0, 0, false
+	}
+	idx, ok, err := r.Rerank.Pick(ctx, q.Text, d.Ranked)
+	if err != nil || !ok {
+		return 0, 0, false
+	}
+	return d.Ranked[idx].Lat, d.Ranked[idx].Lon, true
 }
 
 // isGenericLabel reports whether a label is a personal or relative place name
@@ -209,22 +243,6 @@ func countryFromAddress(address string) string {
 		return ""
 	}
 	return strings.TrimSpace(segs[len(segs)-1])
-}
-
-// addressTails returns progressively shorter versions of a comma-separated
-// address, each dropping one more leading segment, most-specific first. It omits
-// the full address (already tried by the caller) and the bare final segment
-// (too coarse — usually just the country), and returns at most max candidates.
-func addressTails(address string, max int) []string {
-	segs := strings.Split(address, ",")
-	for i := range segs {
-		segs[i] = strings.TrimSpace(segs[i])
-	}
-	var tails []string
-	for i := 1; i <= len(segs)-2 && len(tails) < max; i++ {
-		tails = append(tails, strings.Join(segs[i:], ", "))
-	}
-	return tails
 }
 
 // iataIn returns an all-uppercase 3-letter token in the label that's a known

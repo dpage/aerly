@@ -32,12 +32,16 @@ func mkTripDB(t *testing.T, pool *pgxpool.Pool, ownerID int64) int64 {
 
 func TestPlanParts_NilGuards(t *testing.T) {
 	g := stubGeo{resolves: map[string][2]float64{}}
-	// Nil store and nil geocoder are both no-ops returning (false, nil).
-	if changed, err := PlanParts(context.Background(), nil, g, 1); changed || err != nil {
+	// Nil store, nil resolver, and a resolver with a nil Geo are all no-ops
+	// returning (false, nil) rather than panicking.
+	if changed, err := PlanParts(context.Background(), nil, testResolver(g, nil), 1); changed || err != nil {
 		t.Errorf("nil store: got (%v,%v), want (false,nil)", changed, err)
 	}
 	if changed, err := PlanParts(context.Background(), &store.Store{}, nil, 1); changed || err != nil {
-		t.Errorf("nil geocoder: got (%v,%v), want (false,nil)", changed, err)
+		t.Errorf("nil resolver: got (%v,%v), want (false,nil)", changed, err)
+	}
+	if changed, err := PlanParts(context.Background(), &store.Store{}, &Resolver{}, 1); changed || err != nil {
+		t.Errorf("resolver with nil Geo: got (%v,%v), want (false,nil)", changed, err)
 	}
 }
 
@@ -100,7 +104,7 @@ func TestPlanParts_Backfills(t *testing.T) {
 		"1 Example Street, London, United Kingdom": {londonLat, londonLon},
 	}}
 
-	changed, err := PlanParts(ctx, st, g, hotelPlan.ID)
+	changed, err := PlanParts(ctx, st, testResolver(g, nil), hotelPlan.ID)
 	if err != nil {
 		t.Fatalf("PlanParts(hotel): %v", err)
 	}
@@ -129,7 +133,7 @@ func TestPlanParts_Backfills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PartsByPlan(pinned) reread: %v", err)
 	}
-	if _, err := PlanParts(ctx, st, g, pinnedPlan.ID); err != nil {
+	if _, err := PlanParts(ctx, st, testResolver(g, nil), pinnedPlan.ID); err != nil {
 		t.Fatalf("PlanParts(pinned): %v", err)
 	}
 	pinnedParts, err = st.PartsByPlan(ctx, pinnedPlan.ID)
@@ -169,7 +173,7 @@ func TestPlanParts_NoChange(t *testing.T) {
 	}
 
 	g := stubGeo{resolves: map[string][2]float64{}}
-	changed, err := PlanParts(ctx, st, g, plan.ID)
+	changed, err := PlanParts(ctx, st, testResolver(g, nil), plan.ID)
 	if err != nil {
 		t.Fatalf("PlanParts: %v", err)
 	}
@@ -189,7 +193,7 @@ func TestPlanParts_PartsError(t *testing.T) {
 	st := store.New(pool)
 	pool.Close() // subsequent queries fail.
 	g := stubGeo{resolves: map[string][2]float64{}}
-	if _, err := PlanParts(context.Background(), st, g, 1); err == nil {
+	if _, err := PlanParts(context.Background(), st, testResolver(g, nil), 1); err == nil {
 		t.Error("expected an error from PartsByPlan on a closed pool")
 	}
 }
@@ -236,7 +240,7 @@ func TestPlanParts_HomeSubstitution(t *testing.T) {
 	g := stubGeo{resolves: map[string][2]float64{
 		"honeysuckle cottage,  exampleton, zz9 9zz.": {99, 99},
 	}}
-	if _, err := PlanParts(ctx, st, g, plan.ID); err != nil {
+	if _, err := PlanParts(ctx, st, testResolver(g, nil), plan.ID); err != nil {
 		t.Fatalf("PlanParts: %v", err)
 	}
 	parts, err := st.PartsByPlan(ctx, plan.ID)
