@@ -354,3 +354,90 @@ func TestEndpointIATAFromLabel(t *testing.T) {
 		t.Errorf("coords (%v,%v) don't look like LHR", lat, lon)
 	}
 }
+
+// TestSuggestAcceptsConfidentMatch checks the happy path: a single clearly
+// confident candidate comes back as the Candidate itself, not bare coordinates,
+// because the caller is about to show it to the user for confirmation.
+func TestSuggestAcceptsConfidentMatch(t *testing.T) {
+	g := &fakeGeocoder{byText: map[string][]Candidate{
+		"Test Hotel, London": {{Lat: 51.5, Lon: -0.14, Confidence: 0.95, Formatted: "Test Hotel, London, UK"}},
+	}}
+	c, ok := testResolver(g, nil).Suggest(context.Background(), "Test Hotel, London")
+	if !ok {
+		t.Fatal("want a confident suggestion")
+	}
+	if c.Lat != 51.5 || c.Lon != -0.14 || c.Formatted != "Test Hotel, London, UK" {
+		t.Errorf("got %+v", c)
+	}
+}
+
+// TestSuggestRejectsDoubtfulMatchWithoutReranker mirrors Endpoint's own
+// confidence policy: a weak, unrerankable match must not be suggested.
+func TestSuggestRejectsDoubtfulMatchWithoutReranker(t *testing.T) {
+	g := &fakeGeocoder{byText: map[string][]Candidate{
+		"Somewhere Vague": {{Lat: 1, Lon: 2, Confidence: 0.3}},
+	}}
+	if _, ok := testResolver(g, nil).Suggest(context.Background(), "Somewhere Vague"); ok {
+		t.Fatal("a doubtful match with no re-ranker must not be suggested")
+	}
+}
+
+// TestSuggestRerankerResolvesAmbiguity checks that an ambiguous list still
+// goes through the re-ranker, exactly as Endpoint does, and returns the
+// re-ranker's chosen Candidate.
+func TestSuggestRerankerResolvesAmbiguity(t *testing.T) {
+	g := &fakeGeocoder{byText: map[string][]Candidate{
+		"Test Hotel": {
+			{Lat: 51.5, Lon: -0.14, Confidence: 0.9, Formatted: "Test Hotel, London"},
+			{Lat: 52.4, Lon: -1.9, Confidence: 0.88, Formatted: "Test Hotel, Birmingham"},
+		},
+	}}
+	r := NewLLMReranker(func(ctx context.Context, p string) (string, error) { return `{"index":1}`, nil })
+	c, ok := testResolver(g, r).Suggest(context.Background(), "Test Hotel")
+	if !ok || c.Formatted != "Test Hotel, Birmingham" {
+		t.Fatalf("re-ranker's pick should win: %+v ok=%v", c, ok)
+	}
+}
+
+// TestSuggestRerankerDeclineMeansNoSuggestion checks that a declining
+// re-ranker yields no suggestion, same as Endpoint's "no pin" outcome.
+func TestSuggestRerankerDeclineMeansNoSuggestion(t *testing.T) {
+	g := &fakeGeocoder{byText: map[string][]Candidate{
+		"Test Hotel": {
+			{Lat: 51.5, Lon: -0.14, Confidence: 0.9},
+			{Lat: 52.4, Lon: -1.9, Confidence: 0.88},
+		},
+	}}
+	r := NewLLMReranker(func(ctx context.Context, p string) (string, error) { return `{"index":null}`, nil })
+	if _, ok := testResolver(g, r).Suggest(context.Background(), "Test Hotel"); ok {
+		t.Fatal("a declining re-ranker must yield no suggestion")
+	}
+}
+
+// TestSuggestNoCandidatesMeansNoSuggestion checks the plain miss case.
+func TestSuggestNoCandidatesMeansNoSuggestion(t *testing.T) {
+	g := &fakeGeocoder{byText: map[string][]Candidate{}}
+	if _, ok := testResolver(g, nil).Suggest(context.Background(), "Nowhere At All"); ok {
+		t.Fatal("no candidates must mean no suggestion")
+	}
+}
+
+// TestSuggestNilGeoIsNoop checks the documented nil-safety: a Resolver whose
+// Geo is nil (GEOAPIFY_API_KEY unset, a supported production state) must
+// decline rather than panic.
+func TestSuggestNilGeoIsNoop(t *testing.T) {
+	r := &Resolver{}
+	if _, ok := r.Suggest(context.Background(), "Test Hotel, London"); ok {
+		t.Fatal("a nil Geo must yield no suggestion")
+	}
+}
+
+// TestSuggestNilResolverIsNoop checks that calling Suggest on a nil *Resolver
+// (the zero value a handler might hold when GeoResolver was never wired up)
+// never panics.
+func TestSuggestNilResolverIsNoop(t *testing.T) {
+	var r *Resolver
+	if _, ok := r.Suggest(context.Background(), "Test Hotel, London"); ok {
+		t.Fatal("a nil Resolver must yield no suggestion")
+	}
+}

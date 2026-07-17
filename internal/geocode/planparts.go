@@ -183,6 +183,36 @@ func (r *Resolver) Endpoint(ctx context.Context, partType, address, label, tripC
 	return 0, 0, false
 }
 
+// Suggest resolves free text to a single candidate for user confirmation.
+// Unlike Endpoint it returns the Candidate itself, not bare coordinates,
+// because the user is about to be shown what we found and asked whether it is
+// right (e.g. a Google Maps link that names a place but carries no
+// coordinates). It applies the same confidence policy as Endpoint, re-ranking
+// an ambiguous list when a re-ranker is configured. ok=false means nothing
+// cleared the policy; the caller must not plot a pin. A nil receiver or a nil
+// Geo (GEOAPIFY_API_KEY unset, a supported production state) is a no-op
+// rather than a panic.
+func (r *Resolver) Suggest(ctx context.Context, text string) (Candidate, bool) {
+	if r == nil || r.Geo == nil {
+		return Candidate{}, false
+	}
+	cands, err := r.Geo.Candidates(ctx, Query{Text: text})
+	if err != nil {
+		slog.Warn("suggest lookup failed", "text", text, "err", err)
+		return Candidate{}, false
+	}
+	d := Choose(cands, r.MinConfidence, r.Margin)
+	if d.Outcome == OutcomeAccept {
+		return d.Best, true
+	}
+	if d.Outcome == OutcomeAmbiguous && r.Rerank != nil {
+		if idx, ok, _ := r.Rerank.Pick(ctx, text, d.Ranked); ok {
+			return d.Ranked[idx], true
+		}
+	}
+	return Candidate{}, false
+}
+
 // resolve runs one query and applies the confidence policy, re-ranking only when
 // the outcome is genuinely ambiguous so the LLM stays off the happy path (this
 // runs once per plan-part endpoint in a backfill loop).

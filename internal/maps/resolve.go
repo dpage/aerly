@@ -70,26 +70,58 @@ func (r *Resolver) hostAllowed(host string) bool {
 // non-allowlisted hosts). ok=false (err=nil) means no coordinates could be
 // found; ErrNotAllowed means the URL/redirect was off the allowlist.
 func (r *Resolver) ResolveURL(ctx context.Context, rawURL string) (lat, lon float64, ok bool, err error) {
+	lat, lon, ok, _, err = r.hopToCoordsOrTerminal(ctx, rawURL)
+	return lat, lon, ok, err
+}
+
+// ResolveURLOrHint is ResolveURL's hint-aware sibling: it runs the identical
+// allowlisted hop loop (coordinates are always tried first, on every hop) and,
+// only once the chain ends without a coordinate match, extracts a human
+// hint from the terminal URL (see ExtractHint's calling contract — this is
+// exactly the "only once ExtractLatLon has returned false" case it requires).
+// A URL that carries an exact pin therefore never falls through to a hint,
+// and, like ResolveURL, the response body is drained and discarded rather than
+// scraped: hint or not, we only ever hand the user something to confirm, never
+// a guess we plot ourselves.
+func (r *Resolver) ResolveURLOrHint(ctx context.Context, rawURL string) (lat, lon float64, ok bool, hint string, err error) {
+	lat, lon, ok, terminalURL, err := r.hopToCoordsOrTerminal(ctx, rawURL)
+	if err != nil || ok || terminalURL == "" {
+		return lat, lon, ok, "", err
+	}
+	if h, found := ExtractHint(terminalURL); found {
+		hint = h
+	}
+	return 0, 0, false, hint, nil
+}
+
+// hopToCoordsOrTerminal is the shared allowlisted hop loop behind ResolveURL
+// and ResolveURLOrHint. It validates the scheme and host on every hop, tries
+// coordinates on each URL, and otherwise follows a single redirect at a time.
+// When the chain ends without a coordinate match, terminalURL carries the last
+// URL visited (so a caller wanting a hint knows exactly which URL to read it
+// from); it is "" when the loop instead errored out (bad scheme/host, a
+// request/parse failure, or too many redirects).
+func (r *Resolver) hopToCoordsOrTerminal(ctx context.Context, rawURL string) (lat, lon float64, ok bool, terminalURL string, err error) {
 	cur := rawURL
 	for hop := 0; hop < maxHops; hop++ {
 		u, perr := url.Parse(cur)
 		if perr != nil {
-			return 0, 0, false, fmt.Errorf("maps: parse url: %w", perr)
+			return 0, 0, false, "", fmt.Errorf("maps: parse url: %w", perr)
 		}
 		if u.Scheme != "https" || !r.hostAllowed(u.Host) {
-			return 0, 0, false, ErrNotAllowed
+			return 0, 0, false, "", ErrNotAllowed
 		}
 		if la, lo, found := ExtractLatLon(cur); found {
-			return la, lo, true, nil
+			return la, lo, true, "", nil
 		}
 		req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, cur, nil)
 		if rerr != nil {
-			return 0, 0, false, rerr
+			return 0, 0, false, "", rerr
 		}
 		req.Header.Set("User-Agent", r.UserAgent)
 		resp, derr := r.HTTP.Do(req)
 		if derr != nil {
-			return 0, 0, false, derr
+			return 0, 0, false, "", derr
 		}
 		// We only need the redirect headers; a Google Maps place page never
 		// carries the pin's coordinates for a key-less, session-less request
@@ -98,17 +130,17 @@ func (r *Resolver) ResolveURL(ctx context.Context, rawURL string) (lat, lon floa
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBody))
 		_ = resp.Body.Close()
 		if resp.StatusCode < 300 || resp.StatusCode >= 400 {
-			return 0, 0, false, nil
+			return 0, 0, false, cur, nil
 		}
 		loc := resp.Header.Get("Location")
 		if loc == "" {
-			return 0, 0, false, nil
+			return 0, 0, false, cur, nil
 		}
 		next, nerr := u.Parse(loc)
 		if nerr != nil {
-			return 0, 0, false, nerr
+			return 0, 0, false, "", nerr
 		}
 		cur = next.String()
 	}
-	return 0, 0, false, fmt.Errorf("maps: too many redirects")
+	return 0, 0, false, "", fmt.Errorf("maps: too many redirects")
 }

@@ -16,6 +16,17 @@ type CoordsDTO struct {
 	Lon float64 `json:"lon"`
 }
 
+// ResolvedLocationDTO is a location resolved from a pasted Maps URL.
+// NeedsConfirmation is true when the coordinates were geocoded from the
+// link's text rather than read from the link itself, in which case the
+// client must show Label and let the user accept or reject it before pinning.
+type ResolvedLocationDTO struct {
+	Lat               float64 `json:"lat"`
+	Lon               float64 `json:"lon"`
+	Label             string  `json:"label,omitempty"`
+	NeedsConfirmation bool    `json:"needs_confirmation,omitempty"`
+}
+
 type UserDTO struct {
 	ID          int64  `json:"id"`
 	Username    string `json:"username"`
