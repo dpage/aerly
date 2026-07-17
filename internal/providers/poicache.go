@@ -31,7 +31,7 @@ type poiEntry struct {
 // caller-supplied coordinates/categories, so without a bound the map could
 // grow for the process lifetime. When the cap is hit the cache is cleared (a
 // coarse but simple eviction for a best-effort cache), mirroring
-// geocode.Nominatim's maxCacheEntries. POI entries carry more data per key
+// geocode.Geoapify's own maxCacheEntries. POI entries carry more data per key
 // than a geocode entry, so the cap here is smaller.
 const maxPOICacheEntries = 4096
 

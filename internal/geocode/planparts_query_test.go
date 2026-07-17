@@ -167,8 +167,11 @@ func TestEndpointGenericLabelNeverGeocoded(t *testing.T) {
 }
 
 // A flight part must never resolve from its label, even when that label carries
-// a resolvable IATA code — its label is an airline flight number/ident, and the
-// coordinates for a flight come from the flight resolver, not the airport table.
+// a resolvable IATA code. A flight's label is ordinarily an IATA code, and it
+// IS located via the airport table (or the poller, for an off-table airport),
+// but via the dedicated flight-coordinate resolution path (resolveFlightCoordsAsync),
+// not Endpoint's own label lookup. Endpoint must not pre-empt that path with its
+// own fuzzy IATA scan here.
 func TestEndpointIATALabelSkippedForFlightParts(t *testing.T) {
 	g := &fakeGeocoder{byText: map[string][]Candidate{}}
 	if _, _, ok := testResolver(g, nil).Endpoint(context.Background(), "flight", "", "LHR T5", ""); ok {
@@ -286,6 +289,42 @@ func TestEndpointBareAirportBiasedToTripCountry(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected the bare airport label to be geocoded")
+	}
+}
+
+// TestEndpointFullAddressNotCountryFiltered pins the fix for a real regression:
+// the full-address rung must NOT pass CountryCode, even when a tripCountry is
+// supplied. Geoapify's countrycode filter is a hard exclusion, not a soft bias,
+// and a full postal address already names its own country. The concrete broken
+// case this guards is a home-to-airport transfer whose start address is in gb
+// on a trip whose derived country is pt: filtering the address lookup by the
+// trip's country would return zero candidates and plot nothing, breaking
+// Aerly's pinned-home-location feature for exactly this kind of plan. Do not
+// re-add CountryCode here.
+func TestEndpointFullAddressNotCountryFiltered(t *testing.T) {
+	var got []stubQuery
+	g := stubGeo{
+		resolves: map[string][2]float64{
+			"Test Hotel, Example Street, London, United Kingdom": {51.5, -0.14},
+		},
+		queries: &got,
+	}
+	lat, lon, ok := testResolver(g, nil).Endpoint(context.Background(),
+		"transfer", "Test Hotel, Example Street, London, United Kingdom", "", "pt")
+	if !ok || lat != 51.5 || lon != -0.14 {
+		t.Fatalf("got %v,%v ok=%v, want 51.5,-0.14,true", lat, lon, ok)
+	}
+	found := false
+	for _, q := range got {
+		if q.q == "Test Hotel, Example Street, London, United Kingdom" {
+			found = true
+			if q.country != "" {
+				t.Errorf("full-address rung queried with CountryCode %q, want empty (a gb address on a pt trip must not be country-filtered)", q.country)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected the full address to be queried")
 	}
 }
 

@@ -131,9 +131,14 @@ func (a *API) commitImportedPlans(r *http.Request, deps planops.Deps, tripID, us
 // time. The two run in one ordered background task — geocode first, derive after
 // — so the destination is chosen from fully-plotted plans rather than racing the
 // per-plan geocode (which lets the fastest endpoint, usually the origin, win).
-// A no-op without a geocoder; the startup backfill is the safety net.
+// A no-op without a geocoder; the startup backfill is the safety net. Guards on
+// both Geocoder and GeoResolver: main.go always wires them together, but
+// requiring both here keeps this guard coherent with its sibling handlers
+// (which guard on GeoResolver) and avoids a silent geocode no-op if the two
+// ever drifted apart, whilst the raw a.Geocoder is still needed below for
+// country derivation.
 func (a *API) geocodeAndDeriveImportedTripAsync(tripID int64, planIDs []int64) {
-	if a.Geocoder == nil {
+	if a.Geocoder == nil || a.GeoResolver == nil {
 		return
 	}
 	go func() {

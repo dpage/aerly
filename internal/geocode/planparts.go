@@ -130,7 +130,10 @@ type Resolver struct {
 //
 //  1. an IATA airport code in the label via the airport table (non-flight only)
 //     (deterministic, offline, and better than any geocoder for this case);
-//  2. the full postal address (normalised to one line), country-filtered;
+//  2. the full postal address (normalised to one line), NOT country-filtered:
+//     the address names its own country, and a hard country filter would zero
+//     out an endpoint legitimately outside the trip's country (e.g. a
+//     home-to-airport transfer starting abroad);
 //  3. the place/property name + the address's country tail (non-flight only):
 //     never the bare name, so a generic name ("Hilton") can't resolve on the
 //     wrong continent; skipped when there's no label, no country tail, or the
@@ -156,7 +159,12 @@ func (r *Resolver) Endpoint(ctx context.Context, partType, address, label, tripC
 	}
 	addr := normalizeAddress(address)
 	if addr != "" {
-		if lat, lon, ok := r.resolve(ctx, Query{Text: addr, CountryCode: tripCountry}); ok {
+		// NOT country-filtered, deliberately. A full postal address names its own
+		// country, and Geoapify's countrycode filter is a hard exclusion rather than
+		// a soft bias: filtering by the trip's country would return zero candidates
+		// for any endpoint legitimately outside it, such as a home-to-airport
+		// transfer starting in gb on a trip to pt.
+		if lat, lon, ok := r.resolve(ctx, Query{Text: addr}); ok {
 			return lat, lon, true
 		}
 	}
@@ -222,7 +230,7 @@ func isGenericLabel(label string) bool {
 }
 
 // normalizeAddress collapses a multi-line address into a single comma-separated
-// line (Nominatim handles those far better than embedded newlines).
+// line (the geocoder matches that far better than embedded newlines).
 func normalizeAddress(s string) string {
 	var parts []string
 	for _, line := range strings.Split(s, "\n") {

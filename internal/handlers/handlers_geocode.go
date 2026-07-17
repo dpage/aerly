@@ -377,13 +377,14 @@ func (a *API) BackfillTripCountries(ctx context.Context) {
 }
 
 // BackfillPartCoordinates geocodes any historical plan parts that have a
-// free-text address but no coordinates — plans ingested before address
-// geocoding existed, or while Nominatim was unavailable — so they finally plot
-// on the map. Best-effort and idempotent (a part with coordinates no longer
-// matches); a no-op without a configured geocoder. Runs in the background at
-// startup. Geocoding is rate-limited (≈1 req/s via Nominatim), so this paces
-// itself; we don't publish SSE per plan — open clients pick the coordinates up
-// on their next trip fetch.
+// free-text address but no coordinates: plans ingested before address
+// geocoding existed, so they finally plot on the map. Best-effort and
+// idempotent (a part with coordinates no longer matches); a no-op without a
+// configured geocoder. Runs in the background at startup. Each geocoder call
+// self-paces to Geoapify's 5 req/s ceiling (the rate limiter lives in the
+// Geoapify client, not here), so this loop needs no pacing of its own; we
+// don't publish SSE per plan, so open clients pick the coordinates up on their
+// next trip fetch.
 func (a *API) BackfillPartCoordinates(ctx context.Context) {
 	if a.GeoResolver == nil {
 		return
