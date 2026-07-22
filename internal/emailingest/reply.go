@@ -38,6 +38,10 @@ type ReplyInput struct {
 	Added     []ReplyItem
 	Failed    []ReplyFailure
 	PublicURL string // for the "add manually" link
+	// MultiTripHint, when non-empty, is the name of the trip a multi-booking
+	// email was merged into when its legs look like they might be separate
+	// trips. The reply invites the user to split them. Empty means no hint.
+	MultiTripHint string
 }
 
 const manualSuffixText = " (from the email; please verify the times)"
@@ -147,8 +151,18 @@ func replyPlainBody(in ReplyInput, link string) string {
 	default:
 		fmt.Fprintf(&sb, "I couldn't find any travel details in this email; please add it manually at %s/ .\r\n", link)
 	}
+	if in.MultiTripHint != "" {
+		fmt.Fprintf(&sb, "\r\n%s\r\n", multiTripText(in.MultiTripHint, link))
+	}
 	sb.WriteString("\r\n- Aerly\r\n")
 	return sb.String()
+}
+
+// multiTripText is the plain-text note inviting the user to split a merged
+// booking that looks like more than one trip. name is the trip they were
+// merged into.
+func multiTripText(name, link string) string {
+	return fmt.Sprintf("These bookings looked like they might belong to more than one trip, however I've kept them together in %q as they were in a single confirmation. If they're actually separate trips, you can split them in the app at %s/ .", name, link)
 }
 
 func replyHTMLBody(in ReplyInput, link string) string {
@@ -173,11 +187,18 @@ func replyHTMLBody(in ReplyInput, link string) string {
 		`<p style="margin:0;font-size:14px;color:#555;">Please <a href="%s" style="%s">add the failed booking(s) manually</a>.</p>`,
 		safeLink, brandLinkStyle)
 
+	multiTrip := ""
+	if in.MultiTripHint != "" {
+		multiTrip = fmt.Sprintf(
+			`<p style="margin:0 0 16px;padding:10px 14px;background:#dbeafe;border-left:3px solid #1e40af;color:#1e3a5f;font-size:13px;line-height:1.5;">These bookings looked like they might belong to more than one trip, however I've kept them together in <strong>%s</strong> as they were in a single confirmation. If they're actually separate trips, you can <a href="%s" style="%s">split them in the app</a>.</p>`,
+			htmlEscape(in.MultiTripHint), safeLink, brandLinkStyle)
+	}
+
 	switch {
 	case len(in.Added) > 0 && len(in.Failed) == 0:
-		return addedHTML + manualTrailerHTML
+		return addedHTML + manualTrailerHTML + multiTrip
 	case len(in.Added) > 0 && len(in.Failed) > 0:
-		return addedHTML + failedHTML + manualTrailerHTML + manual
+		return addedHTML + failedHTML + manualTrailerHTML + multiTrip + manual
 	case len(in.Failed) > 0:
 		return `<p style="margin:0 0 12px;font-size:15px;">I couldn't add any of the bookings from this email:</p>` + failedHTML + manual
 	default:

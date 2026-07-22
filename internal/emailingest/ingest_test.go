@@ -514,6 +514,113 @@ func TestIngest_PlanCapture_AttachesToExistingTrip(t *testing.T) {
 	}
 }
 
+// TestIngest_PlanCapture_BatchStaysOneTrip covers a round trip ticketed as two
+// one-way segments under different PNRs, two days apart, arriving in a single
+// booking email (the real Vienna⇄Sofia conference case). Previously each leg was
+// placed independently by date proximity: the outbound created "Trip to Sofia",
+// then the return leg (48h later, outside the 24h adjacency window) created a
+// second "Trip to Vienna". A single email is one trip, so both legs must land in
+// one trip, named for the outbound destination and spanning both dates.
+func TestIngest_PlanCapture_BatchStaysOneTrip(t *testing.T) {
+	llmResp := `{"plans":[
+		{"type":"flight","title":"OS775","confirmation_ref":"AAAAAA","parts":[
+			{"type":"flight","confidence":"high","flight":{"ident":"OS775","date":"2026-10-12","origin_iata":"VIE","dest_iata":"SOF","depart_time":"13:40","arrive_date":"2026-10-12","arrive_time":"15:00"}}]},
+		{"type":"flight","title":"OS772","confirmation_ref":"BBBBBB","parts":[
+			{"type":"flight","confidence":"high","flight":{"ident":"OS772","date":"2026-10-14","origin_iata":"SOF","dest_iata":"VIE","depart_time":"09:25","arrive_date":"2026-10-14","arrive_time":"10:45"}}]}
+	]}`
+	// resolverErr set so both legs fall back to the email's own schedule and keep
+	// their VIE/SOF endpoints rather than the fake resolver's IST→LHR.
+	h := newHarness(t, llmResp, errors.New("no resolver"), false)
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	writeMessage(t, h.maildir, "33", goodMessage)
+	if state := h.runUntilProcessed(t, "33", 5*time.Second); state != "removed" {
+		t.Fatalf("expected removed, got %s", state)
+	}
+	trips, err := h.store.ListTrips(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trips) != 1 {
+		var names []string
+		for _, tr := range trips {
+			names = append(names, tr.Name)
+		}
+		t.Fatalf("expected both legs in 1 trip, got %d: %v", len(trips), names)
+	}
+	if trips[0].Name != "Trip to Sofia" {
+		t.Errorf("trip name = %q, want %q (outbound destination)", trips[0].Name, "Trip to Sofia")
+	}
+	// The trip spans both legs, not just the outbound day.
+	if trips[0].StartsOn == nil || trips[0].StartsOn.Format("2006-01-02") != "2026-10-12" {
+		t.Errorf("trip StartsOn = %v, want 2026-10-12", trips[0].StartsOn)
+	}
+	if trips[0].EndsOn == nil || trips[0].EndsOn.Format("2006-01-02") != "2026-10-14" {
+		t.Errorf("trip EndsOn = %v, want 2026-10-14", trips[0].EndsOn)
+	}
+	plans, err := h.store.PlansByTrip(ctx, trips[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flights int
+	for _, p := range plans {
+		if p.Type == "flight" {
+			flights++
+		}
+	}
+	if flights != 2 {
+		t.Errorf("expected 2 flight plans on the trip, got %d", flights)
+	}
+	// A round trip (out and back) is one coherent journey, so the reply must not
+	// nag about it possibly being several trips.
+	body, _ := os.ReadFile(h.sendmailOut)
+	if strings.Contains(string(body), "more than one trip") {
+		t.Errorf("round trip should not trigger the multi-trip hint, got: %s", body)
+	}
+}
+
+// TestIngest_PlanCapture_MultiTripHint covers two genuinely disconnected one-way
+// flights arriving in one email: they don't chain (LHR→JFK then CDG→FCO), so
+// while we still keep them in one trip, the confirmation reply flags that they
+// might be separate trips and invites the user to split them.
+func TestIngest_PlanCapture_MultiTripHint(t *testing.T) {
+	llmResp := `{"plans":[
+		{"type":"flight","title":"BA117","confirmation_ref":"AAA111","parts":[
+			{"type":"flight","confidence":"high","flight":{"ident":"BA117","date":"2026-10-12","origin_iata":"LHR","dest_iata":"JFK","depart_time":"10:00","arrive_date":"2026-10-12","arrive_time":"13:00"}}]},
+		{"type":"flight","title":"AF1504","confirmation_ref":"BBB222","parts":[
+			{"type":"flight","confidence":"high","flight":{"ident":"AF1504","date":"2026-10-20","origin_iata":"CDG","dest_iata":"FCO","depart_time":"09:00","arrive_date":"2026-10-20","arrive_time":"11:00"}}]}
+	]}`
+	h := newHarness(t, llmResp, errors.New("no resolver"), false)
+	ctx := context.Background()
+	u, _ := h.store.InviteUser(ctx, store.InvitePayload{Username: "alice"})
+	if err := h.store.UpsertVerifiedEmail(ctx, u.ID, "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	writeMessage(t, h.maildir, "34", goodMessage)
+	if state := h.runUntilProcessed(t, "34", 5*time.Second); state != "removed" {
+		t.Fatalf("expected removed, got %s", state)
+	}
+	// Still merged into a single trip.
+	trips, err := h.store.ListTrips(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trips) != 1 {
+		t.Fatalf("expected 1 trip, got %d", len(trips))
+	}
+	// The reply flags the possible split and names the trip they were merged into.
+	body, _ := os.ReadFile(h.sendmailOut)
+	if !strings.Contains(string(body), "more than one trip") {
+		t.Errorf("expected the multi-trip hint in the reply, got: %s", body)
+	}
+	if !strings.Contains(string(body), trips[0].Name) {
+		t.Errorf("expected the hint to name the trip %q, got: %s", trips[0].Name, body)
+	}
+}
+
 // TestIngest_GeocodesAndPublishes verifies the ingest path geocodes an addressed
 // booking (so it plots on the map) and publishes trip.updated + plan.updated (so
 // open clients pick it up live) — the two gaps that previously left a forwarded

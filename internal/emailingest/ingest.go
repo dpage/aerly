@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -227,7 +228,7 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	// are resolver-enriched inside planops.Propose (with the same email-schedule
 	// fallback the legacy flightops path used), so emailed flights land as
 	// flight-typed plan parts the tracker/poller key on, not legacy flight rows.
-	added, failed, err := s.capturePlans(ctx, u.ID, body, docs)
+	added, failed, multiTripHint, err := s.capturePlans(ctx, u.ID, body, docs)
 	if err != nil {
 		// Treat any extractor/propose failure as transient: drain loop retries.
 		slog.Warn("emailingest: capture plans", "err", err)
@@ -246,13 +247,14 @@ func (s *Service) processOne(ctx context.Context, path string) outcome {
 	s.logIngest(ctx, parsed.MessageID, parsed.From, parsed.Subject, dkimOK, &u.ID, status, len(added), len(failed), "")
 
 	msg := BuildReply(ReplyInput{
-		FromAddr:  s.Cfg.IngestAddress,
-		ToAddr:    parsed.From,
-		InReplyTo: parsed.MessageID,
-		Subject:   parsed.Subject,
-		Added:     added,
-		Failed:    failed,
-		PublicURL: s.Cfg.PublicURL,
+		FromAddr:      s.Cfg.IngestAddress,
+		ToAddr:        parsed.From,
+		InReplyTo:     parsed.MessageID,
+		Subject:       parsed.Subject,
+		Added:         added,
+		Failed:        failed,
+		MultiTripHint: multiTripHint,
+		PublicURL:     s.Cfg.PublicURL,
 	})
 	if err := Send(ctx, s.Cfg.SendmailPath, s.Cfg.IngestAddress, msg); err != nil {
 		slog.Warn("emailingest: send reply", "err", err)
@@ -364,39 +366,47 @@ func failureReason(err error) string {
 }
 
 // capturePlans runs the planops capture path for every booking in an email.
-// It proposes plans (tripID 0 → no rebooking match pre-attach), picks a target
-// trip by date proximity (auto-creating one when nothing overlaps), and commits
-// each plan against that trip. Every committed plan (any type) yields a reply
-// item so the confirmation email lists what was added; commit failures yield a
-// reply failure.
-func (s *Service) capturePlans(ctx context.Context, userID int64, body string, emDocs []Document) ([]ReplyItem, []ReplyFailure, error) {
+// It proposes plans (tripID 0 → no rebooking match pre-attach), picks a single
+// target trip for the whole email by date proximity (auto-creating one when
+// nothing overlaps), and commits every plan against that trip. Every committed
+// plan (any type) yields a reply item so the confirmation email lists what was
+// added; commit failures yield a reply failure.
+//
+// It also returns multiTripHint: the target trip's name when the batch looks
+// like it might really be more than one trip (see looksLikeSeparateTrips), so
+// the reply can invite the user to split them. Empty means no hint.
+func (s *Service) capturePlans(ctx context.Context, userID int64, body string, emDocs []Document) (added []ReplyItem, failed []ReplyFailure, multiTripHint string, err error) {
 	docs := make([]planops.Document, 0, len(emDocs))
 	for _, d := range emDocs {
 		docs = append(docs, planops.Document{Data: d.Data, MediaType: d.MediaType, Filename: d.Filename})
 	}
 	proposals, err := planops.Propose(ctx, s.PlanDeps, userID, 0, body, docs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("propose: %w", err)
+		return nil, nil, "", fmt.Errorf("propose: %w", err)
 	}
 
-	added := []ReplyItem{}
-	failed := []ReplyFailure{}
-	for _, p := range proposals {
-		start, end := planops.PlanSpan(p.Parts)
-		tripID, ok, err := planops.SelectTrip(ctx, s.PlanDeps, userID, start, end)
-		if err != nil {
-			slog.Warn("emailingest: planops select trip", "err", err)
+	added = []ReplyItem{}
+	failed = []ReplyFailure{}
+
+	// A single booking confirmation is one trip's worth of bookings: a round
+	// trip ticketed as two one-way PNRs, or a flight and its hotel, arrives in
+	// one email yet its legs can be days apart and carry different confirmation
+	// refs. Placing each plan independently by date proximity would scatter them
+	// across separate trips — a Vienna⇄Sofia conference booked as two one-ways
+	// landed as "Trip to Sofia" plus "Trip to Vienna". So resolve ONE target
+	// trip for the whole email from the union of every proposal's span and
+	// commit all plans against it; the user can still split a genuinely
+	// unrelated batch by hand afterwards.
+	tripID, err := s.selectTripForBatch(ctx, userID, proposals)
+	if err != nil {
+		slog.Warn("emailingest: select trip for ingested batch", "err", err)
+		for _, p := range proposals {
 			failed = append(failed, planReplyFailure(p, err))
-			continue
 		}
-		if !ok {
-			tripID, err = s.createTripForPlan(ctx, userID, p)
-			if err != nil {
-				slog.Warn("emailingest: create trip for ingested plan", "err", err)
-				failed = append(failed, planReplyFailure(p, err))
-				continue
-			}
-		}
+		return added, failed, "", nil
+	}
+
+	for _, p := range proposals {
 		// The sender confirms as-extracted with themselves as the sole
 		// passenger; the user can correct or re-share afterwards in the UI.
 		in := toConfirmInput(p)
@@ -427,7 +437,75 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 		notify.TripUpdated(ctx, s.Store, s.Hub, tripID)
 		added = append(added, planReplyItem(p))
 	}
-	return added, failed, nil
+
+	// When at least two bookings landed and their flight legs don't form one
+	// connected journey, the batch may really be several trips we've merged into
+	// one. Surface the trip's name so the reply can offer to split it. A failed
+	// name lookup just drops the hint (non-fatal, best-effort).
+	if len(added) >= 2 && looksLikeSeparateTrips(proposals) {
+		if t, terr := s.Store.TripByID(ctx, tripID); terr != nil {
+			slog.Warn("emailingest: trip name for multi-trip hint", "err", terr, "trip", tripID)
+		} else if t != nil {
+			multiTripHint = t.Name
+		}
+	}
+	return added, failed, multiTripHint, nil
+}
+
+// looksLikeSeparateTrips reports whether a batch of proposals from one email
+// resembles more than one distinct trip rather than a single coherent journey.
+// We keep every booking from one email in one trip (see capturePlans), but a
+// return home followed by another departure, or a disconnected hop, suggests the
+// merge lumped together what are really separate trips — worth flagging so the
+// reply can offer to split them.
+//
+// The signal is flight-leg connectivity, walked in departure order: two legs
+// belong to the same trip when the traveller stays put between them (the first
+// leg's arrival airport is the next leg's departure airport) and that airport is
+// not home (the first leg's origin). A leg that returns home before a later
+// departure, or a hop whose departure airport isn't where the previous leg
+// landed, is a trip boundary. This deliberately treats an ordinary round trip
+// (out and back, arrival == next departure away from home) and a connected
+// multi-city itinerary as one trip, so it doesn't nag on normal travel.
+//
+// Only flight legs are considered: their IATA endpoints compare cleanly, whereas
+// mixing free-text ground/hotel labels in would risk false positives on ordinary
+// trips (a taxi labelled differently from the airport it leaves). A batch with
+// fewer than two flight legs is never flagged.
+func looksLikeSeparateTrips(proposals []planops.ProposedPlan) bool {
+	type leg struct {
+		start        time.Time
+		origin, dest string
+	}
+	var legs []leg
+	for _, p := range proposals {
+		if p.Type != "flight" {
+			continue
+		}
+		for _, part := range p.Parts {
+			f := part.Flight
+			if f == nil || part.StartsAt.IsZero() {
+				continue
+			}
+			origin := strings.ToUpper(strings.TrimSpace(f.OriginIATA))
+			dest := strings.ToUpper(strings.TrimSpace(f.DestIATA))
+			if origin == "" || dest == "" {
+				continue
+			}
+			legs = append(legs, leg{start: part.StartsAt, origin: origin, dest: dest})
+		}
+	}
+	if len(legs) < 2 {
+		return false
+	}
+	sort.Slice(legs, func(i, j int) bool { return legs[i].start.Before(legs[j].start) })
+	home := legs[0].origin
+	for i := 0; i+1 < len(legs); i++ {
+		if legs[i].dest != legs[i+1].origin || legs[i].dest == home {
+			return true
+		}
+	}
+	return false
 }
 
 // planReplyItem renders a committed proposal of any type as a ReplyItem for the
@@ -502,24 +580,63 @@ func planTypeLabel(t string) string {
 	}
 }
 
-// createTripForPlan auto-creates a trip when no existing trip matches by date
-// proximity (spec §6.3). For a flight booking it names the trip for where the
-// flight lands ("Trip to <city>") rather than after the flight's ident (#21),
-// falling back to the plan title and then a generic label.
-//
-// The trip's date hints come from PlanDateSpan, which reads each part's local
-// calendar day (the arrival day in the destination tz for the end), so an
-// overnight eastbound flight ends the trip on its landing day rather than the
-// UTC day of the arrival instant (issue #57).
-func (s *Service) createTripForPlan(ctx context.Context, userID int64, p planops.ProposedPlan) (int64, error) {
-	name := planops.TripNameForProposedPlan(p)
-	if name == "" {
-		name = strings.TrimSpace(p.Title)
+// selectTripForBatch resolves the single trip every plan from one email attaches
+// to. It matches on the union of the proposals' UTC spans (so a booking whose
+// legs are days apart still resolves as one trip rather than one per leg), and
+// auto-creates a trip when nothing matches by date proximity (spec §6.3).
+func (s *Service) selectTripForBatch(ctx context.Context, userID int64, proposals []planops.ProposedPlan) (int64, error) {
+	var start, end time.Time
+	for _, p := range proposals {
+		ps, pe := planops.PlanSpan(p.Parts)
+		if ps.IsZero() {
+			continue
+		}
+		if start.IsZero() || ps.Before(start) {
+			start = ps
+		}
+		if end.IsZero() || pe.After(end) {
+			end = pe
+		}
 	}
+	tripID, ok, err := planops.SelectTrip(ctx, s.PlanDeps, userID, start, end)
+	if err != nil {
+		return 0, err
+	}
+	if ok {
+		return tripID, nil
+	}
+	return s.createTripForBatch(ctx, userID, proposals)
+}
+
+// createTripForBatch auto-creates the trip for an email's plans when none match
+// by date proximity. It names the trip for where the outbound flight lands
+// ("Trip to <city>", #21) — the earliest-departing flight proposal's
+// destination, so a Vienna→Sofia→Vienna trip ingested as two one-way PNRs is
+// named "Trip to Sofia" rather than for whichever leg the LLM listed first —
+// falling back to the earliest booking's title, then a generic label.
+//
+// The trip's date hints span the whole batch via PlanDateSpan, which reads each
+// part's local calendar day (the arrival day in the destination tz for the end),
+// so an overnight eastbound flight ends the trip on its landing day (#57) and a
+// two-day round trip is not stored as a single day.
+func (s *Service) createTripForBatch(ctx context.Context, userID int64, proposals []planops.ProposedPlan) (int64, error) {
+	name := batchTripName(proposals)
 	if name == "" {
 		name = "Trip from email"
 	}
-	start, end := planops.PlanDateSpan(p.Parts)
+	var start, end time.Time
+	for _, p := range proposals {
+		ps, pe := planops.PlanDateSpan(p.Parts)
+		if ps.IsZero() {
+			continue
+		}
+		if start.IsZero() || ps.Before(start) {
+			start = ps
+		}
+		if end.IsZero() || pe.After(end) {
+			end = pe
+		}
+	}
 	in := store.CreateTripPayload{Name: name}
 	if !start.IsZero() {
 		s := start
@@ -534,6 +651,43 @@ func (s *Service) createTripForPlan(ctx context.Context, userID int64, p planops
 		return 0, err
 	}
 	return t.ID, nil
+}
+
+// batchTripName derives an auto-created trip's name from a batch of proposals:
+// the earliest-departing flight's destination city, else the earliest booking's
+// title, else "" (the caller then uses a generic label).
+func batchTripName(proposals []planops.ProposedPlan) string {
+	if p, ok := earliestProposal(proposals, true); ok {
+		if name := planops.TripNameForProposedPlan(p); name != "" {
+			return name
+		}
+	}
+	if p, ok := earliestProposal(proposals, false); ok {
+		return strings.TrimSpace(p.Title)
+	}
+	return ""
+}
+
+// earliestProposal returns the dated proposal with the earliest start. When
+// flightsOnly is set only flight proposals are considered (used to name a trip
+// for its outbound leg); ok is false when no proposal qualifies.
+func earliestProposal(proposals []planops.ProposedPlan, flightsOnly bool) (planops.ProposedPlan, bool) {
+	var best planops.ProposedPlan
+	var bestStart time.Time
+	found := false
+	for _, p := range proposals {
+		if flightsOnly && p.Type != "flight" {
+			continue
+		}
+		ps, _ := planops.PlanSpan(p.Parts)
+		if ps.IsZero() {
+			continue
+		}
+		if !found || ps.Before(bestStart) {
+			best, bestStart, found = p, ps, true
+		}
+	}
+	return best, found
 }
 
 // toConfirmInput converts a proposed plan into a confirm payload. Email ingest
