@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Avatar,
   Box,
@@ -159,7 +159,21 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
   const [createOpen, setCreateOpen] = useState(false);
   const busy = include ? diagLoading : loading;
 
-  const [filter, setFilter] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filter, setFilterState] = useState(() => searchParams.get('filter') ?? '');
+  const setFilter = useCallback(
+    (val: string) => {
+      setFilterState(val);
+      setSearchParams(val ? { filter: val } : {}, { replace: true });
+    },
+    [setSearchParams],
+  );
+  // Sync filter state if the URL param changes externally (e.g. navigating back
+  // from TripDetail with a pre-set filter).
+  useEffect(() => {
+    const param = searchParams.get('filter') ?? '';
+    setFilterState((cur) => (cur !== param ? param : cur));
+  }, [searchParams]);
   const filterRef = useRef<HTMLInputElement>(null);
 
   // Activate on "/" (vi/less style) when not already in a text field. Only when
@@ -374,7 +388,7 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
           </Typography>
           <Stack spacing={1.5}>
             {filteredTrips.map((trip) => (
-              <TripCard key={trip.id} trip={trip} />
+              <TripCard key={trip.id} trip={trip} onTagClick={setFilter} />
             ))}
           </Stack>
         </Box>
@@ -383,10 +397,10 @@ export default function TripList({ scope = 'mine' }: { scope?: TripScope }) {
           {BUCKET_ORDER.map(({ bucket, label }) =>
             bucket === 'past' ? (
               groups.past.length > 0 ? (
-                <PastTripGroup key="past" trips={groups.past} onVisibleChange={setVisiblePastIds} />
+                <PastTripGroup key="past" trips={groups.past} onVisibleChange={setVisiblePastIds} onTagClick={setFilter} />
               ) : null
             ) : groups[bucket].length > 0 ? (
-              <TripGroup key={bucket} label={label} trips={groups[bucket]} />
+              <TripGroup key={bucket} label={label} trips={groups[bucket]} onTagClick={setFilter} />
             ) : null,
           )}
         </Stack>
@@ -438,9 +452,11 @@ function groupPastByYear(trips: Trip[]): Array<{ year: number; trips: Trip[] }> 
 function PastTripGroup({
   trips,
   onVisibleChange,
+  onTagClick,
 }: {
   trips: Trip[];
   onVisibleChange?: (ids: number[]) => void;
+  onTagClick?: (tag: string) => void;
 }) {
   const yearGroups = useMemo(() => groupPastByYear(trips), [trips]);
 
@@ -580,7 +596,7 @@ function PastTripGroup({
               <Collapse in={!isCollapsed} unmountOnExit>
                 <Stack spacing={1.5}>
                   {yearTrips.map((trip) => (
-                    <TripCard key={trip.id} trip={trip} />
+                    <TripCard key={trip.id} trip={trip} onTagClick={onTagClick} />
                   ))}
                 </Stack>
               </Collapse>
@@ -614,7 +630,7 @@ function groupTrips(trips: Trip[]): Record<TripBucket, Trip[]> {
   return out;
 }
 
-function TripGroup({ label, trips }: { label: string; trips: Trip[] }) {
+function TripGroup({ label, trips, onTagClick }: { label: string; trips: Trip[]; onTagClick?: (tag: string) => void }) {
   return (
     <Box>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
@@ -629,14 +645,14 @@ function TripGroup({ label, trips }: { label: string; trips: Trip[] }) {
       </Stack>
       <Stack spacing={1.5}>
         {trips.map((trip) => (
-          <TripCard key={trip.id} trip={trip} />
+          <TripCard key={trip.id} trip={trip} onTagClick={onTagClick} />
         ))}
       </Stack>
     </Box>
   );
 }
 
-function TripCard({ trip }: { trip: Trip }) {
+function TripCard({ trip, onTagClick }: { trip: Trip; onTagClick?: (tag: string) => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const users = useStore((s) => s.users);
@@ -708,6 +724,23 @@ function TripCard({ trip }: { trip: Trip }) {
             <Typography variant="caption" color="text.secondary">
               {fmtTripDates(trip)}
             </Typography>
+            {trip.tags && trip.tags.length > 0 && (
+              <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 0.5 }}>
+                {trip.tags.map((tag) => (
+                  <Chip
+                    key={tag}
+                    label={tag}
+                    size="small"
+                    variant="outlined"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTagClick?.(tag);
+                    }}
+                    sx={{ height: 20, '& .MuiChip-label': { px: 1, fontSize: 11 }, cursor: 'pointer' }}
+                  />
+                ))}
+              </Stack>
+            )}
           </Box>
           {(showPassengerChip || owner) && (
             <Stack alignItems="flex-end" spacing={0.5} sx={{ flex: 'none' }}>
