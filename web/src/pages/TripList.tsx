@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   CardActionArea,
+  CardActions,
   Chip,
   CircularProgress,
   Collapse,
@@ -724,23 +725,6 @@ function TripCard({ trip, onTagClick }: { trip: Trip; onTagClick?: (tag: string)
             <Typography variant="caption" color="text.secondary">
               {fmtTripDates(trip)}
             </Typography>
-            {trip.tags && trip.tags.length > 0 && (
-              <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 0.5 }}>
-                {trip.tags.map((tag) => (
-                  <Chip
-                    key={tag}
-                    label={tag}
-                    size="small"
-                    variant="outlined"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTagClick?.(tag);
-                    }}
-                    sx={{ height: 20, '& .MuiChip-label': { px: 1, fontSize: 11 }, cursor: 'pointer' }}
-                  />
-                ))}
-              </Stack>
-            )}
           </Box>
           {(showPassengerChip || owner) && (
             <Stack alignItems="flex-end" spacing={0.5} sx={{ flex: 'none' }}>
@@ -764,6 +748,20 @@ function TripCard({ trip, onTagClick }: { trip: Trip; onTagClick?: (tag: string)
           )}
         </Stack>
       </CardActionArea>
+      {trip.tags && trip.tags.length > 0 && (
+        <CardActions sx={{ pt: 1, px: 2, pb: 1.5, flexWrap: 'wrap', gap: 0.5 }}>
+          {trip.tags.map((tag) => (
+            <Chip
+              key={tag}
+              label={tag}
+              size="small"
+              variant="outlined"
+              onClick={() => onTagClick?.(tag)}
+              sx={{ height: 20, '& .MuiChip-label': { px: 1, fontSize: 11 }, cursor: 'pointer' }}
+            />
+          ))}
+        </CardActions>
+      )}
     </Card>
   );
 }
