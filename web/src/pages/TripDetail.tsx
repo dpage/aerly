@@ -4,12 +4,14 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   IconButton,
   ListItemIcon,
   Menu,
   MenuItem,
   Snackbar,
+  Stack,
   Tab,
   Tabs,
   Tooltip,
@@ -100,6 +102,10 @@ export default function TripDetail() {
     void loadTrip(tripId);
     return () => clearCurrentTrip();
   }, [tripId, loadTrip, clearCurrentTrip]);
+
+  const goToListWithTag = (tag: string) => {
+    navigate(`${backTo}?filter=${encodeURIComponent(tag)}`);
+  };
 
   const onMap = location.pathname.endsWith('/map');
   const onExplore = location.pathname.endsWith('/explore');
@@ -306,6 +312,22 @@ export default function TripDetail() {
             Some plans fall outside this trip&apos;s dates
             {canEdit ? ' — check the dates with Edit.' : '.'}
           </Alert>
+        </Box>
+      )}
+      {loaded && loaded.tags && loaded.tags.length > 0 && (
+        <Box sx={{ px: isNarrow ? 1.5 : 3, pt: 1 }}>
+          <Stack direction="row" flexWrap="wrap" gap={0.5}>
+            {loaded.tags.map((tag) => (
+              <Chip
+                key={tag}
+                label={tag}
+                size="small"
+                variant="outlined"
+                onClick={() => goToListWithTag(tag)}
+                sx={{ height: 22, '& .MuiChip-label': { px: 1, fontSize: 12 }, cursor: 'pointer' }}
+              />
+            ))}
+          </Stack>
         </Box>
       )}
       {loaded && (
