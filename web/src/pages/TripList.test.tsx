@@ -612,6 +612,62 @@ describe('TripList', () => {
     expect(screen.queryByText('Trip B')).not.toBeInTheDocument();
   });
 
+  it('clicking a tag chip on a trip card filters the list by that tag', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip A', tags: ['ARN', 'Nordic'], starts_on: dateOnly(-10) }),
+      trip({ id: 2, name: 'Trip B', tags: ['CDG'], starts_on: dateOnly(-20) }),
+    ];
+    renderList();
+    // Both trips (and their tag chips) are visible before filtering.
+    expect(screen.getByText('Trip A')).toBeInTheDocument();
+    expect(screen.getByText('Trip B')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Nordic' }));
+
+    // The chip click drives the same filter the text field does: the box fills
+    // in and the list narrows to the matching trip.
+    expect(screen.getByPlaceholderText(/Filter trips/i)).toHaveValue('Nordic');
+    expect(screen.getByText('Trip A')).toBeInTheDocument();
+    expect(screen.queryByText('Trip B')).not.toBeInTheDocument();
+  });
+
+  it('pre-populates the filter from the ?filter= URL param on mount', () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip A', tags: ['ARN', 'Nordic'], starts_on: dateOnly(-10) }),
+      trip({ id: 2, name: 'Trip B', tags: ['CDG'], starts_on: dateOnly(-20) }),
+    ];
+    // A tag link from TripDetail lands here with ?filter= already set; the list
+    // should mount already filtered rather than requiring a keystroke.
+    render(
+      <MemoryRouter initialEntries={['/?filter=CDG']}>
+        <TripList scope="mine" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByPlaceholderText(/Filter trips/i)).toHaveValue('CDG');
+    expect(screen.getByText('Trip B')).toBeInTheDocument();
+    expect(screen.queryByText('Trip A')).not.toBeInTheDocument();
+  });
+
+  it('clears the ?filter= param when the filter is cleared', async () => {
+    state.trips = [
+      trip({ id: 1, name: 'Trip A', tags: ['Nordic'], starts_on: dateOnly(-10) }),
+      trip({ id: 2, name: 'Trip B', tags: ['CDG'], starts_on: dateOnly(-20) }),
+    ];
+    render(
+      <MemoryRouter initialEntries={['/?filter=Nordic']}>
+        <TripList scope="mine" />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText('Trip B')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText(/clear filter/i));
+
+    // Filter emptied and every trip is back in view.
+    expect(screen.getByPlaceholderText(/Filter trips/i)).toHaveValue('');
+    expect(screen.getByText('Trip A')).toBeInTheDocument();
+    expect(screen.getByText('Trip B')).toBeInTheDocument();
+  });
+
   it('shows clear button when filter is active', async () => {
     state.trips = [trip({ id: 1, name: 'Test Trip', starts_on: dateOnly(-10) })];
     renderList();

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 
 import type { Trip } from '../api/types';
 import { setMatchMedia } from '../test/setup';
@@ -94,6 +94,13 @@ function trip(over: Partial<Trip> = {}): Trip {
   } as Trip;
 }
 
+// Stand-in for the list routes a tag click lands on. Echoes the current query
+// string so a test can assert the ?filter= param the tag navigation set.
+function ListStub({ testid }: { testid: string }) {
+  const { search } = useLocation();
+  return <div data-testid={testid}>{search}</div>;
+}
+
 function renderDetail(path: string | { pathname: string; state?: unknown } = '/trips/7') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -103,8 +110,8 @@ function renderDetail(path: string | { pathname: string; state?: unknown } = '/t
           <Route path="map" element={<div data-testid="outlet">map body</div>} />
           <Route path="explore" element={<div data-testid="outlet">explore body</div>} />
         </Route>
-        <Route path="/" element={<div data-testid="trips-list">trips list</div>} />
-        <Route path="/friends" element={<div data-testid="friends-list">friends list</div>} />
+        <Route path="/" element={<ListStub testid="trips-list" />} />
+        <Route path="/friends" element={<ListStub testid="friends-list" />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -342,6 +349,42 @@ describe('TripDetail', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Map' }));
     await userEvent.click(screen.getByRole('button', { name: /trips/i }));
     expect(screen.getByTestId('friends-list')).toBeInTheDocument();
+  });
+
+  it('renders clickable tag chips for a loaded trip', () => {
+    h.state.currentTrip = trip({ tags: ['Nordic', 'ARN'] });
+    renderDetail();
+    expect(screen.getByRole('button', { name: 'Nordic' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ARN' })).toBeInTheDocument();
+  });
+
+  it('renders no tag chips when the trip has no tags', () => {
+    h.state.currentTrip = trip({ tags: [] });
+    renderDetail();
+    expect(screen.queryByRole('button', { name: 'Nordic' })).not.toBeInTheDocument();
+  });
+
+  it('clicking a tag returns to the origin list with that tag pre-set as the filter', async () => {
+    h.state.currentTrip = trip({ tags: ['Nordic'] });
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: 'Nordic' }));
+    // Deep-linked/refreshed detail has no origin, so it falls back to home ('/')
+    // and lands there with the filter already applied.
+    expect(screen.getByTestId('trips-list')).toHaveTextContent('filter=Nordic');
+  });
+
+  it("routes the tag filter to the friends' list when opened from there", async () => {
+    h.state.currentTrip = trip({ tags: ['Nordic'] });
+    renderDetail({ pathname: '/trips/7', state: { from: '/friends' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Nordic' }));
+    expect(screen.getByTestId('friends-list')).toHaveTextContent('filter=Nordic');
+  });
+
+  it('URL-encodes tags that contain special characters', async () => {
+    h.state.currentTrip = trip({ tags: ['New York'] });
+    renderDetail();
+    await userEvent.click(screen.getByRole('button', { name: 'New York' }));
+    expect(screen.getByTestId('trips-list')).toHaveTextContent('filter=New%20York');
   });
 
   it('renders the timeline outlet by default and switches to map', async () => {
