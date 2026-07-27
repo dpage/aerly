@@ -263,7 +263,8 @@ func TestGetTripPOIsFilterByName(t *testing.T) {
 }
 
 // TestGetTripPOIsDefaultCats covers the default-categories branch: an
-// omitted cats= param falls back to the fixed sights/museum/landmark/park set.
+// omitted cats= param falls back to the fixed sightseeing-leaning
+// attractions/monuments_heritage/museums/parks_gardens set.
 func TestGetTripPOIsDefaultCats(t *testing.T) {
 	e := setup(t, nil, nil)
 	uid := e.user(t, "poidefaultcats", false)
@@ -279,7 +280,7 @@ func TestGetTripPOIsDefaultCats(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
-	want := []string{"sights", "museum", "landmark", "park"}
+	want := []string{"attractions", "monuments_heritage", "museums", "parks_gardens"}
 	if len(stub.gotCats) != len(want) {
 		t.Fatalf("gotCats = %v, want %v", stub.gotCats, want)
 	}

@@ -34,7 +34,7 @@ func TestGeoapifyNearbyParsesAndClassifies(t *testing.T) {
 		_, _ = w.Write([]byte(geoapifySample))
 	})
 
-	pois, err := g.Nearby(context.Background(), 51.5010, -0.1245, 2000, []string{"museum", "worship"})
+	pois, err := g.Nearby(context.Background(), 51.5010, -0.1245, 2000, []string{"museums", "worship"})
 	if err != nil {
 		t.Fatalf("Nearby: %v", err)
 	}
@@ -42,14 +42,14 @@ func TestGeoapifyNearbyParsesAndClassifies(t *testing.T) {
 		t.Fatalf("want 2 named POIs (unnamed dropped), got %d", len(pois))
 	}
 	// Sorted by distance: church (60m) before museum (120m). A place of worship
-	// classifies as "worship", not "landmark".
+	// classifies as "worship", not "monuments_heritage".
 	if pois[0].Name != "Example Church" || pois[0].Category != "worship" {
 		t.Errorf("poi[0] = %+v", pois[0])
 	}
 	if pois[0].Address != "1 Church Street" || pois[0].ID != "place-church" {
 		t.Errorf("church address/id wrong: %+v", pois[0])
 	}
-	if pois[1].Name != "Example Museum" || pois[1].Category != "museum" {
+	if pois[1].Name != "Example Museum" || pois[1].Category != "museums" {
 		t.Errorf("poi[1] = %+v", pois[1])
 	}
 	if pois[1].Wikidata != "Q2" || pois[1].Website != "https://museum.example" {
@@ -75,25 +75,23 @@ func TestGeoapifyNearbyParsesAndClassifies(t *testing.T) {
 	}
 }
 
-func TestGeoapifyClassify(t *testing.T) {
-	cases := []struct {
-		cats []string
-		want string
-	}{
-		{[]string{"entertainment.museum"}, "museum"},
-		{[]string{"religion.place_of_worship.church"}, "worship"},
-		// A historic church is worship first, not landmark (worship wins).
-		{[]string{"religion.place_of_worship", "heritage.unesco"}, "worship"},
-		{[]string{"heritage.unesco"}, "landmark"},
-		{[]string{"leisure.park"}, "park"},
-		{[]string{"natural.forest"}, "park"},
-		{[]string{"catering.restaurant"}, "food"},
-		{[]string{"tourism.attraction"}, "sights"},
+// TestNearbyRequestsMappedCodes locks in the Nearby→SubcategoryCodes wiring:
+// requesting sub-category keys must translate into the corresponding Geoapify
+// category codes on the outgoing request.
+func TestNearbyRequestsMappedCodes(t *testing.T) {
+	var gotCategories string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCategories = r.URL.Query().Get("categories")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"features":[]}`))
+	}))
+	defer srv.Close()
+	g := &Geoapify{APIKey: "k", BaseURL: srv.URL, HTTP: srv.Client()}
+	if _, err := g.Nearby(context.Background(), 51.5, -0.1, 2000, []string{"bars", "restaurants"}); err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range cases {
-		if got := geoapifyCategory(c.cats); got != c.want {
-			t.Errorf("geoapifyCategory(%v) = %s, want %s", c.cats, got, c.want)
-		}
+	if !strings.Contains(gotCategories, "catering.bar") || !strings.Contains(gotCategories, "catering.restaurant") {
+		t.Fatalf("categories = %q, want catering.bar and catering.restaurant", gotCategories)
 	}
 }
 
@@ -101,7 +99,7 @@ func TestGeoapifyTransientStatus(t *testing.T) {
 	g := newGeoapify(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
-	if _, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"}); err != ErrPOIUnavailable {
+	if _, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"attractions"}); err != ErrPOIUnavailable {
 		t.Fatalf("err = %v, want ErrPOIUnavailable", err)
 	}
 }
@@ -113,7 +111,7 @@ func TestGeoapifyHardStatus(t *testing.T) {
 	g := newGeoapify(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	})
-	_, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"})
+	_, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"attractions"})
 	if err == nil || err == ErrPOIUnavailable {
 		t.Fatalf("err = %v, want a hard status error", err)
 	}
@@ -128,7 +126,7 @@ func TestGeoapifyBadJSON(t *testing.T) {
 	g := newGeoapify(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("{not json"))
 	})
-	if _, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"}); err == nil {
+	if _, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"attractions"}); err == nil {
 		t.Fatal("Nearby with malformed JSON should error")
 	}
 }
@@ -184,7 +182,7 @@ func TestGeoapifyNetworkError(t *testing.T) {
 	g.Limiter = rate.NewLimiter(rate.Inf, 1)
 	srv.Close() // closed before use, so HTTP.Do fails with a connection error
 
-	if _, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"sights"}); err == nil {
+	if _, err := g.Nearby(context.Background(), 51.5, -0.12, 2000, []string{"attractions"}); err == nil {
 		t.Fatal("Nearby against a closed server should error")
 	}
 }

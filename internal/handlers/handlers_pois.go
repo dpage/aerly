@@ -52,7 +52,7 @@ func (a *API) getTripPOIs(w http.ResponseWriter, r *http.Request) {
 	}
 	cats := splitCats(q.Get("cats"))
 	if len(cats) == 0 {
-		cats = []string{"sights", "museum", "landmark", "park"}
+		cats = []string{"attractions", "monuments_heritage", "museums", "parks_gardens"}
 	}
 
 	lat, lon, label, err := a.resolvePOICenter(r, q)

@@ -36,20 +36,6 @@ func NewGeoapify(apiKey string) *Geoapify {
 	}
 }
 
-// geoapifyCategoryCodes maps our UI chip keys to Geoapify category codes.
-// Values are unioned into a single request; Geoapify handles multi-category
-// queries server-side. Places of worship are their own key rather than being
-// folded into landmark, so they can be filtered independently (they're numerous
-// enough to swamp genuine landmarks otherwise).
-var geoapifyCategoryCodes = map[string][]string{
-	"sights":   {"tourism.sights", "tourism.attraction"},
-	"museum":   {"entertainment.museum"},
-	"landmark": {"heritage"},
-	"worship":  {"religion.place_of_worship"},
-	"park":     {"leisure.park", "national_park", "natural"},
-	"food":     {"catering.restaurant", "catering.cafe", "catering.bar"},
-}
-
 const geoapifyResultCap = 60
 
 type geoapifyResponse struct {
@@ -75,7 +61,7 @@ func (g *Geoapify) Nearby(ctx context.Context, lat, lon float64, radiusM int, ca
 	if len(cats) == 0 {
 		return []POI{}, nil
 	}
-	codes := g.categoryCodes(cats)
+	codes := SubcategoryCodes(cats)
 	if len(codes) == 0 {
 		return []POI{}, nil
 	}
@@ -137,7 +123,7 @@ func (g *Geoapify) Nearby(ctx context.Context, lat, lon float64, radiusM int, ca
 		out = append(out, POI{
 			ID:          p.PlaceID,
 			Name:        p.Name,
-			Category:    geoapifyCategory(p.Categories),
+			Category:    Classify(p.Categories),
 			Lat:         p.Lat,
 			Lon:         p.Lon,
 			DistanceM:   int(p.Distance),
@@ -152,50 +138,6 @@ func (g *Geoapify) Nearby(ctx context.Context, lat, lon float64, radiusM int, ca
 	// get a guaranteed distance-ascending contract.
 	sortByDistance(out)
 	return out, nil
-}
-
-// categoryCodes unions the Geoapify codes for the requested chip keys, deduped.
-func (g *Geoapify) categoryCodes(cats []string) []string {
-	seen := map[string]bool{}
-	var codes []string
-	for _, c := range cats {
-		for _, code := range geoapifyCategoryCodes[c] {
-			if !seen[code] {
-				seen[code] = true
-				codes = append(codes, code)
-			}
-		}
-	}
-	return codes
-}
-
-// geoapifyCategory classifies a feature into our chip key from its Geoapify
-// category codes, most-specific first. Worship is checked before heritage so a
-// historic church lands under Worship (what a user filtering on it expects)
-// rather than Landmark.
-func geoapifyCategory(cats []string) string {
-	has := func(prefix string) bool {
-		for _, c := range cats {
-			if c == prefix || strings.HasPrefix(c, prefix+".") {
-				return true
-			}
-		}
-		return false
-	}
-	switch {
-	case has("entertainment.museum"):
-		return "museum"
-	case has("religion.place_of_worship"):
-		return "worship"
-	case has("heritage"):
-		return "landmark"
-	case has("leisure.park") || has("national_park") || has("natural"):
-		return "park"
-	case has("catering"):
-		return "food"
-	default:
-		return "sights"
-	}
 }
 
 func rawString(raw map[string]any, key string) string {
