@@ -91,7 +91,10 @@ func (r *CategoryResolver) buildPrompt(phrase string) (string, error) {
 	}
 	var vocab strings.Builder
 	for _, theme := range themeOrder {
-		kids := themeSubcategories[theme]
+		// Sort a copy: themeSubcategories holds the shared package-level slice,
+		// and concurrent resolve requests would otherwise sort it in place at
+		// the same time (a data race).
+		kids := append([]string(nil), themeSubcategories[theme]...)
 		sort.Strings(kids)
 		vocab.WriteString("- " + theme + ": " + strings.Join(kids, ", ") + "\n")
 	}
