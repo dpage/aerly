@@ -6,6 +6,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Collapse,
   IconButton,
   ListItemIcon,
   Menu,
@@ -27,9 +28,12 @@ import EditIcon from '@mui/icons-material/EditOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import FileDownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdfOutlined';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { api } from '../api/client';
 import { showExternalPlansEnabled } from '../lib/showExternalPlans';
+import { useTripDescriptionCollapsed } from '../lib/tripDescriptionCollapsed';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
@@ -78,6 +82,7 @@ export default function TripDetail() {
   const [actionsAnchor, setActionsAnchor] = useState<HTMLElement | null>(null);
   // Surfaces a failure if an export download (.ics / PDF) can't be fetched.
   const [exportError, setExportError] = useState<string | null>(null);
+  const [descCollapsed, setDescCollapsed] = useTripDescriptionCollapsed();
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
   const closeActions = () => setActionsAnchor(null);
@@ -337,8 +342,21 @@ export default function TripDetail() {
         </Box>
       )}
       {loaded && loaded.description && loaded.description.trim() !== '' && (
-        <Box sx={{ px: isNarrow ? 1.5 : 3, pt: 1, color: 'text.secondary' }}>
-          <Markdown text={loaded.description} />
+        <Box sx={{ px: isNarrow ? 1.5 : 3, pt: 1 }}>
+          <Button
+            size="small"
+            onClick={() => setDescCollapsed(!descCollapsed)}
+            startIcon={descCollapsed ? <ExpandMoreIcon /> : <ExpandLessIcon />}
+            aria-expanded={!descCollapsed}
+            sx={{ color: 'text.secondary', textTransform: 'none', px: 0.5, minWidth: 0 }}
+          >
+            Description
+          </Button>
+          <Collapse in={!descCollapsed}>
+            <Box sx={{ color: 'text.secondary', pl: 0.5 }}>
+              <Markdown text={loaded.description} />
+            </Box>
+          </Collapse>
         </Box>
       )}
       {/* Tabs + routed body once the trip is loaded; otherwise a spinner while

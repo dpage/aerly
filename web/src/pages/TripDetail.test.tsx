@@ -5,6 +5,7 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 
 import type { Trip } from '../api/types';
 import { setMatchMedia } from '../test/setup';
+import { setTripDescriptionCollapsed } from '../lib/tripDescriptionCollapsed';
 
 const h = vi.hoisted(() => ({
   loadTrip: vi.fn(),
@@ -124,6 +125,10 @@ beforeEach(() => {
   h.state.currentTripStatus = 'loading';
   h.state.online = true;
   h.plansOutsideTripDates.mockReturnValue(false);
+  // Reset the shared (localStorage-backed) description-collapse preference so
+  // it doesn't bleed between tests.
+  localStorage.clear();
+  setTripDescriptionCollapsed(false);
 });
 
 describe('TripDetail', () => {
@@ -173,17 +178,42 @@ describe('TripDetail', () => {
     expect(screen.getByRole('button', { name: /download pdf/i })).toBeInTheDocument();
   });
 
-  it('renders the trip description as Markdown when present', () => {
+  it('renders the trip description as Markdown when present, expanded by default', () => {
     h.state.currentTrip = trip({ description: 'See the [blog](https://ex.com) for photos.' });
     renderDetail();
     const link = screen.getByRole('link', { name: 'blog' });
     expect(link).toHaveAttribute('href', 'https://ex.com');
+    expect(screen.getByRole('button', { name: /description/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 
-  it('renders no description block when the description is blank', () => {
+  it('renders no description block (or its toggle) when the description is blank', () => {
     h.state.currentTrip = trip({ description: '   ' });
     renderDetail();
     expect(screen.queryByRole('link', { name: 'blog' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /description/i })).not.toBeInTheDocument();
+  });
+
+  it('collapsing the description persists the preference to localStorage', async () => {
+    h.state.currentTrip = trip({ description: 'Some notes' });
+    renderDetail();
+    const toggle = screen.getByRole('button', { name: /description/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(localStorage.getItem('aerly:trip_description_collapsed')).toBe('1');
+  });
+
+  it('starts collapsed when the stored preference says so', () => {
+    setTripDescriptionCollapsed(true);
+    h.state.currentTrip = trip({ description: 'Some notes' });
+    renderDetail();
+    expect(screen.getByRole('button', { name: /description/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
   });
 
   it('downloads the trip .ics when Export is clicked', async () => {
