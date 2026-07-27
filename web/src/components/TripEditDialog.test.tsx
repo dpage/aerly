@@ -81,6 +81,32 @@ describe('TripEditDialog', () => {
     expect(screen.getByLabelText('Ends')).toHaveValue('2026-10-15');
   });
 
+  it('prefills the description and saves edits to it (trimmed)', async () => {
+    h.updateTrip.mockResolvedValue(undefined);
+    render(
+      <TripEditDialog
+        open
+        trip={trip({ description: 'Old notes' })}
+        onClose={() => {}}
+        onDeleted={() => {}}
+      />,
+    );
+    const desc = screen.getByRole('textbox', { name: /description/i });
+    expect(desc).toHaveValue('Old notes');
+    await userEvent.clear(desc);
+    await userEvent.type(desc, '  **See notes**  ');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(h.updateTrip).toHaveBeenCalledWith(1, {
+        name: 'Lisbon',
+        destination: 'Portugal',
+        description: '**See notes**',
+        starts_on: '2026-10-10',
+        ends_on: '2026-10-15',
+      }),
+    );
+  });
+
   it('handles a trip with no dates (optional fields absent)', () => {
     render(
       <TripEditDialog
@@ -106,6 +132,7 @@ describe('TripEditDialog', () => {
       expect(h.updateTrip).toHaveBeenCalledWith(1, {
         name: 'Porto',
         destination: 'Portugal',
+        description: '',
         starts_on: '2026-10-10',
         ends_on: '2026-10-15',
       }),
@@ -128,6 +155,7 @@ describe('TripEditDialog', () => {
       expect(h.updateTrip).toHaveBeenCalledWith(1, {
         name: 'Lisbon',
         destination: 'Spain',
+        description: '',
         starts_on: '2026-10-12',
         ends_on: '2026-10-15',
       }),
@@ -149,6 +177,7 @@ describe('TripEditDialog', () => {
       expect(h.updateTrip).toHaveBeenCalledWith(1, {
         name: 'Lisbon',
         destination: 'Portugal',
+        description: '',
         starts_on: undefined,
         ends_on: undefined,
       }),

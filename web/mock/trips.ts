@@ -55,6 +55,7 @@ function makeTrip(
     id,
     name,
     destination,
+    description: '',
     starts_on: startsOn,
     ends_on: endsOn,
     my_role: 'owner',

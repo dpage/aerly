@@ -16,6 +16,7 @@ import (
 type createTripReq struct {
 	Name        string  `json:"name"`
 	Destination string  `json:"destination"`
+	Description string  `json:"description"`
 	StartsOn    *string `json:"starts_on"`
 	EndsOn      *string `json:"ends_on"`
 }
@@ -23,6 +24,7 @@ type createTripReq struct {
 type updateTripReq struct {
 	Name        *string `json:"name,omitempty"`
 	Destination *string `json:"destination,omitempty"`
+	Description *string `json:"description,omitempty"`
 	StartsOn    *string `json:"starts_on,omitempty"`
 	EndsOn      *string `json:"ends_on,omitempty"`
 }
@@ -112,6 +114,7 @@ func (a *API) createTrip(w http.ResponseWriter, r *http.Request) {
 	t, err := a.Store.CreateTrip(r.Context(), store.CreateTripPayload{
 		Name:        in.Name,
 		Destination: in.Destination,
+		Description: in.Description,
 		StartsOn:    starts,
 		EndsOn:      ends,
 	}, me.ID)
@@ -196,6 +199,7 @@ func (a *API) updateTrip(w http.ResponseWriter, r *http.Request) {
 	t, err := a.Store.UpdateTrip(r.Context(), id, store.UpdateTripPayload{
 		Name:        in.Name,
 		Destination: in.Destination,
+		Description: in.Description,
 		StartsOn:    starts,
 		EndsOn:      ends,
 	})

@@ -415,9 +415,11 @@ type PoiResponseDTO struct {
 // "YYYY-MM-DD" strings (nullable); the effective span is derived client-side
 // from the plans' parts when these are null.
 type TripDTO struct {
-	ID          int64   `json:"id"`
-	Name        string  `json:"name"`
-	Destination string  `json:"destination"`
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Destination string `json:"destination"`
+	// Description is free-form, markdown-enabled trip notes (issue #112).
+	Description string  `json:"description"`
 	StartsOn    *string `json:"starts_on,omitempty"` // YYYY-MM-DD
 	EndsOn      *string `json:"ends_on,omitempty"`
 	// Inferred from the trip's parts when StartsOn/EndsOn aren't set (list only).
@@ -844,6 +846,7 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 		ID:                  t.ID,
 		Name:                t.Name,
 		Destination:         t.Destination,
+		Description:         t.Description,
 		CreatedBy:           t.CreatedBy,
 		MyRole:              myRole,
 		Members:             members,

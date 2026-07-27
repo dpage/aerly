@@ -131,7 +131,8 @@ func TestToTripDTOWithExplicitDates(t *testing.T) {
 	ends := time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)
 	by := int64(3)
 	tr := &store.Trip{
-		ID: 1, Name: "Summer", Destination: "Nice", StartsOn: &starts, EndsOn: &ends,
+		ID: 1, Name: "Summer", Destination: "Nice", Description: "Beach **notes**",
+		StartsOn: &starts, EndsOn: &ends,
 		CreatedBy: &by, CountryCode: "fr", ShareAllFriendsRole: "viewer",
 		CreatedAt: time.Unix(1700000000, 0), UpdatedAt: time.Unix(1700000100, 0),
 	}
@@ -139,6 +140,9 @@ func TestToTripDTOWithExplicitDates(t *testing.T) {
 	d := ToTripDTO(tr, "owner", members, []string{"beach"})
 	if d.ID != 1 || d.Name != "Summer" || d.Destination != "Nice" || d.MyRole != "owner" {
 		t.Errorf("scalar fields wrong: %+v", d)
+	}
+	if d.Description != "Beach **notes**" {
+		t.Errorf("description = %q, want the markdown note", d.Description)
 	}
 	if d.StartsOn == nil || *d.StartsOn != "2026-07-01" || d.EndsOn == nil || *d.EndsOn != "2026-07-08" {
 		t.Errorf("explicit dates wrong: starts=%v ends=%v", d.StartsOn, d.EndsOn)

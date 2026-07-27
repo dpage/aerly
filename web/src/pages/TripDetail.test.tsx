@@ -84,6 +84,7 @@ function trip(over: Partial<Trip> = {}): Trip {
     id: 7,
     name: 'Lisbon',
     destination: 'Portugal',
+    description: '',
     my_role: 'owner',
     members: [],
     tags: [],
@@ -170,6 +171,19 @@ describe('TripDetail', () => {
     expect(screen.getByRole('button', { name: /subscribe/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /export \.ics/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /download pdf/i })).toBeInTheDocument();
+  });
+
+  it('renders the trip description as Markdown when present', () => {
+    h.state.currentTrip = trip({ description: 'See the [blog](https://ex.com) for photos.' });
+    renderDetail();
+    const link = screen.getByRole('link', { name: 'blog' });
+    expect(link).toHaveAttribute('href', 'https://ex.com');
+  });
+
+  it('renders no description block when the description is blank', () => {
+    h.state.currentTrip = trip({ description: '   ' });
+    renderDetail();
+    expect(screen.queryByRole('link', { name: 'blog' })).not.toBeInTheDocument();
   });
 
   it('downloads the trip .ics when Export is clicked', async () => {

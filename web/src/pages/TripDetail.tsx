@@ -38,6 +38,7 @@ import TripMembersDialog from '../components/TripMembersDialog';
 import TripEditDialog from '../components/TripEditDialog';
 import CalendarSubscribeDialog from '../components/CalendarSubscribeDialog';
 import TripReminderToggle from '../components/TripReminderToggle';
+import Markdown from '../components/Markdown';
 
 /** Trip detail layout (spec §11). Holds the Timeline / Map sub-tabs and loads
  * the trip into the store on mount; the active tab renders via the nested
@@ -333,6 +334,11 @@ export default function TripDetail() {
       {loaded && (
         <Box sx={{ px: 3, pt: 1 }}>
           <TripReminderToggle trip={loaded} />
+        </Box>
+      )}
+      {loaded && loaded.description && loaded.description.trim() !== '' && (
+        <Box sx={{ px: isNarrow ? 1.5 : 3, pt: 1, color: 'text.secondary' }}>
+          <Markdown text={loaded.description} />
         </Box>
       )}
       {/* Tabs + routed body once the trip is loaded; otherwise a spinner while
