@@ -6,8 +6,18 @@ import { DEFAULT_CATS } from './exploreCategories';
 
 const h = vi.hoisted(() => ({
   fetchPois: vi.fn<[], Promise<PoiResponse>>(),
+  resolveCategories: vi.fn(),
+  state: {
+    capabilities: undefined as { explore_search_enabled?: boolean } | undefined,
+  },
 }));
-vi.mock('../api/client', () => ({ api: { fetchPois: h.fetchPois } }));
+vi.mock('../api/client', () => ({
+  api: { fetchPois: h.fetchPois, resolveCategories: h.resolveCategories },
+}));
+vi.mock('../state/store', () => ({
+  useStore: (sel: (s: Record<string, unknown>) => unknown) =>
+    sel({ capabilities: h.state.capabilities }),
+}));
 // AddToTripDialog is heavy; stub it so we assert it opens with the right prefill.
 vi.mock('./AddToTripDialog', () => ({
   default: ({ open, prefill }: { open: boolean; prefill?: { title: string } }) =>
@@ -58,6 +68,7 @@ async function expandTheme(themeLabel: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.state.capabilities = undefined;
   h.fetchPois.mockResolvedValue({
     center: { lat: 51.5, lon: -0.12 },
     center_label: 'London',
@@ -430,5 +441,54 @@ describe('ExplorePanel', () => {
     unmount();
     rejectFetch(new Error('too late'));
     await Promise.resolve();
+  });
+
+  it('search applies resolved categories to the picker', async () => {
+    h.state.capabilities = { explore_search_enabled: true };
+    h.resolveCategories.mockResolvedValue({ categories: ['bars', 'live_venues'] });
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    await userEvent.type(
+      await screen.findByLabelText('Search by interest'),
+      'rooftop bars and live jazz',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Find' }));
+    expect(h.resolveCategories).toHaveBeenCalledWith('rooftop bars and live jazz');
+    const stored = JSON.parse(window.localStorage.getItem('aerly.explore.subcats') || '[]');
+    expect(stored).toEqual(expect.arrayContaining(['bars', 'live_venues']));
+  });
+
+  it('shows a friendly message when the search resolves no categories', async () => {
+    h.state.capabilities = { explore_search_enabled: true };
+    h.resolveCategories.mockResolvedValue({ categories: [] });
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    await userEvent.type(await screen.findByLabelText('Search by interest'), 'nonsense');
+    await userEvent.click(screen.getByRole('button', { name: 'Find' }));
+    expect(await screen.findByText(/no matching categories/i)).toBeInTheDocument();
+  });
+
+  it('shows an error message when resolving categories fails', async () => {
+    h.state.capabilities = { explore_search_enabled: true };
+    h.resolveCategories.mockRejectedValue(new Error('llm down'));
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    await userEvent.type(await screen.findByLabelText('Search by interest'), 'jazz bars');
+    await userEvent.click(screen.getByRole('button', { name: 'Find' }));
+    expect(await screen.findByText(/llm down/i)).toBeInTheDocument();
+  });
+
+  it('does not search when the phrase is blank', async () => {
+    h.state.capabilities = { explore_search_enabled: true };
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    await userEvent.click(screen.getByRole('button', { name: 'Find' }));
+    expect(h.resolveCategories).not.toHaveBeenCalled();
+  });
+
+  it('hides the search box when the capability is off', async () => {
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    expect(screen.queryByLabelText('Search by interest')).not.toBeInTheDocument();
   });
 });

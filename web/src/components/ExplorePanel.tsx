@@ -22,6 +22,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { api } from '../api/client';
+import { useStore } from '../state/store';
 import { errorMessage } from '../state/helpers';
 import AddToTripDialog, { type PlanPrefill } from './AddToTripDialog';
 import PoiMiniMap from './PoiMiniMap';
@@ -77,6 +78,13 @@ function wikipediaUrl(tag: string): string {
  * the name filter narrows the already-loaded results client-side, so it feels
  * instant and never spams the API on every keystroke. */
 export default function ExplorePanel({ tripId, initialPlace, initialCenter }: ExplorePanelProps) {
+  // Gates the natural-language search box: only shown when the server has an
+  // LLM configured. Absent means unavailable (older server / no LLM), unlike
+  // explore_enabled which defaults to available.
+  const searchEnabled = useStore((s) => s.capabilities?.explore_search_enabled ?? false);
+  const [phrase, setPhrase] = useState('');
+  const [resolving, setResolving] = useState(false);
+  const [resolveErr, setResolveErr] = useState<string | undefined>(undefined);
   const [place, setPlace] = useState(initialPlace ?? '');
   const [placeQuery, setPlaceQuery] = useState(initialPlace ?? '');
   const [cats, setCats] = useState<PoiCategory[]>(loadCats);
@@ -155,6 +163,25 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
     );
   };
 
+  // Resolves a free-text phrase (e.g. "rooftop bars and live jazz") to
+  // sub-category keys server-side, then applies them via setCats — which
+  // re-queries and persists automatically through the existing effects above,
+  // so the accordion toggles reflect the result without a separate code path.
+  const runSearch = async () => {
+    if (!phrase.trim()) return;
+    setResolving(true);
+    setResolveErr(undefined);
+    try {
+      const { categories } = await api.resolveCategories(phrase);
+      if (categories.length) setCats(categories);
+      else setResolveErr('No matching categories — try describing it differently.');
+    } catch (err: unknown) {
+      setResolveErr(errorMessage(err));
+    } finally {
+      setResolving(false);
+    }
+  };
+
   const openAdd = (poi: Poi) => {
     setPrefill({
       type: 'excursion',
@@ -206,6 +233,34 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
             Search
           </Button>
         </Box>
+      )}
+
+      {searchEnabled && (
+        <Box
+          component="form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void runSearch();
+          }}
+          sx={{ display: 'flex', gap: 1 }}
+        >
+          <TextField
+            label="Search by interest"
+            placeholder="e.g. rooftop bars and live jazz"
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+            size="small"
+            fullWidth
+          />
+          <Button type="submit" variant="outlined" disabled={resolving} startIcon={<SearchIcon />}>
+            Find
+          </Button>
+        </Box>
+      )}
+      {resolveErr && (
+        <Typography variant="body2" color="text.secondary">
+          {resolveErr}
+        </Typography>
       )}
 
       <Box>
