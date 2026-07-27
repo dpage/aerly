@@ -63,6 +63,12 @@ type API struct {
 	// nil → POI lookups return 501.
 	POIs providers.POIResolver
 
+	// CategoryResolver maps a free-text phrase to Explore sub-category keys via
+	// the LLM. Nil when no LLM (or no POI resolver) is configured; the
+	// resolve-categories endpoint then returns 501 and the UI hides its search
+	// box (explore_search_enabled=false).
+	CategoryResolver *providers.CategoryResolver
+
 	// Maps resolves pasted Google Maps URLs (incl. short links) to coordinates
 	// for the plan coordinate override. Defaulted in New().
 	Maps *aerlymaps.Resolver
@@ -197,6 +203,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/trips/{id}/share-by-email", req(http.HandlerFunc(a.shareTripByEmail)))
 	mux.Handle("GET /api/tags/suggest", req(http.HandlerFunc(a.suggestTags)))
 	mux.Handle("GET /api/trips/{id}/pois", req(http.HandlerFunc(a.getTripPOIs)))
+	mux.Handle("POST /api/pois/resolve-categories", req(http.HandlerFunc(a.resolveCategories)))
 
 	// Trip-scoped iCal feed subscriptions ("external plans"). Feeds are managed
 	// from the Edit trip dialog (edit perm); the cached events are read by any

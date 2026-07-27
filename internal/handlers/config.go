@@ -24,6 +24,10 @@ type CapabilitiesDTO struct {
 	// nearby" button, and the preference to hide it). False when no POI
 	// resolver is configured, i.e. GEOAPIFY_API_KEY is unset.
 	ExploreEnabled bool `json:"explore_enabled"`
+	// ExploreSearchEnabled gates the Explore natural-language search box. True
+	// only when both a POI resolver and an LLM-backed category resolver are
+	// wired; false (default) means the browse-only picker is shown.
+	ExploreSearchEnabled bool `json:"explore_search_enabled"`
 }
 
 func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
@@ -43,5 +47,6 @@ func (a *API) getConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	// Explore is available exactly when a POI resolver is wired (Geoapify keyed).
 	out.ExploreEnabled = a.POIs != nil
+	out.ExploreSearchEnabled = a.POIs != nil && a.CategoryResolver != nil
 	writeJSON(w, http.StatusOK, out)
 }

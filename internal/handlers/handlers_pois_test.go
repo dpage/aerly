@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -344,5 +346,90 @@ func TestGetTripPOIsPlaceGeocodeMiss(t *testing.T) {
 	w := e.req(t, "GET", fmt.Sprintf("/api/trips/%d/pois?place=Nowhereville", trip.ID), nil, uid)
 	if w.Code != 400 {
 		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestResolveCategoriesReturnsKeys covers the happy path of
+// POST /api/pois/resolve-categories: a wired CategoryResolver's JSON reply is
+// parsed and its keys surfaced verbatim in the response body.
+func TestResolveCategoriesReturnsKeys(t *testing.T) {
+	e := setup(t, nil, nil)
+	e.api.CategoryResolver = providers.NewCategoryResolver(
+		func(_ context.Context, _ string) (string, error) {
+			return `{"categories":["bars","live_venues"]}`, nil
+		})
+	uid := e.user(t, "resolvecatsuser", false)
+
+	w := e.req(t, "POST", "/api/pois/resolve-categories", map[string]any{"phrase": "rooftop bars and live jazz"}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Categories []string `json:"categories"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Categories) != 2 {
+		t.Fatalf("categories = %v", got.Categories)
+	}
+}
+
+// TestResolveCategoriesNotImplementedWithoutResolver covers the nil-resolver
+// guard: the endpoint 501s when no LLM-backed CategoryResolver is configured.
+func TestResolveCategoriesNotImplementedWithoutResolver(t *testing.T) {
+	e := setup(t, nil, nil)
+	e.api.CategoryResolver = nil
+	uid := e.user(t, "resolvecatsnouser", false)
+
+	w := e.req(t, "POST", "/api/pois/resolve-categories", map[string]any{"phrase": "bars"}, uid)
+	if w.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want 501", w.Code)
+	}
+}
+
+// TestResolveCategoriesResolverError covers the resolver-error branch: an
+// upstream LLM failure maps to a 503 (try again) rather than a raw 500 or a
+// leaked error string.
+func TestResolveCategoriesResolverError(t *testing.T) {
+	e := setup(t, nil, nil)
+	e.api.CategoryResolver = providers.NewCategoryResolver(
+		func(_ context.Context, _ string) (string, error) {
+			return "", errors.New("boom")
+		})
+	uid := e.user(t, "resolvecatserruser", false)
+
+	w := e.req(t, "POST", "/api/pois/resolve-categories", map[string]any{"phrase": "bars"}, uid)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestExploreSearchEnabledCapability covers GET /api/config's
+// explore_search_enabled flag: true only when both a POI resolver and a
+// CategoryResolver are wired, matching ExploreEnabled's own POI-only gating.
+func TestExploreSearchEnabledCapability(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "explsearchcapuser", false)
+
+	// Neither POIs nor CategoryResolver configured.
+	caps := decodeBody[map[string]any](t, e.req(t, "GET", "/api/config", nil, uid))
+	if caps["explore_search_enabled"] != false {
+		t.Errorf("explore_search_enabled = %v, want false", caps["explore_search_enabled"])
+	}
+
+	// POIs configured but no CategoryResolver: still disabled.
+	e.api.POIs = &stubPOIs{}
+	caps = decodeBody[map[string]any](t, e.req(t, "GET", "/api/config", nil, uid))
+	if caps["explore_search_enabled"] != false {
+		t.Errorf("explore_search_enabled = %v, want false (no resolver)", caps["explore_search_enabled"])
+	}
+
+	// Both wired: enabled.
+	e.api.CategoryResolver = providers.NewCategoryResolver(
+		func(_ context.Context, _ string) (string, error) { return `{"categories":[]}`, nil })
+	caps = decodeBody[map[string]any](t, e.req(t, "GET", "/api/config", nil, uid))
+	if caps["explore_search_enabled"] != true {
+		t.Errorf("explore_search_enabled = %v, want true", caps["explore_search_enabled"])
 	}
 }

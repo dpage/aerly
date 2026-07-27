@@ -10,11 +10,14 @@ import (
 
 // TestRunWiringThenLLMError drives run() through the optional-feature wiring
 // branches (GitHub + Google auth providers, AeroDataBox resolver, filesystem
-// attachments) and then forces an early return via an unknown LLM provider.
-// LLM_API_KEY makes LLMConfigured() true so the extractor branch is entered,
-// and the unknown provider makes emailingest.NewRealLLM fail, returning before
-// the blocking HTTP server starts. This covers the run() branches that sit
-// after migration but before the server loop without needing a SIGTERM.
+// attachments, Geoapify geocoder/POIs) and then forces an early return via an
+// unknown LLM provider. LLM_API_KEY makes LLMConfigured() true so both the
+// geocode re-ranker and Explore category-resolver branches are entered, and
+// the unknown provider makes emailingest.NewRealLLM fail in each, exercising
+// their "no LLM for X" warning branches, before failing again (fatally) in
+// the email extractor build and returning before the blocking HTTP server
+// starts. This covers the run() branches that sit after migration but before
+// the server loop without needing a SIGTERM.
 func TestRunWiringThenLLMError(t *testing.T) {
 	dbURL := testsupport.NewDatabaseURL(t)
 	if dbURL == "" {
@@ -27,6 +30,7 @@ func TestRunWiringThenLLMError(t *testing.T) {
 	t.Setenv("GOOGLE_CLIENT_SECRET", "google-test-secret")
 	t.Setenv("AERODATABOX_RAPIDAPI_KEY", "adb-test-key")
 	t.Setenv("ATTACHMENTS_STORE", filepath.Join(t.TempDir(), "blobs"))
+	t.Setenv("GEOAPIFY_API_KEY", "geoapify-test-key")
 	// Enter the extractor branch, then fail building the LLM client.
 	t.Setenv("LLM_PROVIDER", "not-a-real-provider")
 	t.Setenv("LLM_API_KEY", "test-llm-key")
@@ -62,7 +66,11 @@ func TestRunWiringS3AttachmentsThenLLMError(t *testing.T) {
 // EMAIL_INGEST_ENABLED when no flight resolver is configured (no AeroDataBox
 // key). A valid keyless LLM (ollama) satisfies both config.Load's email-ingest
 // LLM requirement and run()'s extractor build, so execution reaches the
-// resolver-nil check and returns its error.
+// resolver-nil check and returns its error. GEOAPIFY_API_KEY is also set here
+// so the same valid ollama LLM drives the *success* branches of the geocode
+// re-ranker and the Explore category resolver (api.GeoResolver.Rerank and
+// api.CategoryResolver both get built), rather than only their "no LLM"
+// warning paths covered elsewhere.
 func TestRunEmailIngestRequiresResolver(t *testing.T) {
 	dbURL := testsupport.NewDatabaseURL(t)
 	if dbURL == "" {
@@ -70,6 +78,7 @@ func TestRunEmailIngestRequiresResolver(t *testing.T) {
 	}
 	devEnv(t, dbURL, "127.0.0.1:0")
 	// No AERODATABOX key -> resolver stays nil.
+	t.Setenv("GEOAPIFY_API_KEY", "geoapify-test-key")
 	t.Setenv("LLM_PROVIDER", "ollama")
 	t.Setenv("LLM_API_KEY", "")
 	t.Setenv("EMAIL_INGEST_ENABLED", "1")

@@ -156,3 +156,34 @@ func atoiDefault(s string, d int) int {
 	}
 	return d
 }
+
+type resolveCategoriesRequest struct {
+	Phrase string `json:"phrase"`
+}
+
+type resolveCategoriesResponse struct {
+	Categories []string `json:"categories"`
+}
+
+// resolveCategories answers POST /api/pois/resolve-categories: maps a free-text
+// phrase to Explore sub-category keys via the LLM. 501 when no resolver is
+// configured (no LLM or no POI provider).
+func (a *API) resolveCategories(w http.ResponseWriter, r *http.Request) {
+	if a.CategoryResolver == nil {
+		writeError(w, http.StatusNotImplemented, "Category search isn't available.")
+		return
+	}
+	var body resolveCategoriesRequest
+	if err := decode(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body.")
+		return
+	}
+	cats, err := a.CategoryResolver.Resolve(r.Context(), body.Phrase)
+	if err != nil {
+		slog.Warn("category resolve failed", "err", err)
+		writeError(w, http.StatusServiceUnavailable,
+			"Couldn't interpret that search just now - please try again in a moment.")
+		return
+	}
+	writeJSON(w, http.StatusOK, resolveCategoriesResponse{Categories: cats})
+}

@@ -178,6 +178,17 @@ func run(configPath string) error {
 	if cfg.GeoapifyKey != "" {
 		api.POIs = providers.NewCachedPOIs(providers.NewGeoapify(cfg.GeoapifyKey), 7*24*time.Hour)
 		slog.Info("POI resolver: geoapify (cached, ttl=7d)")
+		if cfg.LLMConfigured() {
+			if l, err := emailingest.NewRealLLM(cfg.LLMProvider, cfg.LLMModel, cfg.LLMAPIKey); err == nil {
+				api.CategoryResolver = providers.NewCategoryResolver(
+					func(ctx context.Context, p string) (string, error) {
+						return l.Complete(ctx, p, nil)
+					})
+				slog.Info("Explore category search: enabled (LLM-backed)")
+			} else {
+				slog.Warn("no LLM for Explore category search", "err", err)
+			}
+		}
 	} else {
 		slog.Warn("POI resolver: none (GEOAPIFY_API_KEY unset) — Explore is disabled")
 	}
