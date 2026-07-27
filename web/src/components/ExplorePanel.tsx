@@ -243,7 +243,7 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
             </Accordion>
           );
         })}
-        <Button size="small" onClick={() => setCats(DEFAULT_CATS)}>
+        <Button size="small" onClick={() => setCats([...DEFAULT_CATS])}>
           Reset to defaults
         </Button>
       </Box>

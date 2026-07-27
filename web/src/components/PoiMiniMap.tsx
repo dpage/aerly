@@ -8,7 +8,6 @@ import { Box } from '@mui/material';
 
 import type { Poi, PoiCategory } from '../api/types';
 import { osmRasterStyle } from '../lib/map-style';
-import { THEMES } from './exploreCategories';
 
 interface PoiMiniMapProps {
   pois: Poi[];
@@ -21,24 +20,48 @@ interface PoiMiniMapProps {
 
 // One colour per theme, so every sub-category within it (e.g. all of Food &
 // drink's cafes/bars/pubs/etc.) shares a hue and pins stay visually coherent.
-const THEME_COLOUR: Record<string, string> = {
-  sights: '#1565c0',
-  food_drink: '#e65100',
-  nightlife: '#ad1457',
-  culture: '#6a1b9a',
-  outdoors: '#2e7d32',
-  shopping: '#f9a825',
-  sport: '#0277bd',
-  family: '#c2185b',
+// Written as a direct object literal (rather than derived from THEMES via
+// Object.fromEntries + an `as` assertion) so `tsc` itself enforces that every
+// one of the 27 sub-categories has a colour: dropping a key here is a compile
+// error against `Record<PoiCategory, string>`, not a silent `undefined`.
+const CATEGORY_COLOUR: Record<PoiCategory, string> = {
+  // Sights & landmarks — #1565c0
+  attractions: '#1565c0',
+  viewpoints: '#1565c0',
+  monuments_heritage: '#1565c0',
+  // Food & drink — #e65100
+  restaurants: '#e65100',
+  cafes: '#e65100',
+  bars: '#e65100',
+  pubs: '#e65100',
+  street_food: '#e65100',
+  // Live music & nightlife — #ad1457
+  nightclubs: '#ad1457',
+  live_venues: '#ad1457',
+  cinemas: '#ad1457',
+  // Culture — #6a1b9a
+  museums: '#6a1b9a',
+  galleries: '#6a1b9a',
+  theatres: '#6a1b9a',
+  // Outdoors & nature — #2e7d32
+  parks_gardens: '#2e7d32',
+  natural_features: '#2e7d32',
+  beaches: '#2e7d32',
+  // Shopping — #f9a825
+  markets: '#f9a825',
+  malls: '#f9a825',
+  speciality_shops: '#f9a825',
+  // Sport & leisure — #0277bd
+  sports_centres: '#0277bd',
+  swimming: '#0277bd',
+  stadiums: '#0277bd',
+  // Family — #c2185b
+  zoos_aquariums: '#c2185b',
+  theme_parks: '#c2185b',
+  playgrounds: '#c2185b',
+  // Worship — #00695c
   worship: '#00695c',
 };
-
-// Derived from THEMES so every one of the 27 sub-categories is covered — a
-// missing theme entry above would leave a `PoiCategory` key unassigned and
-// fail to compile against `Record<PoiCategory, string>`.
-const CATEGORY_COLOUR: Record<PoiCategory, string> = Object.fromEntries(
-  THEMES.flatMap((theme) => theme.children.map((c) => [c, THEME_COLOUR[theme.key]])),
-) as Record<PoiCategory, string>;
 
 function pinElement(poi: Poi, selected: boolean, onClick: () => void): HTMLButtonElement {
   const el = document.createElement('button');

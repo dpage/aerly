@@ -9,7 +9,7 @@ import PoiMiniMap from './PoiMiniMap';
 import type { Poi } from '../api/types';
 
 function poi(over: Partial<Poi> = {}): Poi {
-  return { id: 'node/1', name: 'A', category: 'sights', lat: 51.5, lon: -0.12, distance_m: 40, ...over };
+  return { id: 'node/1', name: 'A', category: 'attractions', lat: 51.5, lon: -0.12, distance_m: 40, ...over };
 }
 
 function pinFor(name: string): HTMLElement | undefined {
