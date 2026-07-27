@@ -43,6 +43,36 @@ func TestThemeOrderMatchesThemeSubcategories(t *testing.T) {
 	}
 }
 
+// TestClassifyMatchesDescendantCodes pins the codeMatches prefix branch: a
+// Geoapify feature code that is a descendant of a mapped code (rather than
+// an exact match to it) must still classify correctly. A prior test covering
+// this branch was deleted and never translated, leaving it unproven.
+func TestClassifyMatchesDescendantCodes(t *testing.T) {
+	cases := []struct {
+		codes []string
+		want  string
+	}{
+		// "catering.restaurant.pizza" is a descendant of the mapped
+		// "catering.restaurant".
+		{[]string{"catering.restaurant.pizza"}, "restaurants"},
+		// "heritage.unesco" is a descendant of the mapped "heritage".
+		{[]string{"heritage.unesco"}, "monuments_heritage"},
+		// "natural.forest" is a descendant of the mapped "natural".
+		{[]string{"natural.forest"}, "natural_features"},
+		// "tourism.attraction.viewpoint.tower" is a descendant of the mapped
+		// "tourism.attraction.viewpoint", and also a descendant of the
+		// "attractions" code "tourism.attraction". This pins both the prefix
+		// match itself and that viewpoints still takes precedence over the
+		// more generic attractions in classifyOrder.
+		{[]string{"tourism.attraction.viewpoint.tower"}, "viewpoints"},
+	}
+	for _, c := range cases {
+		if got := Classify(c.codes); got != c.want {
+			t.Errorf("Classify(%v) = %q, want %q", c.codes, got, c.want)
+		}
+	}
+}
+
 func TestClassifyPrefersMostSpecificAndNeverEmpty(t *testing.T) {
 	cases := []struct {
 		codes []string
