@@ -64,6 +64,9 @@ export interface Capabilities {
    * server-side. Read as "available unless explicitly false", so an
    * unspecified value (older server, test fixtures) is treated as available. */
   explore_enabled?: boolean;
+  /** Gates the Explore natural-language search box. Defaults to unavailable
+   * when unspecified (older server / no LLM), so read as `?? false`. */
+  explore_search_enabled?: boolean;
 }
 
 export interface UserEmail {
@@ -627,7 +630,16 @@ export interface TagSuggestion {
 }
 
 /** The kind of point of interest returned by the nearby-POI search. */
-export type PoiCategory = 'sights' | 'museum' | 'landmark' | 'worship' | 'park' | 'food';
+export type PoiCategory =
+  | 'attractions' | 'viewpoints' | 'monuments_heritage'
+  | 'restaurants' | 'cafes' | 'bars' | 'pubs' | 'street_food'
+  | 'nightclubs' | 'live_venues' | 'cinemas'
+  | 'museums' | 'galleries' | 'theatres'
+  | 'parks_gardens' | 'natural_features' | 'beaches'
+  | 'markets' | 'malls' | 'speciality_shops'
+  | 'sports_centres' | 'swimming' | 'stadiums'
+  | 'zoos_aquariums' | 'theme_parks' | 'playgrounds'
+  | 'worship';
 
 /** A single nearby point of interest (GET /api/trips/{id}/pois). */
 export interface Poi {
