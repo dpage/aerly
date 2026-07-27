@@ -406,8 +406,14 @@ func hotelEdgeSummary(e *store.CalendarEvent, edge string) string {
 
 // isHotelBand reports whether an event is a multi-night hotel stay that should
 // split into separate check-in / check-out events: a hotel whose end falls on a
-// later local calendar day than its start. Mirrors the frontend isHotelBand
-// (web/src/lib/trip-format.ts) so the feed and the UI timeline agree.
+// later local calendar day than its start.
+//
+// This is deliberately narrower than the frontend's isMultiDayBand
+// (web/src/lib/trip-format.ts), which also bands a multi-day event. A calendar
+// client renders one DTSTART→DTEND entry across the whole span perfectly well,
+// so a festival pass stays a single VEVENT here and keeps its gate times; only
+// a hotel splits, because a banner across every night is the noise issue #101
+// was about.
 func isHotelBand(e *store.CalendarEvent) bool {
 	if e.Type != "hotel" || e.EndsAt == nil {
 		return false

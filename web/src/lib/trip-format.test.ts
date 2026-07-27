@@ -13,10 +13,13 @@ import {
   splitLocal,
   tzAbbrev,
   zonedTimeToUtc,
+  bandLengthLabel,
+  eventDays,
   hotelNights,
-  isHotelBand,
+  isMultiDayBand,
   planTypeLabel,
   tripSpan,
+  typeHasEnd,
 } from './trip-format';
 
 function trip(over: Partial<Trip> = {}): Trip {
@@ -326,19 +329,78 @@ describe('buildExternalDays', () => {
   });
 });
 
-describe('hotel band', () => {
-  it('isHotelBand true for a multi-night hotel', () => {
+describe('multi-day band', () => {
+  it('isMultiDayBand true for a multi-night hotel', () => {
     const p = part({
       type: 'hotel',
       starts_at: '2026-10-12T15:00:00Z',
       ends_at: '2026-10-15T10:00:00Z',
     });
-    expect(isHotelBand(p)).toBe(true);
+    expect(isMultiDayBand(p)).toBe(true);
     expect(hotelNights(p)).toBe(3);
+    expect(bandLengthLabel(p)).toBe('3 nights');
   });
 
-  it('isHotelBand false for a flight', () => {
-    expect(isHotelBand(part({ type: 'flight', ends_at: '2026-10-12T11:00:00Z' }))).toBe(false);
+  it('isMultiDayBand false for a flight', () => {
+    expect(isMultiDayBand(part({ type: 'flight', ends_at: '2026-10-12T11:00:00Z' }))).toBe(false);
+  });
+
+  it('bands a multi-day festival pass and counts its days inclusively', () => {
+    // A Riot Fest-style 3-day pass: gates Friday midday, close Sunday night.
+    const p = part({
+      type: 'event',
+      starts_at: '2026-09-18T17:00:00Z',
+      ends_at: '2026-09-21T04:00:00Z',
+      start_tz: 'America/Chicago',
+      end_tz: 'America/Chicago',
+    });
+    expect(isMultiDayBand(p)).toBe(true);
+    // 18th → 20th local (23:00 CDT on the 20th is 04:00 UTC on the 21st).
+    expect(eventDays(p)).toBe(3);
+    expect(bandLengthLabel(p)).toBe('3 days');
+  });
+
+  it('does not band a single-evening gig that has an end time', () => {
+    const p = part({
+      type: 'event',
+      starts_at: '2026-09-18T19:00:00Z',
+      ends_at: '2026-09-18T23:00:00Z',
+    });
+    expect(isMultiDayBand(p)).toBe(false);
+    expect(fmtPartTimeRange(p)).toBe('19:00 UTC → 23:00 UTC');
+  });
+
+  it('does not band an event with no end at all', () => {
+    expect(isMultiDayBand(part({ type: 'event', ends_at: undefined }))).toBe(false);
+    expect(eventDays(part({ type: 'event', ends_at: undefined }))).toBe(0);
+  });
+
+  it('splits a multi-day event into two timeline entries', () => {
+    const p = part({
+      id: 7,
+      type: 'event',
+      starts_at: '2026-09-18T17:00:00Z',
+      ends_at: '2026-09-20T22:00:00Z',
+      effective_at: '2026-09-18T17:00:00Z',
+    });
+    const days = buildTimeline([plan([p])]);
+    expect(days.map((d) => d.dayKey)).toEqual(['2026-09-18', '2026-09-20']);
+    expect(days[0].parts[0].edge).toBe('check-in');
+    expect(days[1].parts[0].edge).toBe('check-out');
+  });
+});
+
+describe('typeHasEnd', () => {
+  it('offers an end for transfers, hotels and events', () => {
+    for (const t of ['flight', 'train', 'ground', 'hotel', 'event'] as const) {
+      expect(typeHasEnd(t)).toBe(true);
+    }
+  });
+
+  it('keeps single-moment types start-only', () => {
+    for (const t of ['dining', 'excursion', 'ice_cream', 'meeting'] as const) {
+      expect(typeHasEnd(t)).toBe(false);
+    }
   });
 });
 
@@ -562,8 +624,8 @@ describe('branch edge cases', () => {
     expect(buildTimeline(plans)[0].parts[0].edge).toBeUndefined();
   });
 
-  it('isHotelBand: false when a hotel has no end', () => {
-    expect(isHotelBand(part({ type: 'hotel', ends_at: undefined }))).toBe(false);
+  it('isMultiDayBand: false when a hotel has no end', () => {
+    expect(isMultiDayBand(part({ type: 'hotel', ends_at: undefined }))).toBe(false);
   });
   it('hotelNights: 0 when there is no end or an unparseable instant', () => {
     expect(hotelNights(part({ type: 'hotel', ends_at: undefined }))).toBe(0);

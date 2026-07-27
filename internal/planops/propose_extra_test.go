@@ -152,6 +152,41 @@ func TestProposePartEvent(t *testing.T) {
 	if got.StartLabel != "The Synthetics" {
 		t.Errorf("StartLabel = %q, want the performer", got.StartLabel)
 	}
+	if got.EndsAt != nil {
+		t.Errorf("EndsAt = %v, want nil when the source states no end", got.EndsAt)
+	}
+}
+
+// TestProposePartEventEnd covers the three end shapes an event can arrive in:
+// a multi-day pass (a festival weekend), a closing time on the start day, and
+// a closing day with no stated time.
+func TestProposePartEventEnd(t *testing.T) {
+	base := ExtractedPart{Type: "event", Confidence: "high", StartDate: "2026-09-18", StartTime: "12:00"}
+	cases := []struct {
+		name    string
+		endDate string
+		endTime string
+		want    string
+	}{
+		{"multi-day pass", "2026-09-20", "23:00", "2026-09-20T23:00"},
+		// A closing time alone means later the same day, not a missing end.
+		{"closing time only", "", "23:30", "2026-09-18T23:30"},
+		// A closing day with no time runs to the end of that day.
+		{"closing day only", "2026-09-20", "", "2026-09-20T23:00"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			part := base
+			part.EndDate, part.EndTime = tc.endDate, tc.endTime
+			got, _ := proposePart(ctx, Deps{}, part)
+			if got.EndsAt == nil {
+				t.Fatalf("EndsAt = nil, want %s", tc.want)
+			}
+			if s := got.EndsAt.UTC().Format("2006-01-02T15:04"); s != tc.want {
+				t.Errorf("EndsAt = %s, want %s", s, tc.want)
+			}
+		})
+	}
 }
 
 // TestCombineLocal covers the blank-date (zero), happy, and date-only fallback

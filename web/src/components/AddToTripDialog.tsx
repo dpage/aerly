@@ -400,7 +400,8 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
   const isIceCream = type === 'ice_cream';
   // Point-to-point types carry a distinct departure and arrival address.
   const isTransfer = type === 'flight' || type === 'train' || type === 'ground';
-  // Transfers show an arrival; hotels span nights, so they show a check-out.
+  // Transfers show an arrival; hotels span nights, so they show a check-out;
+  // an event can run to a closing time or across days (a festival pass).
   const showEnd = typeHasEnd(type);
 
   return (
@@ -1325,8 +1326,10 @@ function startTimeLabel(type: PlanType): string {
     case 'excursion':
     case 'ice_cream':
     case 'meeting':
-    case 'event':
       return 'Time';
+    // An event offers an end too, so its start reads as one half of a pair.
+    case 'event':
+      return 'Starts';
     default:
       return 'Departs';
   }
@@ -1336,6 +1339,8 @@ function endTimeLabel(type: PlanType): string {
   switch (type) {
     case 'hotel':
       return 'Check-out';
+    case 'event':
+      return 'Ends (optional)';
     default:
       return 'Arrives';
   }

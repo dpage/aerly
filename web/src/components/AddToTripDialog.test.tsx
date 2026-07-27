@@ -315,7 +315,7 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     expect(input.parts[0].excursion).toMatchObject({ provider: 'City Tours', ticket_count: 5 });
   });
 
-  it('builds point-in-time meeting and event plans (Location/Time labels, no detail block)', async () => {
+  it('builds a point-in-time meeting plan (Location/Time labels, no end)', async () => {
     h.state.createPlan.mockResolvedValue(undefined);
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
 
@@ -327,16 +327,28 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     await userEvent.type(screen.getByLabelText(/^Title/), 'Standup');
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
     expect(h.state.createPlan.mock.calls[0][1].type).toBe('meeting');
+  });
 
-    h.state.createPlan.mockClear();
+  it('offers an optional end on an event, for a multi-day pass', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
 
-    // Event: likewise a single point in time.
     await userEvent.click(screen.getByLabelText('Type'));
     await userEvent.click(await screen.findByRole('option', { name: 'Event' }));
     expect(screen.getByLabelText('Location')).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText(/^Title/), 'Keynote');
+    // The start reads as one half of a pair, and the end is offered but marked
+    // optional — an evening gig can still leave it blank.
+    expect(screen.getByLabelText('Starts')).toBeInTheDocument();
+    expect(screen.getByLabelText('Ends (optional)')).toBeInTheDocument();
+    // The venue is a single place, so no second "To" address like a transfer.
+    expect(screen.queryByLabelText('To address')).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Riot Fest 2026');
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
-    expect(h.state.createPlan.mock.calls[0][1].type).toBe('event');
+    const [, input] = h.state.createPlan.mock.calls[0];
+    expect(input.type).toBe('event');
+    // Left blank, the end stays absent — it never becomes a required field.
+    expect(input.parts[0].ends_at).toBeUndefined();
   });
 
   it('renders the ice cream stop with a reservation name and no ticket/supplier', async () => {

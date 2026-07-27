@@ -418,6 +418,31 @@ func TestExtractPlans_MeetingAndEvent(t *testing.T) {
 	}
 }
 
+// TestExtractPlans_MultiDayEvent covers a festival weekend pass: the closing
+// day and time survive the LLM response mapping so the plan spans its whole run.
+func TestExtractPlans_MultiDayEvent(t *testing.T) {
+	resp := `{"plans":[
+	  {"type":"event","title":"Riot Fest 2026","confirmation_ref":"RF26-9931","parts":[
+	     {"type":"event","confidence":"high","start_date":"2026-09-18","start_time":"12:00","end_date":"2026-09-20","end_time":"23:00","start_label":"Douglass Park","event":{"performer":"Various","category":"Festival","venue_area":"","url":"https://riotfest.org"}}
+	  ]}
+	]}`
+	x, _ := newExtractor(resp)
+	plans, err := x.ExtractPlans(context.Background(), "body", nil)
+	if err != nil {
+		t.Fatalf("ExtractPlans: %v", err)
+	}
+	if len(plans) != 1 || len(plans[0].Parts) != 1 {
+		t.Fatalf("want one event plan with one part, got %+v", plans)
+	}
+	p := plans[0].Parts[0]
+	if p.StartDate != "2026-09-18" || p.StartTime != "12:00" {
+		t.Errorf("start = %q %q, want 2026-09-18 12:00", p.StartDate, p.StartTime)
+	}
+	if p.EndDate != "2026-09-20" || p.EndTime != "23:00" {
+		t.Errorf("end = %q %q, want 2026-09-20 23:00", p.EndDate, p.EndTime)
+	}
+}
+
 func TestExtractPlans_ParsesTicketAndCost(t *testing.T) {
 	resp := `{"plans":[
 	  {"type":"flight","title":"BA to JFK","confirmation_ref":"PNR9","ticket_number":"1252300000001","cost":{"amount":523.40,"currency":"gbp"},"parts":[

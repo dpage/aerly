@@ -337,6 +337,19 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 		}
 	case "event":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 9)
+		// Multi-day admissions — a festival weekend, a conference or season
+		// pass — state a closing day; carry it so the plan spans its whole run
+		// instead of showing as a single point on day one. An end time on its
+		// own means later the same day (a concert's curtain-down); a closing
+		// day with no stated time runs to the end of that day.
+		if part.EndDate != "" || part.EndTime != "" {
+			d := part.EndDate
+			if d == "" {
+				d = part.StartDate
+			}
+			e := combineLocal(d, part.EndTime, 23)
+			out.EndsAt = &e
+		}
 		out.Event = &store.EventDetail{
 			Performer: part.EventPerformer,
 			Category:  part.EventCategory,

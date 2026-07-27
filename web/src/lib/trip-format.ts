@@ -136,8 +136,8 @@ export interface TimelineDay {
  *   header reads in the local time of where it happens. */
 export function buildTimeline(plans: Plan[]): TimelineDay[] {
   // Each entry carries the instant + iso/tz used to place and sort it, so a
-  // multi-night hotel can contribute two entries: a check-in on its first day
-  // and a check-out on its last day.
+  // multi-day part (a hotel stay, a festival pass) can contribute two entries:
+  // an opening one on its first day and a closing one on its last.
   interface Entry {
     tp: TimelinePart;
     instant: number;
@@ -148,7 +148,7 @@ export function buildTimeline(plans: Plan[]): TimelineDay[] {
   for (const plan of plans) {
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
-      if (isHotelBand(part) && part.ends_at) {
+      if (isMultiDayBand(part) && part.ends_at) {
         flat.push({
           tp: { part, plan, edge: 'check-in' },
           // Sort by the smart check-in (effective_at: after the inbound
@@ -213,11 +213,17 @@ export function buildExternalDays(events: ExternalEvent[]): ExternalDay[] {
   return [...days.values()];
 }
 
-/** True when a part represents a multi-night hotel stay that should render as
- * a band rather than two points (PRD §6.2): a hotel with an end on a later
- * local day than its start. */
-export function isHotelBand(part: PlanPart): boolean {
-  if (part.type !== 'hotel' || !part.ends_at) return false;
+/** Types whose end can sit days away from their start, so the timeline shows
+ * them as a band rather than one point: a hotel stay and a multi-day event
+ * (a festival weekend, a conference pass). */
+const BANDABLE_TYPES = new Set<PlanType>(['hotel', 'event']);
+
+/** True when a part spans more than one local day and should render as a band
+ * rather than a single point (PRD §6.2): a bandable type whose end falls on a
+ * later local day than its start. A same-day part — an evening gig that ends
+ * at 23:00 — is not a band; its end shows in the time range instead. */
+export function isMultiDayBand(part: PlanPart): boolean {
+  if (!BANDABLE_TYPES.has(part.type) || !part.ends_at) return false;
   const startDay = localDayKey(part.starts_at, part.start_tz);
   const endDay = localDayKey(part.ends_at, part.end_tz || part.start_tz);
   return endDay > startDay;
@@ -231,6 +237,29 @@ export function hotelNights(part: PlanPart): number {
   if (start == null || end == null) return 0;
   const ms = end - start;
   return Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
+}
+
+/** Local days a multi-day event covers, counted inclusively: a pass running
+ * Friday to Sunday is 3 days however late on Sunday it finishes. Nights are
+ * the wrong unit here — a festival is sold as a 3-day pass, not 2 nights. */
+export function eventDays(part: PlanPart): number {
+  if (!part.ends_at) return 0;
+  const start = Date.parse(`${localDayKey(part.starts_at, part.start_tz)}T00:00:00Z`);
+  const end = Date.parse(`${localDayKey(part.ends_at, part.end_tz || part.start_tz)}T00:00:00Z`);
+  if (Number.isNaN(start) || Number.isNaN(end)) return 0;
+  return Math.max(1, Math.round((end - start) / (24 * 60 * 60 * 1000)) + 1);
+}
+
+/** The length chip on a band's two tiles ("3 nights", "3 days"), tying them
+ * together as one booking — the stay/run equivalent of a flight's
+ * "multi-part" badge. Empty when the part isn't a band. */
+export function bandLengthLabel(part: PlanPart): string {
+  if (part.type === 'event') {
+    const days = eventDays(part);
+    return days > 0 ? `${days} day${days === 1 ? '' : 's'}` : '';
+  }
+  const nights = hotelNights(part);
+  return nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : '';
 }
 
 /** A time-of-day in the given tz, e.g. "14:30". 24-hour for determinism, same
@@ -401,11 +430,14 @@ export function isTransferType(type: PlanType): boolean {
   return TRANSFER_TYPES.has(type);
 }
 
-/** Types that carry a distinct end the user can set: transfers (an arrival)
- * and hotels (a check-out). Single-place types (dining, excursion, meeting,
- * event) have only a start. Drives which dialogs offer an end date/time. */
+/** Types that carry a distinct end the user can set: transfers (an arrival),
+ * hotels (a check-out) and events (a closing time, or the last day of a
+ * multi-day pass). The remaining single-moment types (dining, excursion,
+ * ice cream, meeting) have only a start. Drives which dialogs offer an end
+ * date/time. The end stays optional throughout — an evening gig can leave it
+ * blank exactly as before. */
 export function typeHasEnd(type: PlanType): boolean {
-  return isTransferType(type) || type === 'hotel';
+  return isTransferType(type) || type === 'hotel' || type === 'event';
 }
 
 /** The place line for a part: "A → B" for a transfer between two distinct

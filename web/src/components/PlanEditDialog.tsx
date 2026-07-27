@@ -207,9 +207,10 @@ function partForm(part: PlanPart): PartForm {
 }
 
 /** Does this part have a meaningful "end" endpoint to edit — a transfer's
- * arrival or a hotel's check-out — or anything that already carries an end time?
- * Single-point plans (a dining reservation) show only a start. A hotel always
- * qualifies so a check-out can be added even when none was set at creation. */
+ * arrival, a hotel's check-out, an event's close — or anything that already
+ * carries an end time? Single-point plans (a dining reservation) show only a
+ * start. A hotel or event always qualifies so an end can be added even when
+ * none was set at creation (marking up a festival pass after the fact). */
 function hasEnd(part: PlanPart): boolean {
   return typeHasEnd(part.type) || part.ends_at != null;
 }

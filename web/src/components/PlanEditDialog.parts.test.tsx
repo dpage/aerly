@@ -208,6 +208,37 @@ describe('PlanEditDialog — part detail editors', () => {
     expect(patch.ends_at).toBeTruthy();
   });
 
+  it('lets an event that was captured with only a start gain an end date', async () => {
+    // The Riot Fest case: a multi-day pass ingested as a single start instant.
+    // The end section has to be offered regardless, so the run can be marked up
+    // after the fact.
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'event',
+        parts: [
+          part({
+            type: 'event',
+            start_label: 'Douglass Park',
+            starts_at: '2026-09-18T12:00:00Z',
+            end_label: '',
+            ends_at: undefined,
+            end_tz: '',
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText('Until')).toBeInTheDocument();
+    const dates = screen.getAllByLabelText(/^date$/i);
+    const times = screen.getAllByLabelText(/^time$/i);
+    await userEvent.type(dates[dates.length - 1], '2026-09-20');
+    await userEvent.type(times[times.length - 1], '23:00');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.ends_at).toBeTruthy();
+  });
+
   it('shows a single "Where" endpoint for a non-transfer single-point part', () => {
     render_(
       plan({

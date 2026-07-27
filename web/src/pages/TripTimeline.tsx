@@ -47,7 +47,7 @@ import {
   fmtPartPlaces,
   fmtPartTimeRange,
   fmtTimeOfDay,
-  hotelNights,
+  bandLengthLabel,
   planTypeLabel,
 } from '../lib/trip-format';
 import { fmtGate } from '../lib/gate';
@@ -85,6 +85,13 @@ function externalAccentFor(feedIds: number[], feedId: number): string {
 // can be linked into (or split out of) one multi-part plan (#12).
 function isLinkableType(type: string): boolean {
   return type === 'flight' || type === 'train' || type === 'ground';
+}
+
+/** Caption for one tile of a banded part. A hotel checks in and out; a
+ * multi-day event (a festival pass) simply starts and ends. */
+function bandEdgeLabel(type: string, edge: 'check-in' | 'check-out'): string {
+  if (type === 'event') return edge === 'check-in' ? 'Starts' : 'Ends';
+  return edge === 'check-in' ? 'Check in' : 'Check out';
 }
 
 // earliestStart returns the smallest part start instant (ms) of a plan, used to
@@ -532,7 +539,8 @@ interface PartCardProps {
   part: PlanPart;
   plan: Plan;
   trip: Trip;
-  /** Set for the two tiles of a multi-night hotel stay (see buildTimeline). */
+  /** Set for the two tiles of a part that spans days — a hotel stay or a
+   * multi-day event (see buildTimeline). */
   edge?: 'check-in' | 'check-out';
   accent: string;
   multiPart: boolean;
@@ -591,12 +599,11 @@ function PartCard({
   const places = fmtPartPlaces(part.type, part.start_label, part.end_label);
   const addr = fmtPartPlaces(part.type, part.start_address, part.end_address);
   const details = partDetailLines(part);
-  // A multi-night hotel stay renders as two tiles (check-in and check-out); the
-  // "N nights" chip on both ties them as one booking and shows the stay length,
-  // the hotel equivalent of a flight's "multi-part" badge. `edge` is only set on
-  // those hotel-band tiles.
-  const nights = edge ? hotelNights(part) : 0;
-  const nightsLabel = nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : '';
+  // A part that spans days — a hotel stay, a festival pass — renders as two
+  // tiles (its opening and its close); the "3 nights" / "3 days" chip on both
+  // ties them as one booking and shows the length, the standing equivalent of a
+  // flight's "multi-part" badge. `edge` is only set on those band tiles.
+  const nightsLabel = edge ? bandLengthLabel(part) : '';
   // Where a "Directions" launch would route to: the plan's own location (its
   // start point — the airport, hotel, venue…), by coordinates when we have them
   // and by address/label otherwise. The maps app supplies the current location
@@ -752,9 +759,9 @@ function PartCard({
 
           <Typography variant="caption" color="text.secondary">
             {edge === 'check-in'
-              ? `Check in · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
+              ? `${bandEdgeLabel(part.type, 'check-in')} · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
               : edge === 'check-out'
-                ? `Check out · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
+                ? `${bandEdgeLabel(part.type, 'check-out')} · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
                 : fmtPartTimeRange(part)}
           </Typography>
 

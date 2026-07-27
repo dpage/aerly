@@ -273,6 +273,67 @@ describe('TripTimeline', () => {
     ).toBeInTheDocument();
   });
 
+  it('bands a multi-day festival pass as Starts / Ends tiles with a day count', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 21,
+            plan_id: 5,
+            type: 'event',
+            starts_at: '2026-09-18T12:00:00Z',
+            effective_at: '2026-09-18T12:00:00Z',
+            ends_at: '2026-09-20T23:00:00Z',
+            start_label: 'Douglass Park',
+            end_label: '',
+          }),
+        ],
+        { id: 5, type: 'event', title: 'Riot Fest 2026' },
+      ),
+    ]);
+    renderTimeline();
+    expect(screen.getByTestId('part-card-21-check-in')).toBeInTheDocument();
+    expect(screen.getByTestId('part-card-21-check-out')).toBeInTheDocument();
+    // A festival starts and ends; it doesn't check in and out like a hotel.
+    expect(screen.getByText(/Starts/)).toBeInTheDocument();
+    expect(screen.getByText(/Ends/)).toBeInTheDocument();
+    expect(screen.queryByText(/Check in/)).not.toBeInTheDocument();
+    // ICU abbreviates September as "Sep" or "Sept" depending on the build.
+    expect(screen.getByText(/18 Sept? 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/20 Sept? 2026/)).toBeInTheDocument();
+    // Days, not nights: a Friday-to-Sunday pass is sold as a 3-day pass.
+    expect(
+      within(screen.getByTestId('part-card-21-check-in')).getByText('3 days'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('part-card-21-check-out')).getByText('3 days'),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps a single-evening event as one tile with a time range', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 22,
+            plan_id: 6,
+            type: 'event',
+            starts_at: '2026-09-18T19:00:00Z',
+            effective_at: '2026-09-18T19:00:00Z',
+            ends_at: '2026-09-18T23:00:00Z',
+            start_label: 'Roundhouse',
+            end_label: '',
+          }),
+        ],
+        { id: 6, type: 'event', title: 'The Synthetics' },
+      ),
+    ]);
+    renderTimeline();
+    expect(screen.getByTestId('part-card-22')).toBeInTheDocument();
+    expect(screen.queryByTestId('part-card-22-check-in')).not.toBeInTheDocument();
+    expect(screen.getByText(/19:00 UTC → 23:00 UTC/)).toBeInTheDocument();
+  });
+
   it('greys a cancelled (superseded old) part and tags it, not the replacement', () => {
     // On a rebooking the OLD part is stamped status='cancelled'; the NEW part
     // carries supersedes_id and stays full-colour. The greying/tag keys on the
