@@ -62,7 +62,7 @@ func (a *API) getAdminInfo(w http.ResponseWriter, r *http.Request) {
 		out.Config = AdminConfigDTO{
 			PublicURL:          c.PublicURL,
 			Tracker:            trackerName(c),
-			TrackerAuthed:      c.OpenSkyUsername != "",
+			TrackerAuthed:      c.OpenSkyClientID != "",
 			ResolverAvailable:  c.ResolverAvailable(),
 			PollIntervalSec:    int(c.PollInterval.Seconds()),
 			EmailIngestEnabled: c.EmailIngestEnabled,
@@ -104,4 +104,3 @@ func (a *API) getVersion(w http.ResponseWriter, r *http.Request) {
 	v := version.Get()
 	writeJSON(w, http.StatusOK, VersionDTO{Commit: v.Commit, Short: v.Short, BuildTime: v.BuildTime})
 }
-

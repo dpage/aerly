@@ -240,10 +240,17 @@ func TestUseOpenSky(t *testing.T) {
 	}
 
 	base(t)
-	t.Setenv("OPENSKY_USERNAME", "user")
+	t.Setenv("OPENSKY_CLIENT_ID", "client")
+	t.Setenv("OPENSKY_CLIENT_SECRET", "secret")
 	cfg, _ = Load()
 	if !cfg.UseOpenSky() {
-		t.Error("UseOpenSky true when username set")
+		t.Error("UseOpenSky true when OAuth2 client credentials are set")
+	}
+	if cfg.OpenSkyClientID != "client" || cfg.OpenSkyClientSecret != "secret" {
+		t.Errorf("client credentials not loaded: %q / %q", cfg.OpenSkyClientID, cfg.OpenSkyClientSecret)
+	}
+	if cfg.OpenSkyMisconfigured() {
+		t.Error("client credentials alone are the correct configuration")
 	}
 
 	base(t)
@@ -251,6 +258,37 @@ func TestUseOpenSky(t *testing.T) {
 	cfg, _ = Load()
 	if !cfg.UseOpenSky() {
 		t.Error("UseOpenSky true when explicitly enabled")
+	}
+}
+
+// OpenSky retired Basic auth, so the legacy username/password pair must not
+// switch the tracker on by itself — doing so would give the operator anonymous
+// tracking whilst the logs claimed otherwise. It should be flagged instead.
+func TestOpenSkyLegacyBasicAuthCredentials(t *testing.T) {
+	base(t)
+	t.Setenv("OPENSKY_USERNAME", "user")
+	t.Setenv("OPENSKY_PASSWORD", "pass")
+	cfg, _ := Load()
+	if cfg.UseOpenSky() {
+		t.Error("retired username/password must not enable OpenSky on its own")
+	}
+	if !cfg.OpenSkyMisconfigured() {
+		t.Error("username without a client ID should be reported as misconfigured")
+	}
+	if cfg.OpenSkyUsername != "user" || cfg.OpenSkyPassword != "pass" {
+		t.Error("legacy values should still load so startup can warn about them")
+	}
+
+	// Once the operator migrates, the warning stops even if the old vars linger.
+	base(t)
+	t.Setenv("OPENSKY_USERNAME", "user")
+	t.Setenv("OPENSKY_CLIENT_ID", "client")
+	cfg, _ = Load()
+	if cfg.OpenSkyMisconfigured() {
+		t.Error("a configured client ID supersedes the legacy username")
+	}
+	if !cfg.UseOpenSky() {
+		t.Error("client ID should enable OpenSky")
 	}
 }
 

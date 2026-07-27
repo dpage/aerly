@@ -64,6 +64,38 @@ type Tracker interface {
 	Track(ctx context.Context, f *store.Flight, now time.Time) (*store.Position, error)
 }
 
+// BatchTracker is an optional extension a Tracker may implement when the
+// upstream can answer for many airframes in a single call. The poller hands
+// the whole set of flights it is about to process to Prefetch, and the
+// per-flight Track calls that follow are then served from whatever Prefetch
+// cached, without further upstream traffic.
+//
+// This matters because OpenSky bills per request, not per airframe: one
+// /states/all filtered by fifty icao24 addresses costs the same single credit
+// as one filtered by a single address. Polling each flight separately turned a
+// busy day into N credits per tick and exhausted the daily allowance within the
+// hour; batching makes the cost flat regardless of how many flights are in the
+// air.
+//
+// Prefetch is best-effort and returns nothing: a failed batch must leave the
+// tracker in a state where Track reports "no fix" rather than silently
+// re-issuing one request per flight, since that fan-out is the very thing
+// being avoided. Callers should invoke it at most once per tick.
+type BatchTracker interface {
+	Tracker
+	Prefetch(ctx context.Context, flights []*store.Flight)
+}
+
+// Prefetch primes t for the given tick when the tracker (or anything it wraps)
+// supports batching, and is a no-op otherwise. Wrappers such as SpeedGate and
+// DeadReckoner satisfy BatchTracker by forwarding to their inner tracker, so a
+// fully composed chain still reaches the OpenSky batch underneath.
+func Prefetch(ctx context.Context, t Tracker, flights []*store.Flight) {
+	if bt, ok := t.(BatchTracker); ok {
+		bt.Prefetch(ctx, flights)
+	}
+}
+
 // ResolvedFlight is the airline-data-source view of a single scheduled
 // flight, used to autofill the Add Flight dialog from just an ident + date.
 type ResolvedFlight struct {

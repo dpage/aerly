@@ -16,7 +16,8 @@ ground-based ADS-B receivers. Aircraft broadcast their position, altitude, and v
 an ADS-B OUT transponder; any receiver within radio range picks up the signal and uploads it
 to OpenSky's servers.
 
-**Cost:** Free (non-commercial use). Authenticated accounts get higher rate limits.
+**Cost:** Free (non-commercial use). Access is metered in daily credits, and authenticated
+clients get a far larger allowance.
 
 **Limitations:**
 
@@ -30,9 +31,20 @@ to OpenSky's servers.
 - **ADS-B OUT required.** Older aircraft using only Mode-C or Mode-S transponders do not
   broadcast position data and will not appear. ADS-B equipage is now mandatory in most
   controlled airspace, but some charter, cargo, and older regional aircraft may be exempt.
-- **Rate limits.** Anonymous access is heavily rate-limited. An authenticated account
-  (`OPENSKY_USERNAME` / `OPENSKY_PASSWORD`) raises the limit, but it remains a shared free
-  service — Aerly backs off automatically on `429` responses.
+- **Rate limits.** OpenSky meters access in daily credits: 400/day anonymously, bucketed by
+  source IP so a whole Aerly instance shares one allowance; 4000/day for a registered API
+  client (`OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET`); and 8000/day for accounts that
+  feed data back to the network. One request costs one credit however many aircraft it asks
+  about, so Aerly batches every tracked airframe into a single request per poll tick, making
+  the daily burn a function of `POLL_INTERVAL` alone rather than of how many flights are in
+  the air: 60s polling costs roughly 1440 credits/day whether one person is travelling or
+  thirty are. On a `429` Aerly stops calling OpenSky for five minutes, doubling to an hour on
+  repeated rejections, and lets the dead-reckoner cover the gap rather than burning the
+  recovery window.
+- **Authentication is OAuth2.** OpenSky retired HTTP Basic auth, so a username and password
+  no longer authenticate anything and silently leave you in the anonymous bucket. Create an
+  API client on your OpenSky account page instead; Aerly exchanges the client ID and secret
+  for a 30-minute bearer token and refreshes it as needed.
 - **icao24 required.** OpenSky identifies aircraft by their Mode-S hex address (icao24).
   Aerly gets this from AeroDataBox at flight-creation time; if the scheduled airframe
   changes (equipment swap, wet lease), the position may track the wrong aircraft until the

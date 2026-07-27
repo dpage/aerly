@@ -208,12 +208,18 @@ func run(configPath string) error {
 	// fall back to an extrapolation.
 	var inner providers.Tracker
 	var osky *providers.OpenSky // concrete handle for the quota-alert hook
+	if cfg.OpenSkyMisconfigured() {
+		slog.Warn("opensky: OPENSKY_USERNAME/OPENSKY_PASSWORD are no longer accepted " +
+			"— OpenSky retired HTTP Basic auth in favour of OAuth2. Create an API client " +
+			"on your OpenSky account page and set OPENSKY_CLIENT_ID/OPENSKY_CLIENT_SECRET, " +
+			"or tracking stays anonymous at 400 credits/day per source IP.")
+	}
 	switch {
 	case cfg.UseOpenSky():
-		osky = providers.NewOpenSky(cfg.OpenSkyUsername, cfg.OpenSkyPassword)
+		osky = providers.NewOpenSky(cfg.OpenSkyClientID, cfg.OpenSkyClientSecret)
 		inner = providers.NewSpeedGate(osky, s)
 		slog.Info("tracker: opensky",
-			"authed", cfg.OpenSkyUsername != "")
+			"authed", cfg.OpenSkyClientID != "")
 	default:
 		inner = providers.NewStub()
 		slog.Info("tracker: stub")

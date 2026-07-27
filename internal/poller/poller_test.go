@@ -315,6 +315,79 @@ func TestTickSkipsFreshlyPolled(t *testing.T) {
 	}
 }
 
+// batchTracker records what the tick handed to Prefetch, so we can assert the
+// poller batches once per tick over exactly the flights that are due.
+type batchTracker struct {
+	mockTracker
+	prefetches int
+	got        [][]*store.Flight
+}
+
+func (b *batchTracker) Prefetch(_ context.Context, flights []*store.Flight) {
+	b.prefetches++
+	b.got = append(b.got, flights)
+}
+
+// The whole point of the batching work: one upstream prefetch per tick covering
+// every due flight, rather than one request per flight. OpenSky bills per
+// request, so this is what keeps a busy day inside the daily credit allowance.
+func TestTickPrefetchesDueFlightsOnce(t *testing.T) {
+	tr := &batchTracker{mockTracker: mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}}
+	p, s, _ := newPoller(t, &tr.mockTracker, time.Minute)
+	p.Tracker = tr // the batching tracker itself, so Prefetch is reachable
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	for _, ident := range []string{"PB1", "PB2", "PB3"} {
+		if _, err := mkPart(ctx, s, partSeed{
+			Ident: ident, ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+			OriginIATA: "LHR", DestIATA: "JFK",
+		}, uid); err != nil {
+			t.Fatalf("create %s: %v", ident, err)
+		}
+	}
+
+	p.tick(ctx)
+
+	if tr.prefetches != 1 {
+		t.Fatalf("prefetches = %d, want exactly 1 for the whole tick", tr.prefetches)
+	}
+	if len(tr.got[0]) != 3 {
+		t.Errorf("prefetched %d flights, want all 3 due ones", len(tr.got[0]))
+	}
+	if tr.calls != 3 {
+		t.Errorf("tracker calls = %d, want one per due flight", tr.calls)
+	}
+}
+
+// A tick with nothing due must not touch the provider at all — an idle
+// instance should burn no credits.
+func TestTickSkipsPrefetchWhenNothingDue(t *testing.T) {
+	tr := &batchTracker{mockTracker: mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}}
+	p, s, _ := newPoller(t, &tr.mockTracker, time.Hour) // huge interval
+	p.Tracker = tr
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "PB4", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, uid)
+	// Stamp last_polled_at so minPollAge holds it back this tick.
+	if err := s.RefreshFlightPartStatus(ctx, f.ID); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	p.tick(ctx)
+
+	if tr.prefetches != 0 {
+		t.Errorf("prefetches = %d, want none when no flight is due", tr.prefetches)
+	}
+	if tr.calls != 0 {
+		t.Errorf("tracker calls = %d, want none", tr.calls)
+	}
+}
+
 func TestTickActiveFlightsErrorReturns(t *testing.T) {
 	tr := &mockTracker{}
 	p, _, _ := newPoller(t, tr, time.Minute)

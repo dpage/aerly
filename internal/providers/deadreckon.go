@@ -52,6 +52,12 @@ func NewDeadReckoner(inner Tracker, anchor RealPositionFetcher) *DeadReckoner {
 	}
 }
 
+// Prefetch forwards the tick's flight set down the chain to whatever can batch
+// (typically OpenSky, via a SpeedGate). A no-op when nothing below supports it.
+func (d *DeadReckoner) Prefetch(ctx context.Context, flights []*store.Flight) {
+	Prefetch(ctx, d.Inner, flights)
+}
+
 func (d *DeadReckoner) Track(ctx context.Context, f *store.Flight, now time.Time) (*store.Position, error) {
 	if pos, err := d.Inner.Track(ctx, f, now); err == nil && pos != nil {
 		return pos, nil

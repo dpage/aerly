@@ -12,7 +12,7 @@ func TestAdminInfoRequiresSuperuser(t *testing.T) {
 	cfg := &config.Config{
 		PublicURL:       "https://aerly.example",
 		PollInterval:    60 * time.Second,
-		OpenSkyUsername: "flyer",
+		OpenSkyClientID: "flyer",
 		AeroDataBoxKey:  "k",
 		GitHubID:        "gh",
 		LLMProvider:     "anthropic",

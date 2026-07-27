@@ -33,7 +33,7 @@ createdb aerly
 # 2. Configure environment.
 cp .env.example .env
 # Edit .env — fill in DATABASE_URL, GITHUB_CLIENT_ID/SECRET, SESSION_KEY.
-# Leave OPENSKY_USERNAME / AERODATABOX_RAPIDAPI_KEY blank for the stub backends.
+# Leave OPENSKY_CLIENT_ID / AERODATABOX_RAPIDAPI_KEY blank for the stub backends.
 
 # 3. Register a GitHub OAuth app at https://github.com/settings/developers
 #    Homepage URL:           http://localhost:8080
@@ -98,9 +98,11 @@ start if the file is any more permissive.
 | `MAIL_FROM_ADDRESS`        |          |                               | Envelope/From for outbound mail (friend invites, account-link notices, admin quota alerts). When unset, those emails are skipped. |
 | `MAIL_SENDMAIL_PATH`       |          | `/usr/sbin/sendmail`          | Path to a sendmail-compatible binary used to send mail.                                |
 | `POLL_INTERVAL`            |          | `60s`                         | How often the poller refreshes active flights. Non-Enroute flights are throttled to 5×. |
-| `OPENSKY_USERNAME`         |          |                               | OpenSky account for HTTP Basic Auth. Unlocks higher rate limits than anonymous.        |
+| `OPENSKY_CLIENT_ID`        |          |                               | OpenSky OAuth2 API client. Raises the daily credit allowance from 400 to 4000. Create one on your OpenSky account page. |
+| `OPENSKY_CLIENT_SECRET`    |          |                               |                                                                                        |
+| `OPENSKY_ENABLED`          |          | `0`                           | Set to `1` to use OpenSky anonymously (400 credits/day, shared across the source IP).  |
+| `OPENSKY_USERNAME`         |          |                               | **Deprecated and ignored.** OpenSky no longer accepts HTTP Basic Auth; use `OPENSKY_CLIENT_ID`/`OPENSKY_CLIENT_SECRET`. Aerly warns at startup if these are still set. |
 | `OPENSKY_PASSWORD`         |          |                               |                                                                                        |
-| `OPENSKY_ENABLED`          |          | `0`                           | Set to `1` to use OpenSky anonymously (heavily rate-limited).                          |
 | `AERODATABOX_RAPIDAPI_KEY` |          |                               | When set, the Add Flight dialog drops to its minimal "ident + date" form. See **Tracker and resolver modes**. |
 | `GEOAPIFY_API_KEY`         |          |                               | Enables the Explore nearby-points-of-interest feature and plan-venue geocoding. Blank = off (the Explore tab, the "Explore nearby" button, and the preference to hide Explore are all withdrawn, and addresses simply don't plot on the map). Free tier at [Geoapify](https://myprojects.geoapify.com/). |
 | `GEOCODE_MIN_CONFIDENCE`   |          | `0.5`                         | Minimum `rank.confidence` Geoapify's top candidate must clear before Aerly plots it. Uncalibrated: nobody has run a real address corpus through Geoapify yet. |
@@ -331,9 +333,16 @@ to OpenSky's servers.
   broadcast position data and will not appear at all. ADS-B equipage is now mandatory in
   most controlled airspace, but some charter, cargo, and older regional aircraft may be
   exempt.
-- **Rate limits.** Anonymous access is heavily rate-limited by OpenSky. An authenticated
-  account (`OPENSKY_USERNAME` / `OPENSKY_PASSWORD`) raises the limit but is still a shared,
-  free service — Aerly backs off automatically on `429` responses.
+- **Rate limits.** OpenSky meters access in daily credits: 400/day anonymously, bucketed by
+  source IP so the whole instance shares one allowance; 4000/day for a registered API client
+  (`OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET`); and 8000/day for accounts that feed data
+  back to the network. A request costs one credit however many aircraft it names, so Aerly
+  batches every tracked airframe into a single request per poll tick and the daily burn
+  depends on `POLL_INTERVAL` rather than on how many people are travelling. On a `429` Aerly
+  pauses OpenSky calls for five minutes, doubling to an hour if the rejections continue, and
+  falls back to dead-reckoning meanwhile. Note that OpenSky retired HTTP Basic auth: a
+  username and password no longer authenticate anything, so an instance still configured
+  that way is quietly running on the 400/day anonymous allowance and will say so at startup.
 - **Dead-reckoner fallback.** When a live fix is unavailable (coverage gap, rate-limited
   response, or aircraft not ADS-B-equipped), the dead-reckoner extrapolates from the last
   known fix toward the destination along a great-circle. Estimated positions are flagged and

@@ -166,12 +166,32 @@ func (p *Poller) tick(ctx context.Context) {
 		slog.Error("poller: list active flight parts", "err", err)
 		return
 	}
+	// Work out which flights are actually due before touching the tracker, so
+	// the batched prefetch below names exactly the airframes this tick will
+	// ask about and no more.
+	due := make([]*store.Flight, 0, len(flights))
 	for _, f := range flights {
-		if ctx.Err() != nil {
-			return
-		}
 		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < p.minPollAge(f, now) {
 			continue
+		}
+		due = append(due, f)
+	}
+
+	// Pull every due airframe's position in one upstream request rather than
+	// one per flight. OpenSky bills per request, not per airframe, so this is
+	// the difference between a flat one credit per tick and N credits per tick
+	// — the latter exhausts the daily allowance within the hour once a handful
+	// of people are travelling at once. A no-op for trackers that can't batch.
+	//
+	// A flight whose airframe the resolver swaps during refresh() below won't
+	// be in this batch and simply dead-reckons until the next tick.
+	if len(due) > 0 {
+		guard("poller.prefetch", 0, func() { providers.Prefetch(ctx, p.Tracker, due) })
+	}
+
+	for _, f := range due {
+		if ctx.Err() != nil {
+			return
 		}
 		guard("poller.refresh", f.ID, func() { p.refresh(ctx, f, now) })
 	}

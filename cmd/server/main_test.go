@@ -106,9 +106,12 @@ func TestMainGracefulShutdown(t *testing.T) {
 	addr := freePort(t)
 	devEnv(t, dbURL, addr)
 	// Exercise the AeroDataBox resolver and OpenSky tracker selection
-	// branches in the same happy-path startup.
+	// branches in the same happy-path startup. The leftover OPENSKY_USERNAME
+	// also drives the deprecation warning for the retired Basic-auth settings,
+	// which is exactly the state a pre-migration .env leaves behind.
 	t.Setenv("AERODATABOX_RAPIDAPI_KEY", "test-key")
 	t.Setenv("OPENSKY_ENABLED", "1")
+	t.Setenv("OPENSKY_USERNAME", "legacy-user")
 
 	done := make(chan struct{})
 	go func() { main(); close(done) }()

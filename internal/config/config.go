@@ -11,14 +11,22 @@ import (
 )
 
 type Config struct {
-	ListenAddr      string
-	PublicURL       string
-	DatabaseURL     string
-	GitHubID        string
-	GitHubSecret    string
-	GoogleID        string
-	GoogleSecret    string
-	SessionKey      []byte
+	ListenAddr   string
+	PublicURL    string
+	DatabaseURL  string
+	GitHubID     string
+	GitHubSecret string
+	GoogleID     string
+	GoogleSecret string
+	SessionKey   []byte
+	// OpenSky OAuth2 client credentials, minted on the OpenSky account page.
+	// These replace the retired username/password pair: OpenSky no longer
+	// accepts HTTP Basic auth, so the old settings silently bought nothing but
+	// the 400/day anonymous allowance.
+	OpenSkyClientID     string
+	OpenSkyClientSecret string
+	// OpenSkyUsername/Password are the deprecated Basic-auth settings, retained
+	// only so startup can warn an operator whose .env still carries them.
 	OpenSkyUsername string
 	OpenSkyPassword string
 	OpenSkyEnabled  bool // true if we should query OpenSky even without creds
@@ -102,22 +110,24 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		ListenAddr:      getenv("LISTEN_ADDR", ":8080"),
-		PublicURL:       strings.TrimRight(getenv("PUBLIC_URL", "http://localhost:8080"), "/"),
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		GitHubID:        os.Getenv("GITHUB_CLIENT_ID"),
-		GitHubSecret:    os.Getenv("GITHUB_CLIENT_SECRET"),
-		GoogleID:        os.Getenv("GOOGLE_CLIENT_ID"),
-		GoogleSecret:    os.Getenv("GOOGLE_CLIENT_SECRET"),
-		OpenSkyUsername: os.Getenv("OPENSKY_USERNAME"),
-		OpenSkyPassword: os.Getenv("OPENSKY_PASSWORD"),
-		OpenSkyEnabled:  os.Getenv("OPENSKY_ENABLED") == "1",
-		AeroDataBoxKey:  os.Getenv("AERODATABOX_RAPIDAPI_KEY"),
-		GeoapifyKey:     os.Getenv("GEOAPIFY_API_KEY"),
-		PollInterval:    pollInterval,
-		DevAuthBypass:   os.Getenv("DEV_AUTH_BYPASS") == "1",
-		MailFromAddress: os.Getenv("MAIL_FROM_ADDRESS"),
-		SendmailPath:    getenv("MAIL_SENDMAIL_PATH", "/usr/sbin/sendmail"),
+		ListenAddr:          getenv("LISTEN_ADDR", ":8080"),
+		PublicURL:           strings.TrimRight(getenv("PUBLIC_URL", "http://localhost:8080"), "/"),
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		GitHubID:            os.Getenv("GITHUB_CLIENT_ID"),
+		GitHubSecret:        os.Getenv("GITHUB_CLIENT_SECRET"),
+		GoogleID:            os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleSecret:        os.Getenv("GOOGLE_CLIENT_SECRET"),
+		OpenSkyClientID:     os.Getenv("OPENSKY_CLIENT_ID"),
+		OpenSkyClientSecret: os.Getenv("OPENSKY_CLIENT_SECRET"),
+		OpenSkyUsername:     os.Getenv("OPENSKY_USERNAME"),
+		OpenSkyPassword:     os.Getenv("OPENSKY_PASSWORD"),
+		OpenSkyEnabled:      os.Getenv("OPENSKY_ENABLED") == "1",
+		AeroDataBoxKey:      os.Getenv("AERODATABOX_RAPIDAPI_KEY"),
+		GeoapifyKey:         os.Getenv("GEOAPIFY_API_KEY"),
+		PollInterval:        pollInterval,
+		DevAuthBypass:       os.Getenv("DEV_AUTH_BYPASS") == "1",
+		MailFromAddress:     os.Getenv("MAIL_FROM_ADDRESS"),
+		SendmailPath:        getenv("MAIL_SENDMAIL_PATH", "/usr/sbin/sendmail"),
 	}
 
 	// Confidence policy for accepting a geocoding candidate without a re-rank.
@@ -330,10 +340,24 @@ func (c *Config) WebPushEnabled() bool {
 }
 
 // UseOpenSky reports whether the OpenSky tracker should be used. We turn it
-// on whenever OpenSky credentials are configured, or whenever the operator
-// explicitly opts into anonymous OpenSky (heavily rate-limited).
+// on whenever OAuth2 client credentials are configured, or whenever the
+// operator explicitly opts into anonymous OpenSky (400 credits/day, shared
+// across the source IP, so realistically one flight at a time).
+//
+// The retired username/password pair deliberately does NOT enable it on its
+// own: OpenSky rejects Basic auth, so honouring it would quietly give the
+// operator anonymous tracking whilst the logs claimed we were authenticated.
+// OpenSkyMisconfigured surfaces that case at startup instead.
 func (c *Config) UseOpenSky() bool {
-	return c.OpenSkyUsername != "" || c.OpenSkyEnabled
+	return c.OpenSkyClientID != "" || c.OpenSkyEnabled
+}
+
+// OpenSkyMisconfigured reports whether the deprecated Basic-auth settings are
+// still in place without the OAuth2 client credentials that replaced them, so
+// startup can tell the operator their tracking is about to be anonymous (or
+// off entirely) rather than leaving them to discover it from a 429.
+func (c *Config) OpenSkyMisconfigured() bool {
+	return c.OpenSkyUsername != "" && c.OpenSkyClientID == ""
 }
 
 // ResolverAvailable reports whether a Resolver is wired — i.e. whether the

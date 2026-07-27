@@ -50,6 +50,13 @@ func NewSpeedGate(inner Tracker, anchor LatestPositionFetcher) *SpeedGate {
 	}
 }
 
+// Prefetch forwards the tick's flight set to the inner tracker when it can
+// batch, so wrapping OpenSky in a SpeedGate doesn't cost us the batched fetch.
+// A no-op when the inner tracker doesn't support batching.
+func (g *SpeedGate) Prefetch(ctx context.Context, flights []*store.Flight) {
+	Prefetch(ctx, g.Inner, flights)
+}
+
 func (g *SpeedGate) Track(ctx context.Context, f *store.Flight, now time.Time) (*store.Position, error) {
 	pos, err := g.Inner.Track(ctx, f, now)
 	if err != nil || pos == nil || pos.IsEstimated {
