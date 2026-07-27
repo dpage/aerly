@@ -88,6 +88,11 @@ const CONF_TRIP = {
   id: CONF_TRIP_ID,
   name: 'PGConf Europe 2026',
   destination: 'Vienna, Austria',
+  description:
+    '## Notes\n\nAnnual PostgreSQL conference. A few links:\n\n' +
+    '- [Schedule](https://www.postgresql.eu/events/pgconfeu2026/schedule/)\n' +
+    '- [Venue map](https://maps.example.com/vienna)\n\n' +
+    'Remember to pack **adapters** and *comfortable shoes*.',
   starts_on: ymd(2),
   ends_on: ymd(5),
   my_role: 'owner',

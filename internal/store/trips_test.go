@@ -16,13 +16,17 @@ func TestTripCRUD(t *testing.T) {
 	starts := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	ends := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
 	trip, err := s.CreateTrip(ctx, CreateTripPayload{
-		Name: "Italy", Destination: "Rome", StartsOn: &starts, EndsOn: &ends,
+		Name: "Italy", Destination: "Rome", Description: "# Notes\n\nSee [blog](https://ex.com).",
+		StartsOn: &starts, EndsOn: &ends,
 	}, owner)
 	if err != nil {
 		t.Fatalf("CreateTrip: %v", err)
 	}
 	if trip.Name != "Italy" || trip.Destination != "Rome" {
 		t.Errorf("unexpected trip: %+v", trip)
+	}
+	if trip.Description != "# Notes\n\nSee [blog](https://ex.com)." {
+		t.Errorf("description = %q, want the markdown note", trip.Description)
 	}
 	if trip.CreatedBy == nil || *trip.CreatedBy != owner {
 		t.Errorf("created_by = %v, want %d", trip.CreatedBy, owner)
@@ -39,7 +43,7 @@ func TestTripCRUD(t *testing.T) {
 		t.Fatalf("TripByID = %+v, %v", got, err)
 	}
 
-	// Update name, leave dates untouched (nil pointers).
+	// Update name, leave dates and description untouched (nil pointers).
 	newName := "Italy 2026"
 	upd, err := s.UpdateTrip(ctx, trip.ID, UpdateTripPayload{Name: &newName})
 	if err != nil {
@@ -50,6 +54,19 @@ func TestTripCRUD(t *testing.T) {
 	}
 	if upd.StartsOn == nil || !upd.StartsOn.Equal(starts) {
 		t.Errorf("starts_on changed unexpectedly: %v", upd.StartsOn)
+	}
+	if upd.Description != "# Notes\n\nSee [blog](https://ex.com)." {
+		t.Errorf("description changed on a name-only update: %q", upd.Description)
+	}
+
+	// A description-only update rewrites it and leaves the name intact.
+	newDesc := "Updated notes"
+	upd, err = s.UpdateTrip(ctx, trip.ID, UpdateTripPayload{Description: &newDesc})
+	if err != nil {
+		t.Fatalf("UpdateTrip description: %v", err)
+	}
+	if upd.Description != newDesc || upd.Name != newName {
+		t.Errorf("after description update: name=%q desc=%q", upd.Name, upd.Description)
 	}
 
 	// List shows the trip for the owner, not for a stranger.

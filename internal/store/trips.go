@@ -15,6 +15,9 @@ type Trip struct {
 	ID          int64
 	Name        string
 	Destination string
+	// Description is free-form, markdown-enabled trip notes (issue #112).
+	// "" means no description.
+	Description string
 	StartsOn    *time.Time
 	EndsOn      *time.Time
 	CreatedBy   *int64
@@ -48,6 +51,7 @@ type TripMember struct {
 type CreateTripPayload struct {
 	Name        string
 	Destination string
+	Description string
 	StartsOn    *time.Time
 	EndsOn      *time.Time
 	// TripItID is the source TripIt trip id when this trip comes from an .ics
@@ -61,17 +65,18 @@ type CreateTripPayload struct {
 type UpdateTripPayload struct {
 	Name        *string
 	Destination *string
+	Description *string
 	StartsOn    *time.Time
 	EndsOn      *time.Time
 }
 
 // tripColumns is the shared SELECT list for trip rows.
-const tripColumns = `id, name, destination, starts_on, ends_on, created_by, created_at, updated_at, country_code`
+const tripColumns = `id, name, destination, starts_on, ends_on, created_by, created_at, updated_at, country_code, description`
 
 func scanTrip(row pgx.Row) (*Trip, error) {
 	var t Trip
 	err := row.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
-		&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.ShareAllFriendsRole)
+		&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.Description, &t.ShareAllFriendsRole)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -100,7 +105,7 @@ func (s *Store) scanTripList(rows pgx.Rows) ([]*Trip, error) {
 	for rows.Next() {
 		var t Trip
 		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
-			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.ShareAllFriendsRole,
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.Description, &t.ShareAllFriendsRole,
 			&t.EffectiveStart, &t.EffectiveEnd); err != nil {
 			return nil, err
 		}
@@ -244,7 +249,7 @@ func (s *Store) TripsNeedingPlaceReconcile(ctx context.Context) ([]*Trip, error)
 	for rows.Next() {
 		var t Trip
 		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
-			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.ShareAllFriendsRole); err != nil {
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.Description, &t.ShareAllFriendsRole); err != nil {
 			return nil, err
 		}
 		out = append(out, &t)
@@ -281,7 +286,7 @@ func (s *Store) TripsNeedingDestination(ctx context.Context) ([]*Trip, error) {
 	for rows.Next() {
 		var t Trip
 		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
-			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.ShareAllFriendsRole); err != nil {
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.Description, &t.ShareAllFriendsRole); err != nil {
 			return nil, err
 		}
 		out = append(out, &t)
@@ -305,7 +310,7 @@ func (s *Store) TripsNeedingCountry(ctx context.Context) ([]*Trip, error) {
 	for rows.Next() {
 		var t Trip
 		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
-			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.ShareAllFriendsRole); err != nil {
+			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.Description, &t.ShareAllFriendsRole); err != nil {
 			return nil, err
 		}
 		out = append(out, &t)
@@ -323,10 +328,10 @@ func (s *Store) CreateTrip(ctx context.Context, in CreateTripPayload, createdBy 
 	defer tx.Rollback(ctx)
 
 	t, err := scanTrip(tx.QueryRow(ctx, `
-		INSERT INTO trips (name, destination, starts_on, ends_on, created_by, tripit_id)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO trips (name, destination, description, starts_on, ends_on, created_by, tripit_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING `+tripColumns+`, COALESCE(share_all_friends_role, '')`,
-		in.Name, in.Destination, in.StartsOn, in.EndsOn, createdBy, in.TripItID))
+		in.Name, in.Destination, in.Description, in.StartsOn, in.EndsOn, createdBy, in.TripItID))
 	if err != nil {
 		return nil, err
 	}
@@ -354,12 +359,13 @@ func (s *Store) UpdateTrip(ctx context.Context, id int64, in UpdateTripPayload) 
 		UPDATE trips SET
 			name        = COALESCE($2, name),
 			destination = COALESCE($3, destination),
-			starts_on   = CASE WHEN $4::boolean THEN $5 ELSE starts_on END,
-			ends_on     = CASE WHEN $6::boolean THEN $7 ELSE ends_on END,
+			description = COALESCE($4, description),
+			starts_on   = CASE WHEN $5::boolean THEN $6 ELSE starts_on END,
+			ends_on     = CASE WHEN $7::boolean THEN $8 ELSE ends_on END,
 			updated_at  = NOW()
 		WHERE id = $1
 		RETURNING `+tripColumns+`, COALESCE(share_all_friends_role, '')`,
-		id, in.Name, in.Destination,
+		id, in.Name, in.Destination, in.Description,
 		in.StartsOn != nil, in.StartsOn,
 		in.EndsOn != nil, in.EndsOn))
 	return t, err

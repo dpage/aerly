@@ -24,8 +24,8 @@ interface Props {
   onDeleted: () => void;
 }
 
-/** Edit a trip's name, destination, dates and tags — and delete it. Owners and
- * editors can edit; only the owner sees Delete. */
+/** Edit a trip's name, destination, description, dates and tags — and delete it.
+ * Owners and editors can edit; only the owner sees Delete. */
 export default function TripEditDialog({ open, trip, onClose, onDeleted }: Props) {
   const updateTrip = useStore((s) => s.updateTrip);
   const deleteTrip = useStore((s) => s.deleteTrip);
@@ -34,6 +34,7 @@ export default function TripEditDialog({ open, trip, onClose, onDeleted }: Props
 
   const [name, setName] = useState(trip.name);
   const [destination, setDestination] = useState(trip.destination);
+  const [description, setDescription] = useState(trip.description ?? '');
   const [startsOn, setStartsOn] = useState(trip.starts_on ?? '');
   const [endsOn, setEndsOn] = useState(trip.ends_on ?? '');
   const [tags, setTags] = useState<string[]>(trip.tags);
@@ -44,6 +45,7 @@ export default function TripEditDialog({ open, trip, onClose, onDeleted }: Props
     if (!open) return;
     setName(trip.name);
     setDestination(trip.destination);
+    setDescription(trip.description ?? '');
     setStartsOn(trip.starts_on ?? '');
     setEndsOn(trip.ends_on ?? '');
     setTags(trip.tags);
@@ -62,6 +64,7 @@ export default function TripEditDialog({ open, trip, onClose, onDeleted }: Props
       await updateTrip(trip.id, {
         name: name.trim(),
         destination: destination.trim(),
+        description: description.trim(),
         starts_on: startsOn || undefined,
         ends_on: endsOn || undefined,
       });
@@ -109,6 +112,16 @@ export default function TripEditDialog({ open, trip, onClose, onDeleted }: Props
             value={destination}
             onChange={(e) => setDestination(e.target.value)}
             fullWidth
+          />
+          <TextField
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            multiline
+            minRows={3}
+            maxRows={12}
+            fullWidth
+            helperText="Notes, links, checklists — Markdown supported."
           />
           <Stack direction="row" spacing={2}>
             <TextField

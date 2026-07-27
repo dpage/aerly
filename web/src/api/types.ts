@@ -303,6 +303,8 @@ export interface Trip {
   id: number;
   name: string;
   destination: string;
+  /** Free-form, markdown-enabled trip notes (issue #112); '' when unset. */
+  description: string;
   /** YYYY-MM-DD; absent when the trip has no fixed start. */
   starts_on?: string;
   /** YYYY-MM-DD; absent when the trip has no fixed end. */
@@ -656,6 +658,7 @@ export interface PoiResponse {
 export interface CreateTripInput {
   name: string;
   destination?: string;
+  description?: string;
   starts_on?: string;
   ends_on?: string;
 }
@@ -663,6 +666,7 @@ export interface CreateTripInput {
 export interface UpdateTripInput {
   name?: string;
   destination?: string;
+  description?: string;
   starts_on?: string;
   ends_on?: string;
 }

@@ -21,6 +21,7 @@ func TestTripCRUDEndpoints(t *testing.T) {
 	}
 	w := e.req(t, "POST", "/api/trips", map[string]any{
 		"name": "Italy", "destination": "Rome", "starts_on": "2026-06-01",
+		"description": "# Notes\n\nSee the [blog](https://ex.com).",
 	}, owner)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create = %d %s", w.Code, w.Body.String())
@@ -32,6 +33,9 @@ func TestTripCRUDEndpoints(t *testing.T) {
 	}
 	if trip["starts_on"] != "2026-06-01" {
 		t.Errorf("starts_on = %v", trip["starts_on"])
+	}
+	if trip["description"] != "# Notes\n\nSee the [blog](https://ex.com)." {
+		t.Errorf("description = %v", trip["description"])
 	}
 
 	// List shows it to the owner, not the stranger.
@@ -57,9 +61,11 @@ func TestTripCRUDEndpoints(t *testing.T) {
 		t.Errorf("stranger get = %d, want 404", w.Code)
 	}
 
-	// Patch (owner).
-	w = e.req(t, "PATCH", fmt.Sprintf("/api/trips/%d", tid), map[string]any{"name": "Italy 26"}, owner)
-	if w.Code != 200 || decodeBody[map[string]any](t, w)["name"] != "Italy 26" {
+	// Patch (owner): update the description; the name is left untouched.
+	w = e.req(t, "PATCH", fmt.Sprintf("/api/trips/%d", tid),
+		map[string]any{"name": "Italy 26", "description": "Updated notes"}, owner)
+	patched := decodeBody[map[string]any](t, w)
+	if w.Code != 200 || patched["name"] != "Italy 26" || patched["description"] != "Updated notes" {
 		t.Errorf("patch = %d %s", w.Code, w.Body.String())
 	}
 	// Stranger can't patch.
