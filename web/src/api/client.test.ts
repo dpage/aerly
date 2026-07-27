@@ -615,6 +615,16 @@ describe('every api.* method calls fetch with the right method/path/body', () =>
       JSON.stringify({ url: 'https://maps.app.goo.gl/abc123' }),
     );
   });
+
+  it('resolveCategories POSTs the phrase and returns the resolved categories', async () => {
+    const spy = mockFetch(() => jsonResponse({ categories: ['bars'] }));
+    await expect(api.resolveCategories('rooftop bars')).resolves.toEqual({
+      categories: ['bars'],
+    });
+    expect(spy.mock.calls[0][0]).toBe('/api/pois/resolve-categories');
+    expect(spy.mock.calls[0][1]?.method).toBe('POST');
+    expect(spy.mock.calls[0][1]?.body).toBe(JSON.stringify({ phrase: 'rooftop bars' }));
+  });
 });
 
 describe('revokeCalendarToken / issueCalendarToken paths', () => {

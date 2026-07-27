@@ -29,6 +29,7 @@ import type {
   Plan,
   PlanPart,
   PlanVisibility,
+  PoiCategory,
   PoiResponse,
   ResolveFlightInput,
   ResolvedFlight,
@@ -450,6 +451,11 @@ export const api = {
     if (opts.q) params.set('q', opts.q);
     return request<PoiResponse>('GET', `/api/trips/${tripId}/pois?${params.toString()}`);
   },
+
+  // Map a free-text phrase to Explore sub-category keys server-side (LLM). Only
+  // meaningful when capabilities.explore_search_enabled is true.
+  resolveCategories: (phrase: string) =>
+    request<{ categories: PoiCategory[] }>('POST', '/api/pois/resolve-categories', { phrase }),
 
   // Resolve a Google Maps link to a location server-side: a short link is
   // followed to its destination, and a place-only link (no coordinates of its
