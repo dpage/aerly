@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Box,
   Button,
-  Chip,
+  Checkbox,
+  FormControlLabel,
   LinearProgress,
   Link,
   List,
@@ -15,17 +19,22 @@ import {
   Typography,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
-import MuseumIcon from '@mui/icons-material/Museum';
-import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
-import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
-import ParkIcon from '@mui/icons-material/Park';
-import RestaurantIcon from '@mui/icons-material/Restaurant';
-import ChurchIcon from '@mui/icons-material/Church';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { api } from '../api/client';
 import { errorMessage } from '../state/helpers';
 import AddToTripDialog, { type PlanPrefill } from './AddToTripDialog';
 import PoiMiniMap from './PoiMiniMap';
+import {
+  THEMES,
+  SUBCATEGORY_LABELS,
+  SUBCATEGORY_ICONS,
+  DEFAULT_CATS,
+  loadCats,
+  saveCats,
+  expandThemeChildren,
+  type Theme,
+} from './exploreCategories';
 import type { Poi, PoiCategory } from '../api/types';
 
 export interface ExplorePanelProps {
@@ -34,66 +43,12 @@ export interface ExplorePanelProps {
   initialCenter?: { lat: number; lon: number; label?: string };
 }
 
-const CATEGORIES: { value: PoiCategory; label: string }[] = [
-  { value: 'sights', label: 'Sights' },
-  { value: 'museum', label: 'Museum' },
-  { value: 'landmark', label: 'Landmark' },
-  { value: 'park', label: 'Park' },
-  { value: 'worship', label: 'Worship' },
-  { value: 'food', label: 'Food' },
-];
-
-const CATEGORY_LABELS: Record<PoiCategory, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c.value, c.label]),
-) as Record<PoiCategory, string>;
-
-// Worship and food are off by default — both are numerous enough to swamp the
-// more sightseeing-oriented categories on first look.
-const DEFAULT_CATS: PoiCategory[] = ['sights', 'museum', 'landmark', 'park'];
-
 const RADII = [1000, 2000, 5000];
 
-const CATEGORY_ICONS: Record<PoiCategory, typeof MuseumIcon> = {
-  museum: MuseumIcon,
-  sights: PhotoCameraIcon,
-  landmark: AccountBalanceIcon,
-  worship: ChurchIcon,
-  park: ParkIcon,
-  food: RestaurantIcon,
-};
-
-// Persist the user's category selection so it survives navigating away and back
-// (and future visits) rather than resetting to the defaults each time.
-const CATS_STORAGE_KEY = 'aerly.explore.cats';
-const VALID_CATS = new Set<PoiCategory>(CATEGORIES.map((c) => c.value));
-
-function loadCats(): PoiCategory[] {
-  try {
-    const raw = window.localStorage.getItem(CATS_STORAGE_KEY);
-    if (raw == null) return DEFAULT_CATS;
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return DEFAULT_CATS;
-    // Keep only values we still recognise, so a stale stored category (renamed
-    // or removed) can't wedge the filter. An explicit empty set is honoured (the
-    // user turned everything off); only a missing/corrupt entry falls back.
-    return parsed.filter((v): v is PoiCategory => VALID_CATS.has(v as PoiCategory));
-  } catch {
-    return DEFAULT_CATS;
-  }
-}
-
-function saveCats(cats: PoiCategory[]): void {
-  try {
-    window.localStorage.setItem(CATS_STORAGE_KEY, JSON.stringify(cats));
-  } catch {
-    // Best-effort: private-mode/quota errors just mean no persistence.
-  }
-}
-
-/** Maps a POI category to its list-row icon. `PoiCategory` is a closed union,
- * so this covers every value with no dead default branch to test around. */
+/** Maps a POI category to its list-row icon, driven by the shared theme
+ * taxonomy so every one of the 27 sub-categories is covered. */
 function CategoryIcon({ category }: { category: PoiCategory }) {
-  const Icon = CATEGORY_ICONS[category];
+  const Icon = SUBCATEGORY_ICONS[category];
   return <Icon fontSize="small" />;
 }
 
@@ -186,8 +141,18 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
     saveCats(cats);
   }, [cats]);
 
-  const toggleCategory = (cat: PoiCategory) => {
+  const childrenSelected = (theme: Theme) =>
+    expandThemeChildren(theme).filter((c) => cats.includes(c));
+
+  const toggleChild = (cat: PoiCategory) =>
     setCats((cs) => (cs.includes(cat) ? cs.filter((c) => c !== cat) : [...cs, cat]));
+
+  const toggleTheme = (theme: Theme) => {
+    const kids = expandThemeChildren(theme);
+    const allOn = kids.every((c) => cats.includes(c));
+    setCats((cs) =>
+      allOn ? cs.filter((c) => !kids.includes(c)) : Array.from(new Set([...cs, ...kids])),
+    );
   };
 
   const openAdd = (poi: Poi) => {
@@ -243,26 +208,45 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
         </Box>
       )}
 
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        {CATEGORIES.map((c) => (
-          <Tooltip
-            key={c.value}
-            describeChild
-            title={
-              cats.includes(c.value)
-                ? 'Showing this category, select to hide'
-                : 'Select to show this category'
-            }
-          >
-            <Chip
-              label={c.label}
-              color={cats.includes(c.value) ? 'primary' : 'default'}
-              variant={cats.includes(c.value) ? 'filled' : 'outlined'}
-              onClick={() => toggleCategory(c.value)}
-            />
-          </Tooltip>
-        ))}
-      </Stack>
+      <Box>
+        {THEMES.map((theme) => {
+          const sel = childrenSelected(theme);
+          const kids = expandThemeChildren(theme);
+          return (
+            <Accordion key={theme.key} disableGutters>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <FormControlLabel
+                  onClick={(e) => e.stopPropagation()}
+                  control={
+                    <Checkbox
+                      checked={sel.length === kids.length && kids.length > 0}
+                      indeterminate={sel.length > 0 && sel.length < kids.length}
+                      onChange={() => toggleTheme(theme)}
+                    />
+                  }
+                  label={theme.label}
+                />
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack>
+                  {kids.map((c) => (
+                    <FormControlLabel
+                      key={c}
+                      control={
+                        <Checkbox checked={cats.includes(c)} onChange={() => toggleChild(c)} />
+                      }
+                      label={SUBCATEGORY_LABELS[c]}
+                    />
+                  ))}
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+          );
+        })}
+        <Button size="small" onClick={() => setCats(DEFAULT_CATS)}>
+          Reset to defaults
+        </Button>
+      </Box>
 
       <Tooltip describeChild title="How far around the centre to search">
         <ToggleButtonGroup
@@ -353,7 +337,7 @@ export default function ExplorePanel({ tripId, initialPlace, initialCenter }: Ex
                   color="text.secondary"
                   sx={{ display: 'block', mt: 0.25 }}
                 >
-                  {CATEGORY_LABELS[poi.category]} · {formatDistance(poi.distance_m)} away
+                  {SUBCATEGORY_LABELS[poi.category]} · {formatDistance(poi.distance_m)} away
                 </Typography>
                 <Stack
                   direction="row"

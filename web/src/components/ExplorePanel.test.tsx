@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { PoiResponse } from '../api/types';
+import { DEFAULT_CATS } from './exploreCategories';
 
 const h = vi.hoisted(() => ({
   fetchPois: vi.fn<[], Promise<PoiResponse>>(),
@@ -42,6 +43,19 @@ Element.prototype.scrollIntoView = vi.fn();
 
 import ExplorePanel from './ExplorePanel';
 
+// Expands a theme accordion by clicking its expand icon rather than the
+// FormControlLabel region, whose onClick stops propagation so that toggling
+// the theme checkbox doesn't also flip the accordion open/closed.
+async function expandTheme(themeLabel: string) {
+  const summary = screen.getByText(themeLabel).closest('.MuiAccordionSummary-root');
+  expect(summary).not.toBeNull();
+  const expandIcon = (summary as HTMLElement).querySelector(
+    '.MuiAccordionSummary-expandIconWrapper',
+  );
+  expect(expandIcon).not.toBeNull();
+  await userEvent.click(expandIcon as HTMLElement);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   h.fetchPois.mockResolvedValue({
@@ -51,7 +65,7 @@ beforeEach(() => {
       {
         id: 'node/1',
         name: 'Example Tower',
-        category: 'sights',
+        category: 'attractions',
         lat: 51.5,
         lon: -0.12,
         distance_m: 40,
@@ -64,7 +78,7 @@ beforeEach(() => {
       {
         id: 'node/2',
         name: 'Big Museum',
-        category: 'museum',
+        category: 'museums',
         lat: 51.51,
         lon: -0.1,
         distance_m: 1800,
@@ -72,7 +86,7 @@ beforeEach(() => {
       {
         id: 'node/3',
         name: 'Old Castle',
-        category: 'landmark',
+        category: 'monuments_heritage',
         lat: 51.52,
         lon: -0.11,
         distance_m: 500,
@@ -80,7 +94,7 @@ beforeEach(() => {
       {
         id: 'node/4',
         name: 'Green Park',
-        category: 'park',
+        category: 'parks_gardens',
         lat: 51.53,
         lon: -0.13,
         distance_m: 600,
@@ -88,7 +102,7 @@ beforeEach(() => {
       {
         id: 'node/5',
         name: 'Corner Cafe',
-        category: 'food',
+        category: 'cafes',
         lat: 51.54,
         lon: -0.14,
         distance_m: 700,
@@ -124,8 +138,8 @@ describe('ExplorePanel', () => {
       ),
     ).toBe(true);
     expect(towerLinks.some((l) => l.getAttribute('href') === 'https://example.com')).toBe(true);
-    // the row caption uses the polished category label, not the raw key
-    expect(screen.getByText('Sights · 40 m away')).toBeInTheDocument();
+    // the row caption uses the polished sub-category label, not the raw key
+    expect(screen.getByText('Attractions · 40 m away')).toBeInTheDocument();
   });
 
   it('shows the description line only for POIs that have one', async () => {
@@ -138,19 +152,54 @@ describe('ExplorePanel', () => {
     expect(within(museumRow).queryByText('A tall example landmark')).not.toBeInTheDocument();
   });
 
-  it('offers a Worship chip that is off by default', async () => {
+  it('renders theme headers and Worship is off by default', async () => {
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
-    expect(screen.getByRole('button', { name: /^worship$/i })).toBeInTheDocument();
+    expect(screen.getByText('Worship')).toBeInTheDocument();
+    expect(screen.getByText('Food & drink')).toBeInTheDocument();
     const cats = (h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats;
     expect(cats).not.toContain('worship');
-    expect(cats).toEqual(expect.arrayContaining(['sights', 'museum', 'landmark', 'park']));
+    expect(cats).toEqual(expect.arrayContaining(DEFAULT_CATS));
+  });
+
+  it('expands a theme and reveals its child checkboxes', async () => {
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    await expandTheme('Food & drink');
+    const bars = await screen.findByLabelText('Bars');
+    expect(bars).toBeInTheDocument();
+  });
+
+  it('toggling a theme checkbox selects all of its children', async () => {
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    h.fetchPois.mockClear();
+    await userEvent.click(screen.getByLabelText('Food & drink'));
+    const lastCall = h.fetchPois.mock.calls[0][1] as { cats?: string[] };
+    expect(lastCall.cats).toEqual(
+      expect.arrayContaining(['restaurants', 'cafes', 'bars', 'pubs', 'street_food']),
+    );
+  });
+
+  it('toggling a fully-selected theme checkbox deselects all its children', async () => {
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    // "Sights & landmarks" isn't fully selected by default (viewpoints is off),
+    // so the first click turns everything on; the second click (now all on)
+    // turns everything off.
+    await userEvent.click(screen.getByLabelText('Sights & landmarks'));
+    h.fetchPois.mockClear();
+    await userEvent.click(screen.getByLabelText('Sights & landmarks'));
+    const lastCall = h.fetchPois.mock.calls[0][1] as { cats?: string[] };
+    expect(lastCall.cats).not.toEqual(
+      expect.arrayContaining(['attractions', 'viewpoints', 'monuments_heritage']),
+    );
   });
 
   it('remembers category choices across remounts via localStorage', async () => {
     const { unmount } = render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
-    await userEvent.click(screen.getByRole('button', { name: /^worship$/i }));
+    await userEvent.click(screen.getByLabelText('Worship'));
     unmount();
     h.fetchPois.mockClear();
     render(<ExplorePanel tripId={7} initialPlace="London" />);
@@ -159,42 +208,53 @@ describe('ExplorePanel', () => {
     expect(cats).toContain('worship');
   });
 
-  it('restores a stored category selection on mount', async () => {
-    window.localStorage.setItem('aerly.explore.cats', JSON.stringify(['food']));
+  it('persists a toggled sub-category to localStorage under aerly.explore.subcats', async () => {
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
-    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual(['food']);
+    await expandTheme('Live music & nightlife');
+    await userEvent.click(await screen.findByLabelText('Nightclubs'));
+    const stored = JSON.parse(window.localStorage.getItem('aerly.explore.subcats') || '[]');
+    expect(stored).toContain('nightclubs');
+  });
+
+  it('resets the selection to defaults', async () => {
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    // Dirty the selection first.
+    await userEvent.click(screen.getByLabelText('Sights & landmarks'));
+    h.fetchPois.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: /reset to defaults/i }));
+    const lastCall = h.fetchPois.mock.calls[0][1] as { cats?: string[] };
+    expect(lastCall.cats).toEqual(expect.arrayContaining(DEFAULT_CATS));
+    expect(lastCall.cats).not.toContain('viewpoints');
+  });
+
+  it('restores a stored category selection on mount', async () => {
+    window.localStorage.setItem('aerly.explore.subcats', JSON.stringify(['cafes']));
+    render(<ExplorePanel tripId={7} initialPlace="London" />);
+    await screen.findByText('Example Tower');
+    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual(['cafes']);
   });
 
   it('drops unknown categories from a stored selection', async () => {
-    window.localStorage.setItem('aerly.explore.cats', JSON.stringify(['food', 'bogus']));
+    window.localStorage.setItem('aerly.explore.subcats', JSON.stringify(['cafes', 'bogus']));
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
-    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual(['food']);
+    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual(['cafes']);
   });
 
   it('falls back to defaults when the stored selection is unparseable', async () => {
-    window.localStorage.setItem('aerly.explore.cats', 'not json');
+    window.localStorage.setItem('aerly.explore.subcats', 'not json');
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
-    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual([
-      'sights',
-      'museum',
-      'landmark',
-      'park',
-    ]);
+    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual(DEFAULT_CATS);
   });
 
   it('falls back to defaults when the stored value is not an array', async () => {
-    window.localStorage.setItem('aerly.explore.cats', '{"nope":1}');
+    window.localStorage.setItem('aerly.explore.subcats', '{"nope":1}');
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
-    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual([
-      'sights',
-      'museum',
-      'landmark',
-      'park',
-    ]);
+    expect((h.fetchPois.mock.calls[0][1] as { cats?: string[] }).cats).toEqual(DEFAULT_CATS);
   });
 
   it('prefers initialCenter coords over place when both are supplied', async () => {
@@ -253,20 +313,22 @@ describe('ExplorePanel', () => {
     expect(screen.getByTestId('poi-mini-map')).toHaveAttribute('data-selected', 'node/2');
   });
 
-  it('re-fetches with updated categories when a category chip is toggled off', async () => {
+  it('re-fetches with updated categories when a sub-category is toggled', async () => {
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
     h.fetchPois.mockClear();
-    await userEvent.click(screen.getByRole('button', { name: /^food$/i }));
+    await expandTheme('Food & drink');
+    await userEvent.click(await screen.findByLabelText('Cafés'));
     expect(h.fetchPois).toHaveBeenCalledWith(
       7,
-      expect.objectContaining({ cats: expect.arrayContaining(['food']) }),
+      expect.objectContaining({ cats: expect.arrayContaining(['cafes']) }),
     );
 
     h.fetchPois.mockClear();
-    await userEvent.click(screen.getByRole('button', { name: /^sights$/i }));
+    await expandTheme('Sights & landmarks');
+    await userEvent.click(await screen.findByLabelText('Attractions'));
     const lastCall = h.fetchPois.mock.calls[0][1] as { cats?: string[] };
-    expect(lastCall.cats).not.toContain('sights');
+    expect(lastCall.cats).not.toContain('attractions');
   });
 
   it('re-fetches with the new radius when the radius selector changes', async () => {
@@ -281,7 +343,7 @@ describe('ExplorePanel', () => {
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
     h.fetchPois.mockClear();
-    const placeField = screen.getByLabelText(/place/i);
+    const placeField = screen.getByLabelText('Place');
     await userEvent.clear(placeField);
     await userEvent.type(placeField, 'Paris');
     await userEvent.click(screen.getByRole('button', { name: /search/i }));
@@ -292,7 +354,7 @@ describe('ExplorePanel', () => {
     render(<ExplorePanel tripId={7} initialPlace="London" />);
     await screen.findByText('Example Tower');
     h.fetchPois.mockClear();
-    const placeField = screen.getByLabelText(/place/i);
+    const placeField = screen.getByLabelText('Place');
     await userEvent.type(placeField, 'x');
     expect(h.fetchPois).not.toHaveBeenCalled();
   });
@@ -327,7 +389,9 @@ describe('ExplorePanel', () => {
     // The next call succeeds, so clicking Try again should surface the POIs.
     h.fetchPois.mockResolvedValue({
       center: { lat: 51.5, lon: -0.12 },
-      pois: [{ id: 'node/1', name: 'Example Tower', category: 'sights', lat: 51.5, lon: -0.12, distance_m: 40 }],
+      pois: [
+        { id: 'node/1', name: 'Example Tower', category: 'attractions', lat: 51.5, lon: -0.12, distance_m: 40 },
+      ],
     });
     await userEvent.click(screen.getByRole('button', { name: /try again/i }));
     expect(await screen.findByText('Example Tower')).toBeInTheDocument();

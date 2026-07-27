@@ -8,6 +8,7 @@ import { Box } from '@mui/material';
 
 import type { Poi, PoiCategory } from '../api/types';
 import { osmRasterStyle } from '../lib/map-style';
+import { THEMES } from './exploreCategories';
 
 interface PoiMiniMapProps {
   pois: Poi[];
@@ -18,14 +19,26 @@ interface PoiMiniMapProps {
   onSelectPoi: (id: string) => void;
 }
 
-const CATEGORY_COLOUR: Record<PoiCategory, string> = {
+// One colour per theme, so every sub-category within it (e.g. all of Food &
+// drink's cafes/bars/pubs/etc.) shares a hue and pins stay visually coherent.
+const THEME_COLOUR: Record<string, string> = {
   sights: '#1565c0',
-  museum: '#6a1b9a',
-  landmark: '#ad1457',
+  food_drink: '#e65100',
+  nightlife: '#ad1457',
+  culture: '#6a1b9a',
+  outdoors: '#2e7d32',
+  shopping: '#f9a825',
+  sport: '#0277bd',
+  family: '#c2185b',
   worship: '#00695c',
-  park: '#2e7d32',
-  food: '#e65100',
 };
+
+// Derived from THEMES so every one of the 27 sub-categories is covered — a
+// missing theme entry above would leave a `PoiCategory` key unassigned and
+// fail to compile against `Record<PoiCategory, string>`.
+const CATEGORY_COLOUR: Record<PoiCategory, string> = Object.fromEntries(
+  THEMES.flatMap((theme) => theme.children.map((c) => [c, THEME_COLOUR[theme.key]])),
+) as Record<PoiCategory, string>;
 
 function pinElement(poi: Poi, selected: boolean, onClick: () => void): HTMLButtonElement {
   const el = document.createElement('button');

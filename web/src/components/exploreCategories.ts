@@ -88,12 +88,12 @@ export function expandThemeChildren(theme: Theme): PoiCategory[] {
 export function loadCats(): PoiCategory[] {
   try {
     const raw = window.localStorage.getItem(CATS_STORAGE_KEY);
-    if (raw == null) return DEFAULT_CATS;
+    if (raw == null) return [...DEFAULT_CATS];
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return DEFAULT_CATS;
+    if (!Array.isArray(parsed)) return [...DEFAULT_CATS];
     return parsed.filter((v): v is PoiCategory => VALID_CATS.has(v as PoiCategory));
   } catch {
-    return DEFAULT_CATS;
+    return [...DEFAULT_CATS];
   }
 }
 
