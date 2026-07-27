@@ -141,3 +141,26 @@ func TestResolvePropagatesCompleterError(t *testing.T) {
 		t.Fatalf("expected completer error to propagate, got %v", err)
 	}
 }
+
+// TestResolveStripsMarkdownCodeFence pins the fix for a real regression: Claude
+// Haiku wraps its JSON in a ```json ... ``` fence despite being asked for JSON
+// only, which made the resolver return nothing for every phrase. The fence must
+// be stripped before decoding.
+func TestResolveStripsMarkdownCodeFence(t *testing.T) {
+	r := NewCategoryResolver(func(_ context.Context, _ string) (string, error) {
+		return "```json\n{\n  \"categories\": [\"bars\", \"cafes\", \"pubs\", \"restaurants\", \"street_food\"]\n}\n```", nil
+	})
+	got, err := r.Resolve(context.Background(), "Food")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"bars": true, "cafes": true, "pubs": true, "restaurants": true, "street_food": true}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want the five food_drink keys", got)
+	}
+	for _, k := range got {
+		if !want[k] {
+			t.Fatalf("unexpected key %q in %v", k, got)
+		}
+	}
+}
