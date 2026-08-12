@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -74,6 +75,15 @@ func TestPatchVehicleHirePartUpdatesDetail(t *testing.T) {
 // TestPatchVehicleHireIgnoredOnWrongPartType guards the part.Type == "vehicle_hire"
 // check: a vehicle_hire edit posted against a hotel part must be silently
 // ignored, exactly as every sibling per-type edit is.
+//
+// This asserts against the WRITE (no vehicle_hire_details row for the hotel
+// part), queried directly via the store, rather than against the PATCH
+// response body. The response never surfaces a vehicle_hire block for a hotel
+// part regardless of whether the guard fired, because partDTOWithPositions's
+// switch on p.Type only calls VehicleHireDetailFor for a "vehicle_hire" part;
+// asserting on the response would therefore pass even with the guard removed
+// (a vacuous test), since the read path never queries the satellite for a
+// hotel part in the first place.
 func TestPatchVehicleHireIgnoredOnWrongPartType(t *testing.T) {
 	e := setup(t, nil, nil)
 	owner := e.user(t, "g2vhwrong", false)
@@ -87,10 +97,14 @@ func TestPatchVehicleHireIgnoredOnWrongPartType(t *testing.T) {
 		t.Fatalf("hotel edit with vehicle_hire payload = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
 	body := decodeBody[map[string]any](t, w)
-	if _, ok := body["vehicle_hire"]; ok {
-		t.Errorf("expected no vehicle_hire detail on a hotel part, got %v", body)
-	}
 	if hotel, ok := body["hotel"].(map[string]any); !ok || hotel["property_name"] != "Test Hotel" {
 		t.Errorf("expected hotel detail untouched, got %v", body)
+	}
+	det, err := e.store.VehicleHireDetailFor(context.Background(), hPart)
+	if err != nil {
+		t.Fatalf("VehicleHireDetailFor: %v", err)
+	}
+	if det != nil {
+		t.Errorf("expected no vehicle_hire_details row for hotel part %d, got %+v", hPart, det)
 	}
 }
