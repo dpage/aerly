@@ -244,6 +244,64 @@ describe('buildTimeline', () => {
     expect(days[1].parts[0].edge).toBe('check-out');
   });
 
+  // The multi-night hotel contract, asserted through what a reader of the
+  // timeline actually gets (how many entries, on which days, tied to which
+  // booking) rather than through the spelling of the edge marker, so that the
+  // same assertions hold before and after the banding rule was generalised
+  // beyond hotels. Every trip with a stay in it depends on this.
+  describe('multi-night hotel banding, unchanged by generalisation', () => {
+    const stay = () =>
+      plan(
+        [
+          part({
+            id: 9,
+            plan_id: 2,
+            type: 'hotel',
+            starts_at: '2026-10-12T15:00:00Z',
+            effective_at: '2026-10-12T15:00:00Z',
+            ends_at: '2026-10-15T10:00:00Z',
+            start_label: 'Hotel Lisboa',
+            end_label: '',
+          }),
+        ],
+        { id: 2, type: 'hotel' },
+      );
+
+    it('places one entry on the first day and one on the last, and none between', () => {
+      const days = buildTimeline([stay()]);
+      expect(days.map((d) => d.dayKey)).toEqual(['2026-10-12', '2026-10-15']);
+      expect(days.map((d) => d.parts.length)).toEqual([1, 1]);
+      // Both entries are the same booking, shown twice.
+      expect(days.flatMap((d) => d.parts.map((p) => p.part.id))).toEqual([9, 9]);
+    });
+
+    it('marks the two entries as two distinct, identified ends of one booking', () => {
+      const edges = buildTimeline([stay()]).flatMap((d) => d.parts.map((p) => p.edge));
+      expect(edges.every((e) => Boolean(e))).toBe(true);
+      expect(new Set(edges).size).toBe(2);
+    });
+
+    it('leaves a same-day stay as a single, unmarked entry', () => {
+      const days = buildTimeline([
+        plan(
+          [
+            part({
+              id: 9,
+              plan_id: 2,
+              type: 'hotel',
+              starts_at: '2026-10-12T09:00:00Z',
+              effective_at: '2026-10-12T09:00:00Z',
+              ends_at: '2026-10-12T17:00:00Z',
+            }),
+          ],
+          { id: 2, type: 'hotel' },
+        ),
+      ]);
+      expect(days.flatMap((d) => d.parts)).toHaveLength(1);
+      expect(days[0].parts[0].edge).toBeUndefined();
+    });
+  });
+
   it('orders a hotel check-in by its smart effective_at, after a same-day flight', () => {
     // A flight arriving 18:00, and a hotel whose raw check-in is 15:00 but whose
     // smart effective_at (after arrival) is 19:00. The check-in tile must sort

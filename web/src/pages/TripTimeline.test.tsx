@@ -128,6 +128,13 @@ function renderTimeline() {
   );
 }
 
+/** The block of the timeline belonging to one day: the element wrapping that
+ * day's sticky header and the tiles filed under it. Lets a test say "this tile
+ * is on that day" without depending on any tile's test id. */
+function dayBlockFor(header: RegExp): HTMLElement {
+  return screen.getByText(header).parentElement!;
+}
+
 beforeEach(() => {
   state.currentTrip = null;
   ext.initial = false;
@@ -271,6 +278,43 @@ describe('TripTimeline', () => {
     expect(
       within(screen.getByTestId('part-card-11-check-in')).getByText('1 night'),
     ).toBeInTheDocument();
+  });
+
+  // The rendered contract for a multi-night stay, asserted through the copy a
+  // traveller actually reads rather than through test ids, so that the same
+  // test holds either side of generalising banding beyond hotels. A stay is the
+  // commonest thing on a timeline, and this is what it has always looked like.
+  it('renders a multi-night stay as a check-in tile and a check-out tile on their own days', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 9,
+            plan_id: 2,
+            type: 'hotel',
+            starts_at: '2026-10-12T15:00:00Z',
+            effective_at: '2026-10-12T15:00:00Z',
+            ends_at: '2026-10-15T10:00:00Z',
+            start_label: 'Hotel Lisboa',
+            end_label: '',
+          }),
+        ],
+        { id: 2, type: 'hotel', title: 'Hotel Lisboa' },
+      ),
+    ]);
+    renderTimeline();
+    // The two captions, in full: the opening time on one tile and the closing
+    // time on the other, each in its own local zone.
+    const checkIn = screen.getByText('Check in · 15:00 UTC');
+    const checkOut = screen.getByText('Check out · 10:00 UTC');
+    // Each tile sits under its own day header: opening on the 12th, closing on
+    // the 15th, with nothing on the nights in between.
+    expect(dayBlockFor(/12 Oct 2026/)).toContainElement(checkIn);
+    expect(dayBlockFor(/15 Oct 2026/)).toContainElement(checkOut);
+    expect(screen.queryByText(/13 Oct 2026/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/14 Oct 2026/)).not.toBeInTheDocument();
+    // Both tiles carry the stay-length chip that ties them to one booking.
+    expect(screen.getAllByText('3 nights')).toHaveLength(2);
   });
 
   it('greys a cancelled (superseded old) part and tags it, not the replacement', () => {
