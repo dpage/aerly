@@ -372,6 +372,7 @@ func toConfirmPlanInput(p ingestConfirmPlanReq) planops.ConfirmPlanInput {
 			Excursion:    cp.Excursion,
 			Meeting:      cp.Meeting,
 			Event:        cp.Event,
+			VehicleHire:  cp.VehicleHire,
 		})
 	}
 	return out
