@@ -36,7 +36,7 @@ func (f FlightFields) HasManualDetails() bool {
 // meaning. StartDate/EndDate are YYYY-MM-DD local; StartTime/EndTime are HH:MM
 // 24h local. Confidence is "high"|"medium"|"low".
 type ExtractedPart struct {
-	Type       string // flight|train|hotel|ground|dining|excursion|meeting|event
+	Type       string // flight|train|hotel|ground|vehicle_hire|dining|excursion|meeting|event
 	Confidence string
 
 	StartDate  string
@@ -84,6 +84,19 @@ type ExtractedPart struct {
 	EventCategory  string
 	EventVenueArea string
 	EventURL       string
+
+	// Vehicle hire (Type=="vehicle_hire"). StartDate/EndDate are the
+	// pickup/return days; ExcessAmount/DepositAmount are pointers because a
+	// missing figure must stay distinct from a genuine zero.
+	HireCategory        string
+	HireVehicle         string
+	HireTransmission    string
+	HireFuelPolicy      string
+	HireMileage         string
+	HireExcessAmount    *float64
+	HireExcessCurrency  string
+	HireDepositAmount   *float64
+	HireDepositCurrency string
 }
 
 // ExtractedPlan groups the parts of one booking into a single plan (PRD §6.3:
