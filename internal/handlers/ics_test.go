@@ -8,6 +8,25 @@ import (
 	"github.com/dpage/aerly/internal/store"
 )
 
+// TestTitleCaseType pins the SUMMARY parenthetical for a non-banded event.
+// vehicle_hire gets its own human label ("Car hire"); every other type must
+// keep rendering exactly as it does today, since the feed is subscribable.
+func TestTitleCaseType(t *testing.T) {
+	cases := map[string]string{
+		"vehicle_hire": "Car hire",
+		"flight":       "Flight",
+		"hotel":        "Hotel",
+		"ground":       "Ground",
+		"train":        "Train",
+		"":             "Plan",
+	}
+	for in, want := range cases {
+		if got := titleCaseType(in); got != want {
+			t.Errorf("titleCaseType(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestEscapeText(t *testing.T) {
 	cases := map[string]string{
 		`a,b;c\d`:    `a\,b\;c\\d`,
@@ -435,6 +454,9 @@ func TestICSSameDayVehicleHireDoesNotBand(t *testing.T) {
 	}
 	if !strings.Contains(out, "DTEND;TZID=Europe/Zurich:20260909T170000") {
 		t.Errorf("a same-day hire should keep its span:\n%s", out)
+	}
+	if !strings.Contains(out, "SUMMARY:Test Day Hire (Car hire)") {
+		t.Errorf("a same-day hire's summary should read \"(Car hire)\", not \"(Vehicle_hire)\":\n%s", out)
 	}
 }
 

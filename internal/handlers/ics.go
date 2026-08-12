@@ -559,10 +559,14 @@ func descriptionFor(e *store.CalendarEvent) string {
 }
 
 func titleCaseType(t string) string {
-	if t == "" {
+	switch t {
+	case "":
 		return "Plan"
+	case "vehicle_hire":
+		return "Car hire"
+	default:
+		return strings.ToUpper(t[:1]) + t[1:]
 	}
-	return strings.ToUpper(t[:1]) + t[1:]
 }
 
 // formatTZOffset renders seconds-east-of-UTC as the RFC 5545 ±HHMM(SS) form.
