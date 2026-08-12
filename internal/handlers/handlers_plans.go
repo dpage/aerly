@@ -48,6 +48,8 @@ type planPartReq struct {
 	IceCream  *iceCreamDetailReq  `json:"ice_cream"`
 	Meeting   *meetingDetailReq   `json:"meeting"`
 	Event     *eventDetailReq     `json:"event"`
+
+	VehicleHire *vehicleHireDetailReq `json:"vehicle_hire"`
 }
 
 type flightDetailReq struct {
@@ -119,6 +121,21 @@ type eventDetailReq struct {
 	Category  string `json:"category"`
 	VenueArea string `json:"venue_area"`
 	URL       string `json:"url"`
+}
+
+// vehicleHireDetailReq mirrors api.VehicleHireDetailDTO for a create request.
+// ExcessAmount and DepositAmount stay pointers so "not stated" (nil) stays
+// distinct from a genuine zero excess/deposit.
+type vehicleHireDetailReq struct {
+	Category        string   `json:"category"`
+	Vehicle         string   `json:"vehicle"`
+	Transmission    string   `json:"transmission"`
+	FuelPolicy      string   `json:"fuel_policy"`
+	Mileage         string   `json:"mileage"`
+	ExcessAmount    *float64 `json:"excess_amount"`
+	ExcessCurrency  string   `json:"excess_currency"`
+	DepositAmount   *float64 `json:"deposit_amount"`
+	DepositCurrency string   `json:"deposit_currency"`
 }
 
 type createPlanReq struct {
@@ -194,6 +211,11 @@ type updatePlanPartReq struct {
 	Ground    *groundEditReq    `json:"ground,omitempty"`
 	Dining    *diningEditReq    `json:"dining,omitempty"`
 	Excursion *excursionEditReq `json:"excursion,omitempty"`
+
+	// VehicleHire carries an edit to the self-drive rental satellite, applied
+	// only to a part of the matching type. A nil field within it leaves that
+	// column unchanged.
+	VehicleHire *vehicleHireEditReq `json:"vehicle_hire,omitempty"`
 }
 
 // iceCreamEditReq is the editable subset of an ice-cream stop. A nil field
@@ -244,6 +266,21 @@ type excursionEditReq struct {
 	TicketCount *int    `json:"ticket_count,omitempty"`
 }
 
+// vehicleHireEditReq is the editable subset of a vehicle-hire satellite. A nil
+// field leaves that column unchanged; ExcessAmount/DepositAmount can be set or
+// corrected but not cleared back to NULL, mirroring UpdateVehicleHireDetail.
+type vehicleHireEditReq struct {
+	Category        *string  `json:"category,omitempty"`
+	Vehicle         *string  `json:"vehicle,omitempty"`
+	Transmission    *string  `json:"transmission,omitempty"`
+	FuelPolicy      *string  `json:"fuel_policy,omitempty"`
+	Mileage         *string  `json:"mileage,omitempty"`
+	ExcessAmount    *float64 `json:"excess_amount,omitempty"`
+	ExcessCurrency  *string  `json:"excess_currency,omitempty"`
+	DepositAmount   *float64 `json:"deposit_amount,omitempty"`
+	DepositCurrency *string  `json:"deposit_currency,omitempty"`
+}
+
 // flightEditReq is the editable subset of a flight's route. A nil field leaves
 // it unchanged. The ident is the flight's identity (changing it re-resolves);
 // the IATAs are the manual route, applied only when the flight is unresolved.
@@ -268,7 +305,7 @@ type planUserIDReq struct {
 var validPlanTypes = map[string]bool{
 	"flight": true, "train": true, "hotel": true,
 	"ground": true, "dining": true, "excursion": true, "ice_cream": true,
-	"meeting": true, "event": true,
+	"meeting": true, "event": true, "vehicle_hire": true,
 }
 
 func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
@@ -786,6 +823,26 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A vehicle-hire detail edit, guarded to a vehicle_hire part so a stray
+	// vehicle_hire block posted against another part type (e.g. hotel) is
+	// silently ignored rather than written to the wrong satellite.
+	if in.VehicleHire != nil && part.Type == "vehicle_hire" {
+		up := store.VehicleHireDetailUpdate{
+			Category:        in.VehicleHire.Category,
+			Vehicle:         in.VehicleHire.Vehicle,
+			Transmission:    in.VehicleHire.Transmission,
+			FuelPolicy:      in.VehicleHire.FuelPolicy,
+			Mileage:         in.VehicleHire.Mileage,
+			ExcessAmount:    in.VehicleHire.ExcessAmount,
+			ExcessCurrency:  in.VehicleHire.ExcessCurrency,
+			DepositAmount:   in.VehicleHire.DepositAmount,
+			DepositCurrency: in.VehicleHire.DepositCurrency,
+		}
+		if err := a.Store.UpdateVehicleHireDetail(r.Context(), id, up); err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+	}
 	// The remaining per-type detail edits. Each is applied only to a part of the
 	// matching type (a hotel edit on a dining part is ignored), and the store
 	// upserts so a part predating its satellite still takes the edit. partDTO
@@ -1095,6 +1152,20 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 				URL:       p.Event.URL,
 			}
 		}
+	case "vehicle_hire":
+		if p.VehicleHire != nil {
+			out.VehicleHire = &store.VehicleHireDetail{
+				Category:        p.VehicleHire.Category,
+				Vehicle:         p.VehicleHire.Vehicle,
+				Transmission:    p.VehicleHire.Transmission,
+				FuelPolicy:      p.VehicleHire.FuelPolicy,
+				Mileage:         p.VehicleHire.Mileage,
+				ExcessAmount:    p.VehicleHire.ExcessAmount,
+				ExcessCurrency:  p.VehicleHire.ExcessCurrency,
+				DepositAmount:   p.VehicleHire.DepositAmount,
+				DepositCurrency: p.VehicleHire.DepositCurrency,
+			}
+		}
 	}
 	return out
 }
@@ -1305,16 +1376,17 @@ func (a *API) partDTOWithFlights(ctx context.Context, p *store.PlanPart, tripFli
 // polyline. latest/track are ignored for non-flight parts.
 func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripFlights []*store.PlanPart, latest *store.Position, track []*store.Position) (api.PlanPartDTO, error) {
 	var (
-		flight    *store.FlightDetail
-		hotel     *store.HotelDetail
-		train     *store.TrainDetail
-		ground    *store.GroundDetail
-		dining    *store.DiningDetail
-		excursion *store.ExcursionDetail
-		iceCream  *store.IceCreamDetail
-		meeting   *store.MeetingDetail
-		event     *store.EventDetail
-		err       error
+		flight      *store.FlightDetail
+		hotel       *store.HotelDetail
+		train       *store.TrainDetail
+		ground      *store.GroundDetail
+		dining      *store.DiningDetail
+		excursion   *store.ExcursionDetail
+		iceCream    *store.IceCreamDetail
+		meeting     *store.MeetingDetail
+		event       *store.EventDetail
+		vehicleHire *store.VehicleHireDetail
+		err         error
 	)
 	switch p.Type {
 	case "flight":
@@ -1335,11 +1407,13 @@ func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripF
 		meeting, err = a.Store.MeetingDetailFor(ctx, p.ID)
 	case "event":
 		event, err = a.Store.EventDetailFor(ctx, p.ID)
+	case "vehicle_hire":
+		vehicleHire, err = a.Store.VehicleHireDetailFor(ctx, p.ID)
 	}
 	if err != nil {
 		return api.PlanPartDTO{}, err
 	}
-	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, iceCream, meeting, event, nil, latest, track)
+	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, iceCream, meeting, event, vehicleHire, latest, track)
 	if p.Type == "hotel" && dto.Hotel != nil {
 		applyHotelSmartTimes(p, hotel, tripFlights, dto.Hotel)
 		// Order the timeline/map by the smart check-in (after the inbound
