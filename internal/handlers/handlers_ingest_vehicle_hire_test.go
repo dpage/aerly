@@ -11,13 +11,21 @@ import (
 )
 
 // TestIngestProposeAndConfirm_VehicleHire is the end-to-end regression guard
-// for the confirm-hop data-loss bug: ingestTripConfirm built its
-// planops.ConfirmPartInput via an explicit field-by-field copy that omitted
-// VehicleHire, so a proposed hire's satellite never reached planops.Commit
-// even though propose.go and commit.go carried it correctly. This exercises
-// the real HTTP propose -> confirm round trip and reads the created plan back
-// from the store (via a.planDTO, not just an echo of the request body), so a
-// passing test proves the vehicle_hire_details row was actually persisted.
+// for two data-loss bugs on the LLM/text ingest path:
+//  1. toProposedPlanDTO (the propose-preview projection) called
+//     api.ToPlanPartDTO with the vehicleHire positional argument hardcoded to
+//     nil instead of part.VehicleHire, so the review screen the user sees
+//     before confirming showed a hire with no details.
+//  2. ingestTripConfirm's toConfirmPlanInput built its planops.ConfirmPartInput
+//     via an explicit field-by-field copy that omitted VehicleHire, so a
+//     confirmed hire's satellite never reached planops.Commit even though
+//     propose.go and commit.go carried it correctly.
+//
+// This exercises the real HTTP propose -> confirm round trip, asserting the
+// satellite on the propose response (bug 1) and then reading the created
+// plan back from the store via a.planDTO (bug 2), not just an echo of the
+// request body, so a passing test proves the value actually arrives at both
+// hops rather than merely that the code compiles.
 func TestIngestProposeAndConfirm_VehicleHire(t *testing.T) {
 	e := setup(t, nil, nil)
 	e.api.Extractor = &fakeIngestExtractor{plans: []planops.ExtractedPlan{{
@@ -40,11 +48,12 @@ func TestIngestProposeAndConfirm_VehicleHire(t *testing.T) {
 	if len(res.Proposals) != 1 || res.Proposals[0].Type != "vehicle_hire" {
 		t.Fatalf("proposals = %+v", res.Proposals)
 	}
-	// NB: the propose-preview DTO (toProposedPlanDTO in handlers_ingest.go)
-	// hardcodes the vehicleHire argument to ToPlanPartDTO as nil rather than
-	// part.VehicleHire, so it does not carry the satellite either. That is a
-	// separate, pre-existing gap from the confirm-hop bug this test guards,
-	// out of this fix's authorised scope; not asserted on here.
+	if len(res.Proposals[0].Parts) != 1 || res.Proposals[0].Parts[0].VehicleHire == nil {
+		t.Fatalf("proposed vehicle_hire part missing satellite (the propose-preview drop this test guards against): %+v", res.Proposals[0].Parts)
+	}
+	if got := res.Proposals[0].Parts[0].VehicleHire.Category; got != "Standard SUV, distinctive-marker-7f3a" {
+		t.Fatalf("proposed category = %q, want the distinctive marker to appear in the review screen", got)
+	}
 
 	// Confirm it, exactly as the FE would after the user reviews the proposal.
 	pickup := time.Date(2026, 9, 9, 15, 30, 0, 0, time.UTC)

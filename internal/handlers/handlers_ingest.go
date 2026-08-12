@@ -268,7 +268,7 @@ func icalProposalDTO(in planops.ConfirmPlanInput) api.ProposedPlanDTO {
 			Status:       part.Status,
 		}
 		dto.Parts = append(dto.Parts, api.ToPlanPartDTO(sp,
-			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, part.Meeting, part.Event, nil, nil, nil))
+			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, part.Meeting, part.Event, part.VehicleHire, nil, nil))
 	}
 	return dto
 }
@@ -413,7 +413,7 @@ func toProposedPlanDTO(p planops.ProposedPlan) api.ProposedPlanDTO {
 			Status:       part.Status,
 		}
 		dto.Parts = append(dto.Parts, api.ToPlanPartDTO(sp,
-			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, part.Meeting, part.Event, nil, nil, nil))
+			part.Flight, part.Hotel, part.Train, part.Ground, part.Dining, part.Excursion, nil, part.Meeting, part.Event, part.VehicleHire, nil, nil))
 	}
 	return dto
 }

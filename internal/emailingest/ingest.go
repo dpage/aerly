@@ -723,6 +723,8 @@ func toConfirmInput(p planops.ProposedPlan) planops.ConfirmPlanInput {
 			Ground:       part.Ground,
 			Dining:       part.Dining,
 			Excursion:    part.Excursion,
+			Meeting:      part.Meeting,
+			Event:        part.Event,
 			VehicleHire:  part.VehicleHire,
 		})
 	}
