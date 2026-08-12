@@ -89,6 +89,15 @@ func bandUIDSuffix(planType string, last bool) string {
 // render as two entries. Each instant is resolved in its own zone, since a
 // booking can close somewhere other than where it opened: a car collected in
 // Geneva and dropped in Lyon is still one hire.
+//
+// This date-only comparison replaced the itinerary's older
+// "end.After(start) && !sameDay(start, end)" guard when the two renderers were
+// unified. The two predicates are not equivalent in general: they are
+// identical whenever the effective end zone equals the start zone, which
+// covers every hotel (hence the golden tests staying byte-for-byte), and they
+// can differ only when the two ends sit in different zones whose offset gap
+// exceeds the booking's elapsed time, reversing the ordering of their local
+// dates.
 func bandsToLaterDay(startsAt time.Time, startTZ string, endsAt time.Time, endTZ string) bool {
 	return localDate(endsAt, endTZ).After(localDate(startsAt, startTZ))
 }
