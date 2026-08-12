@@ -580,3 +580,81 @@ func pdfTextRuns(pdf string) []string {
 	}
 	return out
 }
+
+// A multi-day vehicle hire splits into a pickup row on its first day and a
+// return row on its last, the same rule a multi-night hotel follows, but
+// labelled for a hire.
+func TestRenderItineraryPDFVehicleHireBands(t *testing.T) {
+	pickup := mustTime(t, "2026-09-09T08:00:00Z")  // 09:00 BST, Wed 9 Sep
+	dropoff := mustTime(t, "2026-09-11T09:00:00Z") // 10:00 BST, Fri 11 Sep
+	trip := &store.Trip{Name: "Test Trip"}
+	plans := []api.PlanDTO{{
+		Type: "vehicle_hire", Title: "Test Car Hire", ConfirmationRef: "TESTREF2",
+		Parts: []api.PlanPartDTO{{
+			StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London",
+			StartLabel: "Testport Terminal 1", EndLabel: "Testville Central",
+		}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
+
+	for _, want := range []string{
+		`\(Pickup\)`,
+		`\(Return\)`,
+		"Pickup: Wed 9 Sep, 09:00",
+		"Return: Fri 11 Sep, 10:00",
+		"Wednesday, 9 September 2026",
+		"Friday, 11 September 2026",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("banded hire PDF missing %q:\n%s", want, s)
+		}
+	}
+	// As with a hotel, the booking reference belongs to the first row only; the
+	// return row is just a "when to bring it back" reminder.
+	if got := strings.Count(s, "Confirmation: TESTREF2"); got != 1 {
+		t.Errorf("confirmation should appear once (on the pickup row), got %d", got)
+	}
+}
+
+// A hire picked up and returned on the same day is not a band: one row, with
+// the usual span line.
+func TestRenderItineraryPDFVehicleHireSameDay(t *testing.T) {
+	pickup := mustTime(t, "2026-09-09T08:00:00Z")
+	dropoff := mustTime(t, "2026-09-09T16:00:00Z")
+	trip := &store.Trip{Name: "Test Trip"}
+	plans := []api.PlanDTO{{
+		Type: "vehicle_hire", Title: "Test Day Hire",
+		Parts: []api.PlanPartDTO{{StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London"}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
+	if strings.Contains(s, "Pickup)") || strings.Contains(s, "Return)") {
+		t.Errorf("a same-day hire should not split into pickup/return rows:\n%s", s)
+	}
+	if !strings.Contains(s, "Wed 9 Sep, 09:00 - 17:00") {
+		t.Errorf("a same-day hire should show its full span:\n%s", s)
+	}
+}
+
+// Banding is opt-in by type: an overnight journey ends on a later local day but
+// must still render as a single row, never split into two.
+func TestRenderItineraryPDFOvernightJourneyNeverBands(t *testing.T) {
+	depart := mustTime(t, "2026-09-09T21:00:00Z")
+	arrive := mustTime(t, "2026-09-10T05:30:00Z")
+	for _, typ := range []string{"flight", "train", "ground"} {
+		trip := &store.Trip{Name: "Test Trip"}
+		plans := []api.PlanDTO{{
+			Type: typ, Title: "Overnight",
+			Parts: []api.PlanPartDTO{{
+				StartsAt: depart, EndsAt: &arrive, StartTZ: "Europe/London",
+				StartLabel: "Testville", EndLabel: "Testburg",
+			}},
+		}}
+		s := string(renderItineraryPDF(trip, plans, nil, "a4"))
+		if got := strings.Count(s, ": Overnight)"); got != 1 {
+			t.Errorf("%s: an overnight journey must render as one row, got %d:\n%s", typ, got, s)
+		}
+		if strings.Count(s, "September 2026") != 1 {
+			t.Errorf("%s: an overnight journey must not open a second day header:\n%s", typ, s)
+		}
+	}
+}

@@ -92,12 +92,12 @@ func renderICS(calName string, events []*store.CalendarEvent, tripBands bool) st
 	}
 
 	for _, e := range events {
-		// A multi-night hotel stay renders as two point events — a check-in on the
-		// first day and a check-out on the last — exactly like the UI timeline,
-		// rather than one banner spanning every night (issue #101).
-		if isHotelBand(e) {
-			writeHotelCheckIn(&b, e)
-			writeHotelCheckOut(&b, e)
+		// A banded booking (a multi-night stay, a multi-day hire) renders as two
+		// point events, one at each end, exactly like the UI timeline, rather than
+		// one banner spanning every night (issue #101). See banding.go.
+		if isBandedEvent(e) {
+			writeBandFirst(&b, e)
+			writeBandLast(&b, e)
 			continue
 		}
 		writeVEvent(&b, e)
@@ -306,16 +306,18 @@ func writeVEvent(b *strings.Builder, e *store.CalendarEvent) {
 	writeLine(b, "END:VEVENT")
 }
 
-// writeHotelCheckIn / writeHotelCheckOut split a multi-night hotel stay into its
-// two point events. Each is a single-instant VEVENT (DTSTART only) at the
-// booked check-in / check-out time, matching the UI's two timeline tiles
-// instead of one all-night banner (issue #101).
-func writeHotelCheckIn(b *strings.Builder, e *store.CalendarEvent) {
+// writeBandFirst / writeBandLast split a banded booking into its two point
+// events. Each is a single-instant VEVENT (DTSTART only) at the booked opening
+// or closing time, matching the UI's two timeline tiles instead of one
+// all-night banner (issue #101). The label and the UID suffix both come from
+// banding.go, so a hotel keeps its historic checkin/checkout UIDs whilst a
+// vehicle hire gets pickup/return.
+func writeBandFirst(b *strings.Builder, e *store.CalendarEvent) {
 	writeLine(b, "BEGIN:VEVENT")
-	writeLine(b, fmt.Sprintf("UID:plan-part-%d-checkin@aerly", e.PartID))
+	writeLine(b, fmt.Sprintf("UID:plan-part-%d-%s@aerly", e.PartID, bandUIDSuffix(e.Type, false)))
 	writeStamp(b, e)
 	writeLine(b, dtLine("DTSTART", e.StartsAt, e.StartTZ))
-	writeLine(b, "SUMMARY:"+escapeText(hotelEdgeSummary(e, "Check-in")))
+	writeLine(b, "SUMMARY:"+escapeText(bandEdgeSummary(e, bandEdgeLabel(e.Type, false))))
 	if e.StartLabel != "" {
 		writeLine(b, "LOCATION:"+escapeText(e.StartLabel))
 	}
@@ -326,7 +328,7 @@ func writeHotelCheckIn(b *strings.Builder, e *store.CalendarEvent) {
 	writeLine(b, "END:VEVENT")
 }
 
-func writeHotelCheckOut(b *strings.Builder, e *store.CalendarEvent) {
+func writeBandLast(b *strings.Builder, e *store.CalendarEvent) {
 	endTZ := e.EndTZ
 	if endTZ == "" {
 		endTZ = e.StartTZ
@@ -336,10 +338,10 @@ func writeHotelCheckOut(b *strings.Builder, e *store.CalendarEvent) {
 		loc = e.StartLabel
 	}
 	writeLine(b, "BEGIN:VEVENT")
-	writeLine(b, fmt.Sprintf("UID:plan-part-%d-checkout@aerly", e.PartID))
+	writeLine(b, fmt.Sprintf("UID:plan-part-%d-%s@aerly", e.PartID, bandUIDSuffix(e.Type, true)))
 	writeStamp(b, e)
 	writeLine(b, dtLine("DTSTART", *e.EndsAt, endTZ))
-	writeLine(b, "SUMMARY:"+escapeText(hotelEdgeSummary(e, "Check-out")))
+	writeLine(b, "SUMMARY:"+escapeText(bandEdgeSummary(e, bandEdgeLabel(e.Type, true))))
 	if loc != "" {
 		writeLine(b, "LOCATION:"+escapeText(loc))
 	}
@@ -394,9 +396,9 @@ func writeStatus(b *strings.Builder, e *store.CalendarEvent) {
 	}
 }
 
-// hotelEdgeSummary labels a hotel check-in/check-out event, e.g.
-// "Hilton Zürich (Check-in)", falling back to the bare edge when untitled.
-func hotelEdgeSummary(e *store.CalendarEvent, edge string) string {
+// bandEdgeSummary labels one edge of a banded booking, e.g. "Hilton Zürich
+// (Check-in)" or "Hertz (Pickup)", falling back to the bare edge when untitled.
+func bandEdgeSummary(e *store.CalendarEvent, edge string) string {
 	title := strings.TrimSpace(e.Title)
 	if title == "" {
 		return edge
@@ -404,19 +406,20 @@ func hotelEdgeSummary(e *store.CalendarEvent, edge string) string {
 	return fmt.Sprintf("%s (%s)", title, edge)
 }
 
-// isHotelBand reports whether an event is a multi-night hotel stay that should
-// split into separate check-in / check-out events: a hotel whose end falls on a
-// later local calendar day than its start. Mirrors the frontend isHotelBand
-// (web/src/lib/trip-format.ts) so the feed and the UI timeline agree.
-func isHotelBand(e *store.CalendarEvent) bool {
-	if e.Type != "hotel" || e.EndsAt == nil {
+// isBandedEvent reports whether an event should split into two point events
+// rather than render as one spanning banner: a booking of a banding type (see
+// banding.go) whose end falls on a later local calendar day than its start.
+// Mirrors the frontend rule in web/src/lib/trip-format.ts so the feed and the
+// UI timeline agree.
+func isBandedEvent(e *store.CalendarEvent) bool {
+	if _, ok := bandLabelsFor(e.Type); !ok || e.EndsAt == nil {
 		return false
 	}
 	endTZ := e.EndTZ
 	if endTZ == "" {
 		endTZ = e.StartTZ
 	}
-	return localDate(*e.EndsAt, endTZ).After(localDate(e.StartsAt, e.StartTZ))
+	return bandsToLaterDay(e.StartsAt, e.StartTZ, *e.EndsAt, endTZ)
 }
 
 // tripBand is one all-day trip banner: its id, name, inclusive local date span,

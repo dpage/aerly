@@ -368,3 +368,99 @@ func vEventBlocks(ics string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// TestICSVehicleHireBandsIntoPickupAndReturn: a multi-day vehicle hire splits
+// into two point events, exactly as a multi-night hotel does, but labelled for
+// a hire and carrying its own UID suffixes.
+func TestICSVehicleHireBandsIntoPickupAndReturn(t *testing.T) {
+	ret := time.Date(2026, 9, 11, 8, 0, 0, 0, time.UTC) // 10:00 CEST
+	events := []*store.CalendarEvent{{
+		PartID:     55,
+		PlanID:     8,
+		Type:       "vehicle_hire",
+		Title:      "Test Car Hire",
+		StartsAt:   time.Date(2026, 9, 9, 7, 0, 0, 0, time.UTC), // 09:00 CEST pickup
+		EndsAt:     &ret,
+		StartTZ:    "Europe/Zurich",
+		EndTZ:      "Europe/Zurich",
+		StartLabel: "Zurich Airport",
+		EndLabel:   "Zurich Hauptbahnhof",
+		Status:     "confirmed",
+		UpdatedAt:  time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+	}}
+	out := renderICS("Aerly", events, false)
+
+	for _, want := range []string{
+		"UID:plan-part-55-pickup@aerly",
+		"UID:plan-part-55-return@aerly",
+		"SUMMARY:Test Car Hire (Pickup)",
+		"SUMMARY:Test Car Hire (Return)",
+		"DTSTART;TZID=Europe/Zurich:20260909T090000",
+		"DTSTART;TZID=Europe/Zurich:20260911T100000",
+		// The return event locates at the drop-off, not the pickup desk.
+		"LOCATION:Zurich Hauptbahnhof",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("banded hire ICS missing %q\n---\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "UID:plan-part-55@aerly") {
+		t.Errorf("a multi-day hire should not also render as one spanning event:\n%s", out)
+	}
+	if strings.Contains(out, "DTEND;TZID=Europe/Zurich:20260911") {
+		t.Errorf("a banded hire must not keep a spanning DTEND:\n%s", out)
+	}
+}
+
+// TestICSSameDayVehicleHireDoesNotBand: a hire picked up and returned on the
+// same local day is one event with a DTEND, not two.
+func TestICSSameDayVehicleHireDoesNotBand(t *testing.T) {
+	ret := time.Date(2026, 9, 9, 15, 0, 0, 0, time.UTC) // 17:00 CEST
+	events := []*store.CalendarEvent{{
+		PartID:    55,
+		Type:      "vehicle_hire",
+		Title:     "Test Day Hire",
+		StartsAt:  time.Date(2026, 9, 9, 7, 0, 0, 0, time.UTC), // 09:00 CEST
+		EndsAt:    &ret,
+		StartTZ:   "Europe/Zurich",
+		EndTZ:     "Europe/Zurich",
+		UpdatedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+	}}
+	out := renderICS("Aerly", events, false)
+	if !strings.Contains(out, "UID:plan-part-55@aerly") {
+		t.Errorf("a same-day hire should render as a single event:\n%s", out)
+	}
+	if strings.Contains(out, "pickup@aerly") || strings.Contains(out, "return@aerly") {
+		t.Errorf("a same-day hire should not split:\n%s", out)
+	}
+	if !strings.Contains(out, "DTEND;TZID=Europe/Zurich:20260909T170000") {
+		t.Errorf("a same-day hire should keep its span:\n%s", out)
+	}
+}
+
+// TestICSOvernightJourneysNeverBand: banding is opt-in by type. A red-eye
+// flight and an overnight train both end on a later local day, and both must
+// still render as one event, or every such journey would split into a
+// departure tile and an arrival tile.
+func TestICSOvernightJourneysNeverBand(t *testing.T) {
+	for _, typ := range []string{"flight", "train", "ground", "ferry"} {
+		arrive := time.Date(2026, 9, 10, 5, 30, 0, 0, time.UTC)
+		events := []*store.CalendarEvent{{
+			PartID:    61,
+			Type:      typ,
+			Title:     "Overnight",
+			StartsAt:  time.Date(2026, 9, 9, 21, 0, 0, 0, time.UTC),
+			EndsAt:    &arrive,
+			StartTZ:   "Europe/London",
+			EndTZ:     "Europe/London",
+			UpdatedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		}}
+		out := renderICS("Aerly", events, false)
+		if !strings.Contains(out, "UID:plan-part-61@aerly") {
+			t.Errorf("%s: an overnight journey must render as a single event:\n%s", typ, out)
+		}
+		if strings.Count(out, "BEGIN:VEVENT") != 1 {
+			t.Errorf("%s: an overnight journey must not band into two events:\n%s", typ, out)
+		}
+	}
+}
