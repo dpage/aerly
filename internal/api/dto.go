@@ -632,35 +632,36 @@ type PlanVisibilityDTO struct {
 // is populated, selected by Type. effective_at = COALESCE(actual, estimated,
 // scheduled) so the front end sorts every type uniformly.
 type PlanPartDTO struct {
-	ID           int64               `json:"id"`
-	PlanID       int64               `json:"plan_id"`
-	Type         string              `json:"type"`
-	Seq          int                 `json:"seq"`
-	StartsAt     time.Time           `json:"starts_at"`
-	EndsAt       *time.Time          `json:"ends_at,omitempty"`
-	StartTZ      string              `json:"start_tz"`
-	EndTZ        string              `json:"end_tz"`
-	StartLabel   string              `json:"start_label"`
-	StartLat     *float64            `json:"start_lat,omitempty"`
-	StartLon     *float64            `json:"start_lon,omitempty"`
-	StartAddress string              `json:"start_address"`
-	EndLabel     string              `json:"end_label"`
-	EndLat       *float64            `json:"end_lat,omitempty"`
-	EndLon       *float64            `json:"end_lon,omitempty"`
-	EndAddress   string              `json:"end_address"`
-	Status       string              `json:"status"`
-	EffectiveAt  time.Time           `json:"effective_at"`
-	SupersedesID *int64              `json:"supersedes_id,omitempty"`
-	DismissedAt  *time.Time          `json:"dismissed_at,omitempty"`
-	Flight       *FlightDetailDTO    `json:"flight,omitempty"`
-	Hotel        *HotelDetailDTO     `json:"hotel,omitempty"`
-	Train        *TrainDetailDTO     `json:"train,omitempty"`
-	Ground       *GroundDetailDTO    `json:"ground,omitempty"`
-	Dining       *DiningDetailDTO    `json:"dining,omitempty"`
-	Excursion    *ExcursionDetailDTO `json:"excursion,omitempty"`
-	IceCream     *IceCreamDetailDTO  `json:"ice_cream,omitempty"`
-	Meeting      *MeetingDetailDTO   `json:"meeting,omitempty"`
-	Event        *EventDetailDTO     `json:"event,omitempty"`
+	ID           int64                 `json:"id"`
+	PlanID       int64                 `json:"plan_id"`
+	Type         string                `json:"type"`
+	Seq          int                   `json:"seq"`
+	StartsAt     time.Time             `json:"starts_at"`
+	EndsAt       *time.Time            `json:"ends_at,omitempty"`
+	StartTZ      string                `json:"start_tz"`
+	EndTZ        string                `json:"end_tz"`
+	StartLabel   string                `json:"start_label"`
+	StartLat     *float64              `json:"start_lat,omitempty"`
+	StartLon     *float64              `json:"start_lon,omitempty"`
+	StartAddress string                `json:"start_address"`
+	EndLabel     string                `json:"end_label"`
+	EndLat       *float64              `json:"end_lat,omitempty"`
+	EndLon       *float64              `json:"end_lon,omitempty"`
+	EndAddress   string                `json:"end_address"`
+	Status       string                `json:"status"`
+	EffectiveAt  time.Time             `json:"effective_at"`
+	SupersedesID *int64                `json:"supersedes_id,omitempty"`
+	DismissedAt  *time.Time            `json:"dismissed_at,omitempty"`
+	Flight       *FlightDetailDTO      `json:"flight,omitempty"`
+	Hotel        *HotelDetailDTO       `json:"hotel,omitempty"`
+	Train        *TrainDetailDTO       `json:"train,omitempty"`
+	Ground       *GroundDetailDTO      `json:"ground,omitempty"`
+	Dining       *DiningDetailDTO      `json:"dining,omitempty"`
+	Excursion    *ExcursionDetailDTO   `json:"excursion,omitempty"`
+	IceCream     *IceCreamDetailDTO    `json:"ice_cream,omitempty"`
+	Meeting      *MeetingDetailDTO     `json:"meeting,omitempty"`
+	Event        *EventDetailDTO       `json:"event,omitempty"`
+	VehicleHire  *VehicleHireDetailDTO `json:"vehicle_hire,omitempty"`
 	// Title is the owning plan's title (the user-facing name of the booking,
 	// e.g. an ice cream parlour's name), copied onto the part so the map marker
 	// and list can show it. '' when unknown (e.g. ingest preview parts).
@@ -783,6 +784,21 @@ type EventDetailDTO struct {
 	URL       string `json:"url"`
 }
 
+// VehicleHireDetailDTO is the vehicle-hire satellite payload. ExcessAmount and
+// DepositAmount stay pointers on the wire, mirroring store.VehicleHireDetail,
+// so "not stated" (nil) stays distinct from a genuine zero excess/deposit.
+type VehicleHireDetailDTO struct {
+	Category        string   `json:"category"`
+	Vehicle         string   `json:"vehicle"`
+	Transmission    string   `json:"transmission"`
+	FuelPolicy      string   `json:"fuel_policy"`
+	Mileage         string   `json:"mileage"`
+	ExcessAmount    *float64 `json:"excess_amount,omitempty"`
+	ExcessCurrency  string   `json:"excess_currency,omitempty"`
+	DepositAmount   *float64 `json:"deposit_amount,omitempty"`
+	DepositCurrency string   `json:"deposit_currency,omitempty"`
+}
+
 // TrackerPartDTO is the convergence-view payload: a labelled trackable part
 // with its latest position, flattened across plans/trips.
 type TrackerPartDTO struct {
@@ -898,6 +914,7 @@ func ToPlanPartDTO(
 	iceCream *store.IceCreamDetail,
 	meeting *store.MeetingDetail,
 	event *store.EventDetail,
+	vehicleHire *store.VehicleHireDetail,
 	latest *store.Position,
 	track []*store.Position,
 ) PlanPartDTO {
@@ -955,6 +972,8 @@ func ToPlanPartDTO(
 		dto.Meeting = ToMeetingDetailDTO(meeting)
 	case event != nil:
 		dto.Event = ToEventDetailDTO(event)
+	case vehicleHire != nil:
+		dto.VehicleHire = ToVehicleHireDetailDTO(vehicleHire)
 	}
 	dto.StartTZ = startTZ
 	dto.EndTZ = endTZ
@@ -1080,6 +1099,23 @@ func ToEventDetailDTO(d *store.EventDetail) *EventDetailDTO {
 		Category:  d.Category,
 		VenueArea: d.VenueArea,
 		URL:       d.URL,
+	}
+}
+
+// ToVehicleHireDetailDTO projects a vehicle-hire satellite. ExcessAmount and
+// DepositAmount are passed through as-is (still *float64) so a nil stays nil
+// on the wire rather than collapsing to a genuine zero.
+func ToVehicleHireDetailDTO(d *store.VehicleHireDetail) *VehicleHireDetailDTO {
+	return &VehicleHireDetailDTO{
+		Category:        d.Category,
+		Vehicle:         d.Vehicle,
+		Transmission:    d.Transmission,
+		FuelPolicy:      d.FuelPolicy,
+		Mileage:         d.Mileage,
+		ExcessAmount:    d.ExcessAmount,
+		ExcessCurrency:  d.ExcessCurrency,
+		DepositAmount:   d.DepositAmount,
+		DepositCurrency: d.DepositCurrency,
 	}
 }
 

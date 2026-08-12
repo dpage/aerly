@@ -1339,7 +1339,7 @@ func (a *API) partDTOWithPositions(ctx context.Context, p *store.PlanPart, tripF
 	if err != nil {
 		return api.PlanPartDTO{}, err
 	}
-	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, iceCream, meeting, event, latest, track)
+	dto := api.ToPlanPartDTO(p, flight, hotel, train, ground, dining, excursion, iceCream, meeting, event, nil, latest, track)
 	if p.Type == "hotel" && dto.Hotel != nil {
 		applyHotelSmartTimes(p, hotel, tripFlights, dto.Hotel)
 		// Order the timeline/map by the smart check-in (after the inbound
