@@ -23,6 +23,8 @@ export default function PlanTypeIcon({ type, ...props }: { type: PlanType } & Sv
       return <HotelIcon {...props} />;
     case 'ground':
       return <DirectionsCarIcon {...props} />;
+    case 'vehicle_hire':
+      return <DirectionsCarIcon {...props} />;
     case 'dining':
       return <RestaurantIcon {...props} />;
     case 'excursion':

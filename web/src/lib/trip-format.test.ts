@@ -440,6 +440,9 @@ describe('planTypeLabel', () => {
     expect(planTypeLabel('meeting')).toBe('Meeting');
     expect(planTypeLabel('event')).toBe('Event');
   });
+  it('labels vehicle_hire as Car hire, matching the PDF and calendar labels', () => {
+    expect(planTypeLabel('vehicle_hire')).toBe('Car hire');
+  });
   it('falls back to the raw type for an unknown value', () => {
     expect(planTypeLabel('mystery' as unknown as Parameters<typeof planTypeLabel>[0])).toBe(
       'mystery',

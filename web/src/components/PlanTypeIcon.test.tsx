@@ -9,6 +9,7 @@ const TYPES: PlanType[] = [
   'train',
   'hotel',
   'ground',
+  'vehicle_hire',
   'dining',
   'excursion',
   'ice_cream',

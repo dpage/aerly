@@ -8,6 +8,7 @@ const TYPES: PlanType[] = [
   'train',
   'hotel',
   'ground',
+  'vehicle_hire',
   'dining',
   'excursion',
   'ice_cream',
@@ -22,6 +23,11 @@ describe('planTypeColor', () => {
 
   it('returns the fallback grey for an unknown type', () => {
     expect(planTypeColor('mystery' as PlanType)).toBe('#6b7280');
+  });
+
+  it('gives vehicle_hire its own colour, distinct from ground', () => {
+    expect(planTypeColor('vehicle_hire')).toBe('#475569');
+    expect(planTypeColor('vehicle_hire')).not.toBe(planTypeColor('ground'));
   });
 });
 
@@ -70,6 +76,12 @@ describe('buildPinEl', () => {
   it('rings the ice cream scoop with the person colour when given', () => {
     const el = buildPinEl('ice_cream', 'hsl(200, 70%, 42%)');
     expect(el.outerHTML).toContain('stroke="hsl(200, 70%, 42%)"');
+  });
+
+  it('gives vehicle_hire a glyph distinct from ground (car hire vs. transfer)', () => {
+    const hire = buildPinEl('vehicle_hire').querySelector('g')?.innerHTML;
+    const ground = buildPinEl('ground').querySelector('g')?.innerHTML;
+    expect(hire).not.toBe(ground);
   });
 });
 

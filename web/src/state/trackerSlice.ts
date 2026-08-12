@@ -50,6 +50,7 @@ const KNOWN_TYPES: readonly PlanType[] = [
   'train',
   'hotel',
   'ground',
+  'vehicle_hire',
   'dining',
   'excursion',
   'ice_cream',

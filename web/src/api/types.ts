@@ -282,6 +282,7 @@ export type PlanType =
   | 'train'
   | 'hotel'
   | 'ground'
+  | 'vehicle_hire'
   | 'dining'
   | 'excursion'
   | 'ice_cream'
@@ -447,6 +448,24 @@ export interface GroundDetail {
   pax?: number;
 }
 
+/** Detail for a vehicle hire (car rental) part. `excess_amount`/`deposit_amount`
+ * are absent, not zero, when the source didn't state a figure: a genuine £0
+ * excess and "not stated" are different facts, so this must stay optional
+ * rather than defaulting to 0. */
+export interface VehicleHireDetail {
+  category: string;
+  vehicle: string;
+  transmission: string;
+  fuel_policy: string;
+  mileage: string;
+  excess_amount?: number;
+  /** Absent (not '') when unstated: the Go field carries `omitempty`. */
+  excess_currency?: string;
+  deposit_amount?: number;
+  /** Absent (not '') when unstated: the Go field carries `omitempty`. */
+  deposit_currency?: string;
+}
+
 export interface DiningDetail {
   party_size?: number;
   reservation_name: string;
@@ -520,6 +539,7 @@ export interface PlanPart {
   hotel?: HotelDetail;
   train?: TrainDetail;
   ground?: GroundDetail;
+  vehicle_hire?: VehicleHireDetail;
   dining?: DiningDetail;
   excursion?: ExcursionDetail;
   ice_cream?: IceCreamDetail;
@@ -749,6 +769,7 @@ export interface PlanPartInput {
   hotel?: Partial<HotelDetail>;
   train?: Partial<TrainDetail>;
   ground?: Partial<GroundDetail>;
+  vehicle_hire?: Partial<VehicleHireDetail>;
   dining?: Partial<DiningDetail>;
   excursion?: Partial<ExcursionDetail>;
   ice_cream?: Partial<IceCreamDetail>;
@@ -774,6 +795,7 @@ export interface UpdatePlanPartInput {
   hotel?: Partial<HotelDetail>;
   train?: Partial<TrainDetail>;
   ground?: Partial<GroundDetail>;
+  vehicle_hire?: Partial<VehicleHireDetail>;
   dining?: Partial<DiningDetail>;
   excursion?: Partial<ExcursionDetail>;
   ice_cream?: Partial<IceCreamDetail>;

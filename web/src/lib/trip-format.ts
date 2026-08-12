@@ -429,6 +429,8 @@ export function planTypeLabel(type: PlanType): string {
       return 'Hotel';
     case 'ground':
       return 'Ground transport';
+    case 'vehicle_hire':
+      return 'Car hire';
     case 'dining':
       return 'Dining';
     case 'excursion':

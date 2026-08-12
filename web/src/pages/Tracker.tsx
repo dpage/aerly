@@ -49,6 +49,7 @@ const FILTER_TYPES: PlanType[] = [
   'flight',
   'train',
   'ground',
+  'vehicle_hire',
   'hotel',
   'dining',
   'excursion',
