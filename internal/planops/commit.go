@@ -28,14 +28,15 @@ type ConfirmPartInput struct {
 	EndAddress   string
 	Status       string
 
-	Flight    *store.FlightDetail
-	Hotel     *store.HotelDetail
-	Train     *store.TrainDetail
-	Ground    *store.GroundDetail
-	Dining    *store.DiningDetail
-	Excursion *store.ExcursionDetail
-	Meeting   *store.MeetingDetail
-	Event     *store.EventDetail
+	Flight      *store.FlightDetail
+	Hotel       *store.HotelDetail
+	Train       *store.TrainDetail
+	Ground      *store.GroundDetail
+	Dining      *store.DiningDetail
+	Excursion   *store.ExcursionDetail
+	Meeting     *store.MeetingDetail
+	Event       *store.EventDetail
+	VehicleHire *store.VehicleHireDetail
 }
 
 // ConfirmPlanInput is one confirmed/edited proposal. It mirrors the FE
@@ -156,6 +157,7 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 				Excursion:    p.Excursion,
 				Meeting:      p.Meeting,
 				Event:        p.Event,
+				VehicleHire:  p.VehicleHire,
 			}
 			// Link the new part to the part it supersedes (rebooking). The
 			// supersession is a plan-level field in the contract; it applies to

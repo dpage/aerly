@@ -37,14 +37,15 @@ type ProposedPart struct {
 	EndAddress   string
 	Status       string
 
-	Flight    *store.FlightDetail
-	Hotel     *store.HotelDetail
-	Train     *store.TrainDetail
-	Ground    *store.GroundDetail
-	Dining    *store.DiningDetail
-	Excursion *store.ExcursionDetail
-	Meeting   *store.MeetingDetail
-	Event     *store.EventDetail
+	Flight      *store.FlightDetail
+	Hotel       *store.HotelDetail
+	Train       *store.TrainDetail
+	Ground      *store.GroundDetail
+	Dining      *store.DiningDetail
+	Excursion   *store.ExcursionDetail
+	Meeting     *store.MeetingDetail
+	Event       *store.EventDetail
+	VehicleHire *store.VehicleHireDetail
 
 	// startTimeDefaulted marks a part whose start time-of-day was filled from a
 	// type default rather than stated in the source. The transfer-timing
@@ -315,7 +316,36 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 	case "ground":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 9)
 		out.startTimeDefaulted = part.StartTime == "" && part.StartDate != ""
+		// A transfer can carry its own end instant (a booked drop-off). Keep it,
+		// matching train; without this the extractor's end was silently discarded.
+		if part.EndDate != "" || part.EndTime != "" {
+			d := part.EndDate
+			if d == "" {
+				d = part.StartDate
+			}
+			e := combineLocal(d, part.EndTime, 9)
+			out.EndsAt = &e
+		}
 		out.Ground = &store.GroundDetail{Provider: part.Provider, Vehicle: part.Vehicle}
+	case "vehicle_hire":
+		// A hire desk opening time (09:00) is a better guess than a hotel's
+		// 15:00/11:00 check-in/out defaults when the email omits a time.
+		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 9)
+		if part.EndDate != "" {
+			e := combineLocal(part.EndDate, part.EndTime, 9)
+			out.EndsAt = &e
+		}
+		out.VehicleHire = &store.VehicleHireDetail{
+			Category:        part.HireCategory,
+			Vehicle:         part.HireVehicle,
+			Transmission:    part.HireTransmission,
+			FuelPolicy:      part.HireFuelPolicy,
+			Mileage:         part.HireMileage,
+			ExcessAmount:    part.HireExcessAmount,
+			ExcessCurrency:  part.HireExcessCurrency,
+			DepositAmount:   part.HireDepositAmount,
+			DepositCurrency: part.HireDepositCurrency,
+		}
 	case "dining":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 19)
 		out.Dining = &store.DiningDetail{ReservationName: part.ReservationName}
