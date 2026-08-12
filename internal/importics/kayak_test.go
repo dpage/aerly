@@ -314,6 +314,47 @@ func TestKayakCarHireTwoRentals(t *testing.T) {
 	}
 }
 
+// TestKayakCarHireOverlappingRentalsMatchOnRefFirst: two overlapping hires from
+// the same agency, where the longer one's return omits its confirmation number
+// and the shorter one's carries it. The confident matches must all be made
+// before any relaxed one, or the long hire's relaxed pass seizes the short
+// hire's return and both hires end up with the other's return instant.
+func TestKayakCarHireOverlappingRentalsMatchOnRefFirst(t *testing.T) {
+	cal := parseSynthetic(t,
+		carVEvent("long-pick@example.test", "Car Pickup (Agency: Testcar Hire)",
+			"20260301T090000Z", "20260301T093000Z",
+			`Pickup Address: 1 Test Way\, Exampleton\nConfirmation Number: TEST111`),
+		carVEvent("short-pick@example.test", "Car Pickup (Agency: Testcar Hire)",
+			"20260310T090000Z", "20260310T093000Z",
+			`Pickup Address: 5 Sample Street\, Exampleton\nConfirmation Number: TEST222`),
+		carVEvent("short-drop@example.test", "Car Dropoff (Agency: Testcar Hire)",
+			"20260315T080000Z", "20260315T083000Z",
+			`Dropoff Address: 5 Sample Street\, Exampleton\nConfirmation Number: TEST222`),
+		carVEvent("long-drop@example.test", "Car Dropoff (Agency: Testcar Hire)",
+			"20260321T080000Z", "20260321T083000Z",
+			`Dropoff Address: 1 Test Way\, Exampleton`),
+	)
+
+	plans := syntheticPlans(t, cal)
+	if len(plans) != 2 {
+		t.Fatalf("got %d plans, want 2", len(plans))
+	}
+	byUID := map[string]planops.ConfirmPlanInput{}
+	for _, p := range plans {
+		byUID[p.TripItUID] = p
+	}
+	long, ok := byUID["long-pick@example.test"]
+	if !ok {
+		t.Fatal("long hire missing")
+	}
+	assertInstant(t, "long hire EndsAt", long.Parts[0].EndsAt, "2026-03-21T08:00:00Z")
+	short, ok := byUID["short-pick@example.test"]
+	if !ok {
+		t.Fatal("short hire missing")
+	}
+	assertInstant(t, "short hire EndsAt", short.Parts[0].EndsAt, "2026-03-15T08:00:00Z")
+}
+
 // TestKayakCarHireOtherAgencyNotPaired: a return from a different hire company
 // is never claimed, so the pickup falls back to its own end instant.
 func TestKayakCarHireOtherAgencyNotPaired(t *testing.T) {

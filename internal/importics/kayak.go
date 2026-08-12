@@ -322,10 +322,26 @@ func mapKayakCars(events []Event) []planops.ConfirmPlanInput {
 	sortEventsByStart(pickups)
 	sortEventsByStart(dropoffs)
 
+	// Match in two sweeps across every pickup, not two passes per pickup: each
+	// confident match (agency and confirmation number both agreeing) is settled
+	// before any relaxed one is attempted, so a hire whose return omits the
+	// reference cannot seize a return that plainly belongs to another hire from
+	// the same agency. Sweeping per pickup instead would let an early, long
+	// hire's relaxed match claim a later, shorter hire's return and leave the two
+	// holding each other's return instants.
 	claimed := make([]bool, len(dropoffs))
+	matched := make([]*Event, len(pickups))
+	for _, withRef := range []bool{true, false} {
+		for i, p := range pickups {
+			if matched[i] == nil {
+				matched[i] = matchKayakDropoff(*p, dropoffs, claimed, withRef)
+			}
+		}
+	}
+
 	out := make([]planops.ConfirmPlanInput, 0, len(pickups))
-	for _, p := range pickups {
-		out = append(out, mapKayakCar(*p, matchKayakDropoff(*p, dropoffs, claimed)))
+	for i, p := range pickups {
+		out = append(out, mapKayakCar(*p, matched[i]))
 	}
 	return out
 }
@@ -339,27 +355,27 @@ func sortEventsByStart(events []*Event) {
 }
 
 // matchKayakDropoff returns the return event belonging to a pickup, marking it
-// claimed so a second hire cannot take the same one, or nil when the feed
-// carries no return for this pickup.
+// claimed so a second hire cannot take the same one, or nil when this sweep
+// finds no return for this pickup.
 //
 // A rental is identified by its agency plus its confirmation number, both of
 // which Kayak repeats on the return event, and the match is the earliest
 // unclaimed return at or after the pickup: two hires from the same agency on one
-// trip then pair in order instead of both seizing the first return. The second
-// pass relaxes the match to the agency alone, so a return that omits the
-// confirmation number still pairs with the hire it plainly belongs to.
-func matchKayakDropoff(pickup Event, dropoffs []*Event, claimed []bool) *Event {
-	for _, withRef := range []bool{true, false} {
-		for i, d := range dropoffs {
-			if claimed[i] || d.Start.Time.Before(pickup.Start.Time) {
-				continue
-			}
-			if !kayakCarPairs(pickup, *d, withRef) {
-				continue
-			}
-			claimed[i] = true
-			return d
+// trip then pair in order instead of both seizing the first return. withRef
+// distinguishes the two sweeps mapKayakCars runs: the confident one, requiring
+// the confirmation number to agree as well, and the relaxed one on the agency
+// alone, which pairs a return that omits the reference with the hire it plainly
+// belongs to.
+func matchKayakDropoff(pickup Event, dropoffs []*Event, claimed []bool, withRef bool) *Event {
+	for i, d := range dropoffs {
+		if claimed[i] || d.Start.Time.Before(pickup.Start.Time) {
+			continue
 		}
+		if !kayakCarPairs(pickup, *d, withRef) {
+			continue
+		}
+		claimed[i] = true
+		return d
 	}
 	return nil
 }
