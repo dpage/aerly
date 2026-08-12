@@ -23,6 +23,23 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
   };
 }
 
+/** A vehicle_hire part seeded with a given (possibly partial) hire detail —
+ * the omitted optional money fields default to absent (not zero), matching
+ * how the API only sends them when the source actually stated a figure. */
+function hirePart(hire: Partial<PlanPart['vehicle_hire']> = {}): PlanPart {
+  return part({
+    type: 'vehicle_hire',
+    vehicle_hire: {
+      category: '',
+      vehicle: '',
+      transmission: '',
+      fuel_policy: '',
+      mileage: '',
+      ...hire,
+    },
+  });
+}
+
 describe('PartDetailBlock PlaceSection', () => {
   it('renders From/To labels and addresses for a transfer', () => {
     render(
@@ -310,6 +327,59 @@ describe('PartDetailBlock TypeSection', () => {
     expect(screen.queryByText('Performer')).not.toBeInTheDocument();
     expect(screen.queryByText('Category')).not.toBeInTheDocument();
     expect(screen.queryByText('Link')).not.toBeInTheDocument();
+  });
+
+  it('renders vehicle hire fields, including each money field in its own currency', () => {
+    render(
+      <PartDetailBlock
+        part={hirePart({
+          category: 'Standard SUV',
+          vehicle: 'VW Tiguan or similar',
+          transmission: 'Automatic',
+          fuel_policy: 'Same to same',
+          mileage: 'Unlimited',
+          excess_amount: 1400,
+          excess_currency: 'EUR',
+          deposit_amount: 250,
+          deposit_currency: 'GBP',
+        })}
+      />,
+    );
+    expect(screen.getByText('Car hire')).toBeInTheDocument();
+    expect(screen.getByText('Standard SUV')).toBeInTheDocument();
+    expect(screen.getByText('VW Tiguan or similar')).toBeInTheDocument();
+    expect(screen.getByText('Automatic')).toBeInTheDocument();
+    expect(screen.getByText('Same to same')).toBeInTheDocument();
+    expect(screen.getByText('Unlimited')).toBeInTheDocument();
+    // Each amount is formatted in its OWN currency, not a shared/plan currency.
+    expect(screen.getByText(/€1,?400/)).toBeInTheDocument();
+    expect(screen.getByText(/£250/)).toBeInTheDocument();
+  });
+
+  it('renders a genuine zero excess as £0.00, distinct from an unstated excess', () => {
+    render(
+      <PartDetailBlock
+        part={hirePart({ category: 'Economy', excess_amount: 0, excess_currency: 'GBP' })}
+      />,
+    );
+    expect(screen.getByText('Excess')).toBeInTheDocument();
+    expect(screen.getByText('£0.00')).toBeInTheDocument();
+  });
+
+  it('omits the Excess/Deposit rows entirely when unstated (not "£0")', () => {
+    render(<PartDetailBlock part={hirePart({ category: 'Economy' })} />);
+    expect(screen.getByText('Car hire')).toBeInTheDocument();
+    expect(screen.getByText('Economy')).toBeInTheDocument();
+    expect(screen.queryByText('Excess')).not.toBeInTheDocument();
+    expect(screen.queryByText('Deposit')).not.toBeInTheDocument();
+    expect(screen.queryByText(/£0/)).not.toBeInTheDocument();
+  });
+
+  it('collapses the whole vehicle hire section when every field is empty', () => {
+    render(<PartDetailBlock part={hirePart()} />);
+    expect(screen.queryByText('Car hire')).not.toBeInTheDocument();
+    expect(screen.queryByText('Category')).not.toBeInTheDocument();
+    expect(screen.queryByText('Vehicle')).not.toBeInTheDocument();
   });
 
   it('renders no type section when no detail object is populated', () => {

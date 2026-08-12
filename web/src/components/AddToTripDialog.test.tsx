@@ -263,7 +263,9 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     expect(screen.getByLabelText('Arrives')).toBeInTheDocument();
 
     await userEvent.click(screen.getByLabelText('Type'));
-    await userEvent.click(await screen.findByRole('option', { name: /car|ground|transport/i }));
+    // "ground transport" (not the looser /car|ground|transport/) so it can't
+    // also match the "Car hire" option added alongside vehicle_hire.
+    await userEvent.click(await screen.findByRole('option', { name: /ground transport/i }));
     expect(screen.getByLabelText('From')).toBeInTheDocument();
 
     await userEvent.click(screen.getByLabelText('Type'));
@@ -313,6 +315,62 @@ describe('AddToTripDialog - manual tab field coverage', () => {
     const [, input] = h.state.createPlan.mock.calls[0];
     expect(input.type).toBe('excursion');
     expect(input.parts[0].excursion).toMatchObject({ provider: 'City Tours', ticket_count: 5 });
+  });
+
+  it('builds a vehicle hire plan with category/vehicle/transmission/fuel policy/mileage and excess/deposit detail', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Car hire' }));
+
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Hertz hire');
+    fireEvent.change(screen.getByLabelText(/^Category/), { target: { value: 'Standard SUV' } });
+    fireEvent.change(screen.getByLabelText(/^Vehicle/), {
+      target: { value: 'VW Tiguan or similar' },
+    });
+    fireEvent.change(screen.getByLabelText(/Transmission/), { target: { value: 'Automatic' } });
+    fireEvent.change(screen.getByLabelText(/Fuel policy/), { target: { value: 'Same to same' } });
+    fireEvent.change(screen.getByLabelText(/Mileage/), { target: { value: 'Unlimited' } });
+    fireEvent.change(screen.getByLabelText('Excess (optional)'), { target: { value: '1400' } });
+    fireEvent.change(screen.getByLabelText('Excess currency'), { target: { value: 'eur' } });
+    fireEvent.change(screen.getByLabelText('Deposit (optional)'), { target: { value: '250' } });
+    fireEvent.change(screen.getByLabelText('Deposit currency'), { target: { value: 'gbp' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const [, input] = h.state.createPlan.mock.calls[0];
+    expect(input.type).toBe('vehicle_hire');
+    expect(input.parts[0].vehicle_hire).toMatchObject({
+      category: 'Standard SUV',
+      vehicle: 'VW Tiguan or similar',
+      transmission: 'Automatic',
+      fuel_policy: 'Same to same',
+      mileage: 'Unlimited',
+      excess_amount: 1400,
+      excess_currency: 'EUR',
+      deposit_amount: 250,
+      deposit_currency: 'GBP',
+    });
+  });
+
+  it('leaves excess/deposit absent (not sent as 0) on a vehicle hire plan when never touched', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Car hire' }));
+
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Hertz hire');
+    fireEvent.change(screen.getByLabelText(/^Category/), { target: { value: 'Economy' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const [, input] = h.state.createPlan.mock.calls[0];
+    expect(input.parts[0].vehicle_hire).toMatchObject({ category: 'Economy' });
+    // Never sent as a literal 0 — the amount stays undefined so JSON.stringify
+    // (the real network boundary) drops it, matching the "unstated, not zero"
+    // wire contract.
+    expect(input.parts[0].vehicle_hire?.excess_amount).toBeUndefined();
+    expect(input.parts[0].vehicle_hire?.deposit_amount).toBeUndefined();
   });
 
   it('builds point-in-time meeting and event plans (Location/Time labels, no detail block)', async () => {

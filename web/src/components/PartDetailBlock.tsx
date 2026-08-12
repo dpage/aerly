@@ -1,6 +1,7 @@
 import { Stack } from '@mui/material';
 
 import type { PlanPart } from '../api/types';
+import { formatCost } from '../lib/format';
 import { isTransferType } from '../lib/trip-format';
 import { Row, Section } from './DetailRows';
 
@@ -60,6 +61,23 @@ function TypeSection({ part }: { part: PlanPart }) {
         <Row label="Vehicle" value={g.vehicle || null} />
         <Row label="Driver" value={g.driver || null} />
         <Row label="Passengers" value={g.pax ?? null} />
+      </Section>
+    );
+  }
+  const vh = part.vehicle_hire;
+  if (vh) {
+    return (
+      <Section title="Car hire">
+        <Row label="Category" value={vh.category || null} />
+        <Row label="Vehicle" value={vh.vehicle || null} />
+        <Row label="Transmission" value={vh.transmission || null} />
+        <Row label="Fuel policy" value={vh.fuel_policy || null} />
+        <Row label="Mileage" value={vh.mileage || null} />
+        {/* Each amount carries its own currency (not necessarily the plan's
+            booking currency), and is absent — not zero — when unstated: a
+            genuine £0 excess and "not stated" are different facts. */}
+        <Row label="Excess" value={formatCost(vh.excess_amount, vh.excess_currency)} />
+        <Row label="Deposit" value={formatCost(vh.deposit_amount, vh.deposit_currency)} />
       </Section>
     );
   }

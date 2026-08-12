@@ -67,6 +67,7 @@ const PLAN_TYPES: PlanType[] = [
   'train',
   'hotel',
   'ground',
+  'vehicle_hire',
   'dining',
   'excursion',
   'ice_cream',
@@ -313,6 +314,19 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
   const [diningPhone, setDiningPhone] = useState('');
   const [excursionProvider, setExcursionProvider] = useState('');
   const [ticketCount, setTicketCount] = useState('');
+  const [hireCategory, setHireCategory] = useState('');
+  const [hireVehicle, setHireVehicle] = useState('');
+  const [hireTransmission, setHireTransmission] = useState('');
+  const [hireFuelPolicy, setHireFuelPolicy] = useState('');
+  const [hireMileage, setHireMileage] = useState('');
+  // Each carries its own currency, which need not match the plan's booking
+  // currency; left blank the field is omitted rather than sent as zero — see
+  // VehicleHireDetail's doc comment (unstated and a genuine zero excess are
+  // different facts).
+  const [excessAmount, setExcessAmount] = useState('');
+  const [excessCurrency, setExcessCurrency] = useState('');
+  const [depositAmount, setDepositAmount] = useState('');
+  const [depositCurrency, setDepositCurrency] = useState('');
 
   const canSubmit = title.trim() !== '' && startsAt !== null && !disabled;
 
@@ -374,6 +388,20 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
       part.excursion = {
         provider: excursionProvider.trim() || undefined,
         ticket_count: parseCount(ticketCount),
+      };
+    } else if (type === 'vehicle_hire') {
+      part.vehicle_hire = {
+        category: hireCategory.trim() || undefined,
+        vehicle: hireVehicle.trim() || undefined,
+        transmission: hireTransmission.trim() || undefined,
+        fuel_policy: hireFuelPolicy.trim() || undefined,
+        mileage: hireMileage.trim() || undefined,
+        excess_amount: parseAmount(excessAmount),
+        excess_currency: excessCurrency.trim() ? excessCurrency.trim().toUpperCase() : undefined,
+        deposit_amount: parseAmount(depositAmount),
+        deposit_currency: depositCurrency.trim()
+          ? depositCurrency.trim().toUpperCase()
+          : undefined,
       };
     }
     const costNum = cost.trim() === '' ? undefined : Number(cost);
@@ -656,6 +684,85 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
             sx={{ width: { xs: '100%', sm: 120 } }}
           />
         </Stack>
+      )}
+
+      {type === 'vehicle_hire' && (
+        <>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Category (optional)"
+              value={hireCategory}
+              onChange={(e) => setHireCategory(e.target.value)}
+              placeholder="e.g. Standard SUV"
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Vehicle (optional)"
+              value={hireVehicle}
+              onChange={(e) => setHireVehicle(e.target.value)}
+              placeholder="e.g. VW Tiguan or similar"
+              sx={{ flexGrow: 1 }}
+            />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Transmission (optional)"
+              value={hireTransmission}
+              onChange={(e) => setHireTransmission(e.target.value)}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Fuel policy (optional)"
+              value={hireFuelPolicy}
+              onChange={(e) => setHireFuelPolicy(e.target.value)}
+              placeholder="e.g. Same to same"
+              sx={{ flexGrow: 1 }}
+            />
+          </Stack>
+          <TextField
+            label="Mileage (optional)"
+            value={hireMileage}
+            onChange={(e) => setHireMileage(e.target.value)}
+            placeholder="e.g. Unlimited"
+            fullWidth
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Excess (optional)"
+              type="number"
+              value={excessAmount}
+              onChange={(e) => setExcessAmount(e.target.value)}
+              slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Excess currency"
+              value={excessCurrency}
+              onChange={(e) => setExcessCurrency(e.target.value)}
+              placeholder="GBP"
+              slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+              sx={{ width: { xs: '100%', sm: 120 } }}
+            />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              label="Deposit (optional)"
+              type="number"
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value)}
+              slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+              sx={{ flexGrow: 1 }}
+            />
+            <TextField
+              label="Deposit currency"
+              value={depositCurrency}
+              onChange={(e) => setDepositCurrency(e.target.value)}
+              placeholder="GBP"
+              slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+              sx={{ width: { xs: '100%', sm: 120 } }}
+            />
+          </Stack>
+        </>
       )}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -982,6 +1089,7 @@ function toDraft(p: ProposedPlan): DraftPlan {
       hotel: part.hotel && toHotelInput(part.hotel),
       train: part.train,
       ground: part.ground,
+      vehicle_hire: part.vehicle_hire,
       dining: part.dining,
       excursion: part.excursion,
       ice_cream: part.ice_cream,
@@ -1257,6 +1365,16 @@ function parseCount(v: string): number | undefined {
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
 }
 
+/** Parse an optional money amount (fractional allowed, unlike parseCount): a
+ * finite, non-negative number, else undefined (blank or invalid — omitted
+ * rather than sent as 0). */
+function parseAmount(v: string): number | undefined {
+  const t = v.trim();
+  if (t === '') return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 function fmtIso(iso: string, tz?: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -1289,6 +1407,8 @@ function placeholderFor(type: PlanType): string {
       return 'Eurostar to Paris';
     case 'ground':
       return 'Airport transfer';
+    case 'vehicle_hire':
+      return 'Hertz car hire';
     case 'dining':
       return 'Dinner at Belcanto';
     case 'excursion':
@@ -1312,6 +1432,8 @@ function startFieldLabel(type: PlanType): string {
       return 'From';
     case 'hotel':
       return 'Property';
+    case 'vehicle_hire':
+      return 'Pickup location';
     default:
       return 'Location';
   }
@@ -1321,6 +1443,8 @@ function startTimeLabel(type: PlanType): string {
   switch (type) {
     case 'hotel':
       return 'Check-in';
+    case 'vehicle_hire':
+      return 'Pickup';
     case 'dining':
     case 'excursion':
     case 'ice_cream':
@@ -1336,6 +1460,8 @@ function endTimeLabel(type: PlanType): string {
   switch (type) {
     case 'hotel':
       return 'Check-out';
+    case 'vehicle_hire':
+      return 'Return';
     default:
       return 'Arrives';
   }

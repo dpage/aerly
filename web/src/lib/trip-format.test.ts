@@ -18,6 +18,7 @@ import {
   isBandedPart,
   planTypeLabel,
   tripSpan,
+  typeHasEnd,
 } from './trip-format';
 
 function trip(over: Partial<Trip> = {}): Trip {
@@ -609,6 +610,23 @@ describe('planTypeLabel', () => {
     expect(planTypeLabel('mystery' as unknown as Parameters<typeof planTypeLabel>[0])).toBe(
       'mystery',
     );
+  });
+});
+
+describe('typeHasEnd', () => {
+  it('gives vehicle_hire an editable end (the return), so a hire can be corrected and bands', () => {
+    expect(typeHasEnd('vehicle_hire')).toBe(true);
+  });
+  it('leaves hotel unchanged (still has an editable end, the check-out)', () => {
+    expect(typeHasEnd('hotel')).toBe(true);
+  });
+  it('leaves a single-point type unchanged (no editable end)', () => {
+    expect(typeHasEnd('dining')).toBe(false);
+  });
+  it('still recognises the existing transfer types', () => {
+    expect(typeHasEnd('flight')).toBe(true);
+    expect(typeHasEnd('train')).toBe(true);
+    expect(typeHasEnd('ground')).toBe(true);
   });
 });
 

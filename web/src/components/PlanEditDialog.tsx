@@ -99,6 +99,22 @@ interface ExcursionForm {
   ticketCount: string;
 }
 
+/** A vehicle hire's editable detail. The excess/deposit amounts are held as
+ * strings (like every other numeric field here) so the box can be cleared
+ * while editing; each carries its own currency, which need not match the
+ * plan's booking currency. Blank means "leave unstated", not zero. */
+interface VehicleHireForm {
+  category: string;
+  vehicle: string;
+  transmission: string;
+  fuelPolicy: string;
+  mileage: string;
+  excessAmount: string;
+  excessCurrency: string;
+  depositAmount: string;
+  depositCurrency: string;
+}
+
 interface PartForm {
   start: EndForm;
   end: EndForm;
@@ -109,6 +125,7 @@ interface PartForm {
   ground?: GroundForm;
   dining?: DiningForm;
   excursion?: ExcursionForm;
+  vehicleHire?: VehicleHireForm;
 }
 
 function endForm(
@@ -201,6 +218,28 @@ function partForm(part: PlanPart): PartForm {
             provider: part.excursion?.provider ?? '',
             ticketCount:
               part.excursion?.ticket_count != null ? String(part.excursion.ticket_count) : '',
+          }
+        : undefined,
+    vehicleHire:
+      part.type === 'vehicle_hire'
+        ? {
+            category: part.vehicle_hire?.category ?? '',
+            vehicle: part.vehicle_hire?.vehicle ?? '',
+            transmission: part.vehicle_hire?.transmission ?? '',
+            fuelPolicy: part.vehicle_hire?.fuel_policy ?? '',
+            mileage: part.vehicle_hire?.mileage ?? '',
+            // Absent (not 0/'') when the source never stated a figure — see
+            // VehicleHireForm's doc comment.
+            excessAmount:
+              part.vehicle_hire?.excess_amount != null
+                ? String(part.vehicle_hire.excess_amount)
+                : '',
+            excessCurrency: part.vehicle_hire?.excess_currency ?? '',
+            depositAmount:
+              part.vehicle_hire?.deposit_amount != null
+                ? String(part.vehicle_hire.deposit_amount)
+                : '',
+            depositCurrency: part.vehicle_hire?.deposit_currency ?? '',
           }
         : undefined,
   };
@@ -353,6 +392,33 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
       d.ticket_count = ticketCount;
     if (Object.keys(d).length > 0) patch.excursion = d;
   }
+  // Vehicle hire. The excess/deposit amounts each keep their own currency and
+  // are sent only when actually changed — a blank left untouched must never
+  // become a sent 0 (unstated and a genuine zero excess are different facts,
+  // the latter meaning the renter owes nothing on damage), so a valid parse
+  // is required alongside the changed check, exactly like the other optional
+  // numeric fields above.
+  if (form.vehicleHire && init.vehicleHire) {
+    const v = form.vehicleHire;
+    const vi = init.vehicleHire;
+    const d: NonNullable<UpdatePlanPartInput['vehicle_hire']> = {};
+    if (v.category.trim() !== vi.category.trim()) d.category = v.category.trim();
+    if (v.vehicle.trim() !== vi.vehicle.trim()) d.vehicle = v.vehicle.trim();
+    if (v.transmission.trim() !== vi.transmission.trim()) d.transmission = v.transmission.trim();
+    if (v.fuelPolicy.trim() !== vi.fuelPolicy.trim()) d.fuel_policy = v.fuelPolicy.trim();
+    if (v.mileage.trim() !== vi.mileage.trim()) d.mileage = v.mileage.trim();
+    const excessAmount = parseAmount(v.excessAmount);
+    if (excessAmount != null && v.excessAmount.trim() !== vi.excessAmount.trim())
+      d.excess_amount = excessAmount;
+    if (v.excessCurrency.trim().toUpperCase() !== vi.excessCurrency.trim().toUpperCase())
+      d.excess_currency = v.excessCurrency.trim().toUpperCase();
+    const depositAmount = parseAmount(v.depositAmount);
+    if (depositAmount != null && v.depositAmount.trim() !== vi.depositAmount.trim())
+      d.deposit_amount = depositAmount;
+    if (v.depositCurrency.trim().toUpperCase() !== vi.depositCurrency.trim().toUpperCase())
+      d.deposit_currency = v.depositCurrency.trim().toUpperCase();
+    if (Object.keys(d).length > 0) patch.vehicle_hire = d;
+  }
 
   return Object.keys(patch).length > 0 ? patch : null;
 }
@@ -364,6 +430,16 @@ function parseCount(v: string): number | undefined {
   if (t === '') return undefined;
   const n = Number(t);
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
+}
+
+/** Parse an optional money amount: a finite, non-negative number (fractional
+ * allowed, unlike parseCount), else undefined (blank or invalid — left
+ * unchanged on save). A parsed 0 is a real value ("no excess"), not "blank". */
+function parseAmount(v: string): number | undefined {
+  const t = v.trim();
+  if (t === '') return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
 /** Edit a plan's title / confirmation / notes plus every part's schedule and
@@ -541,7 +617,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
 
   // One updater for the remaining per-type detail sub-forms — each is a flat
   // record of string fields, so a single keyed merge serves all of them.
-  type DetailKey = 'hotel' | 'train' | 'ground' | 'dining' | 'excursion';
+  type DetailKey = 'hotel' | 'train' | 'ground' | 'dining' | 'excursion' | 'vehicleHire';
   const patchDetail = (partId: number, key: DetailKey, field: string, value: string) => {
     setForms((prev) => {
       const sub = prev[partId][key];
@@ -848,6 +924,14 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                       <ExcursionFields
                         form={form.excursion}
                         onChange={(f, v) => patchDetail(part.id, 'excursion', f, v)}
+                      />
+                    </Box>
+                  )}
+                  {form.vehicleHire && (
+                    <Box sx={{ mt: 1.5 }}>
+                      <VehicleHireFields
+                        form={form.vehicleHire}
+                        onChange={(f, v) => patchDetail(part.id, 'vehicleHire', f, v)}
                       />
                     </Box>
                   )}
@@ -1201,6 +1285,105 @@ function ExcursionFields({
           value={form.ticketCount}
           onChange={(e) => onChange('ticketCount', e.target.value)}
           slotProps={{ htmlInput: { min: 0, step: 1 } }}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+    </Stack>
+  );
+}
+
+/** Vehicle hire detail inputs: category/vehicle/transmission/fuel policy/
+ * mileage plus an excess and a deposit, each with its own currency (not
+ * necessarily the plan's booking currency). Leaving an amount blank keeps it
+ * unstated rather than sending a zero — see VehicleHireForm's doc comment. */
+function VehicleHireFields({
+  form,
+  onChange,
+}: {
+  form: VehicleHireForm;
+  onChange: (field: keyof VehicleHireForm, value: string) => void;
+}) {
+  return (
+    <Stack spacing={1.5}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+        Car hire
+      </Typography>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Category"
+          size="small"
+          value={form.category}
+          onChange={(e) => onChange('category', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+        <TextField
+          label="Vehicle"
+          size="small"
+          value={form.vehicle}
+          onChange={(e) => onChange('vehicle', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Transmission"
+          size="small"
+          value={form.transmission}
+          onChange={(e) => onChange('transmission', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+        <TextField
+          label="Fuel policy"
+          size="small"
+          value={form.fuelPolicy}
+          onChange={(e) => onChange('fuelPolicy', e.target.value)}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+      <TextField
+        label="Mileage"
+        size="small"
+        value={form.mileage}
+        onChange={(e) => onChange('mileage', e.target.value)}
+        fullWidth
+      />
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Excess"
+          type="number"
+          size="small"
+          value={form.excessAmount}
+          onChange={(e) => onChange('excessAmount', e.target.value)}
+          slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Excess currency"
+          size="small"
+          value={form.excessCurrency}
+          onChange={(e) => onChange('excessCurrency', e.target.value)}
+          placeholder="GBP"
+          slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
+          sx={{ flex: 1 }}
+        />
+      </Stack>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Deposit"
+          type="number"
+          size="small"
+          value={form.depositAmount}
+          onChange={(e) => onChange('depositAmount', e.target.value)}
+          slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+          sx={{ flex: 2 }}
+        />
+        <TextField
+          label="Deposit currency"
+          size="small"
+          value={form.depositCurrency}
+          onChange={(e) => onChange('depositCurrency', e.target.value)}
+          placeholder="GBP"
+          slotProps={{ htmlInput: { maxLength: 3, style: { textTransform: 'uppercase' } } }}
           sx={{ flex: 1 }}
         />
       </Stack>

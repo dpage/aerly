@@ -440,6 +440,210 @@ describe('PlanEditDialog — part detail editors', () => {
     expect(patch.hotel).toMatchObject({ room_type: 'Suite', guests: 2, property_name: 'New name' });
   });
 
+  it('edits a vehicle hire part: category/vehicle/transmission/fuel policy/mileage patch onto vehicle_hire', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'vehicle_hire',
+        parts: [
+          part({
+            type: 'vehicle_hire',
+            start_label: 'Hertz, Lisbon Airport',
+            end_label: '',
+            end_tz: '',
+            vehicle_hire: {
+              category: '',
+              vehicle: '',
+              transmission: '',
+              fuel_policy: '',
+              mileage: '',
+            },
+          }),
+        ],
+      }),
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: /^category/i }), {
+      target: { value: 'Standard SUV' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /^vehicle/i }), {
+      target: { value: 'VW Tiguan or similar' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /transmission/i }), {
+      target: { value: 'Automatic' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /fuel policy/i }), {
+      target: { value: 'Same to same' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /mileage/i }), {
+      target: { value: 'Unlimited' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.vehicle_hire).toEqual({
+      category: 'Standard SUV',
+      vehicle: 'VW Tiguan or similar',
+      transmission: 'Automatic',
+      fuel_policy: 'Same to same',
+      mileage: 'Unlimited',
+    });
+  });
+
+  it('patches a genuine zero excess as 0, not omitted (a real fact, not "unstated")', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'vehicle_hire',
+        parts: [
+          part({
+            type: 'vehicle_hire',
+            vehicle_hire: {
+              category: 'Economy',
+              vehicle: '',
+              transmission: '',
+              fuel_policy: '',
+              mileage: '',
+            },
+          }),
+        ],
+      }),
+    );
+    fireEvent.change(screen.getByRole('spinbutton', { name: /^excess/i }), {
+      target: { value: '0' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /excess currency/i }), {
+      target: { value: 'gbp' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.vehicle_hire).toMatchObject({ excess_amount: 0, excess_currency: 'GBP' });
+  });
+
+  it('patches a changed deposit amount and currency onto vehicle_hire', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'vehicle_hire',
+        parts: [
+          part({
+            type: 'vehicle_hire',
+            vehicle_hire: {
+              category: 'Economy',
+              vehicle: '',
+              transmission: '',
+              fuel_policy: '',
+              mileage: '',
+            },
+          }),
+        ],
+      }),
+    );
+    fireEvent.change(screen.getByRole('spinbutton', { name: /^deposit/i }), {
+      target: { value: '250' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /deposit currency/i }), {
+      target: { value: 'gbp' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.vehicle_hire).toMatchObject({ deposit_amount: 250, deposit_currency: 'GBP' });
+  });
+
+  it('pre-fills already-known excess/deposit amounts into the edit fields', () => {
+    render_(
+      plan({
+        type: 'vehicle_hire',
+        parts: [
+          part({
+            type: 'vehicle_hire',
+            vehicle_hire: {
+              category: 'Economy',
+              vehicle: '',
+              transmission: '',
+              fuel_policy: '',
+              mileage: '',
+              excess_amount: 500,
+              excess_currency: 'EUR',
+              deposit_amount: 100,
+              deposit_currency: 'GBP',
+            },
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByRole('spinbutton', { name: /^excess/i })).toHaveValue(500);
+    expect(screen.getByRole('spinbutton', { name: /^deposit/i })).toHaveValue(100);
+  });
+
+  it('shows blank vehicle hire fields when a part has no detail object yet', () => {
+    render_(
+      plan({
+        type: 'vehicle_hire',
+        parts: [part({ type: 'vehicle_hire', vehicle_hire: undefined })],
+      }),
+    );
+    expect(screen.getByRole('textbox', { name: /^category/i })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: /^vehicle/i })).toHaveValue('');
+  });
+
+  it('omits excess/deposit from the patch entirely when left untouched (not sent as 0)', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'vehicle_hire',
+        parts: [
+          part({
+            type: 'vehicle_hire',
+            vehicle_hire: {
+              category: 'Economy',
+              vehicle: '',
+              transmission: '',
+              fuel_policy: '',
+              mileage: '',
+            },
+          }),
+        ],
+      }),
+    );
+    // Change only the category — the money fields are never touched.
+    fireEvent.change(screen.getByRole('textbox', { name: /^category/i }), {
+      target: { value: 'Compact' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.vehicle_hire).toEqual({ category: 'Compact' });
+    expect(patch.vehicle_hire).not.toHaveProperty('excess_amount');
+    expect(patch.vehicle_hire).not.toHaveProperty('excess_currency');
+    expect(patch.vehicle_hire).not.toHaveProperty('deposit_amount');
+    expect(patch.vehicle_hire).not.toHaveProperty('deposit_currency');
+  });
+
+  it('shows "Until" (return) for a vehicle hire so its return time can be set', () => {
+    render_(
+      plan({
+        type: 'vehicle_hire',
+        parts: [
+          part({
+            type: 'vehicle_hire',
+            start_label: 'Hertz, Lisbon Airport',
+            end_label: '',
+            vehicle_hire: {
+              category: '',
+              vehicle: '',
+              transmission: '',
+              fuel_policy: '',
+              mileage: '',
+            },
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText('Until')).toBeInTheDocument();
+  });
+
   it('shows "Until" for a non-transfer part that carries an end time (hotel)', () => {
     render_(
       plan({
