@@ -3,6 +3,7 @@ import FlightIcon from '@mui/icons-material/Flight';
 import TrainIcon from '@mui/icons-material/Train';
 import HotelIcon from '@mui/icons-material/Hotel';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
+import CarRentalIcon from '@mui/icons-material/CarRental';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import LocalActivityIcon from '@mui/icons-material/LocalActivity';
 import IcecreamIcon from '@mui/icons-material/Icecream';
@@ -24,7 +25,7 @@ export default function PlanTypeIcon({ type, ...props }: { type: PlanType } & Sv
     case 'ground':
       return <DirectionsCarIcon {...props} />;
     case 'vehicle_hire':
-      return <DirectionsCarIcon {...props} />;
+      return <CarRentalIcon {...props} />;
     case 'dining':
       return <RestaurantIcon {...props} />;
     case 'excursion':

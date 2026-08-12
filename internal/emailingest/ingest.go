@@ -567,6 +567,8 @@ func planTypeLabel(t string) string {
 		return "Train"
 	case "ground":
 		return "Ground transport"
+	case "vehicle_hire":
+		return "Car hire"
 	case "dining":
 		return "Dining"
 	case "excursion":

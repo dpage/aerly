@@ -345,6 +345,100 @@ describe('TripTimeline', () => {
     expect(screen.queryByText('2 nights')).not.toBeInTheDocument();
   });
 
+  it('shows the DROP-OFF place and address on a one-way hire\'s Return tile, not the pickup ones', () => {
+    // A one-way hire is collected in one city and dropped in another; the
+    // Return tile must point the traveller at the drop-off depot, not repeat
+    // the pickup one (the same defect commit 9e10a99 fixed on the PDF side).
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 12,
+            plan_id: 4,
+            type: 'vehicle_hire',
+            starts_at: '2026-09-09T15:30:00Z',
+            effective_at: '2026-09-09T15:30:00Z',
+            ends_at: '2026-09-11T14:00:00Z',
+            start_label: 'Geneva Airport',
+            end_label: 'Lyon Part-Dieu',
+            start_address: '1 Rue de Genève, Geneva',
+            end_address: '5 Place Charles Béraudier, Lyon',
+          }),
+        ],
+        { id: 4, type: 'vehicle_hire', title: 'Hire car' },
+      ),
+    ]);
+    renderTimeline();
+    const pickupTile = screen.getByTestId('part-card-12-first');
+    const returnTile = screen.getByTestId('part-card-12-last');
+    expect(pickupTile).toHaveTextContent('Geneva Airport');
+    expect(pickupTile).toHaveTextContent('1 Rue de Genève, Geneva');
+    expect(returnTile).toHaveTextContent('Lyon Part-Dieu');
+    expect(returnTile).toHaveTextContent('5 Place Charles Béraudier, Lyon');
+    // The Return tile must not carry the pickup's address or label at all.
+    expect(returnTile).not.toHaveTextContent('1 Rue de Genève, Geneva');
+    expect(returnTile).not.toHaveTextContent('Geneva Airport');
+  });
+
+  it("falls back to the pickup place on a hire's Return tile when no distinct drop-off was captured", () => {
+    // The common case: a round-trip hire with only a start label/address. The
+    // Return tile still needs to show *something*, so it falls back to the
+    // start rather than rendering blank.
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 13,
+            plan_id: 5,
+            type: 'vehicle_hire',
+            starts_at: '2026-09-09T15:30:00Z',
+            effective_at: '2026-09-09T15:30:00Z',
+            ends_at: '2026-09-11T14:00:00Z',
+            start_label: 'Geneva Airport',
+            end_label: '',
+            start_address: '1 Rue de Genève, Geneva',
+            end_address: '',
+          }),
+        ],
+        { id: 5, type: 'vehicle_hire', title: 'Hire car' },
+      ),
+    ]);
+    renderTimeline();
+    const returnTile = screen.getByTestId('part-card-13-last');
+    expect(returnTile).toHaveTextContent('Geneva Airport');
+    expect(returnTile).toHaveTextContent('1 Rue de Genève, Geneva');
+  });
+
+  it("keeps a multi-night hotel's check-in and check-out tiles showing the same property, unchanged by the hire fix", () => {
+    // Guards against the vehicle_hire banded-address fix (bandEdgeField)
+    // regressing hotel rendering, which the golden tests elsewhere in this
+    // repo also protect.
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 9,
+            plan_id: 2,
+            type: 'hotel',
+            starts_at: '2026-10-12T15:00:00Z',
+            effective_at: '2026-10-12T15:00:00Z',
+            ends_at: '2026-10-15T10:00:00Z',
+            start_label: 'Hotel Lisboa',
+            end_label: '',
+            start_address: 'Rua Augusta 1, Lisbon',
+            end_address: '',
+          }),
+        ],
+        { id: 2, type: 'hotel', title: 'Hotel Lisboa' },
+      ),
+    ]);
+    renderTimeline();
+    const checkIn = screen.getByTestId('part-card-9-first');
+    const checkOut = screen.getByTestId('part-card-9-last');
+    expect(checkIn).toHaveTextContent('Rua Augusta 1, Lisbon');
+    expect(checkOut).toHaveTextContent('Rua Augusta 1, Lisbon');
+  });
+
   it('greys a cancelled (superseded old) part and tags it, not the replacement', () => {
     // On a rebooking the OLD part is stamped status='cancelled'; the NEW part
     // carries supersedes_id and stays full-colour. The greying/tag keys on the
@@ -509,6 +603,32 @@ describe('TripTimeline', () => {
         expect: [/Addison Lee/, /Saloon/, /020/],
       },
       {
+        p: {
+          id: 19,
+          type: 'vehicle_hire',
+          vehicle_hire: {
+            category: 'Compact',
+            vehicle: 'VW Golf',
+            transmission: 'Manual',
+            fuel_policy: 'Full to full',
+            mileage: 'Unlimited',
+            excess_amount: 250,
+            excess_currency: 'GBP',
+            deposit_amount: 500,
+            deposit_currency: 'GBP',
+          },
+        },
+        expect: [
+          /VW Golf/,
+          /Compact/,
+          /Manual/,
+          /Full to full/,
+          /Mileage: Unlimited/,
+          /Excess: £250\.00/,
+          /Deposit: £500\.00/,
+        ],
+      },
+      {
         p: { id: 14, type: 'dining', dining: { reservation_name: 'Page', phone: '555' } },
         expect: [/Reservation: Page/, /555/],
       },
@@ -555,6 +675,30 @@ describe('TripTimeline', () => {
       for (const re of c.expect) expect(card).toHaveTextContent(re);
       unmount();
     }
+  });
+
+  it('renders a genuine zero excess but omits an entirely unset deposit (vehicle_hire)', async () => {
+    // Absent-vs-zero must survive into the timeline's own detail lines, not
+    // just PartDetailBlock's: a nil deposit means "not stated" and must not
+    // print, whilst a genuine £0 excess is a fact the renter needs to see.
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 21,
+            plan_id: 1,
+            type: 'vehicle_hire',
+            vehicle_hire: { category: 'Compact', vehicle: '', transmission: '', fuel_policy: '', mileage: '', excess_amount: 0, excess_currency: 'GBP' },
+          }),
+        ],
+        { id: 1, type: 'vehicle_hire', title: 'Hire car' },
+      ),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-21');
+    await userEvent.click(card);
+    expect(card).toHaveTextContent('Excess: £0.00');
+    expect(card).not.toHaveTextContent(/Deposit/);
   });
 
   it('renders no detail lines when type-specific objects are absent', async () => {

@@ -34,4 +34,13 @@ describe('PlanTypeIcon', () => {
     const svg = container.querySelector('svg');
     expect(svg?.classList.toString()).toMatch(/MuiSvgIcon/);
   });
+
+  it('uses a different glyph for vehicle_hire than for ground, matching the map marker', () => {
+    // The map marker (plan-marker.ts) deliberately distinguishes a hire's
+    // CarRental glyph from ground's plain DirectionsCar silhouette; the icon
+    // used here must draw the same distinction rather than sharing one glyph.
+    const ground = render(<PlanTypeIcon type="ground" />).container.querySelector('path');
+    const hire = render(<PlanTypeIcon type="vehicle_hire" />).container.querySelector('path');
+    expect(hire?.getAttribute('d')).not.toEqual(ground?.getAttribute('d'));
+  });
 });

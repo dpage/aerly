@@ -95,6 +95,22 @@ function earliestStart(plan: Plan): number {
   return Math.min(...plan.parts.map((p) => Date.parse(p.starts_at)));
 }
 
+// A banded tile (edge set — a hotel's check-in/-out or a hire's pickup/return)
+// shows only its own end of the booking: the first tile the start place, the
+// last the end one, falling back to the start when the end wasn't captured.
+// Without the fallback (and without keying on the edge at all) a one-way
+// hire's Return tile showed the pickup label/address, directing the traveller
+// to the wrong depot — the same defect commit 9e10a99 fixed on the PDF, and
+// which ics.go's writeBandLast already avoids via its EndLabel-with-fallback.
+// A hotel's start and end labels are the same property (its end_label is
+// blank), so this is a no-op for hotels: they fall back to the start either
+// way, matching pre-existing behaviour exactly.
+function bandEdgeField(edge: BandEdge, start?: string, end?: string): string {
+  const s = (start ?? '').trim();
+  const e = (end ?? '').trim();
+  return edge === 'last' ? e || s : s;
+}
+
 /** Default trip detail view (spec §11, PRD §6.2): a day-grouped vertical list
  * of plan parts sorted by `effective_at`, with sticky local-day headers, the
  * right MUI icon per type, local-time ranges, parts of one plan visually tied
@@ -591,8 +607,12 @@ function PartCard({
   // `status === 'cancelled'`, which also correctly greys a plain cancellation.
   // Dismissed parts are already dropped by buildTimeline().
   const greyed = part.status === 'cancelled';
-  const places = fmtPartPlaces(part.type, part.start_label, part.end_label);
-  const addr = fmtPartPlaces(part.type, part.start_address, part.end_address);
+  const places = edge
+    ? bandEdgeField(edge, part.start_label, part.end_label)
+    : fmtPartPlaces(part.type, part.start_label, part.end_label);
+  const addr = edge
+    ? bandEdgeField(edge, part.start_address, part.end_address)
+    : fmtPartPlaces(part.type, part.start_address, part.end_address);
   const details = partDetailLines(part);
   // A banded booking renders as two tiles (a stay's check-in and check-out, a
   // hire's pickup and return); the span chip on both ties them as one booking
@@ -1043,6 +1063,19 @@ function partDetailLines(part: PlanPart): string[] {
       break;
     case 'ground':
       if (part.ground) out.push(join(part.ground.provider, part.ground.vehicle, part.ground.phone));
+      break;
+    case 'vehicle_hire':
+      if (part.vehicle_hire) {
+        const vh = part.vehicle_hire;
+        out.push(join(vh.vehicle, vh.category, vh.transmission));
+        out.push(join(vh.fuel_policy, vh.mileage && `Mileage: ${vh.mileage}`));
+        // Each amount carries its own currency and is absent — not zero — when
+        // unstated, so formatCost (not a fresh formatter) must do the honours:
+        // a genuine £0 excess still renders, "not stated" renders nothing.
+        const excess = formatCost(vh.excess_amount, vh.excess_currency) ?? undefined;
+        const deposit = formatCost(vh.deposit_amount, vh.deposit_currency) ?? undefined;
+        out.push(join(excess && `Excess: ${excess}`, deposit && `Deposit: ${deposit}`));
+      }
       break;
     case 'dining':
       if (part.dining)

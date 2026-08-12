@@ -25,7 +25,7 @@ import {
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 
 import { useStore } from '../state/store';
-import { fmtPartPlaces, planTypeLabel, typeHasEnd } from '../lib/trip-format';
+import { bandEdgeLabels, fmtPartPlaces, planTypeLabel, typeHasEnd } from '../lib/trip-format';
 import PlanTypeIcon from './PlanTypeIcon';
 import type {
   ConfirmPlanInput,
@@ -1311,13 +1311,7 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
                 <Typography variant="caption" color="text.secondary">
                   {fmtPartPlaces(part.type, part.start_label, part.end_label) ||
                     planTypeLabel(part.type)}
-                  {part.type === 'hotel' && part.starts_at
-                    ? ` · Check in ${fmtIsoDate(part.starts_at)}${
-                        part.ends_at ? ` · Check out ${fmtIsoDate(part.ends_at)}` : ''
-                      }`
-                    : part.starts_at
-                      ? ` · ${fmtIso(part.starts_at, part.start_tz)}`
-                      : ''}
+                  {part.starts_at ? partDatePreview(part) : ''}
                 </Typography>
               </Box>
             ))}
@@ -1397,6 +1391,23 @@ function fmtIsoDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/** The trailing date suffix for a part in the confirmation preview. A banded
+ * type (hotel, vehicle_hire) shows its own opening/closing wording and dates
+ * (bandEdgeLabels — "Check in"/"Check out" for a stay, "Pickup"/"Return" for a
+ * hire), matching how the timeline itself labels those two tiles, so a hire's
+ * return date isn't silently dropped and doesn't get hotel wording it doesn't
+ * own. Every other type shows a single instant. */
+function partDatePreview(part: { type: PlanType; starts_at: string; ends_at?: string; start_tz?: string }): string {
+  const labels = bandEdgeLabels(part.type);
+  if (labels) {
+    const [openLabel, closeLabel] = labels;
+    return ` · ${openLabel} ${fmtIsoDate(part.starts_at)}${
+      part.ends_at ? ` · ${closeLabel} ${fmtIsoDate(part.ends_at)}` : ''
+    }`;
+  }
+  return ` · ${fmtIso(part.starts_at, part.start_tz)}`;
 }
 
 function placeholderFor(type: PlanType): string {

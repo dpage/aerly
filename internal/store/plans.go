@@ -17,7 +17,7 @@ import (
 type Plan struct {
 	ID              int64
 	TripID          int64
-	Type            string // flight|train|hotel|ground|dining|excursion|ice_cream|meeting|event
+	Type            string // flight|train|hotel|ground|vehicle_hire|dining|excursion|ice_cream|meeting|event
 	Title           string
 	ConfirmationRef string
 	TicketNumber    string // e-ticket / ticket number, when known (issue #22)

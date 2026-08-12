@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { Capabilities, Trip } from '../api/types';
+import type { Capabilities, ProposedPlan, Trip } from '../api/types';
 
 // Drive the DateTimePicker through a plain controlled input so the manual
 // form's dates are deterministic.
@@ -487,5 +487,96 @@ describe('AddToTripDialog - prefill', () => {
     // Fresh object, identical content — the seeding effect must be a no-op.
     rerender(<AddToTripDialog open tripId={1} onClose={vi.fn()} prefill={{ ...prefill }} />);
     expect(screen.getByLabelText(/^Title/)).toHaveValue('My own title');
+  });
+});
+
+describe('AddToTripDialog - confirm step date preview', () => {
+  // The confirm step reads its proposals from the store (ingestProposals),
+  // populated once `ingest` resolves — drive the real Paste flow rather than
+  // reaching into the module, so this exercises the same path a user hits.
+  async function reachConfirmStep(proposal: ProposedPlan) {
+    h.state.ingest.mockResolvedValue(undefined);
+    h.state.ingestProposals = [proposal];
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Paste text' }));
+    await userEvent.type(screen.getByLabelText('Confirmation text'), 'a hire confirmation');
+    await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
+    await screen.findByRole('heading', { name: 'Confirm extracted plans' });
+  }
+
+  it("shows a vehicle_hire proposal's Pickup and Return dates, not hotel check-in/out wording", async () => {
+    await reachConfirmStep({
+      type: 'vehicle_hire',
+      title: 'Hire car',
+      confirmation_ref: '',
+      ticket_number: '',
+      notes: '',
+      cost_currency: '',
+      supplier_name: '',
+      contact_email: '',
+      contact_phone: '',
+      website: '',
+      confidence: 1,
+      parts: [
+        {
+          id: 1,
+          plan_id: 1,
+          type: 'vehicle_hire',
+          seq: 0,
+          starts_at: '2026-09-09T15:30:00Z',
+          ends_at: '2026-09-11T14:00:00Z',
+          start_tz: 'UTC',
+          end_tz: 'UTC',
+          start_label: 'Geneva Airport',
+          start_address: '',
+          end_label: 'Lyon Part-Dieu',
+          end_address: '',
+          status: 'planned',
+          effective_at: '2026-09-09T15:30:00Z',
+        },
+      ],
+    } as ProposedPlan);
+
+    expect(screen.getByText(/Pickup 9 Sept/)).toBeInTheDocument();
+    expect(screen.getByText(/Return 11 Sept/)).toBeInTheDocument();
+    expect(screen.queryByText(/Check in/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Check out/)).not.toBeInTheDocument();
+  });
+
+  it("still shows a hotel proposal's Check in/Check out dates (unchanged)", async () => {
+    await reachConfirmStep({
+      type: 'hotel',
+      title: 'Hotel Lisboa',
+      confirmation_ref: '',
+      ticket_number: '',
+      notes: '',
+      cost_currency: '',
+      supplier_name: '',
+      contact_email: '',
+      contact_phone: '',
+      website: '',
+      confidence: 1,
+      parts: [
+        {
+          id: 2,
+          plan_id: 2,
+          type: 'hotel',
+          seq: 0,
+          starts_at: '2026-10-12T15:00:00Z',
+          ends_at: '2026-10-15T10:00:00Z',
+          start_tz: 'UTC',
+          end_tz: 'UTC',
+          start_label: 'Hotel Lisboa',
+          start_address: '',
+          end_label: '',
+          end_address: '',
+          status: 'planned',
+          effective_at: '2026-10-12T15:00:00Z',
+        },
+      ],
+    } as ProposedPlan);
+
+    expect(screen.getByText(/Check in 12 Oct/)).toBeInTheDocument();
+    expect(screen.getByText(/Check out 15 Oct/)).toBeInTheDocument();
   });
 });

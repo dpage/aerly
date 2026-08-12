@@ -11,16 +11,17 @@ import (
 
 func TestPlanTypeLabel_AllTypes(t *testing.T) {
 	cases := map[string]string{
-		"flight":    "Flight",
-		"hotel":     "Hotel",
-		"train":     "Train",
-		"ground":    "Ground transport",
-		"dining":    "Dining",
-		"excursion": "Excursion",
-		"meeting":   "Meeting",
-		"event":     "Event",
-		"unknown":   "Booking",
-		"":          "Booking",
+		"flight":       "Flight",
+		"hotel":        "Hotel",
+		"train":        "Train",
+		"ground":       "Ground transport",
+		"vehicle_hire": "Car hire",
+		"dining":       "Dining",
+		"excursion":    "Excursion",
+		"meeting":      "Meeting",
+		"event":        "Event",
+		"unknown":      "Booking",
+		"":             "Booking",
 	}
 	for in, want := range cases {
 		if got := planTypeLabel(in); got != want {
