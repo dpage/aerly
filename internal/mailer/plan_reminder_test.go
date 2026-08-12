@@ -19,6 +19,7 @@ func TestPlanReminderLabel(t *testing.T) {
 		{"ground", "", "", "your transfer"},
 		{"meeting", "", "", "your meeting"},
 		{"event", "", "", "your event"},
+		{"vehicle_hire", "", "", "your car hire"},
 		{"mystery", "", "", "your plan"},            // unknown type → default
 		{"hotel", "   ", "", "your hotel check-in"}, // whitespace-only title is not used
 	}
