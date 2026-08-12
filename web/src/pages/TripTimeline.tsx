@@ -44,12 +44,14 @@ import { useFeedsChangedCount } from '../lib/feedsBus';
 import {
   buildExternalDays,
   buildTimeline,
+  bandEdgeLabels,
+  bandSpanDays,
   fmtPartPlaces,
   fmtPartTimeRange,
   fmtTimeOfDay,
-  hotelNights,
   planTypeLabel,
 } from '../lib/trip-format';
+import type { BandEdge } from '../lib/trip-format';
 import { fmtGate } from '../lib/gate';
 import { formatCost } from '../lib/format';
 import { isUnlocated } from '../lib/geo';
@@ -532,8 +534,9 @@ interface PartCardProps {
   part: PlanPart;
   plan: Plan;
   trip: Trip;
-  /** Set for the two tiles of a multi-night hotel stay (see buildTimeline). */
-  edge?: 'check-in' | 'check-out';
+  /** Set for the two tiles of a banded booking, such as a multi-night stay or a
+   * multi-day car hire (see buildTimeline). */
+  edge?: BandEdge;
   accent: string;
   multiPart: boolean;
   expanded: boolean;
@@ -591,12 +594,16 @@ function PartCard({
   const places = fmtPartPlaces(part.type, part.start_label, part.end_label);
   const addr = fmtPartPlaces(part.type, part.start_address, part.end_address);
   const details = partDetailLines(part);
-  // A multi-night hotel stay renders as two tiles (check-in and check-out); the
-  // "N nights" chip on both ties them as one booking and shows the stay length,
-  // the hotel equivalent of a flight's "multi-part" badge. `edge` is only set on
-  // those hotel-band tiles.
-  const nights = edge ? hotelNights(part) : 0;
-  const nightsLabel = nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : '';
+  // A banded booking renders as two tiles (a stay's check-in and check-out, a
+  // hire's pickup and return); the span chip on both ties them as one booking
+  // and shows its length, the equivalent of a flight's "multi-part" badge.
+  // `edge` is only ever set on those banded tiles, so a banded type's labels
+  // are guaranteed to exist here. A stay is measured in nights, since that is
+  // what it is sold and charged by, whilst a hire runs in days.
+  const span = edge ? bandSpanDays(part) : 0;
+  const spanUnit = part.type === 'hotel' ? 'night' : 'day';
+  const spanLabel = span > 0 ? `${span} ${spanUnit}${span === 1 ? '' : 's'}` : '';
+  const edgeLabel = edge ? bandEdgeLabels(part.type)![edge === 'last' ? 1 : 0] : '';
   // Where a "Directions" launch would route to: the plan's own location (its
   // start point — the airport, hotel, venue…), by coordinates when we have them
   // and by address/label otherwise. The maps app supplies the current location
@@ -694,9 +701,9 @@ function PartCard({
                 sx={{ height: 18, fontSize: 10, borderColor: accent, color: accent }}
               />
             )}
-            {nightsLabel && (
+            {spanLabel && (
               <Chip
-                label={nightsLabel}
+                label={spanLabel}
                 size="small"
                 variant="outlined"
                 sx={{ height: 18, fontSize: 10, borderColor: accent, color: accent }}
@@ -751,10 +758,10 @@ function PartCard({
           )}
 
           <Typography variant="caption" color="text.secondary">
-            {edge === 'check-in'
-              ? `Check in · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
-              : edge === 'check-out'
-                ? `Check out · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
+            {edge === 'first'
+              ? `${edgeLabel} · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
+              : edge === 'last'
+                ? `${edgeLabel} · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
                 : fmtPartTimeRange(part)}
           </Typography>
 

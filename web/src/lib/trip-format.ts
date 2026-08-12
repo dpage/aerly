@@ -111,11 +111,12 @@ function fmtDay(dateOnly: string): string {
 export interface TimelinePart {
   part: PlanPart;
   plan: Plan;
-  /** For a multi-night hotel stay, which end of the stay this tile marks — so
-   * the stay shows a check-in tile on its first day and a check-out tile on its
-   * last day. Undefined for every other part (and same-day stays), which render
-   * as a single tile. */
-  edge?: 'check-in' | 'check-out';
+  /** For a banded booking (see isBandedPart), which end of it this tile marks,
+   * so that a multi-night stay shows a check-in tile on its first day and a
+   * check-out tile on its last, and a multi-day car hire a pickup and a return.
+   * Undefined for every other part (and for same-day bookings), which render as
+   * a single tile. */
+  edge?: BandEdge;
 }
 
 /** A single day's worth of timeline parts under one local-day header. */
@@ -136,8 +137,8 @@ export interface TimelineDay {
  *   header reads in the local time of where it happens. */
 export function buildTimeline(plans: Plan[]): TimelineDay[] {
   // Each entry carries the instant + iso/tz used to place and sort it, so a
-  // multi-night hotel can contribute two entries: a check-in on its first day
-  // and a check-out on its last day.
+  // banded booking (a multi-night stay, a multi-day hire) can contribute two
+  // entries: one on the day it opens and one on the day it closes.
   interface Entry {
     tp: TimelinePart;
     instant: number;
@@ -148,19 +149,19 @@ export function buildTimeline(plans: Plan[]): TimelineDay[] {
   for (const plan of plans) {
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
-      if (isHotelBand(part) && part.ends_at) {
+      if (isBandedPart(part) && part.ends_at) {
         flat.push({
-          tp: { part, plan, edge: 'check-in' },
-          // Sort by the smart check-in (effective_at: after the inbound
-          // flight's arrival) so the stay doesn't jump ahead of the flight
-          // that gets you there — matching the map's ordering. Keep the day
-          // bucket on the booked check-in date (iso = starts_at).
+          tp: { part, plan, edge: 'first' },
+          // Sort by the smart opening time (effective_at: after the inbound
+          // flight's arrival) so the booking doesn't jump ahead of the flight
+          // that gets you there, matching the map's ordering. Keep the day
+          // bucket on the booked opening date (iso = starts_at).
           instant: instantOf(part),
           iso: part.starts_at,
           tz: part.start_tz,
         });
         flat.push({
-          tp: { part, plan, edge: 'check-out' },
+          tp: { part, plan, edge: 'last' },
           instant: parseInstant(part.ends_at) ?? 0,
           iso: part.ends_at,
           tz: part.end_tz || part.start_tz,
@@ -213,18 +214,58 @@ export function buildExternalDays(events: ExternalEvent[]): ExternalDay[] {
   return [...days.values()];
 }
 
-/** True when a part represents a multi-night hotel stay that should render as
- * a band rather than two points (PRD §6.2): a hotel with an end on a later
- * local day than its start. */
-export function isHotelBand(part: PlanPart): boolean {
-  if (part.type !== 'hotel' || !part.ends_at) return false;
+// Banding is the rule that turns one ranged booking into two timeline tiles:
+// one on the day it opens and one on the day it closes, rather than a single
+// tile on the opening day with the closing time buried inside it. A three-night
+// stay therefore reads as a check-in on the Monday and a check-out on the
+// Thursday, and a multi-day car hire as a pickup and a return (issue #101). The
+// same rule runs server-side for the iCal feed and the printed itinerary
+// (internal/handlers/banding.go), and the two definitions must agree on which
+// types band, or the same booking reads differently in each place.
+
+/** Which end of a banded booking a tile marks: the day it opens or the day it
+ * closes. */
+export type BandEdge = 'first' | 'last';
+
+/** Plan types that band, each with its opening and closing labels. A type
+ * absent from this map never bands, however long it runs.
+ *
+ * The labels are the web's own wording, and are not quite the server's:
+ * hotel reads "Check in"/"Check out" here and "Check-in"/"Check-out" in the
+ * feed and the PDF, which is long-standing copy on both sides that this map
+ * preserves rather than unifies. */
+const BANDED: Partial<Record<PlanType, [string, string]>> = {
+  hotel: ['Check in', 'Check out'],
+  vehicle_hire: ['Pickup', 'Return'],
+};
+
+/** A banded type's [opening, closing] labels, or null for a type that doesn't
+ * band. */
+export function bandEdgeLabels(type: PlanType): [string, string] | null {
+  return BANDED[type] ?? null;
+}
+
+/** True when a part is a ranged booking that should render as two tiles rather
+ * than one (PRD §6.2): a banded type whose end falls on a later local day than
+ * its start, each end resolved in its own zone since a car collected in Geneva
+ * can be dropped in Lyon.
+ *
+ * Banding is opt-in by type, deliberately so: generalising it to "any part
+ * whose end falls on a later day" would split every red-eye flight and every
+ * overnight sleeper into a departure tile and an arrival tile, which is not how
+ * a journey should read. A journey is one continuous thing that happens to
+ * cross midnight, whilst a stay or a hire is a pair of appointments with a gap
+ * in between. */
+export function isBandedPart(part: PlanPart): boolean {
+  if (!BANDED[part.type] || !part.ends_at) return false;
   const startDay = localDayKey(part.starts_at, part.start_tz);
   const endDay = localDayKey(part.ends_at, part.end_tz || part.start_tz);
   return endDay > startDay;
 }
 
-/** Nights covered by a hotel band, for the "N nights" label. */
-export function hotelNights(part: PlanPart): number {
+/** The length of a banded booking in whole days, for its span chip: the nights
+ * of a stay, or the days of a hire. */
+export function bandSpanDays(part: PlanPart): number {
   if (!part.ends_at) return 0;
   const start = parseInstant(part.starts_at);
   const end = parseInstant(part.ends_at);

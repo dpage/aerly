@@ -239,8 +239,8 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     // One tile on the check-in day, one on the check-out day — not a single band.
-    expect(screen.getByTestId('part-card-9-check-in')).toBeInTheDocument();
-    expect(screen.getByTestId('part-card-9-check-out')).toBeInTheDocument();
+    expect(screen.getByTestId('part-card-9-first')).toBeInTheDocument();
+    expect(screen.getByTestId('part-card-9-last')).toBeInTheDocument();
     expect(screen.getByText(/Check in/)).toBeInTheDocument();
     expect(screen.getByText(/Check out/)).toBeInTheDocument();
     // Day headers for both the arrival and departure dates.
@@ -249,10 +249,10 @@ describe('TripTimeline', () => {
     // Both tiles carry the "N nights" chip that ties them as one stay (the hotel
     // equivalent of the flight "multi-part" badge).
     expect(
-      within(screen.getByTestId('part-card-9-check-in')).getByText('3 nights'),
+      within(screen.getByTestId('part-card-9-first')).getByText('3 nights'),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByTestId('part-card-9-check-out')).getByText('3 nights'),
+      within(screen.getByTestId('part-card-9-last')).getByText('3 nights'),
     ).toBeInTheDocument();
   });
 
@@ -276,7 +276,7 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     expect(
-      within(screen.getByTestId('part-card-11-check-in')).getByText('1 night'),
+      within(screen.getByTestId('part-card-11-first')).getByText('1 night'),
     ).toBeInTheDocument();
   });
 
@@ -315,6 +315,34 @@ describe('TripTimeline', () => {
     expect(screen.queryByText(/14 Oct 2026/)).not.toBeInTheDocument();
     // Both tiles carry the stay-length chip that ties them to one booking.
     expect(screen.getAllByText('3 nights')).toHaveLength(2);
+  });
+
+  it('renders a multi-day car hire as a pickup tile and a return tile', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 12,
+            plan_id: 4,
+            type: 'vehicle_hire',
+            starts_at: '2026-09-09T15:30:00Z',
+            effective_at: '2026-09-09T15:30:00Z',
+            ends_at: '2026-09-11T14:00:00Z',
+            start_label: 'Geneva Airport',
+            end_label: 'Lyon Part-Dieu',
+          }),
+        ],
+        { id: 4, type: 'vehicle_hire', title: 'Hire car' },
+      ),
+    ]);
+    renderTimeline();
+    const pickup = screen.getByText('Pickup · 15:30 UTC');
+    const dropoff = screen.getByText('Return · 14:00 UTC');
+    expect(dayBlockFor(/9 Sept 2026/)).toContainElement(pickup);
+    expect(dayBlockFor(/11 Sept 2026/)).toContainElement(dropoff);
+    // A car is hired by the day, not by the night, so the span chip counts days.
+    expect(screen.getAllByText('2 days')).toHaveLength(2);
+    expect(screen.queryByText('2 nights')).not.toBeInTheDocument();
   });
 
   it('greys a cancelled (superseded old) part and tags it, not the replacement', () => {

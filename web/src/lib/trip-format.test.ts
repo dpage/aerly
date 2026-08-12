@@ -13,8 +13,9 @@ import {
   splitLocal,
   tzAbbrev,
   zonedTimeToUtc,
-  hotelNights,
-  isHotelBand,
+  bandEdgeLabels,
+  bandSpanDays,
+  isBandedPart,
   planTypeLabel,
   tripSpan,
 } from './trip-format';
@@ -240,8 +241,8 @@ describe('buildTimeline', () => {
     const days = buildTimeline(plans);
     expect(days.map((d) => d.dayKey)).toEqual(['2026-10-12', '2026-10-14']);
     expect(days[0].parts).toHaveLength(1);
-    expect(days[0].parts[0].edge).toBe('check-in');
-    expect(days[1].parts[0].edge).toBe('check-out');
+    expect(days[0].parts[0].edge).toBe('first');
+    expect(days[1].parts[0].edge).toBe('last');
   });
 
   // The multi-night hotel contract, asserted through what a reader of the
@@ -302,6 +303,69 @@ describe('buildTimeline', () => {
     });
   });
 
+  it('bands a multi-day vehicle hire into a pickup and a return entry', () => {
+    const days = buildTimeline([
+      plan(
+        [
+          part({
+            id: 12,
+            plan_id: 4,
+            type: 'vehicle_hire',
+            starts_at: '2026-09-09T15:30:00Z',
+            effective_at: '2026-09-09T15:30:00Z',
+            ends_at: '2026-09-11T14:00:00Z',
+            start_label: 'Geneva Airport',
+            end_label: 'Lyon Part-Dieu',
+          }),
+        ],
+        { id: 4, type: 'vehicle_hire' },
+      ),
+    ]);
+    expect(days.map((d) => d.dayKey)).toEqual(['2026-09-09', '2026-09-11']);
+    expect(days.flatMap((d) => d.parts.map((p) => p.edge))).toEqual(['first', 'last']);
+  });
+
+  it('does not band a same-day vehicle hire', () => {
+    const days = buildTimeline([
+      plan(
+        [
+          part({
+            id: 12,
+            plan_id: 4,
+            type: 'vehicle_hire',
+            starts_at: '2026-09-09T09:00:00Z',
+            effective_at: '2026-09-09T09:00:00Z',
+            ends_at: '2026-09-09T17:00:00Z',
+          }),
+        ],
+        { id: 4, type: 'vehicle_hire' },
+      ),
+    ]);
+    expect(days.flatMap((d) => d.parts)).toHaveLength(1);
+    expect(days[0].parts[0].edge).toBeUndefined();
+  });
+
+  it('never bands a red-eye flight, however far into the next day it lands', () => {
+    // Banding is opt-in by type: a journey that happens to cross midnight is
+    // still one journey, and must not be split into a departure and an arrival.
+    const days = buildTimeline([
+      plan(
+        [
+          part({
+            id: 1,
+            type: 'flight',
+            starts_at: '2026-09-09T23:00:00Z',
+            effective_at: '2026-09-09T23:00:00Z',
+            ends_at: '2026-09-10T08:00:00Z',
+          }),
+        ],
+        { id: 1, type: 'flight' },
+      ),
+    ]);
+    expect(days.flatMap((d) => d.parts)).toHaveLength(1);
+    expect(days[0].parts[0].edge).toBeUndefined();
+  });
+
   it('orders a hotel check-in by its smart effective_at, after a same-day flight', () => {
     // A flight arriving 18:00, and a hotel whose raw check-in is 15:00 but whose
     // smart effective_at (after arrival) is 19:00. The check-in tile must sort
@@ -332,7 +396,7 @@ describe('buildTimeline', () => {
     // Same booked day; the flight (id 1) precedes the hotel check-in (id 9).
     expect(days[0].dayKey).toBe('2026-10-12');
     expect(days[0].parts.map((p) => p.part.id)).toEqual([1, 9]);
-    expect(days[0].parts[1].edge).toBe('check-in');
+    expect(days[0].parts[1].edge).toBe('first');
   });
 
   it('groups a red-eye on its departure day in the start tz', () => {
@@ -384,19 +448,59 @@ describe('buildExternalDays', () => {
   });
 });
 
-describe('hotel band', () => {
-  it('isHotelBand true for a multi-night hotel', () => {
+describe('banding', () => {
+  it('isBandedPart true for a multi-night hotel', () => {
     const p = part({
       type: 'hotel',
       starts_at: '2026-10-12T15:00:00Z',
       ends_at: '2026-10-15T10:00:00Z',
     });
-    expect(isHotelBand(p)).toBe(true);
-    expect(hotelNights(p)).toBe(3);
+    expect(isBandedPart(p)).toBe(true);
+    expect(bandSpanDays(p)).toBe(3);
   });
 
-  it('isHotelBand false for a flight', () => {
-    expect(isHotelBand(part({ type: 'flight', ends_at: '2026-10-12T11:00:00Z' }))).toBe(false);
+  it('isBandedPart true for a multi-day vehicle hire', () => {
+    const p = part({
+      type: 'vehicle_hire',
+      starts_at: '2026-09-09T15:30:00Z',
+      ends_at: '2026-09-11T14:00:00Z',
+    });
+    expect(isBandedPart(p)).toBe(true);
+    expect(bandSpanDays(p)).toBe(2);
+  });
+
+  it('isBandedPart false for a flight, however late it lands', () => {
+    // The red-eye case: an unbanded type never bands, even though it ends on a
+    // later local day than it started.
+    expect(isBandedPart(part({ type: 'flight', ends_at: '2026-10-12T11:00:00Z' }))).toBe(false);
+    expect(
+      isBandedPart(
+        part({
+          type: 'flight',
+          starts_at: '2026-09-09T23:00:00Z',
+          ends_at: '2026-09-10T08:00:00Z',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('isBandedPart false for a same-day booking of a banded type', () => {
+    expect(
+      isBandedPart(
+        part({
+          type: 'vehicle_hire',
+          starts_at: '2026-09-09T09:00:00Z',
+          ends_at: '2026-09-09T17:00:00Z',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('labels hire edges Pickup and Return, and stay edges Check in and Check out', () => {
+    expect(bandEdgeLabels('vehicle_hire')).toEqual(['Pickup', 'Return']);
+    expect(bandEdgeLabels('hotel')).toEqual(['Check in', 'Check out']);
+    expect(bandEdgeLabels('ground')).toBeNull();
+    expect(bandEdgeLabels('flight')).toBeNull();
   });
 });
 
@@ -623,13 +727,14 @@ describe('branch edge cases', () => {
     expect(buildTimeline(plans)[0].parts[0].edge).toBeUndefined();
   });
 
-  it('isHotelBand: false when a hotel has no end', () => {
-    expect(isHotelBand(part({ type: 'hotel', ends_at: undefined }))).toBe(false);
+  it('isBandedPart: false when a banded type has no end', () => {
+    expect(isBandedPart(part({ type: 'hotel', ends_at: undefined }))).toBe(false);
+    expect(isBandedPart(part({ type: 'vehicle_hire', ends_at: undefined }))).toBe(false);
   });
-  it('hotelNights: 0 when there is no end or an unparseable instant', () => {
-    expect(hotelNights(part({ type: 'hotel', ends_at: undefined }))).toBe(0);
+  it('bandSpanDays: 0 when there is no end or an unparseable instant', () => {
+    expect(bandSpanDays(part({ type: 'hotel', ends_at: undefined }))).toBe(0);
     expect(
-      hotelNights(part({ type: 'hotel', starts_at: 'nope', ends_at: '2026-10-15T10:00:00Z' })),
+      bandSpanDays(part({ type: 'hotel', starts_at: 'nope', ends_at: '2026-10-15T10:00:00Z' })),
     ).toBe(0);
   });
 
