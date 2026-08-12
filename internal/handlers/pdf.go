@@ -383,6 +383,23 @@ func partDetails(it itinPart) []string {
 		if addr := nonEmpty(pt.StartAddress, pt.EndAddress); addr != "" {
 			out = append(out, "Address: "+oneLine(addr))
 		}
+	} else if it.edge != "" {
+		// A banded edge of a two-location type (currently only vehicle_hire:
+		// hotel/dining/excursion are always singleLocation, so they never reach
+		// here) shows only its own end of the booking, not the whole route. A
+		// return row that repeated the pickup address would tell the reader to
+		// head for the collection desk, which is actively misleading for a
+		// one-way hire.
+		label, addr := pt.StartLabel, pt.StartAddress
+		if it.edge == edgeLast {
+			label, addr = pt.EndLabel, pt.EndAddress
+		}
+		if label != "" && label != pl.Title {
+			out = append(out, label)
+		}
+		if addr != "" {
+			out = append(out, "Address: "+oneLine(addr))
+		}
 	} else {
 		// A journey (flight, train, transfer): a from→to route and, when known,
 		// the departure and arrival addresses.

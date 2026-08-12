@@ -616,6 +616,79 @@ func TestRenderItineraryPDFVehicleHireBands(t *testing.T) {
 	}
 }
 
+// TestRenderItineraryPDFOneWayHireEdgesShowOwnEnd is a regression test for a
+// Task 7 review Minor: the route/From/To block used to be emitted before the
+// edge switch, so both the pickup and return rows of a one-way hire repeated
+// the full pickup->drop-off route and both addresses, meaning the return row
+// told the reader to head for the collection desk. Each edge must now show
+// only its own end: the pickup row its place and address, the return row its
+// own.
+func TestRenderItineraryPDFOneWayHireEdgesShowOwnEnd(t *testing.T) {
+	pickup := mustTime(t, "2026-09-09T08:00:00Z")
+	dropoff := mustTime(t, "2026-09-11T09:00:00Z")
+	trip := &store.Trip{Name: "Test Trip"}
+	plans := []api.PlanDTO{{
+		Type: "vehicle_hire", Title: "Test Car Hire",
+		Parts: []api.PlanPartDTO{{
+			StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London",
+			StartLabel:   "Testport Desk",
+			EndLabel:     "Testville Depot",
+			StartAddress: "1 Airport Road, Testport",
+			EndAddress:   "2 Depot Street, Testville",
+		}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
+
+	if !strings.Contains(s, "Address: 1 Airport Road, Testport") {
+		t.Errorf("pickup row should show the pickup address:\n%s", s)
+	}
+	if !strings.Contains(s, "Address: 2 Depot Street, Testville") {
+		t.Errorf("return row should show the return address:\n%s", s)
+	}
+	// The old code printed both addresses (as From:/To:) on both rows. Each
+	// address, and each place label, must now appear exactly once: on its own
+	// edge's row only. In particular the return row must NOT carry the pickup
+	// address.
+	if got := strings.Count(s, "1 Airport Road, Testport"); got != 1 {
+		t.Errorf("pickup address should appear once (pickup row only), got %d occurrences:\n%s", got, s)
+	}
+	if got := strings.Count(s, "2 Depot Street, Testville"); got != 1 {
+		t.Errorf("return address should appear once (return row only), got %d occurrences:\n%s", got, s)
+	}
+	if got := strings.Count(s, "Testport Desk"); got != 1 {
+		t.Errorf("pickup place should appear once (pickup row only), got %d occurrences:\n%s", got, s)
+	}
+	if got := strings.Count(s, "Testville Depot"); got != 1 {
+		t.Errorf("return place should appear once (return row only), got %d occurrences:\n%s", got, s)
+	}
+	if strings.Contains(s, "Testport Desk -> Testville Depot") {
+		t.Errorf("a banded edge row should not print the whole route:\n%s", s)
+	}
+}
+
+// TestRenderItineraryPDFHotelAddressUnaffectedByOneWayHireFix guards the
+// singleLocation branch (hotel/dining/excursion) against the per-edge address
+// change made for one-way hires: a hotel keeps showing the same single address
+// on both its check-in and check-out rows, exactly as before.
+func TestRenderItineraryPDFHotelAddressUnaffectedByOneWayHireFix(t *testing.T) {
+	in := mustTime(t, "2026-09-07T14:00:00Z")
+	out := mustTime(t, "2026-09-09T11:00:00Z")
+	trip := &store.Trip{Name: "Test Trip"}
+	plans := []api.PlanDTO{{
+		Type: "hotel", Title: "Test Hotel",
+		Parts: []api.PlanPartDTO{{
+			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London",
+			StartLabel:   "Test Hotel",
+			EndLabel:     "Test Hotel",
+			StartAddress: "1 Test Street, Testville TE1 1ST",
+		}},
+	}}
+	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
+	if got := strings.Count(s, "Address: 1 Test Street, Testville TE1 1ST"); got != 2 {
+		t.Errorf("hotel address should appear on both the check-in and check-out rows (unchanged), got %d occurrences:\n%s", got, s)
+	}
+}
+
 // A hire picked up and returned on the same day is not a band: one row, with
 // the usual span line.
 func TestRenderItineraryPDFVehicleHireSameDay(t *testing.T) {
