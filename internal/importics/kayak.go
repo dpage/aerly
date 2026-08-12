@@ -2,6 +2,7 @@ package importics
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,7 +22,8 @@ import (
 //     the SUMMARY ("LH 6437 from Vienna (VIE) to Frankfurt am Main (FRA)"),
 //     the provider/route for rail and bus live in the DESCRIPTION
 //     ("… Train Number 1048 … Departing from X - <date> … Arriving at Y …"),
-//     and lodging arrives as "Check in to …" / "Check out from …" pairs.
+//     and lodging arrives as "Check in to …" / "Check out from …" pairs, with
+//     vehicle hire arriving the same way as "Car Pickup" / "Car Dropoff".
 
 // kayakTripRe extracts the Kayak trip token from a "View trip" URL, e.g.
 // https://www.kayak.com/trips/!Beb7q6%24IgAwBD25W?ref=calendar → the token
@@ -54,6 +56,7 @@ var (
 	kayakAgencyRe      = regexp.MustCompile(`Agency:\s*([^)]+)\)`)
 	kayakPickupAddrRe  = regexp.MustCompile(`Pickup Address:\s*([^\n]+)`)
 	kayakDropoffAddrRe = regexp.MustCompile(`Dropoff Address:\s*([^\n]+)`)
+	kayakCarTypeRe     = regexp.MustCompile(`Car Type:\s*([^\n]+)`)
 )
 
 // mapKayak splits one parsed Kayak calendar — which carries several trips — into
@@ -106,7 +109,7 @@ func mapKayakTrip(token string, envelope *Event, events []Event) *MappedTrip {
 		mt.StartsOn, mt.EndsOn = envelopeDates(*envelope)
 	}
 
-	var hotelEvents []Event
+	var hotelEvents, carEvents []Event
 	for i := range events {
 		e := events[i]
 		switch classifyKayak(e) {
@@ -125,9 +128,7 @@ func mapKayakTrip(token string, envelope *Event, events []Event) *MappedTrip {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "car":
-			if p, ok := mapKayakCar(e); ok {
-				mt.Plans = append(mt.Plans, p)
-			}
+			carEvents = append(carEvents, e)
 		case "dining":
 			if p, ok := mapKayakSimple(e, "dining"); ok {
 				mt.Plans = append(mt.Plans, p)
@@ -138,7 +139,10 @@ func mapKayakTrip(token string, envelope *Event, events []Event) *MappedTrip {
 			}
 		}
 	}
+	// Lodging and vehicle hire are both ranged bookings Kayak writes as a pair
+	// of events, so they are mapped after the loop, once both edges are in hand.
 	mt.Plans = append(mt.Plans, mapKayakHotels(hotelEvents)...)
+	mt.Plans = append(mt.Plans, mapKayakCars(carEvents)...)
 
 	if envelope == nil && len(mt.Plans) == 0 {
 		return nil
@@ -294,39 +298,147 @@ func mapKayakTransport(e Event, planType string) (planops.ConfirmPlanInput, bool
 	}, true
 }
 
-// mapKayakCar maps a car rental into a single ground plan. Kayak writes a
-// "Car Pickup" and a "Car Dropoff" event; the pickup carries both endpoints'
-// addresses, so it alone yields the plan and the dropoff event is skipped.
-func mapKayakCar(e Event) (planops.ConfirmPlanInput, bool) {
-	if !strings.HasPrefix(e.Summary, "Car Pickup") {
-		return planops.ConfirmPlanInput{}, false
+// mapKayakCars pairs "Car Pickup" / "Car Dropoff" events into vehicle-hire
+// plans, one per rental. Pairing is what makes the plan a genuine range: the
+// pickup event spans only the collection appointment (a half-hour at the desk),
+// so a hire mapped from it alone would end on its first morning and never band
+// into the Pickup / Return entries a hire is meant to read as.
+//
+// A dropoff with no pickup yields nothing, matching the old behaviour: the
+// pickup is the anchor that carries both endpoints' addresses, the confirmation
+// number and the UID the re-import dedupe keys on, so a stray return event on
+// its own is not enough to build a plan from.
+func mapKayakCars(events []Event) []planops.ConfirmPlanInput {
+	var pickups, dropoffs []*Event
+	for i := range events {
+		if strings.HasPrefix(events[i].Summary, "Car Dropoff") {
+			dropoffs = append(dropoffs, &events[i])
+			continue
+		}
+		pickups = append(pickups, &events[i])
 	}
+	// Pair in chronological order rather than file order, so that two hires
+	// claim their own returns even if the feed lists the events interleaved.
+	sortEventsByStart(pickups)
+	sortEventsByStart(dropoffs)
+
+	claimed := make([]bool, len(dropoffs))
+	out := make([]planops.ConfirmPlanInput, 0, len(pickups))
+	for _, p := range pickups {
+		out = append(out, mapKayakCar(*p, matchKayakDropoff(*p, dropoffs, claimed)))
+	}
+	return out
+}
+
+// sortEventsByStart orders events by their start instant, keeping the feed's
+// own order for events that start together.
+func sortEventsByStart(events []*Event) {
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].Start.Time.Before(events[j].Start.Time)
+	})
+}
+
+// matchKayakDropoff returns the return event belonging to a pickup, marking it
+// claimed so a second hire cannot take the same one, or nil when the feed
+// carries no return for this pickup.
+//
+// A rental is identified by its agency plus its confirmation number, both of
+// which Kayak repeats on the return event, and the match is the earliest
+// unclaimed return at or after the pickup: two hires from the same agency on one
+// trip then pair in order instead of both seizing the first return. The second
+// pass relaxes the match to the agency alone, so a return that omits the
+// confirmation number still pairs with the hire it plainly belongs to.
+func matchKayakDropoff(pickup Event, dropoffs []*Event, claimed []bool) *Event {
+	for _, withRef := range []bool{true, false} {
+		for i, d := range dropoffs {
+			if claimed[i] || d.Start.Time.Before(pickup.Start.Time) {
+				continue
+			}
+			if !kayakCarPairs(pickup, *d, withRef) {
+				continue
+			}
+			claimed[i] = true
+			return d
+		}
+	}
+	return nil
+}
+
+// kayakCarPairs reports whether a return event belongs to a pickup: the same
+// agency always, and the same confirmation number too when withRef is set.
+func kayakCarPairs(pickup, dropoff Event, withRef bool) bool {
+	if !strings.EqualFold(kayakField(kayakAgencyRe, pickup.Summary), kayakField(kayakAgencyRe, dropoff.Summary)) {
+		return false
+	}
+	if !withRef {
+		return true
+	}
+	return strings.EqualFold(kayakConfirmation(pickup.Description), kayakConfirmation(dropoff.Description))
+}
+
+// mapKayakCar maps one rental into a vehicle-hire plan spanning the hire: the
+// pickup event's DTSTART is collection and the paired dropoff event's DTSTART is
+// the return. The pickup carries both branches' addresses and the hire company
+// goes on the plan's SupplierName, which is where the vehicle-hire design keeps
+// it (VehicleHireDetail has no provider field of its own).
+func mapKayakCar(e Event, dropoff *Event) planops.ConfirmPlanInput {
 	agency := kayakField(kayakAgencyRe, e.Summary)
-	pickup := kayakField(kayakPickupAddrRe, e.Description)
-	dropoff := kayakField(kayakDropoffAddrRe, e.Description)
+	label := orDefault(agency, "Car hire")
+	pickupAddr := kayakField(kayakPickupAddrRe, e.Description)
+	dropoffAddr := kayakField(kayakDropoffAddrRe, e.Description)
+	if dropoffAddr == "" && dropoff != nil {
+		dropoffAddr = orDefault(kayakField(kayakDropoffAddrRe, dropoff.Description), dropoff.Location)
+	}
 
 	part := planops.ConfirmPartInput{
-		Type:         "ground",
+		Type:         "vehicle_hire",
 		StartsAt:     e.Start.Time,
-		StartLabel:   orDefault(agency, "Car rental"),
-		StartAddress: pickup,
-		EndLabel:     dropoff,
-		EndAddress:   dropoff,
-		Ground:       &store.GroundDetail{Provider: agency},
+		StartLabel:   label,
+		StartAddress: pickupAddr,
+		// Both edges are labelled with the hire company; the branches differ by
+		// address, and a banded Return entry that showed the address as its
+		// label would print the same line twice.
+		EndLabel:    label,
+		EndAddress:  orDefault(dropoffAddr, pickupAddr),
+		VehicleHire: kayakVehicleHire(e.Description),
 	}
-	if !e.End.Time.IsZero() {
+	// Only fall back to the pickup's own DTEND when nothing paired with it: that
+	// instant is the end of the collection appointment, not the return.
+	switch {
+	case dropoff != nil && !dropoff.Start.Time.IsZero():
+		end := dropoff.Start.Time
+		part.EndsAt = &end
+	case !e.End.Time.IsZero():
 		end := e.End.Time
 		part.EndsAt = &end
 	}
 
 	return planops.ConfirmPlanInput{
-		Type:            "ground",
-		Title:           e.Summary,
+		Type:            "vehicle_hire",
+		Title:           label,
 		Source:          importSource,
 		ConfirmationRef: kayakConfirmation(e.Description),
+		SupplierName:    agency,
 		TripItUID:       e.UID,
 		Parts:           []planops.ConfirmPartInput{part},
-	}, true
+	}
+}
+
+// kayakVehicleHire builds the vehicle-hire satellite from what a Kayak
+// description actually states, which is only the car type ("Sample Car or
+// similar Automatic"); its trailing gearbox word is split off into Transmission.
+// The remaining fields (category, fuel policy, mileage, excess, deposit) are
+// absent from the feed and stay empty rather than being guessed at.
+func kayakVehicleHire(desc string) *store.VehicleHireDetail {
+	d := &store.VehicleHireDetail{Vehicle: kayakField(kayakCarTypeRe, desc)}
+	for _, gearbox := range []string{"Automatic", "Manual"} {
+		if strings.HasSuffix(d.Vehicle, " "+gearbox) {
+			d.Transmission = gearbox
+			d.Vehicle = strings.TrimSpace(strings.TrimSuffix(d.Vehicle, gearbox))
+			break
+		}
+	}
+	return d
 }
 
 // mapKayakSimple maps a single-venue booking (a dining reservation or an
