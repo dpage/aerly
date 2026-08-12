@@ -84,6 +84,8 @@ func TestMigration0010UpDown(t *testing.T) {
 
 	// Down then up again — exercises the reverse, and that the FK is restored.
 	// A correct rollback chain unwinds the later migrations first:
+	//   - 0051 created vehicle_hire_details with an FK to plan_parts, so it
+	//     must be dropped before 0010 can drop plan_parts;
 	//   - 0046 created meeting_details/event_details with FKs to plan_parts, so
 	//     they must be dropped before 0010 can drop plan_parts;
 	//   - 0044 created trip_feeds/trip_feed_events with an FK to trips (the
@@ -106,6 +108,7 @@ func TestMigration0010UpDown(t *testing.T) {
 	//   - 0020-down then drops the flight_alerts table itself;
 	//   - 0013 (applied by NewPool) dropped the legacy flights tables, so its
 	//     down must run before 0010-down's positions→flights FK restore.
+	_, down0051 := readUpDown(t, "0051_vehicle_hire")
 	_, down0046 := readUpDown(t, "0046_meeting_event_types")
 	_, down0044 := readUpDown(t, "0044_trip_feeds")
 	_, down0043 := readUpDown(t, "0043_ice_cream_plan")
@@ -117,6 +120,9 @@ func TestMigration0010UpDown(t *testing.T) {
 	_, down0020 := readUpDown(t, "0020_flight_alerts")
 	up0013, down0013 := readUpDown(t, "0013_drop_legacy_flights")
 	up, down := readUpDown(t, "0010_trip_core")
+	if _, err := pool.Exec(ctx, down0051); err != nil {
+		t.Fatalf("apply 0051 down: %v", err)
+	}
 	if _, err := pool.Exec(ctx, down0046); err != nil {
 		t.Fatalf("apply 0046 down: %v", err)
 	}
