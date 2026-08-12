@@ -93,7 +93,7 @@ func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 	if startIsAirport {
 		// Airport → accommodation: time off the inbound flight's arrival.
 		if f, ok := findArrival(flights, startCode, transferDate); ok {
-			part.StartsAt = f.in.Add(transferArrivalBuffer)
+			retimeStart(part, f.in.Add(transferArrivalBuffer))
 			part.StartTZ = f.inTZ
 		}
 		return
@@ -104,9 +104,24 @@ func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 		if f.longHaul {
 			lead = leadLongHaul
 		}
-		part.StartsAt = f.out.Add(-lead)
+		retimeStart(part, f.out.Add(-lead))
 		part.StartTZ = f.outTZ
 	}
+}
+
+// retimeStart moves part.StartsAt to newStart. If the part also carries a
+// stated EndsAt (a booked drop-off: a ground part could not carry one before
+// the ground/EndsAt fix in propose.go, so this combination was previously
+// unreachable), EndsAt is shifted by the same delta rather than left in
+// place, preserving the transfer's stated duration instead of risking an
+// EndsAt that lands at or before the retimed StartsAt.
+func retimeStart(part *ProposedPart, newStart time.Time) {
+	if part.EndsAt != nil {
+		delta := newStart.Sub(part.StartsAt)
+		newEnd := part.EndsAt.Add(delta)
+		part.EndsAt = &newEnd
+	}
+	part.StartsAt = newStart
 }
 
 // findArrival returns the flight arriving on transferDate (in its arrival-local

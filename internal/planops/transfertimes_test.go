@@ -122,6 +122,57 @@ func TestApplyTransferTimes_NoFlightLeavesDefault(t *testing.T) {
 	}
 }
 
+// TestApplyTransferTimes_ShiftsEndsAtWithStart is the regression guard for a
+// bug the ground/EndsAt fix in propose.go made reachable: retimeTransfer
+// rewrites StartsAt off the flanking flight but, before this fix, left a
+// stated EndsAt untouched. A ground part could not previously carry an
+// EndsAt at all, so a defaulted StartsAt (retimed) alongside a stated EndsAt
+// was impossible; it now is (an airport→hotel transfer stating a drop-off
+// time but no pickup time). Retiming must shift EndsAt by the same delta as
+// StartsAt so the transfer's stated duration survives and it never ends
+// before it starts.
+func TestApplyTransferTimes_ShiftsEndsAtWithStart(t *testing.T) {
+	arr := time.Date(2026, 1, 15, 17, 20, 0, 0, time.UTC)
+	dep := time.Date(2026, 1, 15, 14, 0, 0, 0, time.UTC)
+	// As proposePart would build it for StartDate 2026-01-15 with no
+	// StartTime (defaulted 09:00, startTimeDefaulted=true) and EndTime
+	// "11:00" with no EndDate (falls back to the start date, per the ground
+	// case's train-shaped fallback).
+	defaultStart, _ := time.Parse("2006-01-02T15:04", "2026-01-15T09:00")
+	defaultStart = defaultStart.UTC()
+	statedEnd, _ := time.Parse("2006-01-02T15:04", "2026-01-15T11:00")
+	statedEnd = statedEnd.UTC()
+	origDuration := statedEnd.Sub(defaultStart)
+
+	plans := []ProposedPlan{
+		flightPlan("LGW", "ALC", dep, arr, "Europe/London", "Europe/Madrid"),
+		{
+			Type: "ground",
+			Parts: []ProposedPart{{
+				Type:               "ground",
+				StartLabel:         "Alicante Airport",
+				EndLabel:           "Melia Benidorm",
+				StartsAt:           defaultStart,
+				EndsAt:             &statedEnd,
+				startTimeDefaulted: true,
+			}},
+		},
+	}
+	applyTransferTimes(plans)
+
+	got := plans[1].Parts[0]
+	if got.EndsAt == nil {
+		t.Fatal("EndsAt was dropped by retiming")
+	}
+	if !got.EndsAt.After(got.StartsAt) {
+		t.Fatalf("retimed transfer ends (%s) at or before it starts (%s), a persisted part that ends before it starts",
+			got.EndsAt, got.StartsAt)
+	}
+	if gotDuration := got.EndsAt.Sub(got.StartsAt); gotDuration != origDuration {
+		t.Errorf("duration = %s, want the originally stated %s preserved through the retime", gotDuration, origDuration)
+	}
+}
+
 func TestApplyTransferTimes_PlaceToPlaceIgnored(t *testing.T) {
 	arr := time.Date(2026, 1, 15, 17, 20, 0, 0, time.UTC)
 	plans := []ProposedPlan{

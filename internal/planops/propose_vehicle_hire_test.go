@@ -94,6 +94,31 @@ func TestProposeGroundNowKeepsEndsAt(t *testing.T) {
 	if part.EndsAt == nil {
 		t.Fatal("a ground transfer's end instant must survive into the proposed part")
 	}
+	// Assert the exact instant, not just non-nil: a fix that used StartTime
+	// instead of EndTime (or otherwise mis-derived EndsAt) would still clear
+	// a bare != nil check.
+	if got := part.EndsAt.Format("2006-01-02 15:04"); got != "2026-09-09 09:15" {
+		t.Fatalf("EndsAt = %s, want 2026-09-09 09:15", got)
+	}
+}
+
+// TestProposeGroundEndTimeOnlyFallsBackToStartDate covers the
+// d == "" -> d = part.StartDate fallback in propose.go's ground case: the
+// whole reason the brief asked for train's shape rather than hotel's. A
+// same-day transfer whose source states a drop-off time without repeating
+// the date must still resolve EndsAt against the transfer's own start date.
+func TestProposeGroundEndTimeOnlyFallsBackToStartDate(t *testing.T) {
+	part := proposeOne(t, planops.ExtractedPart{
+		Type: "ground", Confidence: "high",
+		StartDate: "2026-09-09", StartTime: "08:00",
+		EndTime: "09:15", // no EndDate
+	})
+	if part.EndsAt == nil {
+		t.Fatal("a ground transfer stating only an end time must still get an end instant")
+	}
+	if got := part.EndsAt.Format("2006-01-02 15:04"); got != "2026-09-09 09:15" {
+		t.Fatalf("EndsAt = %s, want the end time resolved against the transfer's own start date (2026-09-09 09:15)", got)
+	}
 }
 
 // TestProposeGroundWithoutEndLeavesEndsAtNil checks the fix does not
