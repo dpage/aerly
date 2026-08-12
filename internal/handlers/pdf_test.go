@@ -339,7 +339,7 @@ func TestPageSize(t *testing.T) {
 
 func TestTypeLabel(t *testing.T) {
 	cases := map[string]string{
-		"flight": "Flight", "train": "Train", "hotel": "Hotel", "car": "Car hire",
+		"flight": "Flight", "train": "Train", "hotel": "Hotel", "vehicle_hire": "Car hire",
 		"ferry": "Ferry", "bus": "Bus", "coach": "Bus", "": "Plan", "spaceflight": "Spaceflight",
 	}
 	for in, want := range cases {
