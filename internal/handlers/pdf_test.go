@@ -526,3 +526,57 @@ func TestAssemblePDFOffsets(t *testing.T) {
 		t.Errorf("object/trailer wrong:\n%s", s)
 	}
 }
+
+// TestPDFHotelOutputUnchangedByBandingRefactor is the golden test for the
+// banding unification on the PDF side: a two-night hotel stay must keep
+// producing exactly the same ordered run of drawn text (day headers, times, row
+// titles and detail lines) that it produced before the refactor, since those
+// labels are user-visible on a printed itinerary.
+func TestPDFHotelOutputUnchangedByBandingRefactor(t *testing.T) {
+	in := mustTime(t, "2026-09-07T14:00:00Z")
+	out := mustTime(t, "2026-09-09T11:00:00Z")
+	trip := &store.Trip{Name: "Test Trip"}
+	plans := []api.PlanDTO{{
+		Type: "hotel", Title: "Test Hotel", ConfirmationRef: "TESTREF1",
+		SupplierName: "Test Bookings", ContactPhone: "+44 20 7946 0100",
+		Parts: []api.PlanPartDTO{{
+			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London",
+			StartLabel: "Test Hotel", EndLabel: "Test Hotel",
+			StartAddress: "1 Test Street, Testville TE1 1ST",
+		}},
+	}}
+
+	got := strings.Join(pdfTextRuns(string(renderItineraryPDF(trip, plans, nil, "a4"))), "\n")
+	want := strings.Join([]string{
+		"Test Trip",
+		"Monday, 7 September 2026",
+		"15:00",
+		`Hotel: Test Hotel \(Check-in\)`,
+		"Address: 1 Test Street, Testville TE1 1ST",
+		"Check-in: Mon 7 Sep, 15:00",
+		"Confirmation: TESTREF1",
+		"Booked with: Test Bookings Tel: +44 20 7946 0100",
+		"Wednesday, 9 September 2026",
+		"12:00",
+		`Hotel: Test Hotel \(Check-out\)`,
+		"Address: 1 Test Street, Testville TE1 1ST",
+		"Check-out: Wed 9 Sep, 12:00",
+		"Aerly itinerary  \xb7  Page 1 of 1",
+	}, "\n")
+	if got != want {
+		t.Fatalf("hotel itinerary text changed.\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// pdfTextRuns extracts, in order, every string the layout drew with a Tj
+// operator. The renderer writes one "(text) Tj" per line, so this reads back
+// the visible itinerary text without decoding the whole PDF.
+func pdfTextRuns(pdf string) []string {
+	var out []string
+	for _, line := range strings.Split(pdf, "\n") {
+		if strings.HasPrefix(line, "(") && strings.HasSuffix(line, ") Tj") {
+			out = append(out, line[1:len(line)-len(") Tj")])
+		}
+	}
+	return out
+}

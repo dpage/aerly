@@ -294,3 +294,77 @@ func TestRenderICSNoTZFallsBackToUTC(t *testing.T) {
 		t.Errorf("expected UTC DTSTART fallback when tz empty:\n%s", out)
 	}
 }
+
+// TestICSHotelOutputUnchangedByBandingRefactor is the golden test for the
+// banding unification: a two-night hotel stay must keep producing exactly the
+// UIDs, SUMMARY lines and DTSTARTs it produced before the refactor. The UIDs in
+// particular are load-bearing, because real calendar clients have already
+// subscribed to this feed and key their stored events off the UID; changing one
+// duplicates the event for every subscriber and orphans the original, which
+// cannot be undone once it has synced.
+func TestICSHotelOutputUnchangedByBandingRefactor(t *testing.T) {
+	checkout := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+	events := []*store.CalendarEvent{{
+		PartID:          42,
+		PlanID:          7,
+		Type:            "hotel",
+		Title:           "Test Hotel",
+		ConfirmationRef: "TESTREF1",
+		Notes:           "Late arrival",
+		StartsAt:        time.Date(2026, 9, 7, 14, 0, 0, 0, time.UTC),
+		EndsAt:          &checkout,
+		StartTZ:         "Europe/London",
+		EndTZ:           "Europe/London",
+		StartLabel:      "Test Hotel, Testville",
+		EndLabel:        "Test Hotel, Testville",
+		Status:          "confirmed",
+		UpdatedAt:       time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+	}}
+
+	got := vEventBlocks(renderICS("Aerly", events, false))
+	want := strings.Join([]string{
+		"BEGIN:VEVENT",
+		"UID:plan-part-42-checkin@aerly",
+		"DTSTAMP:20260801T000000Z",
+		"LAST-MODIFIED:20260801T000000Z",
+		"DTSTART;TZID=Europe/London:20260907T150000",
+		"SUMMARY:Test Hotel (Check-in)",
+		`LOCATION:Test Hotel\, Testville`,
+		`DESCRIPTION:Confirmation: TESTREF1\nLate arrival`,
+		"STATUS:CONFIRMED",
+		"END:VEVENT",
+		"BEGIN:VEVENT",
+		"UID:plan-part-42-checkout@aerly",
+		"DTSTAMP:20260801T000000Z",
+		"LAST-MODIFIED:20260801T000000Z",
+		"DTSTART;TZID=Europe/London:20260909T110000",
+		"SUMMARY:Test Hotel (Check-out)",
+		`LOCATION:Test Hotel\, Testville`,
+		`DESCRIPTION:Confirmation: TESTREF1\nLate arrival`,
+		"STATUS:CONFIRMED",
+		"END:VEVENT",
+	}, "\n")
+	if got != want {
+		t.Fatalf("hotel VEVENT output changed.\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// vEventBlocks returns just the VEVENT sections of an iCal document, so a golden
+// assertion covers the events without being disturbed by VTIMEZONE detail that
+// tracks the tzdata Go happens to be built with.
+func vEventBlocks(ics string) string {
+	var out []string
+	in := false
+	for _, line := range strings.Split(ics, "\r\n") {
+		if line == "BEGIN:VEVENT" {
+			in = true
+		}
+		if in {
+			out = append(out, line)
+		}
+		if line == "END:VEVENT" {
+			in = false
+		}
+	}
+	return strings.Join(out, "\n")
+}
