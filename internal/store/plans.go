@@ -205,6 +205,25 @@ type EventDetail struct {
 	URL        string // event page / ticket link
 }
 
+// VehicleHireDetail is the vehicle-hire satellite: any self-drive rental
+// (car, van, campervan, motorbike, bicycle, e-scooter). The dividing line
+// against 'ground' is who drives: a taxi, shuttle or chauffeured transfer
+// stays 'ground', whilst anything the traveller collects and returns
+// themselves is 'vehicle_hire'. The excess and deposit amounts are nullable
+// so "not stated" stays distinct from a genuine zero excess.
+type VehicleHireDetail struct {
+	PlanPartID      int64
+	Category        string
+	Vehicle         string
+	Transmission    string
+	FuelPolicy      string
+	Mileage         string
+	ExcessAmount    *float64
+	ExcessCurrency  string
+	DepositAmount   *float64
+	DepositCurrency string
+}
+
 // CreatePlanPayload bundles a plan plus its parts and per-type details for an
 // atomic insert. The detail slices are written according to Type.
 type CreatePlanPayload struct {
@@ -248,15 +267,16 @@ type CreatePlanPartPayload struct {
 	Status            string
 	SupersedesID      *int64
 
-	Flight    *FlightDetail
-	Hotel     *HotelDetail
-	Train     *TrainDetail
-	Ground    *GroundDetail
-	Dining    *DiningDetail
-	Excursion *ExcursionDetail
-	IceCream  *IceCreamDetail
-	Meeting   *MeetingDetail
-	Event     *EventDetail
+	Flight      *FlightDetail
+	Hotel       *HotelDetail
+	Train       *TrainDetail
+	Ground      *GroundDetail
+	Dining      *DiningDetail
+	Excursion   *ExcursionDetail
+	IceCream    *IceCreamDetail
+	Meeting     *MeetingDetail
+	Event       *EventDetail
+	VehicleHire *VehicleHireDetail
 }
 
 // UpdatePlanPayload carries the optionally-set fields of a plan edit. A nil
@@ -514,6 +534,19 @@ func insertDetailTx(ctx context.Context, tx pgx.Tx, partID int64, planType strin
 			INSERT INTO event_details (plan_part_id, performer, category, venue_area, url)
 			VALUES ($1,$2,$3,$4,$5)`,
 			partID, d.Performer, d.Category, d.VenueArea, d.URL)
+		return err
+	case "vehicle_hire":
+		d := in.VehicleHire
+		if d == nil {
+			d = &VehicleHireDetail{}
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO vehicle_hire_details (plan_part_id, category, vehicle,
+				transmission, fuel_policy, mileage, excess_amount, excess_currency,
+				deposit_amount, deposit_currency)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			partID, d.Category, d.Vehicle, d.Transmission, d.FuelPolicy, d.Mileage,
+			d.ExcessAmount, d.ExcessCurrency, d.DepositAmount, d.DepositCurrency)
 		return err
 	default:
 		return errors.New("unknown plan type: " + planType)
@@ -1377,6 +1410,65 @@ func (s *Store) UpdateIceCreamDetail(ctx context.Context, partID int64, up IceCr
 			rating       = COALESCE($2, ice_cream_details.rating),
 			what_ordered = COALESCE($3, ice_cream_details.what_ordered)`,
 		partID, up.Rating, up.WhatOrdered)
+	return err
+}
+
+// VehicleHireDetailFor loads the vehicle-hire satellite for a part, or
+// (nil, nil).
+func (s *Store) VehicleHireDetailFor(ctx context.Context, partID int64) (*VehicleHireDetail, error) {
+	var d VehicleHireDetail
+	err := s.pool.QueryRow(ctx, `
+		SELECT plan_part_id, category, vehicle, transmission, fuel_policy, mileage,
+			excess_amount, excess_currency, deposit_amount, deposit_currency
+		FROM vehicle_hire_details WHERE plan_part_id = $1`, partID).Scan(
+		&d.PlanPartID, &d.Category, &d.Vehicle, &d.Transmission, &d.FuelPolicy, &d.Mileage,
+		&d.ExcessAmount, &d.ExcessCurrency, &d.DepositAmount, &d.DepositCurrency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil //nolint:nilnil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+// VehicleHireDetailUpdate carries the editable subset of a vehicle-hire
+// satellite; a nil pointer leaves that field unchanged (the COALESCE idiom
+// shared with the other updaters).
+type VehicleHireDetailUpdate struct {
+	Category        *string
+	Vehicle         *string
+	Transmission    *string
+	FuelPolicy      *string
+	Mileage         *string
+	ExcessAmount    *float64
+	ExcessCurrency  *string
+	DepositAmount   *float64
+	DepositCurrency *string
+}
+
+// UpdateVehicleHireDetail writes a vehicle-hire detail edit, upserting the
+// satellite row so a part predating its detail still takes the edit. The
+// excess/deposit amounts can be set or corrected but not cleared back to
+// NULL, mirroring how UpdateHotelDetail treats guests.
+func (s *Store) UpdateVehicleHireDetail(ctx context.Context, partID int64, up VehicleHireDetailUpdate) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO vehicle_hire_details (plan_part_id, category, vehicle, transmission,
+			fuel_policy, mileage, excess_amount, excess_currency, deposit_amount, deposit_currency)
+		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''), COALESCE($4, ''), COALESCE($5, ''),
+			COALESCE($6, ''), $7, COALESCE($8, ''), $9, COALESCE($10, ''))
+		ON CONFLICT (plan_part_id) DO UPDATE SET
+			category         = COALESCE($2, vehicle_hire_details.category),
+			vehicle          = COALESCE($3, vehicle_hire_details.vehicle),
+			transmission     = COALESCE($4, vehicle_hire_details.transmission),
+			fuel_policy      = COALESCE($5, vehicle_hire_details.fuel_policy),
+			mileage          = COALESCE($6, vehicle_hire_details.mileage),
+			excess_amount    = COALESCE($7, vehicle_hire_details.excess_amount),
+			excess_currency  = COALESCE($8, vehicle_hire_details.excess_currency),
+			deposit_amount   = COALESCE($9, vehicle_hire_details.deposit_amount),
+			deposit_currency = COALESCE($10, vehicle_hire_details.deposit_currency)`,
+		partID, up.Category, up.Vehicle, up.Transmission, up.FuelPolicy, up.Mileage,
+		up.ExcessAmount, up.ExcessCurrency, up.DepositAmount, up.DepositCurrency)
 	return err
 }
 
