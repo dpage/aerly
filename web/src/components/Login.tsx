@@ -68,7 +68,7 @@ export default function Login() {
           <AerlyLogo size={56} />
           <Typography variant="h4">Aerly</Typography>
           <Typography variant="body1" color="text.secondary">
-            Track your friends&rsquo; flights to PostgreSQL conferences.
+            Forward a booking, get an itinerary. Shared trips, one timeline, live flights.
           </Typography>
           <Stack spacing={1.5} sx={{ alignSelf: 'stretch' }}>
             {providers === null ? (

@@ -39,7 +39,8 @@ export default defineConfig({
       manifest: {
         name: 'Aerly',
         short_name: 'Aerly',
-        description: "Track your friends' flights on a live world map.",
+        description:
+          'Forward a booking, get an itinerary. Shared trips, one timeline, live flights.',
         // Dark field matches the brand mark (designed to read on dark) and the
         // dark theme's page background; shown as the splash while loading.
         theme_color: '#0d1117',
