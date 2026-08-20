@@ -404,6 +404,26 @@ func (s *Store) RefreshFlightPartBelt(ctx context.Context, partID int64, destBel
 	return err
 }
 
+// RefreshFlightPartArrival overwrites the live arrival times when the resolver
+// supplies them, leaving the existing column alone for a nil (the provider
+// omits both until the flight has live coverage, and an omission must not wipe
+// a time we already know). Mirrors RefreshFlightPartBelt's
+// overwrite-when-supplied rule, with NULL playing the part empty-string plays
+// there.
+//
+// These are what let a late flight be recognised as late: the derived status
+// keys off the arrival we actually expect rather than the timetabled one, so a
+// revision pushes back the moment the part is declared Arrived and drops out
+// of the poll set.
+func (s *Store) RefreshFlightPartArrival(ctx context.Context, partID int64, estimatedIn, actualIn *time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flight_details SET
+			estimated_in = COALESCE($2, estimated_in),
+			actual_in    = COALESCE($3, actual_in)
+		WHERE plan_part_id = $1`, partID, estimatedIn, actualIn)
+	return err
+}
+
 // RefreshFlightPartSchedule overwrites the scheduled departure/arrival from the
 // resolver whilst the flight is still unconfirmed (resolved = false). An
 // unconfirmed schedule is provisional — extracted from an email, or hand-typed —
@@ -420,20 +440,43 @@ func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out
 	return err
 }
 
-// RefreshFlightPartStatus is the part-keyed counterpart of RefreshFlightStatus:
-// re-derives flight_status from the scheduled times alone, preserving terminal
-// Cancelled / Diverted, and bumps last_polled_at. Identical CASE logic, on
-// flight_details.
+// arrivalSlipCap bounds how far a live arrival time may push the moment a part
+// is declared Arrived. Without it a stale revision (the provider quotes a new
+// arrival, then loses coverage and never updates it again) would hold the part
+// non-terminal, and so in the poll set, indefinitely. A flight running more
+// than this far behind has in practice been rescheduled rather than delayed.
+const arrivalSlipCap = "12 hours"
+
+// RefreshFlightPartStatus re-derives flight_status from the flight's times,
+// preserving terminal Cancelled / Diverted, and bumps last_polled_at.
+//
+// Arrival is judged against the arrival we actually expect — the observed
+// touchdown, else the airline's current estimate, else the timetable — so a
+// flight running late stays Enroute past its scheduled arrival and keeps being
+// polled instead of being declared Arrived whilst it is still in the air. With
+// no live times the expression collapses to scheduled_in and the behaviour is
+// exactly the timetable-only one this replaced.
 func (s *Store) RefreshFlightPartStatus(ctx context.Context, partID int64) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET
 			flight_status = CASE
 				WHEN flight_status IN ('Cancelled', 'Diverted') THEN flight_status
-				-- Only declare Arrived when a real arrival time exists (strictly
-				-- after departure). A manually-entered flight with no arrival time
-				-- stores scheduled_in == scheduled_out; without this guard it flips
-				-- to Arrived a minute past its scheduled departure, before takeoff.
-				WHEN scheduled_in > scheduled_out AND NOW() > scheduled_in THEN 'Arrived'
+				-- Live times win outright, capped so a stale revision can't hold
+				-- the part open forever. No scheduled_in > scheduled_out guard
+				-- here: an observed arrival is real even on a part whose typed-in
+				-- schedule never had an arrival time.
+				WHEN COALESCE(actual_in, estimated_in) IS NOT NULL
+					AND NOW() > LEAST(
+						COALESCE(actual_in, estimated_in),
+						scheduled_in + INTERVAL '`+arrivalSlipCap+`')
+					THEN 'Arrived'
+				-- No live times: the timetable, and only when it carries a real
+				-- arrival (strictly after departure). A manually-entered flight
+				-- with no arrival time stores scheduled_in == scheduled_out;
+				-- without this guard it flips to Arrived a minute past its
+				-- scheduled departure, before takeoff.
+				WHEN COALESCE(actual_in, estimated_in) IS NULL
+					AND scheduled_in > scheduled_out AND NOW() > scheduled_in THEN 'Arrived'
 				WHEN NOW() >= scheduled_out THEN 'Enroute'
 				ELSE 'Scheduled'
 			END,

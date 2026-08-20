@@ -627,6 +627,46 @@ func TestTickStoresBeltNearArrival(t *testing.T) {
 	}
 }
 
+// TestTickPersistsLiveArrivalTimes: the resolver's revised and observed arrival
+// times land on the row, which is what the derived status then judges arrival
+// against. Without them a flight running late is declared Arrived on the
+// timetable and stops being polled whilst it is still in the air.
+func TestTickPersistsLiveArrivalTimes(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	revised := now.Add(5 * time.Hour).UTC().Truncate(time.Second)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ118", OriginIATA: "VIE", DestIATA: "ARN",
+		EstimatedIn: &revised,
+	}}
+	// Airborne, timetabled to land in an hour but running five hours late.
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "ZZ118", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.EstimatedIn == nil || !got.EstimatedIn.UTC().Truncate(time.Second).Equal(revised) {
+		t.Fatalf("revised arrival not persisted: %v, want %v", got.EstimatedIn, revised)
+	}
+	if got.ActualIn != nil {
+		t.Errorf("actual arrival invented from an absent runway time: %v", got.ActualIn)
+	}
+	if got.Status != "Enroute" {
+		t.Errorf("a flight revised five hours late should be Enroute, got %q", got.Status)
+	}
+	// And the belt window follows the revision rather than the timetable: with
+	// arrival now five hours out, a belt published today is still too early.
+	if beltIsCurrent(got, now) {
+		t.Error("belt window should track the revised arrival, not the schedule")
+	}
+}
+
 // TestBeltIsCurrent covers the window arithmetic directly, including the
 // arrival-time precedence: an actual arrival beats the estimate, which beats
 // the schedule, so a flight that ran three hours late still gets its belt at

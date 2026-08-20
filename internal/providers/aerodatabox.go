@@ -436,6 +436,10 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 			r.ScheduledIn = parsed
 		}
 	}
+	// Live arrival times, where the provider has coverage: revisedTime is the
+	// airline's current estimate, runwayTime the observed touchdown.
+	r.EstimatedIn = adbMoment(f.Arrival.RevisedTime)
+	r.ActualIn = adbMoment(f.Arrival.RunwayTime)
 	if a := f.Departure.Airport; a.IATA != "" {
 		r.OriginIATA = a.IATA
 		r.OriginName = strings.TrimSpace(a.Name)
@@ -473,6 +477,21 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 	return r
 }
 
+// adbMoment parses an optional AeroDataBox time block into an optional
+// instant. A missing block, or one whose UTC field we can't parse, yields nil
+// rather than a zero time, so "the provider didn't tell us" stays distinct from
+// "the provider said midnight on the first of January".
+func adbMoment(t *adbTime) *time.Time {
+	if t == nil {
+		return nil
+	}
+	parsed, err := parseADBTime(t.UTC)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
 // parseADBTime handles the AeroDataBox UTC time format, which uses a space
 // between the date and time component instead of an ISO 'T'.
 func parseADBTime(s string) (time.Time, error) {
@@ -508,6 +527,12 @@ type adbFlight struct {
 type adbMovement struct {
 	Airport       adbAirport `json:"airport"`
 	ScheduledTime *adbTime   `json:"scheduledTime,omitempty"`
+	// RevisedTime is the airline's current estimate for the movement and
+	// RunwayTime the observed wheels-off / wheels-on, both appearing once the
+	// flight has live coverage (the movement's "quality" array carries "Live").
+	// Absent on a flight the provider only holds a timetable for.
+	RevisedTime *adbTime `json:"revisedTime,omitempty"`
+	RunwayTime  *adbTime `json:"runwayTime,omitempty"`
 	// Gate / terminal are present on the departure/arrival movement for many
 	// airports; absent for others (omitempty → ""). BaggageBelt is the arrival
 	// carousel, populated on the arrival movement for many airports.

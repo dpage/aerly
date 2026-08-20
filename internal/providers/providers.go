@@ -132,6 +132,20 @@ type ResolvedFlight struct {
 	// departure equivalent); empty when the provider hasn't published it yet.
 	// Live and updatable like gate — a change drives a belt-change alert.
 	DestBaggageBelt string
+	// EstimatedIn / ActualIn are the live arrival times: the airline's current
+	// estimate, and the observed touchdown once it has happened. Both nil for a
+	// flight the provider only holds a timetable for, which is why everything
+	// downstream falls back to ScheduledIn. They are what lets a flight running
+	// late stay Enroute past its timetabled arrival instead of being declared
+	// Arrived whilst it is still in the air.
+	//
+	// There is deliberately no EstimatedOut / ActualOut counterpart. The
+	// provider's actual departure is wheels-off rather than off-block, so it
+	// runs a taxi-time later than the scheduled gate departure it would be
+	// compared against, and feeding it into the departure-delay calculation
+	// would report a phantom ten-minute delay on almost every flight.
+	EstimatedIn *time.Time
+	ActualIn    *time.Time
 }
 
 // Resolver maps a flight number + departure date to a ResolvedFlight. The

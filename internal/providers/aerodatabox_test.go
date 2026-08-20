@@ -579,6 +579,70 @@ func TestAeroDataBoxCarriesGateAndTerminal(t *testing.T) {
 	}
 }
 
+// The arrival movement's revisedTime / runwayTime become the live arrival
+// times, which is what lets a late flight be recognised as still airborne. The
+// shape mirrors a real completed rotation: an estimate that moved off the
+// timetable, and a touchdown a few minutes off that estimate again.
+func TestAeroDataBoxCarriesLiveArrivalTimes(t *testing.T) {
+	body := `[{"number":"OS 962","codeshareStatus":"IsOperator",
+	  "departure":{"airport":{"iata":"ARN"},"scheduledTime":{"utc":"2026-08-19 08:05Z"},
+	    "revisedTime":{"utc":"2026-08-19 08:06Z"},"runwayTime":{"utc":"2026-08-19 08:14Z"}},
+	  "arrival":{"airport":{"iata":"VIE"},"scheduledTime":{"utc":"2026-08-19 10:15Z"},
+	    "revisedTime":{"utc":"2026-08-19 10:09Z"},"runwayTime":{"utc":"2026-08-19 10:03Z"}}}]`
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	rf, err := a.Resolve(context.Background(), "OS962", time.Now())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if rf.EstimatedIn == nil || !rf.EstimatedIn.Equal(time.Date(2026, 8, 19, 10, 9, 0, 0, time.UTC)) {
+		t.Errorf("estimated in = %v, want 2026-08-19 10:09Z", rf.EstimatedIn)
+	}
+	if rf.ActualIn == nil || !rf.ActualIn.Equal(time.Date(2026, 8, 19, 10, 3, 0, 0, time.UTC)) {
+		t.Errorf("actual in = %v, want 2026-08-19 10:03Z", rf.ActualIn)
+	}
+	// The departure's own revised/runway times are deliberately dropped: the
+	// provider's actual departure is wheels-off, so carrying it into the
+	// delay calculation would invent a taxi-length delay on every flight.
+	if rf.ScheduledOut != time.Date(2026, 8, 19, 8, 5, 0, 0, time.UTC) {
+		t.Errorf("scheduled out = %v, want the timetabled 08:05Z", rf.ScheduledOut)
+	}
+}
+
+// A flight the provider only holds a timetable for carries no live times at
+// all, which is the case everything downstream falls back to scheduled_in for.
+func TestAeroDataBoxWithoutLiveArrivalTimes(t *testing.T) {
+	body := `[{"number":"OS 962","codeshareStatus":"IsOperator",
+	  "departure":{"airport":{"iata":"ARN"},"scheduledTime":{"utc":"2026-08-19 08:05Z"}},
+	  "arrival":{"airport":{"iata":"VIE"},"scheduledTime":{"utc":"2026-08-19 10:15Z"}}}]`
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	rf, err := a.Resolve(context.Background(), "OS962", time.Now())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if rf.EstimatedIn != nil || rf.ActualIn != nil {
+		t.Errorf("timetable-only flight carried live times: %v / %v", rf.EstimatedIn, rf.ActualIn)
+	}
+}
+
+// An unparseable time block is treated as absent rather than as the zero
+// instant, so a malformed revision can't be read as "landed in 1 AD".
+func TestADBMoment(t *testing.T) {
+	if got := adbMoment(nil); got != nil {
+		t.Errorf("nil block = %v, want nil", got)
+	}
+	if got := adbMoment(&adbTime{UTC: "not a time"}); got != nil {
+		t.Errorf("unparseable block = %v, want nil", got)
+	}
+	got := adbMoment(&adbTime{UTC: "2026-08-19 10:03Z"})
+	if got == nil || !got.Equal(time.Date(2026, 8, 19, 10, 3, 0, 0, time.UTC)) {
+		t.Errorf("parsed block = %v, want 2026-08-19 10:03Z", got)
+	}
+}
+
 func TestBuildResolvedNilSubObjects(t *testing.T) {
 	f := &adbFlight{Number: "AA1"}
 	r := buildResolved(f, "FALLBACK")

@@ -525,6 +525,16 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 			return nil, err
 		}
 	}
+	// Live arrival times, where the provider has them. Persisted before the
+	// status refresh that follows in the caller, so a revision published whilst
+	// the flight is still airborne is already in the row when the status is
+	// re-derived and can keep the part out of Arrived. Unlike the schedule
+	// below these are not frozen on resolved: the whole point is that they keep
+	// moving as the flight runs late.
+	if err := p.Store.RefreshFlightPartArrival(ctx, f.ID, rf.EstimatedIn, rf.ActualIn); err != nil {
+		slog.Error("poller: refresh arrival times failed", "id", f.ID, "err", err)
+		return nil, err
+	}
 	// Terminal is updatable like gate (a change is what the terminal-change
 	// alert detects), so it takes the overwrite-when-non-empty path rather than
 	// the only-fill-empty backfill above.

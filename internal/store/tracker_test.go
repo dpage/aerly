@@ -83,6 +83,116 @@ func TestRefreshStatusUnknownArrival(t *testing.T) {
 	}
 }
 
+// TestRefreshStatusLateArrival: a flight whose arrival has been revised later
+// than the timetable must stay Enroute past its scheduled arrival, because
+// otherwise it is declared Arrived — and so dropped from the poll set — whilst
+// it is still in the air. Once the revised time itself passes, it arrives.
+func TestRefreshStatusLateArrival(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Timetabled to land an hour ago, revised to land in an hour: still flying.
+	late := mkFlightPart(t, s, owner, "OS967", now.Add(-4*time.Hour), now.Add(-time.Hour))
+	revised := now.Add(time.Hour)
+	if err := s.RefreshFlightPartArrival(ctx, late, &revised, nil); err != nil {
+		t.Fatalf("RefreshFlightPartArrival: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, late); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	lf, _ := s.FlightPartByID(ctx, late)
+	if lf.Status != "Enroute" {
+		t.Errorf("a flight revised an hour late should still be Enroute, got %q", lf.Status)
+	}
+	// The point of staying Enroute: the poller keeps seeing it, so the belt and
+	// any further revision still reach the traveller.
+	active, err := s.ActiveFlightParts(ctx, now)
+	if err != nil {
+		t.Fatalf("ActiveFlightParts: %v", err)
+	}
+	var found bool
+	for _, p := range active {
+		if p.ID == late {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a late flight dropped out of the poll set whilst still airborne")
+	}
+
+	// An observed touchdown beats the estimate, even one still in the future.
+	landed := now.Add(-10 * time.Minute)
+	if err := s.RefreshFlightPartArrival(ctx, late, nil, &landed); err != nil {
+		t.Fatalf("RefreshFlightPartArrival: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, late); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	lf, _ = s.FlightPartByID(ctx, late)
+	if lf.Status != "Arrived" {
+		t.Errorf("an observed touchdown should give Arrived, got %q", lf.Status)
+	}
+}
+
+// TestRefreshStatusStaleRevisionCapped: a revision the provider quoted and then
+// stopped updating must not hold a part non-terminal (and so in the poll set)
+// forever. Beyond arrivalSlipCap past the timetable, the part arrives anyway.
+func TestRefreshStatusStaleRevisionCapped(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Landed by the timetable two days ago, with a revision quoting an arrival
+	// a day after that — well beyond the cap, and never updated since.
+	stale := mkFlightPart(t, s, owner, "OS967", now.Add(-50*time.Hour), now.Add(-48*time.Hour))
+	revised := now.Add(-24 * time.Hour)
+	if err := s.RefreshFlightPartArrival(ctx, stale, &revised, nil); err != nil {
+		t.Fatalf("RefreshFlightPartArrival: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, stale); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	sf, _ := s.FlightPartByID(ctx, stale)
+	if sf.Status != "Arrived" {
+		t.Errorf("a stale revision should not hold a part open, got %q", sf.Status)
+	}
+}
+
+// TestRefreshArrivalKeepsKnownTimes: the resolver omits the live times until it
+// has coverage, and an omission (nil) must leave a time we already know alone
+// rather than wiping it — the same overwrite-when-supplied rule the belt uses.
+func TestRefreshArrivalKeepsKnownTimes(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+	part := mkFlightPart(t, s, owner, "OS962", now.Add(-3*time.Hour), now.Add(-time.Hour))
+
+	est, act := now.Add(-70*time.Minute), now.Add(-75*time.Minute)
+	if err := s.RefreshFlightPartArrival(ctx, part, &est, &act); err != nil {
+		t.Fatalf("RefreshFlightPartArrival: %v", err)
+	}
+	if err := s.RefreshFlightPartArrival(ctx, part, nil, nil); err != nil {
+		t.Fatalf("RefreshFlightPartArrival (omitted): %v", err)
+	}
+	got, _ := s.FlightPartByID(ctx, part)
+	if got.EstimatedIn == nil || !got.EstimatedIn.Truncate(time.Second).Equal(est.UTC().Truncate(time.Second)) {
+		t.Errorf("estimated_in wiped by an omission: %v", got.EstimatedIn)
+	}
+	if got.ActualIn == nil || !got.ActualIn.Truncate(time.Second).Equal(act.UTC().Truncate(time.Second)) {
+		t.Errorf("actual_in wiped by an omission: %v", got.ActualIn)
+	}
+}
+
 // TestFlightPartsNeedingMetadata: only non-terminal parts in the 12h–30min
 // pre-departure band are returned — the window for resolving gate/airframe
 // ahead of the position-tracking window.
