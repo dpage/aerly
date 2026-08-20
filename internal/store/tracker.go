@@ -131,6 +131,50 @@ func (s *Store) FlightPartsNeedingMetadata(ctx context.Context, now time.Time) (
 	return out, rows.Err()
 }
 
+// postArrivalWindow is how long a part stays worth resolving after it has
+// landed. It exists because the two useful arrival facts land at different
+// times: the aircraft is down (so the part is rightly Arrived and no longer
+// worth tracking a position for) some minutes before the airport publishes the
+// baggage belt the traveller actually needs. Keep it in step with the poller's
+// postArrivalPollInterval, which decides how often inside this window we ask.
+const postArrivalWindow = "45 minutes"
+
+// FlightPartsRecentlyArrived returns parts that have landed within
+// postArrivalWindow: Arrived (not Cancelled or Diverted, whose stories are
+// over) and past the arrival we believe, but not long past it. The poller
+// resolves these for metadata only, with no position tracking, so a belt
+// published at or just after touchdown still reaches the traveller instead of
+// being missed by a poll set the part has already dropped out of.
+//
+// The window is measured against the same actual-then-estimate-then-schedule
+// arrival the status derivation uses, so a flight that ran late gets its 45
+// minutes from when it really landed. Bounding it matters: without the upper
+// bound this would return every historical flight ever flown and re-resolve
+// the lot on each tick.
+func (s *Store) FlightPartsRecentlyArrived(ctx context.Context, now time.Time) ([]*Flight, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+flightPartColumns+` `+flightPartFrom+`
+		WHERE fd.flight_status = 'Arrived'
+		  AND part.dismissed_at IS NULL
+		  AND $1 >  COALESCE(fd.actual_in, fd.estimated_in, fd.scheduled_in)
+		  AND $1 <= COALESCE(fd.actual_in, fd.estimated_in, fd.scheduled_in)
+		           + INTERVAL '`+postArrivalWindow+`'
+		ORDER BY fd.scheduled_out ASC`, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Flight
+	for rows.Next() {
+		f, err := scanFlightPart(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // FlightPartByID returns the flight carrier for a single plan_part_id, or
 // ErrNotFound if the part has no flight_details (not a flight part) or doesn't
 // exist. Part-keyed counterpart of FlightByID.

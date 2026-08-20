@@ -193,6 +193,61 @@ func TestRefreshArrivalKeepsKnownTimes(t *testing.T) {
 	}
 }
 
+// TestFlightPartsRecentlyArrived: only parts that landed inside
+// postArrivalWindow come back, which is the band in which the belt is still
+// worth asking for. History, flights still in the air, and terminal statuses
+// whose story is over are all excluded, because re-resolving those would spend
+// resolver quota to learn nothing.
+func TestFlightPartsRecentlyArrived(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	justLanded := mkFlightPart(t, s, owner, "JL1", now.Add(-3*time.Hour), now.Add(-10*time.Minute))
+	longAgo := mkFlightPart(t, s, owner, "LA1", now.Add(-30*time.Hour), now.Add(-28*time.Hour))
+	stillFlying := mkFlightPart(t, s, owner, "SF1", now.Add(-time.Hour), now.Add(time.Hour))
+	for _, id := range []int64{justLanded, longAgo, stillFlying} {
+		if err := s.RefreshFlightPartStatus(ctx, id); err != nil {
+			t.Fatalf("RefreshFlightPartStatus: %v", err)
+		}
+	}
+
+	got, err := s.FlightPartsRecentlyArrived(ctx, now)
+	if err != nil {
+		t.Fatalf("FlightPartsRecentlyArrived: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != justLanded {
+		t.Fatalf("expected only the just-landed part %d, got %+v", justLanded, got)
+	}
+
+	// A late flight gets its window from when it really landed, not from the
+	// timetable: this one was due hours ago but only touched down minutes ago.
+	late := mkFlightPart(t, s, owner, "LT1", now.Add(-8*time.Hour), now.Add(-5*time.Hour))
+	touchdown := now.Add(-5 * time.Minute)
+	if err := s.RefreshFlightPartArrival(ctx, late, nil, &touchdown); err != nil {
+		t.Fatalf("RefreshFlightPartArrival: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, late); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	got, err = s.FlightPartsRecentlyArrived(ctx, now)
+	if err != nil {
+		t.Fatalf("FlightPartsRecentlyArrived: %v", err)
+	}
+	var foundLate bool
+	for _, f := range got {
+		if f.ID == late {
+			foundLate = true
+		}
+	}
+	if !foundLate {
+		t.Error("a late flight's post-arrival window should run from its actual touchdown")
+	}
+}
+
 // TestFlightPartsNeedingMetadata: only non-terminal parts in the 12h–30min
 // pre-departure band are returned — the window for resolving gate/airframe
 // ahead of the position-tracking window.

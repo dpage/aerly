@@ -218,9 +218,66 @@ func (p *Poller) tick(ctx context.Context) {
 		guard("poller.refreshMetadata", f.ID, func() { p.refreshMetadata(ctx, f, now) })
 	}
 
+	// Third pass: parts that landed within the last postArrivalWindow. The
+	// aircraft is down, so there is nothing left to track a position for, but
+	// the airport typically publishes the baggage belt at or just after
+	// touchdown — after the part has gone Arrived and left the passes above.
+	// Metadata only, on a deliberately slow cadence.
+	landed, err := p.Store.FlightPartsRecentlyArrived(ctx, now)
+	if err != nil {
+		slog.Error("poller: list recently-arrived flight parts", "err", err)
+		return
+	}
+	for _, f := range landed {
+		if ctx.Err() != nil {
+			return
+		}
+		if f.LastPolledAt != nil && now.Sub(*f.LastPolledAt) < postArrivalPollInterval {
+			continue
+		}
+		guard("poller.refreshAfterArrival", f.ID, func() { p.refreshAfterArrival(ctx, f, now) })
+	}
+
 	// Upcoming-plan reminders (issue #11) — independent of the status-change
 	// alert path above.
 	p.remindUpcoming(ctx, now)
+}
+
+// postArrivalPollInterval is how often a landed part is re-resolved inside the
+// store's postArrivalWindow. Slow on purpose: the belt is the only thing we
+// expect to change, bags take longer than this to reach the hall anyway, and
+// every one of these is a resolver call against a finite quota that the old
+// stop-at-arrival behaviour never spent. Four or five calls per arriving
+// flight, against nothing before.
+const postArrivalPollInterval = 10 * time.Minute
+
+// refreshAfterArrival re-resolves a part that has already landed, to catch the
+// baggage belt (and any late-published gate or terminal) that the airport
+// publishes around touchdown. Metadata only: no Track call, because the
+// aircraft is on the ground and a position fix would tell us nothing.
+//
+// Unlike refreshMetadata this does not consult needsLateRefresh, which
+// deliberately refuses to spend quota on a part in a terminal status. The
+// caller's window and cadence are the throttle here instead.
+func (p *Poller) refreshAfterArrival(ctx context.Context, f *store.Flight, now time.Time) {
+	if p.Resolver == nil {
+		return
+	}
+	prev := f // pre-resolve, so a belt published on touchdown is an alertable delta
+	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		// Bump last_polled_at even on a failed resolve so the cadence above
+		// applies; otherwise a part the resolver keeps failing on is retried
+		// every tick for the whole window.
+		if statusErr := p.Store.RefreshFlightPartStatus(ctx, f.ID); statusErr != nil {
+			slog.Error("poller: refresh status (post-arrival, resolve error)", "id", f.ID, "err", statusErr)
+		}
+		return
+	}
+	if err := p.Store.RefreshFlightPartStatus(ctx, f.ID); err != nil {
+		slog.Error("poller: refresh status (post-arrival)", "id", f.ID, "err", err)
+	}
+	p.maybeAlert(ctx, prev, f.ID)
+	p.publishPartChange(ctx, f.ID)
 }
 
 // guard runs fn, recovering from any panic so one poisoned flight row can't
@@ -531,9 +588,11 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	// re-derived and can keep the part out of Arrived. Unlike the schedule
 	// below these are not frozen on resolved: the whole point is that they keep
 	// moving as the flight runs late.
+	// Best-effort, like the schedule refresh below: a failure here must not
+	// abort the resolve and discard the airframe, gate and belt work already
+	// persisted above.
 	if err := p.Store.RefreshFlightPartArrival(ctx, f.ID, rf.EstimatedIn, rf.ActualIn); err != nil {
 		slog.Error("poller: refresh arrival times failed", "id", f.ID, "err", err)
-		return nil, err
 	}
 	// Terminal is updatable like gate (a change is what the terminal-change
 	// alert detects), so it takes the overwrite-when-non-empty path rather than

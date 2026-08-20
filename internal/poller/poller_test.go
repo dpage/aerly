@@ -667,6 +667,111 @@ func TestTickPersistsLiveArrivalTimes(t *testing.T) {
 	}
 }
 
+// TestTickCatchesBeltPublishedAfterLanding is the whole point of the
+// post-arrival pass: the airport publishes the belt at or just after touchdown,
+// by which time the part is Arrived and has left both the active and the
+// pre-departure passes. It must still be resolved, the belt must still alert,
+// and no position may be tracked for an aircraft that is on the ground.
+func TestTickCatchesBeltPublishedAfterLanding(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, hub := newPoller(t, tr, time.Minute)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	// In-app alerts on, delay threshold cranked so only the belt can alert.
+	if err := s.SetAlertPrefs(ctx, store.AlertPrefs{UserID: owner, InApp: true, MinDelayMin: 600}); err != nil {
+		t.Fatalf("set prefs: %v", err)
+	}
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ118", OriginIATA: "VIE", DestIATA: "ARN", DestBaggageBelt: "3",
+	}}
+	now := time.Now()
+	// Landed ten minutes ago.
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "ZZ118", ScheduledOut: now.Add(-3 * time.Hour), ScheduledIn: now.Add(-10 * time.Minute),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.Status != "Arrived" {
+		t.Fatalf("a landed flight should be Arrived, got %q", got.Status)
+	}
+	if got.DestBaggageBelt != "3" {
+		t.Errorf("belt published after landing was missed, got %q", got.DestBaggageBelt)
+	}
+	if tr.calls != 0 {
+		t.Errorf("post-arrival pass must not track positions, tracker calls=%d", tr.calls)
+	}
+	alerts := drainAlerts(t, ch)
+	if len(alerts) != 1 || alerts[0].Kind != "belt" {
+		t.Fatalf("expected a single belt alert after landing, got %+v", alerts)
+	}
+}
+
+// TestTickIgnoresLongLandedFlights: once the post-arrival window has closed the
+// part is history, and re-resolving history would spend resolver quota to learn
+// nothing that anyone is still waiting for.
+func TestTickIgnoresLongLandedFlights(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	res := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ118", OriginIATA: "VIE", DestIATA: "ARN", DestBaggageBelt: "3",
+	}}
+	p.Resolver = res
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Landed the better part of a day ago.
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "ZZ118", ScheduledOut: now.Add(-22 * time.Hour), ScheduledIn: now.Add(-20 * time.Hour),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, uid)
+
+	p.tick(ctx)
+
+	if res.calls != 0 {
+		t.Errorf("history re-resolved, resolver calls=%d", res.calls)
+	}
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.DestBaggageBelt != "" {
+		t.Errorf("belt written onto a long-landed flight, got %q", got.DestBaggageBelt)
+	}
+}
+
+// TestTickThrottlesPostArrivalResolves: inside the post-arrival window the part
+// is present on every tick, so without the cadence throttle it would be
+// re-resolved once a minute for three quarters of an hour. Two ticks back to
+// back must produce one resolver call, not two.
+func TestTickThrottlesPostArrivalResolves(t *testing.T) {
+	res := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ118", OriginIATA: "VIE", DestIATA: "ARN", DestBaggageBelt: "3",
+	}}
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p.Resolver = res
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	if _, err := mkPart(ctx, s, partSeed{
+		Ident: "ZZ118", ScheduledOut: now.Add(-3 * time.Hour), ScheduledIn: now.Add(-10 * time.Minute),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, uid); err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	p.tick(ctx)
+	p.tick(ctx)
+
+	if res.calls != 1 {
+		t.Errorf("post-arrival resolves not throttled, resolver calls=%d, want 1", res.calls)
+	}
+}
+
 // TestBeltIsCurrent covers the window arithmetic directly, including the
 // arrival-time precedence: an actual arrival beats the estimate, which beats
 // the schedule, so a flight that ran three hours late still gets its belt at
@@ -1271,6 +1376,61 @@ func TestResolveAndUpdate_ResolveErrorStampsThrottle(t *testing.T) {
 	if got.LastResolvedAt == nil {
 		t.Error("a transport error must still stamp last_resolved_at to throttle the retry")
 	}
+}
+
+// TestRefreshAfterArrival_NoResolver: with no resolver wired there is nothing
+// to ask, so the post-arrival pass is a no-op rather than an empty write.
+func TestRefreshAfterArrival_NoResolver(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "RA1", ScheduledOut: now.Add(-3 * time.Hour), ScheduledIn: now.Add(-10 * time.Minute),
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	p.refreshAfterArrival(ctx, f, now) // must not panic
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.LastResolvedAt != nil {
+		t.Error("a pass with no resolver should not stamp last_resolved_at")
+	}
+}
+
+// TestRefreshAfterArrival_ResolveErrorThrottles: a resolver that keeps failing
+// must not be retried on every tick for the whole window, so the failure path
+// still bumps last_polled_at. The cancelled context also fails that bump, which
+// is the inner logged branch.
+func TestRefreshAfterArrival_ResolveErrorThrottles(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	p.Resolver = &fakeResolver{err: errors.New("upstream 500")}
+	uid := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(context.Background(), s, partSeed{
+		Ident: "RA2", ScheduledOut: now.Add(-3 * time.Hour), ScheduledIn: now.Add(-10 * time.Minute),
+		OriginIATA: "LHR", DestIATA: "JFK", ICAO24: "abc123",
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	// Live context: the failure path bumps last_polled_at so the cadence applies.
+	before, _ := s.FlightPartByID(context.Background(), f.ID)
+	p.refreshAfterArrival(context.Background(), f, now)
+	after, _ := s.FlightPartByID(context.Background(), f.ID)
+	if after.LastPolledAt == nil {
+		t.Error("a failed post-arrival resolve must still bump last_polled_at")
+	} else if before.LastPolledAt != nil && !after.LastPolledAt.After(*before.LastPolledAt) {
+		t.Error("last_polled_at not advanced by the failure path")
+	}
+
+	// Cancelled context: the status bump fails too, which is logged and swallowed.
+	dead, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.refreshAfterArrival(dead, f, now) // must not panic
 }
 
 // TestRunFiresSweepAndFeedTickers covers the sweep and feed ticker cases of
