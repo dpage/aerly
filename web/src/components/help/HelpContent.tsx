@@ -294,7 +294,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Show / hide types"
-          description="Tap the coloured type chips — flights, trains, ground transport, car hire, hotels, dining, excursions and ice cream — to show or hide each kind of plan on the map. Your choice is remembered between visits."
+          description="There's a coloured chip for every plan type — tap one to show or hide that kind of plan on the map, handy for clearing the clutter off a busy trip. Your choice is remembered between visits."
         />
         <FeatureItem
           title="Live flights"

@@ -5,6 +5,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { setMatchMedia } from '../test/setup';
 
 import type { PlanPart, PlanType, Trip, User } from '../api/types';
+import { PLAN_TYPES } from '../lib/trip-format';
+import { FILTER_TYPES } from '../lib/tracker-filter';
 
 // Stub the MUI date picker: its date-fns adapter trips vitest's ESM resolution,
 // and these tests only need a labelled control, not real date parsing. The stub
@@ -351,6 +353,17 @@ describe('Tracker filters', () => {
     renderTracker();
     await userEvent.click(screen.getByTestId('type-toggle-excursion'));
     expect(state.toggleTrackerType).toHaveBeenCalledWith('excursion');
+  });
+
+  // Meetings and events drew on the map for months with no chip to hide them,
+  // because FILTER_TYPES was a hand-maintained list nothing checked. Anything
+  // that can appear on the map must be hideable, so pin the two lists together.
+  it('offers a chip for every plan type', () => {
+    expect([...FILTER_TYPES].sort()).toEqual([...PLAN_TYPES].sort());
+    renderTracker();
+    for (const type of PLAN_TYPES) {
+      expect(screen.getByTestId(`type-toggle-${type}`)).toBeInTheDocument();
+    }
   });
 
   it('shows the filter badge on the pill only when a filter is active', () => {

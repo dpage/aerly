@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 
 import { api } from '../api/client';
 import type { Plan, PlanPart, PlanType, TrackerPart } from '../api/types';
+import { PLAN_TYPES } from '../lib/trip-format';
 import { errorMessage } from './helpers';
 import type { StoreState } from './store';
 
@@ -45,17 +46,6 @@ function persistWindow(tag: string, w: TrackerWindow): void {
 /** localStorage key for the global Tracker filters (not per-tag). */
 const FILTERS_KEY = 'tracker.filters';
 
-const KNOWN_TYPES: readonly PlanType[] = [
-  'flight',
-  'train',
-  'hotel',
-  'ground',
-  'vehicle_hire',
-  'dining',
-  'excursion',
-  'ice_cream',
-];
-
 export interface TrackerFilters {
   mineOnly: boolean;
   hiddenTypes: PlanType[];
@@ -63,7 +53,9 @@ export interface TrackerFilters {
 
 /** Read the persisted Tracker filters, tolerating SSR, privacy modes, and
  * malformed/stale JSON. Only an explicit boolean `true` enables mine-only, and
- * unknown type strings are dropped. */
+ * unknown type strings are dropped — validated against the canonical PLAN_TYPES
+ * rather than a local copy, so a newly added type isn't silently discarded from
+ * someone's saved filters. */
 export function loadFilters(): TrackerFilters {
   try {
     const raw = window.localStorage.getItem(FILTERS_KEY);
@@ -71,7 +63,7 @@ export function loadFilters(): TrackerFilters {
       const parsed = JSON.parse(raw) as Partial<TrackerFilters>;
       const hiddenTypes = Array.isArray(parsed.hiddenTypes)
         ? parsed.hiddenTypes.filter((t): t is PlanType =>
-            (KNOWN_TYPES as readonly string[]).includes(t as string),
+            (PLAN_TYPES as readonly string[]).includes(t as string),
           )
         : [];
       return { mineOnly: parsed.mineOnly === true, hiddenTypes };

@@ -24,7 +24,7 @@ import { format, parseISO } from 'date-fns';
 import { useStore } from '../state/store';
 import type { TrackerWindow } from '../state/trackerSlice';
 import type { PlanType } from '../api/types';
-import { filterTrackerParts } from '../lib/tracker-filter';
+import { FILTER_TYPES, filterTrackerParts } from '../lib/tracker-filter';
 import { planTypeColor } from '../lib/plan-marker';
 import { planTypeLabel, tripSpan } from '../lib/trip-format';
 import PlanMapView from '../components/PlanMapView';
@@ -42,19 +42,6 @@ const fmtWinDay = (s?: string): string | null => {
   return isValidDate(d) ? format(d, 'd MMM') : null;
 };
 
-/** Plan types offered as Tracker show/hide chips, in display order (transport
- * grouped first). A new plan type must be added here AND to `KNOWN_TYPES` in
- * trackerSlice.ts, which validates persisted hidden-type lists. */
-const FILTER_TYPES: PlanType[] = [
-  'flight',
-  'train',
-  'ground',
-  'vehicle_hire',
-  'hotel',
-  'dining',
-  'excursion',
-  'ice_cream',
-];
 
 /** Global tracker (PRD §6.5): the unified map+list view over every mappable part
  * in a date window, optionally scoped to a tag. Identical to the trip Map tab
