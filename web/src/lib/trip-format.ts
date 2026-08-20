@@ -460,31 +460,34 @@ export function fmtPartPlaces(type: PlanType, startLabel?: string, endLabel?: st
   return start || end;
 }
 
-/** Display label for a plan type, e.g. "Hotel", "Ground transport". */
+/** Display label for every plan type, in the order the New plan dialog offers
+ * them (transport first, then places, then the rest).
+ *
+ * Typed as a full Record, so adding a member to `PlanType` without giving it a
+ * label is a compile error rather than a plan that quietly shows its raw wire
+ * key. Several hand-maintained lists elsewhere key off a plan type and none of
+ * them are checked; this one at least is. */
+export const PLAN_TYPE_LABELS: Record<PlanType, string> = {
+  flight: 'Flight',
+  train: 'Train',
+  hotel: 'Hotel',
+  ground: 'Ground transport',
+  vehicle_hire: 'Car hire',
+  dining: 'Dining',
+  excursion: 'Excursion',
+  ice_cream: 'Ice cream',
+  meeting: 'Meeting',
+  event: 'Event',
+};
+
+/** Every plan type, in display order. Derived from PLAN_TYPE_LABELS so the two
+ * can't drift: callers that need to enumerate the types (the New plan picker,
+ * the help page's list) read this rather than keeping their own copy. */
+export const PLAN_TYPES = Object.keys(PLAN_TYPE_LABELS) as PlanType[];
+
+/** Display label for a plan type, e.g. "Hotel", "Ground transport". Falls back
+ * to the raw key for a type the server knows about and this client doesn't. */
 export function planTypeLabel(type: PlanType): string {
-  switch (type) {
-    case 'flight':
-      return 'Flight';
-    case 'train':
-      return 'Train';
-    case 'hotel':
-      return 'Hotel';
-    case 'ground':
-      return 'Ground transport';
-    case 'vehicle_hire':
-      return 'Car hire';
-    case 'dining':
-      return 'Dining';
-    case 'excursion':
-      return 'Excursion';
-    case 'ice_cream':
-      return 'Ice cream';
-    case 'meeting':
-      return 'Meeting';
-    case 'event':
-      return 'Event';
-    default:
-      return type;
-  }
+  return PLAN_TYPE_LABELS[type] ?? type;
 }
 

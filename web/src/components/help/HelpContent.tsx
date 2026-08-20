@@ -14,6 +14,9 @@ import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import InstallMobileOutlinedIcon from '@mui/icons-material/InstallMobileOutlined';
 
+import { PLAN_TYPES, planTypeLabel } from '../../lib/trip-format';
+import type { PlanType } from '../../api/types';
+
 // --- content primitives -----------------------------------------------------
 
 /** A topic-section heading inside a help page. */
@@ -70,6 +73,42 @@ function Body({ children }: { children: ReactNode }) {
   );
 }
 
+// --- plan types --------------------------------------------------------------
+
+/** One line per plan type, explaining what it holds.
+ *
+ * A full Record over PlanType, so adding a plan type without documenting it is
+ * a compile error. The list below renders from PLAN_TYPES and planTypeLabel, so
+ * the names shown here are the same ones the rest of the app shows and can't
+ * drift out of step with them. */
+const PLAN_TYPE_HELP: Record<PlanType, string> = {
+  flight:
+    'Airline bookings. These get live tracking on the map, plus gate, terminal and baggage-belt updates where the airline publishes them.',
+  train: 'Rail journeys, drawn from origin to destination on the map like a flight.',
+  hotel:
+    "Somewhere to stay. Accommodation tiles carry an Explore nearby button for finding things to do around where you're staying.",
+  ground: 'Taxis, airport transfers and any other point-to-point road travel.',
+  vehicle_hire:
+    'Car hire, held as a pickup and a drop-off, so both ends appear on the timeline and map rather than just the collection.',
+  dining: 'Restaurant and bar reservations.',
+  excursion:
+    'Tours, activities and sightseeing. This is what Explore creates when you tap Add to trip on a place.',
+  ice_cream: 'A stop for ice cream. Some trips are planned around them.',
+  meeting: 'Work meetings and appointments, with the place you need to be at.',
+  event: 'Concerts, matches, conferences and anything else with a ticket and a start time.',
+};
+
+/** The plan-type list rendered on the Plans page. */
+function PlanTypeList() {
+  return (
+    <>
+      {PLAN_TYPES.map((type) => (
+        <FeatureItem key={type} title={planTypeLabel(type)} description={PLAN_TYPE_HELP[type]} />
+      ))}
+    </>
+  );
+}
+
 // --- pages -------------------------------------------------------------------
 
 export interface HelpPage {
@@ -88,10 +127,11 @@ export const HELP_PAGES: HelpPage[] = [
     body: (
       <Box>
         <Body>
-          Aerly keeps a trip&apos;s travel in one place. Add flights, hotels, trains, taxis, dinners
-          and excursions to a trip, and they appear on a shared timeline and map — with live flight
-          tracking where available. You can browse what&apos;s nearby, share plans with friends, and
-          install Aerly on your phone to get it full-screen with push notifications.
+          Aerly keeps a trip&apos;s travel in one place. Add flights, trains, hotels, car hire,
+          transfers, meals, excursions, meetings and events to a trip, and they appear on a shared
+          timeline and map — with live flight tracking where available. You can browse what&apos;s
+          nearby, share plans with friends, and install Aerly on your phone to get it full-screen
+          with push notifications.
         </Body>
         <SectionTitle>Getting started</SectionTitle>
         <FeatureItem
@@ -156,9 +196,16 @@ export const HELP_PAGES: HelpPage[] = [
     body: (
       <Box>
         <Body>
-          A plan is a single booking — a flight, hotel, train, taxi, meal or excursion. Open a trip
-          and click <strong>New plan</strong> to add one.
+          A plan is a single booking — a flight, a hotel, a train, a hire car, a meal, whatever the
+          trip is made of. Open a trip and click <strong>New plan</strong> to add one.
         </Body>
+        <SectionTitle>Plan types</SectionTitle>
+        <Body>
+          Every plan has a type, chosen when you create it, which decides what details it holds and
+          how it&apos;s drawn on the map. The type is fixed once the plan exists, so pick the right
+          one up front.
+        </Body>
+        <PlanTypeList />
         <SectionTitle>Four ways to capture a plan</SectionTitle>
         <FeatureItem title="Manual" description="Fill in the details yourself." />
         <FeatureItem
@@ -225,7 +272,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Paths"
-          description="Journeys (flights, trains, taxis) are drawn as a line between their two ends; single venues (hotels, dining) are a single pin."
+          description="Anything with two ends — a flight, a train, a transfer, a hire car from pickup to drop-off — is drawn as a line between them; somewhere you simply go to, like a hotel or a restaurant, is a single pin."
         />
         <SectionTitle>Selecting an item</SectionTitle>
         <FeatureItem
@@ -247,7 +294,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Show / hide types"
-          description="Tap the coloured type chips (flights, hotels, trains, taxis, dining, excursions) to show or hide each kind of plan on the map."
+          description="Tap the coloured type chips — flights, trains, ground transport, car hire, hotels, dining, excursions and ice cream — to show or hide each kind of plan on the map. Your choice is remembered between visits."
         />
         <FeatureItem
           title="Live flights"
@@ -278,8 +325,16 @@ export const HELP_PAGES: HelpPage[] = [
           description="Type a place or address and search, or let it centre on the hotel when you opened it from an Explore nearby button (the place box is hidden then, since the location is already fixed)."
         />
         <FeatureItem
-          title="Categories & radius"
-          description="Tap the category chips (Sights, Museum, Landmark, Park, Food) to choose what to look for, and pick a search radius of 1, 2 or 5 km. Sights, museums, landmarks and parks are on by default."
+          title="Search by interest"
+          description="Describe what you're in the mood for in ordinary words — “rooftop bars and live jazz” — and Aerly works out which categories to search. Only shown where your Aerly has it enabled; the category list below always works."
+        />
+        <FeatureItem
+          title="Categories"
+          description="Nine themes — Sights & landmarks, Food & drink, Live music & nightlife, Culture, Outdoors & nature, Shopping, Sport & leisure, Family and Worship — each opening into its own sub-categories, 27 in all. Tick a whole theme or pick individual ones. Attractions, monuments & heritage, museums and parks & gardens are on to begin with, and Reset to defaults puts them back."
+        />
+        <FeatureItem
+          title="Radius"
+          description="Search 1, 2 or 5 km around wherever you've centred the search."
         />
         <FeatureItem
           title="Filter by name"
@@ -379,7 +434,7 @@ export const HELP_PAGES: HelpPage[] = [
         <SectionTitle>Alerts inbox</SectionTitle>
         <FeatureItem
           title="What lands here"
-          description="Flight changes (delays, gate or terminal changes, cancellations), reminders, and notifications that a trip has been shared with you. A badge on your avatar shows the unread count."
+          description="Flight changes — delays, gate changes, terminal changes, the arrival baggage belt, cancellations and diversions — plus reminders and notifications that a trip has been shared with you. A badge on your avatar shows the unread count."
         />
         <FeatureItem
           title="Open, delete, clear"

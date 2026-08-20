@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 import { HELP_PAGES, contextToPageId } from './HelpContent';
+import { PLAN_TYPES, planTypeLabel } from '../../lib/trip-format';
 
 describe('HelpContent', () => {
   it('exposes the topics in nav order', () => {
@@ -54,8 +55,23 @@ describe('HelpContent', () => {
   it('the explore page covers searching, results and adding to a trip', () => {
     const explore = HELP_PAGES.find((p) => p.id === 'explore')!;
     render(<div>{explore.body}</div>);
-    expect(screen.getByText('Categories & radius')).toBeInTheDocument();
+    expect(screen.getByText('Categories')).toBeInTheDocument();
+    expect(screen.getByText('Radius')).toBeInTheDocument();
+    expect(screen.getByText('Search by interest')).toBeInTheDocument();
     expect(screen.getByText('Add to trip')).toBeInTheDocument();
+  });
+
+  // The plan-type list is the one part of the help that goes stale silently: a
+  // new type ships and nothing forces the help to mention it. The Record in
+  // HelpContent makes that a compile error; this makes it a test failure too,
+  // and checks the names shown match what the rest of the app calls them.
+  it('the plans page documents every plan type, by its real label', () => {
+    const plans = HELP_PAGES.find((p) => p.id === 'plans')!;
+    render(<div>{plans.body}</div>);
+    expect(PLAN_TYPES.length).toBeGreaterThan(0);
+    for (const type of PLAN_TYPES) {
+      expect(screen.getByText(planTypeLabel(type))).toBeInTheDocument();
+    }
   });
 
   it('the install page covers iPhone, Android and desktop', () => {

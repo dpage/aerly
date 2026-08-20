@@ -25,7 +25,7 @@ import {
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 
 import { useStore } from '../state/store';
-import { bandEdgeLabels, fmtPartPlaces, planTypeLabel, typeHasEnd } from '../lib/trip-format';
+import { bandEdgeLabels, fmtPartPlaces, PLAN_TYPES, planTypeLabel, typeHasEnd } from '../lib/trip-format';
 import PlanTypeIcon from './PlanTypeIcon';
 import type {
   ConfirmPlanInput,
@@ -61,19 +61,6 @@ export interface PlanPrefill {
 }
 
 type CaptureTab = 'manual' | 'paste' | 'upload' | 'email';
-
-const PLAN_TYPES: PlanType[] = [
-  'flight',
-  'train',
-  'hotel',
-  'ground',
-  'vehicle_hire',
-  'dining',
-  'excursion',
-  'ice_cream',
-  'meeting',
-  'event',
-];
 
 /** Confidence below this gets flagged in the confirm step (spec §6 — "anything
  * it's unsure about is flagged rather than silently guessed"). */
