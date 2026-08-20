@@ -219,6 +219,50 @@ describe('TripTimeline', () => {
     expect(screen.getAllByText('multi-part')).toHaveLength(2);
   });
 
+  it('titles each leg of a round trip by its own flight number', () => {
+    // A round trip is one plan, and its title names only the outbound flight,
+    // so titling both tiles from the plan captions the homebound leg with the
+    // outbound's number, and a traveller reading the tile reports the wrong
+    // flight.
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            effective_at: '2026-08-19T08:05:00Z',
+            flight: { ident: 'OS962' } as PlanPart['flight'],
+          }),
+          part({
+            id: 2,
+            plan_id: 1,
+            effective_at: '2026-08-20T15:05:00Z',
+            start_label: 'VIE',
+            end_label: 'ARN',
+            flight: { ident: 'OS967' } as PlanPart['flight'],
+          }),
+        ],
+        { id: 1, title: 'OS962 ARN \u2194 VIE' },
+      ),
+    ]);
+    renderTimeline();
+    expect(within(screen.getByTestId('part-card-1')).getByText('OS962')).toBeInTheDocument();
+    expect(within(screen.getByTestId('part-card-2')).getByText('OS967')).toBeInTheDocument();
+    // The plan's round-trip title is gone from both tiles, not just relocated.
+    expect(screen.queryByText(/ARN \u2194 VIE/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the plan title on a single-leg flight plan', () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1, flight: { ident: 'BA286' } as PlanPart['flight'] })], {
+        id: 1,
+        title: 'Flight home for the wedding',
+      }),
+    ]);
+    renderTimeline();
+    expect(screen.getByText('Flight home for the wedding')).toBeInTheDocument();
+  });
+
   it('renders a multi-night hotel as separate check-in and check-out tiles', () => {
     state.currentTrip = tripWith([
       plan(

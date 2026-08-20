@@ -165,6 +165,93 @@ func TestRefreshStatusStaleRevisionCapped(t *testing.T) {
 	}
 }
 
+// TestTrackerPartTitlePerLeg guards the mislabelled-return-leg bug: a round
+// trip is one plan holding two legs, and its title names only the outbound
+// flight ("OS962 ARN ↔ VIE"), so titling every leg from the plan captions the
+// homebound flight with the outbound's number. Each leg of a multi-leg plan is
+// titled by its own flight number; a single-leg plan still shows its title, so
+// a hand-edited one is not thrown away.
+func TestTrackerPartTitlePerLeg(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+
+	mkLeg := func(planID int64, ident string, out, in time.Time) int64 {
+		t.Helper()
+		var partID int64
+		if err := s.pool.QueryRow(ctx, `
+			INSERT INTO plan_parts (plan_id, starts_at, ends_at, status)
+			VALUES ($1, $2, $3, 'confirmed') RETURNING id`,
+			planID, out, in).Scan(&partID); err != nil {
+			t.Fatalf("insert leg: %v", err)
+		}
+		if _, err := s.pool.Exec(ctx, `
+			INSERT INTO flight_details (plan_part_id, ident, scheduled_out, scheduled_in,
+				origin_iata, dest_iata, flight_status)
+			VALUES ($1, $2, $3, $4, 'ARN', 'VIE', 'Scheduled')`,
+			partID, ident, out, in); err != nil {
+			t.Fatalf("insert flight_details: %v", err)
+		}
+		return partID
+	}
+	mkPlan := func(title string) int64 {
+		t.Helper()
+		var planID int64
+		if err := s.pool.QueryRow(ctx,
+			`INSERT INTO plans (trip_id, type, created_by, title) VALUES ($1, 'flight', $2, $3) RETURNING id`,
+			trip, owner, title).Scan(&planID); err != nil {
+			t.Fatalf("insert plan: %v", err)
+		}
+		return planID
+	}
+
+	round := mkPlan("OS962 ARN ↔ VIE")
+	outbound := mkLeg(round, "OS962", now.Add(-48*time.Hour), now.Add(-46*time.Hour))
+	homebound := mkLeg(round, "OS967", now.Add(-time.Hour), now.Add(time.Hour))
+
+	for _, tc := range []struct {
+		part int64
+		want string
+	}{
+		{outbound, "OS962"},
+		{homebound, "OS967"},
+	} {
+		got, err := s.TrackerPartRow(ctx, tc.part)
+		if err != nil {
+			t.Fatalf("TrackerPartRow(%d): %v", tc.part, err)
+		}
+		if got.Title != tc.want {
+			t.Errorf("leg %d titled %q, want its own flight number %q", tc.part, got.Title, tc.want)
+		}
+	}
+
+	// A single-leg plan keeps its title, hand-edited or otherwise.
+	single := mkPlan("Flight home for the wedding")
+	solo := mkLeg(single, "BA286", now.Add(-time.Hour), now.Add(time.Hour))
+	got, err := s.TrackerPartRow(ctx, solo)
+	if err != nil {
+		t.Fatalf("TrackerPartRow(%d): %v", solo, err)
+	}
+	if got.Title != "Flight home for the wedding" {
+		t.Errorf("single-leg plan title = %q, want the plan's own title", got.Title)
+	}
+
+	// An untitled single-leg plan still falls back to the flight number.
+	bare := mkPlan("")
+	bareLeg := mkLeg(bare, "LH493", now.Add(-time.Hour), now.Add(time.Hour))
+	got, err = s.TrackerPartRow(ctx, bareLeg)
+	if err != nil {
+		t.Fatalf("TrackerPartRow(%d): %v", bareLeg, err)
+	}
+	if got.Title != "LH493" {
+		t.Errorf("untitled plan title = %q, want the flight number", got.Title)
+	}
+}
+
 // TestRefreshStatusHeldOnStand is the departure-side mirror of
 // TestRefreshStatusLateArrival, and guards the "airborne in a thunderstorm"
 // bug: deriving Enroute from the timetable declares a flight in the air the

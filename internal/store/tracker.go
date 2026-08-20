@@ -591,6 +591,18 @@ const effectiveArrival = `COALESCE(fd.actual_in, fd.estimated_in, fd.scheduled_i
 // reports as the part's effective_at so the front end sorts uniformly.
 const effectiveDeparture = `COALESCE(fd.actual_out, fd.estimated_out, fd.scheduled_out)`
 
+// flightPartTitle labels one flight leg. A plan holding a single leg is titled
+// by the plan, so a hand-edited title still shows; a plan holding several is
+// not, because a round trip's title names only its outbound flight (the email
+// ingest builds "OS962 ARN ↔ VIE" from the outbound number and a two-way
+// route), and stamping that on every leg captions the homebound flight with
+// the outbound's number. Each leg of a multi-leg plan is therefore titled by
+// its own flight number, which is what identifies it; the route beneath the
+// title already gives the direction.
+const flightPartTitle = `CASE WHEN (SELECT count(*) FROM plan_parts sib
+		WHERE sib.plan_id = pl.id) > 1 THEN fd.ident
+	ELSE COALESCE(NULLIF(pl.title, ''), fd.ident) END`
+
 // ConvergenceParts returns every flight part the viewer may see (spec §4 gate)
 // whose effective arrival falls within [from, to], newest-arriving last. When
 // tag is non-empty, results are restricted to trips carrying that (normalised)
@@ -599,7 +611,7 @@ const effectiveDeparture = `COALESCE(fd.actual_out, fd.estimated_out, fd.schedul
 func (s *Store) ConvergenceParts(ctx context.Context, viewerID int64, from, to time.Time, tag string) ([]*TrackerPart, error) {
 	args := []any{viewerID, from, to}
 	q := `SELECT part.id, pl.id, pl.trip_id, pl.created_by,
-		COALESCE(NULLIF(pl.title, ''), fd.ident) AS title,
+		` + flightPartTitle + ` AS title,
 		fd.flight_status, ` + effectiveDeparture + `, fd.ident, fd.dest_iata
 		FROM plan_parts part
 		JOIN flight_details fd ON fd.plan_part_id = part.id
@@ -749,7 +761,7 @@ func (s *Store) TrackerPartByID(ctx context.Context, viewerID, partID int64) (*T
 	var tp TrackerPart
 	err := s.pool.QueryRow(ctx, `
 		SELECT part.id, pl.id, pl.trip_id, pl.created_by,
-			COALESCE(NULLIF(pl.title, ''), fd.ident) AS title,
+			`+flightPartTitle+` AS title,
 			fd.flight_status, `+effectiveDeparture+`, fd.ident, fd.dest_iata
 		FROM plan_parts part
 		JOIN flight_details fd ON fd.plan_part_id = part.id
@@ -775,7 +787,7 @@ func (s *Store) TrackerPartRow(ctx context.Context, partID int64) (*TrackerPart,
 	var tp TrackerPart
 	err := s.pool.QueryRow(ctx, `
 		SELECT part.id, pl.id, pl.trip_id, pl.created_by,
-			COALESCE(NULLIF(pl.title, ''), fd.ident) AS title,
+			`+flightPartTitle+` AS title,
 			fd.flight_status, `+effectiveDeparture+`, fd.ident, fd.dest_iata,
 			fd.last_polled_at
 		FROM plan_parts part

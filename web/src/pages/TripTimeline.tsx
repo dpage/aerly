@@ -597,6 +597,20 @@ function PartCard({
   const [directionsAnchor, setDirectionsAnchor] = useState<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // A round trip is one plan holding several legs, and its title names only the
+  // outbound flight — the email ingest builds "OS962 ARN ↔ VIE" from the
+  // outbound number and a two-way route — so heading every tile with it
+  // captions the homebound leg with the outbound's flight number. Each leg of a
+  // multi-leg plan is headed by its own number instead; the route line below
+  // the title already gives the direction. Plan-level prompts (delete, share)
+  // deliberately keep the plan title, because they act on the whole plan.
+  // Mirrors flightPartTitle in internal/store/tracker.go, which labels the
+  // tracker the same way.
+  const tileTitle =
+    multiPart && part.type === 'flight' && part.flight?.ident
+      ? part.flight.ident
+      : plan.title || planTypeLabel(part.type);
+
   const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
   const isViewer = trip.my_role === 'viewer';
 
@@ -704,14 +718,14 @@ function PartCard({
             onChange={onSelect}
             size="small"
             sx={{ p: 0.5, mt: -0.25 }}
-            inputProps={{ 'aria-label': `Select ${plan.title || planTypeLabel(part.type)}` }}
+            inputProps={{ 'aria-label': `Select ${tileTitle}` }}
           />
         )}
         <PlanTypeIcon type={part.type} sx={{ color: accent, mt: 0.25 }} />
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
             <Typography variant="subtitle2" sx={{ fontWeight: 600 }} noWrap>
-              {plan.title || planTypeLabel(part.type)}
+              {tileTitle}
             </Typography>
             {multiPart && (
               <Chip
@@ -749,7 +763,7 @@ function PartCard({
             )}
           </Stack>
 
-          {places && places !== (plan.title || planTypeLabel(part.type)) && (
+          {places && places !== tileTitle && (
             <Typography variant="body2" color="text.secondary" noWrap>
               {places}
             </Typography>
