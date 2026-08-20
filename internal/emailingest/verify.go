@@ -29,7 +29,7 @@ func BuildVerifyEmail(in VerifyInput) string {
 	contentType, body := multipartBody(plain, htmlPart)
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", mailer.SanitizeHeaderValue(in.FromAddr))
+	fmt.Fprintf(&sb, "From: %s\r\n", mailer.SanitizeHeaderValue(mailer.FormatFrom(in.FromAddr)))
 	fmt.Fprintf(&sb, "To: %s\r\n", mailer.SanitizeHeaderValue(in.ToAddr))
 	sb.WriteString("Subject: Verify your email for Aerly\r\n")
 	sb.WriteString("MIME-Version: 1.0\r\n")

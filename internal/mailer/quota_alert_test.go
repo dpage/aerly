@@ -22,7 +22,7 @@ func TestBuildQuotaAlertEmail_Structure(t *testing.T) {
 		OccurredAt: time.Date(2026, 6, 16, 8, 30, 0, 0, time.UTC),
 	})
 	for _, want := range []string{
-		"From: alerts@aerly.test",
+		`From: "Aerly" <alerts@aerly.test>`,
 		"To: admin@aerly.test",
 		"MIME-Version: 1.0",
 		"multipart/alternative",

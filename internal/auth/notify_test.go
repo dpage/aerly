@@ -73,7 +73,7 @@ func TestNotifyIdentityLinked_SendsMessage(t *testing.T) {
 	body := cap.lastBody
 	for _, want := range []string{
 		"To: alice@example.com",
-		"From: noreply@aerly.test",
+		`From: "Aerly" <noreply@aerly.test>`,
 		"Subject:",
 		"sign-in method",
 		"alice@example.com",

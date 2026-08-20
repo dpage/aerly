@@ -34,7 +34,7 @@ func TestBuildFlightAlertEmail_DelayHeadlineAndStructure(t *testing.T) {
 		When:      time.Now(),
 	})
 	for _, want := range []string{
-		"From: alerts@aerly.test",
+		`From: "Aerly" <alerts@aerly.test>`,
 		"To: owner@aerly.test",
 		"MIME-Version: 1.0",
 		"multipart/alternative",

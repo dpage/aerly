@@ -21,7 +21,7 @@ func TestBuildReply_AllAdded(t *testing.T) {
 	// don't accidentally straddle a wrap.
 	stripped := strings.ReplaceAll(body, "=\r\n", "")
 	for _, want := range []string{
-		"From: flights@flights.example",
+		`From: "Aerly" <flights@flights.example>`,
 		"To: devrim@example.com",
 		"In-Reply-To: <msg1@example.com>",
 		"References: <msg1@example.com>",

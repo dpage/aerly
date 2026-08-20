@@ -13,6 +13,7 @@ import (
 	"html"
 	"io"
 	"mime/quotedprintable"
+	"net/mail"
 	"net/url"
 	"os/exec"
 	"strings"
@@ -96,6 +97,34 @@ func SanitizeHeaderValue(v string) string {
 		return v[:i]
 	}
 	return v
+}
+
+// DisplayName is the human-readable name every outbound message is sent under,
+// so a notification shows as Aerly in the recipient's inbox rather than as a
+// bare noreply address.
+const DisplayName = "Aerly"
+
+// FormatFrom turns the configured sender address into a From: header value
+// carrying DisplayName. Only the visible header is affected: the SMTP envelope
+// sender is passed to Send separately and stays the bare address, so DMARC/SPF
+// alignment is exactly as it was.
+//
+// An address the operator has already given a display name to is left alone,
+// and one that doesn't parse is returned as-is rather than wrapped, on the
+// grounds that decorating a malformed address only makes it harder to diagnose.
+// Both paths still go through SanitizeHeaderValue at the point of writing.
+//
+// net/mail does the formatting, so it quotes the name and RFC 2047 encodes it
+// if it ever stops being ASCII. That yields "Aerly" <noreply@aerly.me> rather
+// than the barer Aerly <noreply@aerly.me>; the two are equivalent to every
+// client, and letting the standard library decide beats hand-rolling the
+// quoting rules.
+func FormatFrom(addr string) string {
+	parsed, err := mail.ParseAddress(addr)
+	if err != nil || parsed.Name != "" {
+		return addr
+	}
+	return (&mail.Address{Name: DisplayName, Address: parsed.Address}).String()
 }
 
 // MultipartBody renders the multipart/alternative body (boundary + two

@@ -71,7 +71,7 @@ func BuildReply(in ReplyInput) string {
 	encodedSubject := mime.QEncoding.Encode("utf-8", subj)
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "From: %s\r\n", mailer.SanitizeHeaderValue(in.FromAddr))
+	fmt.Fprintf(&sb, "From: %s\r\n", mailer.SanitizeHeaderValue(mailer.FormatFrom(in.FromAddr)))
 	fmt.Fprintf(&sb, "To: %s\r\n", mailer.SanitizeHeaderValue(in.ToAddr))
 	if in.InReplyTo != "" {
 		// InReplyTo echoes the inbound message's Message-ID, so sanitise it like

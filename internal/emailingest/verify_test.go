@@ -13,7 +13,7 @@ func TestBuildVerifyEmail_HeadersAndBody(t *testing.T) {
 		Token:     "abc123",
 	})
 
-	mustContain(t, got, "From: flights@example.com\r\n")
+	mustContain(t, got, "From: \"Aerly\" <flights@example.com>\r\n")
 	mustContain(t, got, "To: alice@example.com\r\n")
 	mustContain(t, got, "Subject: Verify your email for Aerly\r\n")
 	mustContain(t, got, "MIME-Version: 1.0\r\n")

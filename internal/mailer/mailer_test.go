@@ -2,6 +2,7 @@ package mailer
 
 import (
 	"context"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -161,5 +162,44 @@ func TestAssembleRFC822_NeutralisesHeaderInjection(t *testing.T) {
 	}
 	if !strings.Contains(msg, "To: to@example.com\r\n") {
 		t.Errorf("To header not sanitised as expected:\n%s", msg)
+	}
+}
+
+// FormatFrom decorates a bare sender with the display name, so a notification
+// shows as "Aerly" in the inbox rather than a bare noreply address. It leaves
+// alone anything it shouldn't touch: an address the operator already named, and
+// one that doesn't parse (wrapping a malformed value only hides the problem).
+func TestFormatFrom(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"bare address gains the display name", "noreply@aerly.me", `"Aerly" <noreply@aerly.me>`},
+		{"angle-addr form is unwrapped and renamed", "<noreply@aerly.me>", `"Aerly" <noreply@aerly.me>`},
+		{"existing display name is respected", "Flights <noreply@aerly.me>", "Flights <noreply@aerly.me>"},
+		{"ours is left as-is rather than doubled", "Aerly <noreply@aerly.me>", "Aerly <noreply@aerly.me>"},
+		{"unparseable value passes through", "not an address", "not an address"},
+		{"empty stays empty", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := FormatFrom(c.in); got != c.want {
+				t.Errorf("FormatFrom(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// Whatever the quoting, the header has to parse back to the name and address we
+// meant, which is the property that actually matters to a receiving client.
+func TestFormatFromRoundTrips(t *testing.T) {
+	parsed, err := mail.ParseAddress(FormatFrom("noreply@aerly.me"))
+	if err != nil {
+		t.Fatalf("FormatFrom produced an unparseable header: %v", err)
+	}
+	if parsed.Name != DisplayName || parsed.Address != "noreply@aerly.me" {
+		t.Errorf("round-tripped to %q / %q, want %q / noreply@aerly.me",
+			parsed.Name, parsed.Address, DisplayName)
 	}
 }
