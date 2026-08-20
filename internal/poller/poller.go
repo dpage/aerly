@@ -429,6 +429,53 @@ func metadataRefreshIntervalFor(f *store.Flight, now time.Time) time.Duration {
 	}
 }
 
+// beltWindow is how close to arrival a published baggage belt has to be before
+// we believe it. AeroDataBox will happily hand back an arrival belt for a
+// flight that has not taken off yet: the first resolve after a flight enters
+// the 12h metadata band can report a belt some fourteen hours before it is due
+// to land, and since a new non-empty belt always-alerts, that arrives as a
+// "bags on belt N" push in the small hours. A belt that far out is a
+// placeholder or the previous rotation's, so we neither store nor alert on it,
+// and the first value we do keep is one published near the actual arrival,
+// which then reads as a new non-empty belt and alerts through the normal path.
+const beltWindow = 3 * time.Hour
+
+// arrivalEstimate is the best available landing time for a flight: the actual
+// arrival where the provider or the traveller has given us one, then the
+// estimate, falling back to the schedule. Deliberately not scheduled-only,
+// since a flight that ran late lands hours after its timetabled arrival and the
+// belt window has to follow the aircraft rather than the timetable. The zero
+// time means "we don't know": a manually added flight with no arrival time
+// stores scheduled_in == scheduled_out, and an arrival that isn't after
+// departure tells us nothing.
+func arrivalEstimate(f *store.Flight) time.Time {
+	if f.ActualIn != nil {
+		return *f.ActualIn
+	}
+	if f.EstimatedIn != nil {
+		return *f.EstimatedIn
+	}
+	if f.ScheduledIn.After(f.ScheduledOut) {
+		return f.ScheduledIn
+	}
+	return time.Time{}
+}
+
+// beltIsCurrent reports whether now is close enough to the flight's arrival for
+// a published baggage belt to mean anything. An unknown arrival is treated as
+// out of window: better no belt than one attached to a schedule we don't trust.
+func beltIsCurrent(f *store.Flight, now time.Time) bool {
+	arr := arrivalEstimate(f)
+	if arr.IsZero() {
+		return false
+	}
+	gap := now.Sub(arr)
+	if gap < 0 {
+		gap = -gap
+	}
+	return gap <= beltWindow
+}
+
 // resolveAndUpdate calls the Resolver and persists the result through both
 // the empty-fill path (BackfillFlightPart, which protects user-typed values)
 // and the day-of overwrite path (RefreshFlightPartAirframe, which catches
@@ -470,10 +517,13 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	}
 	// Arrival baggage belt is updatable like gate (a change is what the
 	// belt-change alert detects), so it takes the same overwrite-when-non-empty
-	// path rather than the only-fill-empty backfill above.
-	if err := p.Store.RefreshFlightPartBelt(ctx, f.ID, rf.DestBaggageBelt); err != nil {
-		slog.Error("poller: refresh belt failed", "id", f.ID, "err", err)
-		return nil, err
+	// path rather than the only-fill-empty backfill above — but only whilst the
+	// flight is near enough to arrival for the belt to be real (beltWindow).
+	if beltIsCurrent(f, now) {
+		if err := p.Store.RefreshFlightPartBelt(ctx, f.ID, rf.DestBaggageBelt); err != nil {
+			slog.Error("poller: refresh belt failed", "id", f.ID, "err", err)
+			return nil, err
+		}
 	}
 	// Terminal is updatable like gate (a change is what the terminal-change
 	// alert detects), so it takes the overwrite-when-non-empty path rather than

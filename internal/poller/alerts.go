@@ -33,10 +33,14 @@ import (
 // (origin_terminal/dest_terminal) works exactly the same way: a change to a new
 // non-empty terminal always-alerts and is folded into the dedupe signature.
 //
-// Baggage belt (migration 0027) works exactly like gate: dest_baggage_belt is
-// the arrival carousel, persisted overwrite-when-non-empty each tick, and a
-// change to a new non-empty belt always-alerts and is folded into the dedupe
-// signature.
+// Baggage belt (migration 0027) works almost exactly like gate:
+// dest_baggage_belt is the arrival carousel, persisted overwrite-when-non-empty
+// each tick, and a change to a new non-empty belt always-alerts and is folded
+// into the dedupe signature. The one difference is upstream of this file: the
+// poller only persists a belt whilst the flight is within beltWindow of its
+// arrival, because the provider will report one many hours before departure.
+// The alert path therefore needs no arrival check of its own — a belt it can
+// see is one already judged current.
 
 // delaySigBucketMin is the granularity at which a delay is folded into the
 // dedupe signature. Two polls reporting the same delay (to the minute) produce

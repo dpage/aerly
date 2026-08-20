@@ -566,6 +566,122 @@ func TestTickResolvesGateAheadOfDeparture(t *testing.T) {
 	}
 }
 
+// TestTickIgnoresBeltPublishedLongBeforeArrival: the provider reports an
+// arrival belt for a flight that is still hours from departing. That belt is a
+// placeholder (or the previous rotation's), so the metadata pass must leave
+// dest_baggage_belt alone — otherwise it lands as a "bags on belt N" push in
+// the middle of the night.
+func TestTickIgnoresBeltPublishedLongBeforeArrival(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ118", OriginIATA: "VIE", DestIATA: "ARN",
+		OriginGate: "F12", DestBaggageBelt: "3",
+	}}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Departs in 6h, lands in 7h: inside the 12h metadata band, but well
+	// outside beltWindow of arrival.
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "ZZ118", ScheduledOut: now.Add(6 * time.Hour), ScheduledIn: now.Add(7 * time.Hour),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.DestBaggageBelt != "" {
+		t.Errorf("belt stored 7h before arrival, got %q", got.DestBaggageBelt)
+	}
+	// The gate on the same resolve is genuinely useful this far out, so the
+	// belt guard must not suppress it too.
+	if got.OriginGate != "F12" {
+		t.Errorf("gate suppressed alongside the belt, got %q", got.OriginGate)
+	}
+}
+
+// TestTickStoresBeltNearArrival is the other side of the guard: once the
+// aircraft is inside beltWindow of landing, the provider's belt is exactly what
+// the traveller wants and is persisted as before.
+func TestTickStoresBeltNearArrival(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ118", OriginIATA: "VIE", DestIATA: "ARN", DestBaggageBelt: "3",
+	}}
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	// Airborne, landing in an hour.
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "ZZ118", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.DestBaggageBelt != "3" {
+		t.Errorf("belt not stored an hour before arrival, got %q", got.DestBaggageBelt)
+	}
+}
+
+// TestBeltIsCurrent covers the window arithmetic directly, including the
+// arrival-time precedence: an actual arrival beats the estimate, which beats
+// the schedule, so a flight that ran three hours late still gets its belt at
+// the moment it actually lands rather than being judged stale against the
+// timetable.
+func TestBeltIsCurrent(t *testing.T) {
+	now := time.Now()
+	at := func(d time.Duration) *time.Time { u := now.Add(d); return &u }
+	// A schedule saying the flight landed 5h ago, which each case overrides in
+	// turn via the estimated/actual columns.
+	base := func() *store.Flight {
+		return &store.Flight{
+			ScheduledOut: now.Add(-7 * time.Hour),
+			ScheduledIn:  now.Add(-5 * time.Hour),
+		}
+	}
+	cases := []struct {
+		name string
+		f    *store.Flight
+		want bool
+	}{
+		{"scheduled arrival long past", base(), false},
+		{"scheduled arrival long ahead", &store.Flight{
+			ScheduledOut: now.Add(6 * time.Hour), ScheduledIn: now.Add(7 * time.Hour),
+		}, false},
+		{"scheduled arrival imminent", &store.Flight{
+			ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		}, true},
+		{"just landed", &store.Flight{
+			ScheduledOut: now.Add(-3 * time.Hour), ScheduledIn: now.Add(-time.Minute),
+		}, true},
+		{"estimated arrival rescues a late flight", func() *store.Flight {
+			f := base()
+			f.EstimatedIn = at(-10 * time.Minute)
+			return f
+		}(), true},
+		{"actual arrival wins over the estimate", func() *store.Flight {
+			f := base()
+			f.EstimatedIn = at(-10 * time.Minute)
+			f.ActualIn = at(-6 * time.Hour)
+			return f
+		}(), false},
+		{"degenerate schedule is unknown, not current", &store.Flight{
+			ScheduledOut: now, ScheduledIn: now,
+		}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := beltIsCurrent(c.f, now); got != c.want {
+				t.Errorf("beltIsCurrent = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 // TestTickBackfillsDegenerateSchedule: a manually-added flight (number + date
 // only → scheduled_in == scheduled_out) gets its real times filled from the
 // resolver during the pre-departure metadata pass.
