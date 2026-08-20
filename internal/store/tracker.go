@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -445,6 +446,34 @@ func (s *Store) RefreshFlightPartBelt(ctx context.Context, partID int64, destBel
 		UPDATE flight_details SET
 			dest_baggage_belt = COALESCE(NULLIF($2, ''), dest_baggage_belt)
 		WHERE plan_part_id = $1`, partID, destBelt)
+	return err
+}
+
+// SetFlightPartTerminalStatus records a verdict the provider gave outright,
+// rather than one derived from times: a cancellation or a diversion. Only those
+// two are accepted, because everything else is derivable and the derivation is
+// the single place that ought to decide it.
+//
+// The write is guarded twice. A flight already cancelled or diverted is not
+// rewritten to the other, its story having been told. And a flight with an
+// observed touchdown is never contradicted: an aircraft that demonstrably
+// landed cannot be cancelled, so a provider record saying so is describing a
+// later rotation of the same number rather than the journey that happened.
+//
+// Note that the second guard is on actual_in, the observed arrival, and not on
+// the Arrived status. Arrived is often merely derived from an estimate, and a
+// flight cancelled after that derivation ran has to be correctable: keying the
+// guard on the label would leave it permanently reported as landed, which is
+// the exact falsehood this function exists to prevent.
+func (s *Store) SetFlightPartTerminalStatus(ctx context.Context, partID int64, status string) error {
+	if status != "Cancelled" && status != "Diverted" {
+		return fmt.Errorf("store: %q is not a terminal flight status", status)
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flight_details SET flight_status = $2
+		WHERE plan_part_id = $1
+		  AND flight_status NOT IN ('Cancelled', 'Diverted')
+		  AND actual_in IS NULL`, partID, status)
 	return err
 }
 

@@ -140,6 +140,19 @@ type ResolvedFlight struct {
 	// Arrived whilst it is still in the air.
 	EstimatedIn *time.Time
 	ActualIn    *time.Time
+	// Status is the provider's own verdict on the flight, normalised to the
+	// terminal statuses this application stores: "Cancelled", "Diverted", or
+	// empty when the provider is not saying anything terminal.
+	//
+	// It is deliberately narrow. Everything else the provider might report
+	// ("Expected", "GateClosed", "EnRoute" and so on) is left as an empty
+	// string, because those are all restatements of where the aircraft is in
+	// time and the derivation from actual/estimated/scheduled already answers
+	// that, from data we can check. A cancellation is the opposite case: no
+	// arrangement of timestamps can express it, and without the provider
+	// saying so outright a cancelled flight goes on being derived from its
+	// timetable and is eventually declared to have landed.
+	Status string
 	// EstimatedOut / ActualOut are the departure-side counterparts, and the two
 	// are NOT interchangeable, so mind which one you reach for.
 	//

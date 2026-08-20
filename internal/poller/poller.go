@@ -602,6 +602,21 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	if err := p.Store.RefreshFlightPartDeparture(ctx, f.ID, rf.EstimatedOut, rf.ActualOut); err != nil {
 		slog.Error("poller: refresh departure times failed", "id", f.ID, "err", err)
 	}
+	// A cancellation or diversion, where the provider states one. This has to
+	// be written before the caller re-derives the status, which preserves a
+	// terminal status but has no way to reach one: no arrangement of scheduled,
+	// estimated and actual times says "cancelled", so without this a cancelled
+	// flight goes on being derived from its timetable and is declared Arrived
+	// once its estimated arrival passes. It also makes the transition a real
+	// prev-to-cur delta for the alert step, which already treats a move into
+	// Cancelled as worth telling everybody about regardless of thresholds.
+	if rf.Status != "" {
+		if err := p.Store.SetFlightPartTerminalStatus(ctx, f.ID, rf.Status); err != nil {
+			slog.Error("poller: set terminal status failed", "id", f.ID, "status", rf.Status, "err", err)
+		} else {
+			slog.Info("poller: provider reports terminal status", "id", f.ID, "ident", f.Ident, "status", rf.Status)
+		}
+	}
 	// Terminal is updatable like gate (a change is what the terminal-change
 	// alert detects), so it takes the overwrite-when-non-empty path rather than
 	// the only-fill-empty backfill above.

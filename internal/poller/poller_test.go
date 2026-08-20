@@ -667,6 +667,97 @@ func TestTickPersistsLiveArrivalTimes(t *testing.T) {
 	}
 }
 
+// TestTickRecordsProviderCancellation: a cancellation is the one verdict the
+// time-based derivation cannot reach, so if the provider's word is dropped the
+// flight goes on being judged against its timetable and is declared Arrived as
+// soon as its estimated arrival passes — telling the traveller that the flight
+// they were not on has landed. It must instead land as Cancelled, survive the
+// derived refresh in the same tick, and alert unconditionally.
+func TestTickRecordsProviderCancellation(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, hub := newPoller(t, tr, time.Minute)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	// Delay threshold cranked absurdly high, so only an always-alert status
+	// change can produce an alert here.
+	if err := s.SetAlertPrefs(ctx, store.AlertPrefs{UserID: owner, InApp: true, MinDelayMin: 6000}); err != nil {
+		t.Fatalf("set prefs: %v", err)
+	}
+	now := time.Now()
+	// The provider quotes an arrival five minutes from now, so on times alone
+	// the derivation would have this Enroute and then Arrived shortly after.
+	arrival := now.Add(5 * time.Minute)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ967", OriginIATA: "VIE", DestIATA: "ARN",
+		Status: "Cancelled", EstimatedIn: &arrival,
+	}}
+	// Airborne by the timetable: out two hours ago, in an hour from now. This
+	// is the state a flight is in when the airline gives up on it.
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "ZZ967", ScheduledOut: now.Add(-2 * time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.Status != "Cancelled" {
+		t.Fatalf("a cancelled flight was recorded as %q", got.Status)
+	}
+	alerts := drainAlerts(t, ch)
+	if len(alerts) != 1 || alerts[0].Kind != "cancelled" {
+		t.Fatalf("expected a single cancellation alert, got %+v", alerts)
+	}
+
+	// And it stays cancelled once the quoted arrival slides past, rather than
+	// the derivation reclaiming it as Arrived on a later tick.
+	if err := s.RefreshFlightPartStatus(ctx, f.ID); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	if again, _ := s.FlightPartByID(ctx, f.ID); again.Status != "Cancelled" {
+		t.Errorf("a cancelled flight was re-derived to %q", again.Status)
+	}
+}
+
+// A resolver that hands back a status the store will not accept must not derail
+// the resolve: the airframe, gate and time work already persisted in the same
+// call is worth keeping, and the derived status still runs. Guards against a
+// future provider adapter widening its mapping and taking the poller down with
+// it.
+func TestTickSurvivesUnusableProviderStatus(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ968", OriginIATA: "VIE", DestIATA: "ARN",
+		Status: "SomethingNobodyMapped", DestBaggageBelt: "7",
+	}}
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "ZZ968", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(30 * time.Minute),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.Status != "Enroute" {
+		t.Errorf("an unusable provider status should leave the derivation alone, got %q", got.Status)
+	}
+	if got.DestBaggageBelt != "7" {
+		t.Errorf("the rest of the resolve was discarded, belt=%q", got.DestBaggageBelt)
+	}
+}
+
 // TestTickPersistsLiveDepartureTimes is the departure-side mirror, and the
 // end-to-end case behind it: a flight held on stand under a rolling delay was
 // shown En route from the moment its timetabled departure passed, because

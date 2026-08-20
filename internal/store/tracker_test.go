@@ -252,6 +252,75 @@ func TestTrackerPartTitlePerLeg(t *testing.T) {
 	}
 }
 
+// TestSetFlightPartTerminalStatus: a cancellation cannot be derived from times,
+// so the provider's verdict is written directly and then survives the derived
+// refresh. Without this a cancelled flight keeps being judged on its timetable
+// and is declared Arrived the moment its estimated arrival passes, which tells
+// the traveller their cancelled flight landed.
+func TestSetFlightPartTerminalStatus(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Timetabled out two hours ago, in an hour ago: the derivation would have
+	// this Arrived on the next refresh.
+	part := mkFlightPart(t, s, owner, "ZZ967", now.Add(-2*time.Hour), now.Add(-time.Hour))
+	if err := s.SetFlightPartTerminalStatus(ctx, part, "Cancelled"); err != nil {
+		t.Fatalf("SetFlightPartTerminalStatus: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, part); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	got, _ := s.FlightPartByID(ctx, part)
+	if got.Status != "Cancelled" {
+		t.Errorf("a cancelled flight was re-derived to %q", got.Status)
+	}
+
+	// A flight with an observed touchdown is never contradicted: an aircraft
+	// that demonstrably landed cannot be cancelled.
+	landed := mkFlightPart(t, s, owner, "ZZ962", now.Add(-5*time.Hour), now.Add(-3*time.Hour))
+	touchdown := now.Add(-3 * time.Hour)
+	if err := s.RefreshFlightPartArrival(ctx, landed, nil, &touchdown); err != nil {
+		t.Fatalf("RefreshFlightPartArrival: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, landed); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	if err := s.SetFlightPartTerminalStatus(ctx, landed, "Cancelled"); err != nil {
+		t.Fatalf("SetFlightPartTerminalStatus (landed): %v", err)
+	}
+	lf, _ := s.FlightPartByID(ctx, landed)
+	if lf.Status != "Arrived" {
+		t.Errorf("a flight that demonstrably landed was cancelled: %q", lf.Status)
+	}
+
+	// But an Arrived that was only ever derived from an estimate IS
+	// correctable, which is the whole point: a cancellation published after
+	// that derivation ran must not leave the flight reported as landed.
+	derived := mkFlightPart(t, s, owner, "ZZ963", now.Add(-5*time.Hour), now.Add(-3*time.Hour))
+	if err := s.RefreshFlightPartStatus(ctx, derived); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	if df, _ := s.FlightPartByID(ctx, derived); df.Status != "Arrived" {
+		t.Fatalf("precondition: expected a derived Arrived, got %q", df.Status)
+	}
+	if err := s.SetFlightPartTerminalStatus(ctx, derived, "Cancelled"); err != nil {
+		t.Fatalf("SetFlightPartTerminalStatus (derived): %v", err)
+	}
+	if df, _ := s.FlightPartByID(ctx, derived); df.Status != "Cancelled" {
+		t.Errorf("a derived Arrived was not corrected to Cancelled, got %q", df.Status)
+	}
+
+	// Only the two terminal statuses are accepted; anything else is the
+	// derivation's business and is refused rather than silently written.
+	if err := s.SetFlightPartTerminalStatus(ctx, part, "Enroute"); err == nil {
+		t.Error("a derived status was accepted as a terminal one")
+	}
+}
+
 // TestRefreshStatusHeldOnStand is the departure-side mirror of
 // TestRefreshStatusLateArrival, and guards the "airborne in a thunderstorm"
 // bug: deriving Enroute from the timetable declares a flight in the air the

@@ -471,6 +471,7 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 		r.ICAO24 = strings.ToLower(strings.TrimSpace(f.Aircraft.ModeS))
 		r.AircraftType = strings.TrimSpace(f.Aircraft.Model)
 	}
+	r.Status = adbTerminalStatus(f.Status)
 	r.Callsign = strings.ToUpper(strings.TrimSpace(f.CallSign))
 	var notes []string
 	if f.Airline != nil && f.Airline.Name != "" {
@@ -518,6 +519,27 @@ func parseADBTime(s string) (time.Time, error) {
 }
 
 // AeroDataBox JSON shape (just the fields we use).
+
+// adbTerminalStatus maps AeroDataBox's status vocabulary onto the terminal
+// statuses we store, and onto nothing at all for the rest.
+//
+// Only the two verdicts that cannot be derived from timestamps are recognised.
+// The match is exact (bar case and the American spelling of cancelled), so a
+// value we have not seen before falls through to the empty string and leaves
+// the flight deriving from its times exactly as it does today. That matters
+// for "CanceledUncertain", which the provider uses when it suspects but cannot
+// confirm a cancellation: guessing wrong there would tell somebody their
+// flight was off when it was not, so it is deliberately not matched.
+func adbTerminalStatus(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "canceled", "cancelled":
+		return "Cancelled"
+	case "diverted":
+		return "Diverted"
+	default:
+		return ""
+	}
+}
 
 type adbFlight struct {
 	Number          string       `json:"number"`

@@ -615,6 +615,43 @@ func TestAeroDataBoxCarriesLiveMovementTimes(t *testing.T) {
 	}
 }
 
+// The provider's own verdict is carried through for the two statuses that no
+// arrangement of timestamps can express, and for nothing else. A cancelled
+// flight that is not recognised as cancelled goes on being derived from its
+// timetable and is eventually declared to have landed.
+func TestAeroDataBoxCarriesTerminalStatus(t *testing.T) {
+	for _, tc := range []struct{ provider, want string }{
+		{"Canceled", "Cancelled"},
+		{"cancelled", "Cancelled"},
+		{"Diverted", "Diverted"},
+		// Not terminal, and not our business: the time-based derivation
+		// already answers where the aircraft is.
+		{"GateClosed", ""},
+		{"EnRoute", ""},
+		{"Arrived", ""},
+		{"Expected", ""},
+		{"", ""},
+		// The provider's "suspected but unconfirmed" cancellation must not be
+		// read as a cancellation: telling somebody their flight is off when it
+		// is not is worse than saying nothing.
+		{"CanceledUncertain", ""},
+	} {
+		body := `[{"number":"ZZ 967","codeshareStatus":"IsOperator","status":"` + tc.provider + `",
+		  "departure":{"airport":{"iata":"VIE"},"scheduledTime":{"utc":"2026-08-19 15:05Z"}},
+		  "arrival":{"airport":{"iata":"ARN"},"scheduledTime":{"utc":"2026-08-19 17:15Z"}}}]`
+		a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(body))
+		})
+		rf, err := a.Resolve(context.Background(), "ZZ967", time.Now())
+		if err != nil {
+			t.Fatalf("Resolve(%q): %v", tc.provider, err)
+		}
+		if rf.Status != tc.want {
+			t.Errorf("provider status %q mapped to %q, want %q", tc.provider, rf.Status, tc.want)
+		}
+	}
+}
+
 // A flight held on stand: the airline has revised the departure later and there
 // is no runway time yet, which is precisely the state that must not be read as
 // airborne, and the one a rolling weather delay parks a flight in for hours.
