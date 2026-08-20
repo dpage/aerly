@@ -388,6 +388,55 @@ export function fmtPartTimeRange(part: PlanPart): string {
   return `${start} → ${end}`;
 }
 
+/** The live times a flight is actually running to, in the same precedence the
+ * server uses for `effective_at` (observed, then the airline's estimate, then
+ * the timetable), so what a tile reads agrees with where it sorts. Only flights
+ * carry these; every other type has nothing but its schedule. */
+function liveTimes(part: PlanPart): { out?: string; in?: string } {
+  if (part.type !== 'flight' || !part.flight) return {};
+  return {
+    out: part.flight.actual_out ?? part.flight.estimated_out,
+    in: part.flight.actual_in ?? part.flight.estimated_in,
+  };
+}
+
+/** The revised time range, when the flight is running to times that read
+ * differently from its timetable; null when it is on schedule or has no live
+ * coverage at all.
+ *
+ * The comparison is on the formatted times rather than the raw instants,
+ * because the question being asked is whether a reader would see a different
+ * clock time: a revision of forty seconds still shows as 17:05 and is not worth
+ * striking the timetable through for.
+ */
+export function fmtPartRevisedTimeRange(part: PlanPart): string | null {
+  const live = liveTimes(part);
+  if (!live.out && !live.in) return null;
+
+  const startTz = part.start_tz;
+  const endTz = part.end_tz || part.start_tz;
+  const revisedStart = fmtTimeOfDay(live.out ?? part.starts_at, startTz);
+  const scheduledStart = fmtTimeOfDay(part.starts_at, startTz);
+
+  if (!part.ends_at) return revisedStart === scheduledStart ? null : revisedStart;
+
+  const revisedEnd = fmtTimeOfDay(live.in ?? part.ends_at, endTz);
+  const scheduledEnd = fmtTimeOfDay(part.ends_at, endTz);
+  if (revisedStart === scheduledStart && revisedEnd === scheduledEnd) return null;
+  return `${revisedStart} → ${revisedEnd}`;
+}
+
+/** The one-line plain-text form, for the places that cannot strike text
+ * through: the map popup's summary line and the share text. It leads with the
+ * times the flight is actually running to and keeps the timetable behind them,
+ * so someone reading a shared plan is told when to turn up rather than what was
+ * booked. Collapses to the plain range when nothing has been revised. */
+export function fmtPartTimeRangeText(part: PlanPart): string {
+  const revised = fmtPartRevisedTimeRange(part);
+  const scheduled = fmtPartTimeRange(part);
+  return revised ? `${revised} (scheduled ${scheduled})` : scheduled;
+}
+
 // --- internals --------------------------------------------------------------
 
 function instantOf(part: PlanPart): number {

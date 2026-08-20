@@ -252,6 +252,70 @@ describe('TripTimeline', () => {
     expect(screen.queryByText(/ARN \u2194 VIE/)).not.toBeInTheDocument();
   });
 
+  it('strikes the timetable through and shows the revised times beside it', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            starts_at: '2026-08-20T15:05:00Z',
+            ends_at: '2026-08-20T17:15:00Z',
+            start_tz: 'UTC',
+            end_tz: 'UTC',
+            flight: {
+              ident: 'OS967',
+              scheduled_out: '2026-08-20T15:05:00Z',
+              scheduled_in: '2026-08-20T17:15:00Z',
+              estimated_out: '2026-08-20T17:00:00Z',
+              estimated_in: '2026-08-20T19:00:00Z',
+            } as PlanPart['flight'],
+          }),
+        ],
+        { id: 1, title: 'OS967 VIE to ARN' },
+      ),
+    ]);
+    renderTimeline();
+    const tile = within(screen.getByTestId('part-card-1'));
+    const scheduled = tile.getByText('15:05 UTC → 17:15 UTC');
+    expect(scheduled).toHaveStyle({ textDecoration: 'line-through' });
+    // Spoken output gets the distinction in words, since a line-through is
+    // silent to a screen reader.
+    expect(scheduled).toHaveAttribute('aria-label', 'Scheduled 15:05 UTC → 17:15 UTC');
+    expect(tile.getByText('17:00 UTC → 19:00 UTC')).toHaveAttribute(
+      'aria-label',
+      'Now expected 17:00 UTC → 19:00 UTC',
+    );
+  });
+
+  it('leaves an on-time flight showing its schedule once, unstruck', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            starts_at: '2026-08-20T15:05:00Z',
+            ends_at: '2026-08-20T17:15:00Z',
+            start_tz: 'UTC',
+            end_tz: 'UTC',
+            flight: {
+              ident: 'OS967',
+              scheduled_out: '2026-08-20T15:05:00Z',
+              scheduled_in: '2026-08-20T17:15:00Z',
+              estimated_out: '2026-08-20T15:05:00Z',
+            } as PlanPart['flight'],
+          }),
+        ],
+        { id: 1, title: 'OS967 VIE to ARN' },
+      ),
+    ]);
+    renderTimeline();
+    const tile = within(screen.getByTestId('part-card-1'));
+    const when = tile.getByText('15:05 UTC → 17:15 UTC');
+    expect(when).not.toHaveAttribute('aria-label');
+  });
+
   it('keeps the plan title on a single-leg flight plan', () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1, flight: { ident: 'BA286' } as PlanPart['flight'] })], {

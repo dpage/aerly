@@ -1,5 +1,5 @@
 import type { Plan, PlanPart } from '../api/types';
-import { fmtPartPlaces, fmtPartTimeRange, planTypeLabel } from './trip-format';
+import { fmtPartPlaces, fmtPartTimeRangeText, planTypeLabel } from './trip-format';
 import { formatCost } from './format';
 import { fmtGate } from './gate';
 
@@ -14,7 +14,7 @@ export function buildPlanShareText(plan: Plan, part: PlanPart): string {
   const places = fmtPartPlaces(part.type, part.start_label, part.end_label);
   if (places && places !== title) lines.push(places);
 
-  const when = fmtPartTimeRange(part);
+  const when = fmtPartTimeRangeText(part);
   if (when) lines.push(when);
 
   const addr = fmtPartPlaces(part.type, part.start_address, part.end_address);

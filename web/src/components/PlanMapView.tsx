@@ -39,7 +39,12 @@ import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
 import { personColor } from '../lib/person-color';
-import { fmtPartPlaces, fmtPartTimeRange, isTransferType, planTypeLabel } from '../lib/trip-format';
+import {
+  fmtPartPlaces,
+  fmtPartTimeRangeText,
+  isTransferType,
+  planTypeLabel,
+} from '../lib/trip-format';
 import FlightDetailCard from './FlightDetailCard';
 import PartDetailBlock from './PartDetailBlock';
 import BottomSheet, { PEEK_PX, sheetHeightPx, type SheetSnap } from './BottomSheet';
@@ -774,7 +779,7 @@ function partTitle(part: PlanPart): string {
 
 /** The '·'-joined secondary line for a part: type · supplier · time range. */
 function partSummary(part: PlanPart): string {
-  return [planTypeLabel(part.type), part.supplier_name, fmtPartTimeRange(part)]
+  return [planTypeLabel(part.type), part.supplier_name, fmtPartTimeRangeText(part)]
     .filter(Boolean)
     .join(' · ');
 }

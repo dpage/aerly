@@ -6,7 +6,9 @@ import {
   buildTimeline,
   classifyTrip,
   fmtPartPlaces,
+  fmtPartRevisedTimeRange,
   fmtPartTimeRange,
+  fmtPartTimeRangeText,
   fmtLocalDateTime,
   fmtTripDates,
   plansOutsideTripDates,
@@ -518,6 +520,106 @@ describe('fmtPartPlaces', () => {
   });
   it('collapses identical transfer endpoints to one', () => {
     expect(fmtPartPlaces('train', 'Paddington', 'Paddington')).toBe('Paddington');
+  });
+});
+
+describe('fmtPartRevisedTimeRange', () => {
+  const flight = (over: Partial<PlanPart['flight']> = {}) =>
+    part({
+      starts_at: '2026-08-20T15:05:00Z',
+      ends_at: '2026-08-20T17:15:00Z',
+      flight: {
+        ident: 'OS967',
+        scheduled_out: '2026-08-20T15:05:00Z',
+        scheduled_in: '2026-08-20T17:15:00Z',
+        ...over,
+      } as PlanPart['flight'],
+    });
+
+  it('reports the revised range when the airline has moved both ends', () => {
+    expect(
+      fmtPartRevisedTimeRange(
+        flight({ estimated_out: '2026-08-20T17:00:00Z', estimated_in: '2026-08-20T19:00:00Z' }),
+      ),
+    ).toBe('17:00 UTC → 19:00 UTC');
+  });
+
+  it('reports a revised departure even when the arrival still stands', () => {
+    expect(fmtPartRevisedTimeRange(flight({ estimated_out: '2026-08-20T17:00:00Z' }))).toBe(
+      '17:00 UTC → 17:15 UTC',
+    );
+  });
+
+  it('prefers the observed time over the estimate, matching effective_at', () => {
+    expect(
+      fmtPartRevisedTimeRange(
+        flight({ estimated_out: '2026-08-20T17:00:00Z', actual_out: '2026-08-20T17:12:00Z' }),
+      ),
+    ).toBe('17:12 UTC → 17:15 UTC');
+  });
+
+  it('stays null for a flight running to its timetable', () => {
+    expect(
+      fmtPartRevisedTimeRange(
+        flight({ estimated_out: '2026-08-20T15:05:00Z', estimated_in: '2026-08-20T17:15:00Z' }),
+      ),
+    ).toBeNull();
+  });
+
+  it('ignores a revision too small to read differently on the clock', () => {
+    // Forty seconds later is still 15:05 to a reader, so striking the timetable
+    // through would say a flight had moved when nothing visible had changed.
+    expect(fmtPartRevisedTimeRange(flight({ estimated_out: '2026-08-20T15:05:40Z' }))).toBeNull();
+  });
+
+  it('stays null for a flight with no live coverage, and for other types', () => {
+    expect(fmtPartRevisedTimeRange(flight())).toBeNull();
+    expect(fmtPartRevisedTimeRange(part({ type: 'hotel', flight: undefined }))).toBeNull();
+  });
+
+  it('handles a part with no end time', () => {
+    expect(
+      fmtPartRevisedTimeRange(
+        part({
+          starts_at: '2026-08-20T15:05:00Z',
+          ends_at: undefined,
+          flight: {
+            ident: 'OS967',
+            scheduled_out: '2026-08-20T15:05:00Z',
+            scheduled_in: '2026-08-20T15:05:00Z',
+            estimated_out: '2026-08-20T17:00:00Z',
+          } as PlanPart['flight'],
+        }),
+      ),
+    ).toBe('17:00 UTC');
+  });
+});
+
+describe('fmtPartTimeRangeText', () => {
+  it('leads with the revised times and keeps the timetable behind them', () => {
+    expect(
+      fmtPartTimeRangeText(
+        part({
+          starts_at: '2026-08-20T15:05:00Z',
+          ends_at: '2026-08-20T17:15:00Z',
+          flight: {
+            ident: 'OS967',
+            scheduled_out: '2026-08-20T15:05:00Z',
+            scheduled_in: '2026-08-20T17:15:00Z',
+            estimated_out: '2026-08-20T17:00:00Z',
+            estimated_in: '2026-08-20T19:00:00Z',
+          } as PlanPart['flight'],
+        }),
+      ),
+    ).toBe('17:00 UTC → 19:00 UTC (scheduled 15:05 UTC → 17:15 UTC)');
+  });
+
+  it('collapses to the plain range when nothing has been revised', () => {
+    expect(
+      fmtPartTimeRangeText(
+        part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, flight: undefined }),
+      ),
+    ).toBe('09:00 UTC');
   });
 });
 

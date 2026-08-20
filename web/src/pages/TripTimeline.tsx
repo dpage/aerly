@@ -47,6 +47,7 @@ import {
   bandEdgeLabels,
   bandSpanDays,
   fmtPartPlaces,
+  fmtPartRevisedTimeRange,
   fmtPartTimeRange,
   fmtTimeOfDay,
   planTypeLabel,
@@ -611,6 +612,11 @@ function PartCard({
       ? part.flight.ident
       : plan.title || planTypeLabel(part.type);
 
+  // Non-null only when the flight is running to times that read differently
+  // from its timetable, which is what turns the line below into a departure
+  // board rather than a booking record.
+  const revisedWhen = fmtPartRevisedTimeRange(part);
+
   const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
   const isViewer = trip.my_role === 'viewer';
 
@@ -792,11 +798,35 @@ function PartCard({
           )}
 
           <Typography variant="caption" color="text.secondary">
-            {edge === 'first'
-              ? `${edgeLabel} · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
-              : edge === 'last'
-                ? `${edgeLabel} · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
-                : fmtPartTimeRange(part)}
+            {edge === 'first' ? (
+              `${edgeLabel} · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
+            ) : edge === 'last' ? (
+              `${edgeLabel} · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
+            ) : revisedWhen ? (
+              // Departure-board treatment: the timetable stays visible but is
+              // struck through, and the times the flight is actually running to
+              // sit beside it in the warning colour. Both are announced to a
+              // screen reader in words, because a line-through conveys nothing
+              // when the text is spoken.
+              <>
+                <Box
+                  component="span"
+                  sx={{ textDecoration: 'line-through', opacity: 0.6 }}
+                  aria-label={`Scheduled ${fmtPartTimeRange(part)}`}
+                >
+                  {fmtPartTimeRange(part)}
+                </Box>{' '}
+                <Box
+                  component="span"
+                  sx={{ color: 'warning.main', fontWeight: 600 }}
+                  aria-label={`Now expected ${revisedWhen}`}
+                >
+                  {revisedWhen}
+                </Box>
+              </>
+            ) : (
+              fmtPartTimeRange(part)
+            )}
           </Typography>
 
           {part.type === 'flight' && part.flight?.ident && (

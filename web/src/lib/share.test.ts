@@ -40,6 +40,29 @@ function plan(over: Partial<Plan> = {}): Plan {
 }
 
 describe('buildPlanShareText', () => {
+  it('shares the times the flight is running to, not just the ones booked', () => {
+    // Someone meeting the traveller needs to know when the aircraft actually
+    // gets in; quoting only the timetable would send them to the airport two
+    // hours early.
+    const text = buildPlanShareText(
+      plan(),
+      part({
+        starts_at: '2026-08-20T15:05:00Z',
+        ends_at: '2026-08-20T17:15:00Z',
+        start_tz: 'UTC',
+        end_tz: 'UTC',
+        flight: {
+          ident: 'OS967',
+          scheduled_out: '2026-08-20T15:05:00Z',
+          scheduled_in: '2026-08-20T17:15:00Z',
+          estimated_out: '2026-08-20T17:00:00Z',
+          estimated_in: '2026-08-20T19:00:00Z',
+        } as PlanPart['flight'],
+      }),
+    );
+    expect(text).toContain('17:00 UTC → 19:00 UTC (scheduled 15:05 UTC → 17:15 UTC)');
+  });
+
   it('leads with the plan title', () => {
     const text = buildPlanShareText(plan({ title: 'Flight to Lisbon' }), part());
     expect(text.split('\n')[0]).toBe('Flight to Lisbon');
