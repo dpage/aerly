@@ -605,6 +605,35 @@ describe('PlanMapView', () => {
     expect(pin.popup?.html).toContain('Hotel');
   });
 
+  it("gives a hotel's check-out pin the property it stands at", () => {
+    // A hotel keeps its label and address on the check-in end only, so the
+    // check-out pin had neither and its popup could say nothing about where it
+    // was: 246 of 327 hotel parts on the live database are in that state. Both
+    // pins stand at the same building, so the blank end takes the other's.
+    render(
+      <PlanMapView
+        parts={[hotel({ end_lat: 38.91, end_lon: -77.22, end_label: '', end_address: '' })]}
+      />,
+    );
+    const pins = FakeMarker.instances.filter((m) => m.getElement()?.dataset.partId === '2');
+    expect(pins).toHaveLength(2);
+    const checkout = pins.find((m) => m.getElement()?.dataset.role === 'end')!;
+    expect(checkout.popup?.html).toContain('Tysons Marriott');
+    expect(checkout.popup?.html).toContain('8028 Leesburg Pike');
+  });
+
+  it("does not lend a flight's departure airport to its arrival pin", () => {
+    // The mirror case, and the reason the fallback is limited to types that
+    // happen somewhere rather than going somewhere: cross-filling here would
+    // confidently label a landing with the airport it took off from.
+    render(<PlanMapView parts={[flight({ end_label: '', end_address: '' })]} />);
+    const pins = FakeMarker.instances.filter((m) => m.getElement()?.dataset.partId === '1');
+    const arrival = pins.find((m) => m.getElement()?.dataset.role === 'end');
+    if (arrival) {
+      expect(arrival.popup?.html).not.toContain('LHR');
+    }
+  });
+
   it('shows the unlocated notice when an addressed part has no coordinates', () => {
     const stranded = hotel({
       id: 3,

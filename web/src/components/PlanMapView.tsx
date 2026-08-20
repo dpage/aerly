@@ -23,7 +23,7 @@ import {
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 
-import type { PlanPart } from '../api/types';
+import type { PlanPart, PlanType } from '../api/types';
 import { unlocatedCount } from '../lib/geo';
 import { osmRasterStyle } from '../lib/map-style';
 import {
@@ -813,15 +813,39 @@ interface Endpoint {
   tz?: string;
 }
 
+/** Whether a part's two pins stand at the same place, so a blank label or
+ * address on one may be taken from the other.
+ *
+ * True of the types that happen somewhere rather than going somewhere: a
+ * hotel's check-out pin is the same building as its check-in, and stores no
+ * label or address of its own (246 of 327 hotel parts on the live database),
+ * which left its popup with no idea where it was. False for flights, trains
+ * and ground transfers, where the two ends are different places by definition
+ * and cross-filling would confidently label an arrival with the departure
+ * airport. A vehicle hire counts as one place only because a blank drop-off is
+ * how a return-to-same-branch hire is stored; a genuine one-way hire fills its
+ * own label in and never reaches the fallback.
+ */
+function pinsShareAPlace(type: PlanType): boolean {
+  return !isTransferType(type);
+}
+
 function endpoints(p: PlanPart): Endpoint[] {
+  // Fall back to the other end's label/address for a single-place type, before
+  // the endpoints are built, so both pins describe the place either way round.
+  const shared = pinsShareAPlace(p.type);
+  const startLabel = p.start_label || (shared ? p.end_label : '');
+  const endLabel = p.end_label || (shared ? p.start_label : '');
+  const startAddress = p.start_address || (shared ? p.end_address : '');
+  const endAddress = p.end_address || (shared ? p.start_address : '');
   const start: Endpoint | null =
     p.start_lat != null && p.start_lon != null
       ? {
           role: 'start',
           lat: p.start_lat,
           lon: p.start_lon,
-          label: p.start_label,
-          address: p.start_address,
+          label: startLabel,
+          address: startAddress,
           iso: p.starts_at,
           tz: p.start_tz,
         }
@@ -832,8 +856,8 @@ function endpoints(p: PlanPart): Endpoint[] {
           role: 'end',
           lat: p.end_lat,
           lon: p.end_lon,
-          label: p.end_label,
-          address: p.end_address,
+          label: endLabel,
+          address: endAddress,
           iso: p.ends_at ?? p.starts_at,
           tz: p.end_tz || p.start_tz,
         }
