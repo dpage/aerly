@@ -667,6 +667,47 @@ func TestTickPersistsLiveArrivalTimes(t *testing.T) {
 	}
 }
 
+// TestTickPersistsLiveDepartureTimes is the departure-side mirror, and the
+// end-to-end case behind it: a flight held on stand under a rolling delay was
+// shown En route from the moment its timetabled departure passed, because
+// nothing on the row said otherwise. The
+// airline's revised off-block time has to reach the row before the status is
+// re-derived, and no wheels-off may be invented from an absent runway time.
+func TestTickPersistsLiveDepartureTimes(t *testing.T) {
+	tr := &mockTracker{pos: &store.Position{Lat: 1, Lon: 1}}
+	p, s, _ := newPoller(t, tr, time.Minute)
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	now := time.Now()
+	revised := now.Add(30 * time.Minute).UTC().Truncate(time.Second)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ967", OriginIATA: "VIE", DestIATA: "ARN",
+		EstimatedOut: &revised,
+	}}
+	// Timetabled out an hour ago, revised to leave in half an hour: still on
+	// stand, with the timetabled arrival still ahead of it.
+	f, _ := mkPart(ctx, s, partSeed{
+		Ident: "ZZ967", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, uid)
+
+	p.tick(ctx)
+
+	got, _ := s.FlightPartByID(ctx, f.ID)
+	if got.EstimatedOut == nil || !got.EstimatedOut.UTC().Truncate(time.Second).Equal(revised) {
+		t.Fatalf("revised departure not persisted: %v, want %v", got.EstimatedOut, revised)
+	}
+	if got.ActualOut != nil {
+		t.Errorf("wheels-off invented from an absent runway time: %v", got.ActualOut)
+	}
+	if got.Status != "Enroute" && got.Status != "Scheduled" {
+		t.Fatalf("unexpected status %q", got.Status)
+	}
+	if got.Status == "Enroute" {
+		t.Error("a flight still on stand was declared En route off its timetable")
+	}
+}
+
 // TestTickCatchesBeltPublishedAfterLanding is the whole point of the
 // post-arrival pass: the airport publishes the belt at or just after touchdown,
 // by which time the part is Arrived and has left both the active and the

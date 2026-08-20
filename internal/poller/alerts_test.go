@@ -132,15 +132,25 @@ func TestSnapshotAndSignature(t *testing.T) {
 		t.Errorf("an early estimate should clamp the delay to 0, got %+v", st)
 	}
 
-	// Actual-out wins over estimated-out for effectiveOut.
+	// Wheels-off is ignored for the delay measurement: actual_out is a runway
+	// time and runs a taxi-length later than the off-block time it would be
+	// subtracted from, so a flight that pushed back ten late and then taxied
+	// for thirty is thirty minutes delayed, not forty.
 	act := out.Add(40 * time.Minute)
 	est := out.Add(10 * time.Minute)
 	bothF := &store.Flight{Status: "Enroute", ScheduledOut: out, ActualOut: &act, EstimatedOut: &est}
-	if eff := effectiveOut(bothF); eff == nil || !eff.Equal(act) {
-		t.Errorf("effectiveOut should prefer actual_out, got %v", eff)
+	if eff := revisedOut(bothF); eff == nil || !eff.Equal(est) {
+		t.Errorf("revisedOut should use estimated_out, got %v", eff)
 	}
-	if st := snapshot(bothF); st.delayMin != 40 {
-		t.Errorf("delay from actual_out = %d, want 40", st.delayMin)
+	if st := snapshot(bothF); st.delayMin != 10 {
+		t.Errorf("delay from estimated_out = %d, want 10", st.delayMin)
+	}
+
+	// Wheels-off on its own reports no delay at all, rather than a phantom one
+	// the size of the taxi out.
+	offOnly := &store.Flight{Status: "Enroute", ScheduledOut: out, ActualOut: &act}
+	if st := snapshot(offOnly); st.hasDelay {
+		t.Errorf("wheels-off alone must not manufacture a delay: %+v", st)
 	}
 
 	// Belt and destination-terminal both fold into the signature.

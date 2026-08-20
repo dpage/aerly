@@ -579,11 +579,11 @@ func TestAeroDataBoxCarriesGateAndTerminal(t *testing.T) {
 	}
 }
 
-// The arrival movement's revisedTime / runwayTime become the live arrival
-// times, which is what lets a late flight be recognised as still airborne. The
-// shape mirrors a real completed rotation: an estimate that moved off the
-// timetable, and a touchdown a few minutes off that estimate again.
-func TestAeroDataBoxCarriesLiveArrivalTimes(t *testing.T) {
+// Both movements' revisedTime / runwayTime become live times, which is what
+// lets a late flight be recognised as still airborne and a held one as still
+// on stand. The shape mirrors a real completed rotation: an estimate that
+// moved off the timetable, and a runway time a few minutes off that again.
+func TestAeroDataBoxCarriesLiveMovementTimes(t *testing.T) {
 	body := `[{"number":"OS 962","codeshareStatus":"IsOperator",
 	  "departure":{"airport":{"iata":"ARN"},"scheduledTime":{"utc":"2026-08-19 08:05Z"},
 	    "revisedTime":{"utc":"2026-08-19 08:06Z"},"runwayTime":{"utc":"2026-08-19 08:14Z"}},
@@ -602,11 +602,40 @@ func TestAeroDataBoxCarriesLiveArrivalTimes(t *testing.T) {
 	if rf.ActualIn == nil || !rf.ActualIn.Equal(time.Date(2026, 8, 19, 10, 3, 0, 0, time.UTC)) {
 		t.Errorf("actual in = %v, want 2026-08-19 10:03Z", rf.ActualIn)
 	}
-	// The departure's own revised/runway times are deliberately dropped: the
-	// provider's actual departure is wheels-off, so carrying it into the
-	// delay calculation would invent a taxi-length delay on every flight.
+	if rf.EstimatedOut == nil || !rf.EstimatedOut.Equal(time.Date(2026, 8, 19, 8, 6, 0, 0, time.UTC)) {
+		t.Errorf("estimated out = %v, want 2026-08-19 08:06Z", rf.EstimatedOut)
+	}
+	if rf.ActualOut == nil || !rf.ActualOut.Equal(time.Date(2026, 8, 19, 8, 14, 0, 0, time.UTC)) {
+		t.Errorf("actual out = %v, want 2026-08-19 08:14Z", rf.ActualOut)
+	}
+	// The timetable survives alongside them: it stays the baseline a delay is
+	// measured from, so a revision must not overwrite it.
 	if rf.ScheduledOut != time.Date(2026, 8, 19, 8, 5, 0, 0, time.UTC) {
 		t.Errorf("scheduled out = %v, want the timetabled 08:05Z", rf.ScheduledOut)
+	}
+}
+
+// A flight held on stand: the airline has revised the departure later and there
+// is no runway time yet, which is precisely the state that must not be read as
+// airborne, and the one a rolling weather delay parks a flight in for hours.
+func TestAeroDataBoxHeldOnStandCarriesRevisedDepartureOnly(t *testing.T) {
+	body := `[{"number":"ZZ 967","codeshareStatus":"IsOperator","status":"GateClosed",
+	  "departure":{"airport":{"iata":"VIE"},"scheduledTime":{"utc":"2026-08-19 15:05Z"},
+	    "revisedTime":{"utc":"2026-08-19 15:50Z"}},
+	  "arrival":{"airport":{"iata":"ARN"},"scheduledTime":{"utc":"2026-08-19 17:15Z"},
+	    "revisedTime":{"utc":"2026-08-19 18:15Z"}}}]`
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	rf, err := a.Resolve(context.Background(), "ZZ967", time.Now())
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if rf.EstimatedOut == nil || !rf.EstimatedOut.Equal(time.Date(2026, 8, 19, 15, 50, 0, 0, time.UTC)) {
+		t.Errorf("estimated out = %v, want the revised 15:50Z", rf.EstimatedOut)
+	}
+	if rf.ActualOut != nil {
+		t.Errorf("a flight still on stand reported wheels-off at %v", rf.ActualOut)
 	}
 }
 
@@ -624,7 +653,10 @@ func TestAeroDataBoxWithoutLiveArrivalTimes(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if rf.EstimatedIn != nil || rf.ActualIn != nil {
-		t.Errorf("timetable-only flight carried live times: %v / %v", rf.EstimatedIn, rf.ActualIn)
+		t.Errorf("timetable-only flight carried live arrival times: %v / %v", rf.EstimatedIn, rf.ActualIn)
+	}
+	if rf.EstimatedOut != nil || rf.ActualOut != nil {
+		t.Errorf("timetable-only flight carried live departure times: %v / %v", rf.EstimatedOut, rf.ActualOut)
 	}
 }
 

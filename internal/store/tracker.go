@@ -448,6 +448,20 @@ func (s *Store) RefreshFlightPartBelt(ctx context.Context, partID int64, destBel
 	return err
 }
 
+// RefreshFlightPartDeparture stores the live departure times: the airline's
+// revised off-block estimate and the observed wheels-off. The mirror of
+// RefreshFlightPartArrival, and COALESCE-guarded the same way so a poll that
+// comes back without live coverage leaves an earlier revision standing rather
+// than blanking it.
+func (s *Store) RefreshFlightPartDeparture(ctx context.Context, partID int64, estimatedOut, actualOut *time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flight_details SET
+			estimated_out = COALESCE($2, estimated_out),
+			actual_out    = COALESCE($3, actual_out)
+		WHERE plan_part_id = $1`, partID, estimatedOut, actualOut)
+	return err
+}
+
 // RefreshFlightPartArrival overwrites the live arrival times when the resolver
 // supplies them, leaving the existing column alone for a nil (the provider
 // omits both until the flight has live coverage, and an omission must not wipe
@@ -521,7 +535,16 @@ func (s *Store) RefreshFlightPartStatus(ctx context.Context, partID int64) error
 				-- scheduled departure, before takeoff.
 				WHEN COALESCE(actual_in, estimated_in) IS NULL
 					AND scheduled_in > scheduled_out AND NOW() > scheduled_in THEN 'Arrived'
-				WHEN NOW() >= scheduled_out THEN 'Enroute'
+				-- Departure, judged the same way round as arrival: the
+				-- aircraft, not the timetable. An observed wheels-off settles
+				-- it outright; failing that the airline's revised off-block
+				-- time, so a flight held on stand through a rolling delay
+				-- stays Scheduled instead of being declared airborne the
+				-- moment its timetabled departure slid past. With no live
+				-- times this collapses to scheduled_out and the behaviour is
+				-- exactly the timetable-only one it replaced.
+				WHEN NOW() >= COALESCE(actual_out, estimated_out, scheduled_out)
+					THEN 'Enroute'
 				ELSE 'Scheduled'
 			END,
 			last_polled_at = NOW()

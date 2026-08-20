@@ -436,10 +436,16 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 			r.ScheduledIn = parsed
 		}
 	}
-	// Live arrival times, where the provider has coverage: revisedTime is the
-	// airline's current estimate, runwayTime the observed touchdown.
+	// Live movement times, where the provider has coverage: revisedTime is the
+	// airline's current estimate for the movement, runwayTime the observed
+	// wheels-off / touchdown. Taken from both movements, so a flight held on
+	// stand is known to be held rather than assumed airborne the moment its
+	// timetabled departure passes. See the ResolvedFlight field comments for
+	// why the departure pair must not be used interchangeably.
 	r.EstimatedIn = adbMoment(f.Arrival.RevisedTime)
 	r.ActualIn = adbMoment(f.Arrival.RunwayTime)
+	r.EstimatedOut = adbMoment(f.Departure.RevisedTime)
+	r.ActualOut = adbMoment(f.Departure.RunwayTime)
 	if a := f.Departure.Airport; a.IATA != "" {
 		r.OriginIATA = a.IATA
 		r.OriginName = strings.TrimSpace(a.Name)

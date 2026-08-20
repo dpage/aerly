@@ -138,14 +138,30 @@ type ResolvedFlight struct {
 	// downstream falls back to ScheduledIn. They are what lets a flight running
 	// late stay Enroute past its timetabled arrival instead of being declared
 	// Arrived whilst it is still in the air.
-	//
-	// There is deliberately no EstimatedOut / ActualOut counterpart. The
-	// provider's actual departure is wheels-off rather than off-block, so it
-	// runs a taxi-time later than the scheduled gate departure it would be
-	// compared against, and feeding it into the departure-delay calculation
-	// would report a phantom ten-minute delay on almost every flight.
 	EstimatedIn *time.Time
 	ActualIn    *time.Time
+	// EstimatedOut / ActualOut are the departure-side counterparts, and the two
+	// are NOT interchangeable, so mind which one you reach for.
+	//
+	// EstimatedOut is the airline's revised off-block time: the same clock the
+	// timetabled departure is quoted on, and so the only one of the pair that
+	// may be compared against ScheduledOut to measure a delay. This is the
+	// figure a passenger watching the departure board sees creep back in
+	// twenty-minute steps.
+	//
+	// ActualOut is the observed wheels-off, which runs a taxi-time later than
+	// the off-block time it would be compared against; feeding it into the
+	// departure-delay calculation would report a phantom ten-minute delay on
+	// almost every flight, which is why the alert path deliberately measures
+	// against EstimatedOut alone (see poller.effectiveOut). What it is good
+	// for is the one thing a clock cannot tell you: the aircraft is airborne.
+	// It mirrors ActualIn, which is likewise the runway time rather than the
+	// on-stand time.
+	//
+	// Both nil for a flight the provider only holds a timetable for, which is
+	// why everything downstream falls back to ScheduledOut.
+	EstimatedOut *time.Time
+	ActualOut    *time.Time
 }
 
 // Resolver maps a flight number + departure date to a ResolvedFlight. The

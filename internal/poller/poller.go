@@ -594,6 +594,14 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	if err := p.Store.RefreshFlightPartArrival(ctx, f.ID, rf.EstimatedIn, rf.ActualIn); err != nil {
 		slog.Error("poller: refresh arrival times failed", "id", f.ID, "err", err)
 	}
+	// Live departure times, on the same terms and for the same reason: they
+	// have to be in the row before the caller re-derives the status, or a
+	// flight still on stand under a rolling delay is declared Enroute off its
+	// timetabled departure. Also the only source of estimated_out, which is
+	// what the departure-delay alert measures against.
+	if err := p.Store.RefreshFlightPartDeparture(ctx, f.ID, rf.EstimatedOut, rf.ActualOut); err != nil {
+		slog.Error("poller: refresh departure times failed", "id", f.ID, "err", err)
+	}
 	// Terminal is updatable like gate (a change is what the terminal-change
 	// alert detects), so it takes the overwrite-when-non-empty path rather than
 	// the only-fill-empty backfill above.

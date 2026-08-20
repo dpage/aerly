@@ -21,7 +21,7 @@ import (
 //
 // "Meaningful" per spec §9 / PRD §6.8:
 //   - any transition INTO Cancelled or Diverted always alerts;
-//   - a departure delay (effective_out - scheduled_out) that grows by at least
+//   - a departure delay (estimated_out - scheduled_out) that grows by at least
 //     the recipient's alert_prefs.min_delay_min threshold alerts.
 //
 // Gate changes (README follow-up / AeroDataBox precursor): migration 0014 added
@@ -52,8 +52,8 @@ const delaySigBucketMin = 1
 // meaningful change and to build the dedupe signature.
 type alertState struct {
 	status         string
-	delayMin       int  // departure delay = effective_out - scheduled_out, clamped >= 0
-	hasDelay       bool // false when there's no estimated/actual departure yet
+	delayMin       int  // departure delay = revised off-block - scheduled_out, clamped >= 0
+	hasDelay       bool // false until the provider publishes a revised departure
 	terminalDV     bool // status is Cancelled or Diverted
 	originGate     string
 	destGate       string
@@ -72,7 +72,7 @@ func snapshot(f *store.Flight) alertState {
 		destTerminal:   f.DestTerminal,
 	}
 	st.terminalDV = f.Status == "Cancelled" || f.Status == "Diverted"
-	eff := effectiveOut(f)
+	eff := revisedOut(f)
 	if eff != nil {
 		d := int(eff.Sub(f.ScheduledOut).Minutes())
 		if d < 0 {
@@ -83,17 +83,20 @@ func snapshot(f *store.Flight) alertState {
 	return st
 }
 
-// effectiveOut mirrors FlightDetail.EffectiveOut on the carrier struct: prefer
-// actual, then estimated; nil when neither is set (so a flight with only a
-// scheduled time reports no delay).
-func effectiveOut(f *store.Flight) *time.Time {
-	if f.ActualOut != nil {
-		return f.ActualOut
-	}
-	if f.EstimatedOut != nil {
-		return f.EstimatedOut
-	}
-	return nil
+// revisedOut is the departure time a delay is measured against: the airline's
+// revised off-block estimate, which is quoted on the same clock as the
+// timetabled departure it gets subtracted from. Nil when the provider has no
+// live departure coverage, so a flight known only from its timetable reports no
+// delay at all rather than a delay of zero.
+//
+// This deliberately does NOT fall back to actual_out the way
+// FlightDetail.EffectiveOut does. That column holds the observed wheels-off,
+// which runs a taxi-time later than the off-block time it would be compared
+// against, so preferring it would add a phantom ten-minute delay to almost
+// every flight at the moment it took off — and, worse, fire that as a
+// "now delayed" alert to everyone watching, just as the aircraft left.
+func revisedOut(f *store.Flight) *time.Time {
+	return f.EstimatedOut
 }
 
 // alertSignature is the per-part dedupe key for a state. Cancellation/diversion
@@ -230,12 +233,12 @@ func gateChanged(prev, cur string) bool {
 }
 
 // changeDetail builds the human phrase appended to the headline. For a delay it
-// names the new effective departure; for a gate change it names the new gate
+// names the airline's revised departure; for a gate change it names the new gate
 // (departure preferred when both moved); cancellation/diversion stand alone.
 func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	switch kind {
 	case "delayed":
-		if eff := effectiveOut(f); eff != nil {
+		if eff := revisedOut(f); eff != nil {
 			return "now departing " + eff.UTC().Format("15:04 MST")
 		}
 		return "now delayed"

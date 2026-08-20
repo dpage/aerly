@@ -165,6 +165,89 @@ func TestRefreshStatusStaleRevisionCapped(t *testing.T) {
 	}
 }
 
+// TestRefreshStatusHeldOnStand is the departure-side mirror of
+// TestRefreshStatusLateArrival, and guards the "airborne in a thunderstorm"
+// bug: deriving Enroute from the timetable declares a flight in the air the
+// moment its scheduled departure passes, however long it actually sits at the
+// gate — so a flight held through a rolling weather delay reads as airborne
+// for as long as the delay runs.
+func TestRefreshStatusHeldOnStand(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Timetabled out an hour ago, revised to leave in half an hour: still on
+	// stand, and the timetabled arrival is still ahead so no Arrived arm bites.
+	held := mkFlightPart(t, s, owner, "OS967", now.Add(-time.Hour), now.Add(time.Hour))
+	revised := now.Add(30 * time.Minute)
+	if err := s.RefreshFlightPartDeparture(ctx, held, &revised, nil); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, held); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	hf, _ := s.FlightPartByID(ctx, held)
+	if hf.Status != "Scheduled" {
+		t.Errorf("a flight still on stand should be Scheduled, got %q", hf.Status)
+	}
+
+	// An observed wheels-off settles it, even whilst the revised off-block time
+	// it beat is still in the future.
+	off := now.Add(-5 * time.Minute)
+	if err := s.RefreshFlightPartDeparture(ctx, held, nil, &off); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture (wheels-off): %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, held); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	hf, _ = s.FlightPartByID(ctx, held)
+	if hf.Status != "Enroute" {
+		t.Errorf("an observed wheels-off should give Enroute, got %q", hf.Status)
+	}
+
+	// Control: with no live departure times at all the expression collapses to
+	// the timetable, which is exactly the behaviour it replaced.
+	plain := mkFlightPart(t, s, owner, "OS962", now.Add(-time.Hour), now.Add(time.Hour))
+	if err := s.RefreshFlightPartStatus(ctx, plain); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	pf, _ := s.FlightPartByID(ctx, plain)
+	if pf.Status != "Enroute" {
+		t.Errorf("a timetable-only flight past its departure should be Enroute, got %q", pf.Status)
+	}
+}
+
+// TestRefreshDepartureKeepsKnownTimes: the departure mirror of
+// TestRefreshArrivalKeepsKnownTimes — a poll that comes back without live
+// coverage must leave an earlier revision standing rather than blanking it.
+func TestRefreshDepartureKeepsKnownTimes(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+	part := mkFlightPart(t, s, owner, "OS962", now.Add(-3*time.Hour), now.Add(-time.Hour))
+
+	est, act := now.Add(-170*time.Minute), now.Add(-165*time.Minute)
+	if err := s.RefreshFlightPartDeparture(ctx, part, &est, &act); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture: %v", err)
+	}
+	if err := s.RefreshFlightPartDeparture(ctx, part, nil, nil); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture (omitted): %v", err)
+	}
+	got, _ := s.FlightPartByID(ctx, part)
+	if got.EstimatedOut == nil || !got.EstimatedOut.Truncate(time.Second).Equal(est.UTC().Truncate(time.Second)) {
+		t.Errorf("estimated_out wiped by an omission: %v", got.EstimatedOut)
+	}
+	if got.ActualOut == nil || !got.ActualOut.Truncate(time.Second).Equal(act.UTC().Truncate(time.Second)) {
+		t.Errorf("actual_out wiped by an omission: %v", got.ActualOut)
+	}
+}
+
 // TestRefreshArrivalKeepsKnownTimes: the resolver omits the live times until it
 // has coverage, and an omission (nil) must leave a time we already know alone
 // rather than wiping it — the same overwrite-when-supplied rule the belt uses.
