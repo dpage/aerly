@@ -469,21 +469,26 @@ deploy/              Example systemd unit and nginx config for the Hetzner host.
 
 ## Deployment (Hetzner / single VM)
 
-The Go binary embeds the SPA and runs the poller in the same process, so deployment is a single file plus a systemd unit.
+The Go binary embeds the SPA and runs the poller in the same process, so shipping a code change means replacing one file and restarting one service. That is done for you by the **Deploy** workflow (`.github/workflows/deploy.yml`), which is the supported way to deploy and the only one you should normally need.
+
+It is a manual button rather than something that fires on push: merging to `main` does **not** deploy. Run it from **Actions → Deploy → Run workflow** (the GitHub mobile app works too), or from a terminal:
 
 ```bash
-# On the dev machine:
-GOOS=linux GOARCH=amd64 make build
-scp bin/aerly  user@host:/opt/aerly/aerly
-scp deploy/aerly.service user@host:/etc/systemd/system/aerly.service
-# Create /etc/aerly.env with the env vars from .env.example.
-
-# On the host:
-systemctl daemon-reload
-systemctl enable --now aerly
+gh workflow run deploy.yml --ref main -f ref=main
+gh run watch <run-id> --exit-status
 ```
 
-Then drop `deploy/nginx.conf.example` into `/etc/nginx/sites-available/`, adjust the hostname, symlink into `sites-enabled`, and reload nginx. The SSE endpoint needs `proxy_buffering off` — that block is already in the example.
+The `ref` input takes any branch, tag or commit, so a rollback is just a re-run pointed at the previous commit. Deploys are serialised by a concurrency group, so two runs queue rather than race.
+
+The workflow itself does nothing more than connect: it SSHes to the host as a low-privilege `aerly-deploy` account whose sudo is scoped to a single command, and runs `sudo /usr/local/sbin/aerly-deploy <ref>`. That script fetches the ref into its own checkout under `/var/lib/aerly-deploy/src`, resets hard to it, runs `make build` as an unprivileged user, installs the new binary to a temporary file alongside `/opt/aerly/aerly` and renames it into place, then restarts the service. The rename is what makes the swap atomic and sidesteps `ETXTBSY` against the running binary.
+
+Note what it deliberately leaves alone: nginx, the systemd unit, `/etc/aerly.env`, Postfix, opendkim and the database are all managed by the `aerly` role in `conx-ansible`, not by the deploy path. A change to any of those is an Ansible run, not a deploy. Migrations are the exception that needs no special handling, since the binary embeds them and applies any outstanding ones on startup.
+
+Building a binary locally and copying it over the top of `/opt/aerly/aerly` does work, and is worth knowing about for a genuine emergency, but it leaves the host's checkout describing a different commit from the binary that is running and it bypasses the concurrency guard. Prefer the workflow, and if you have had to reach for `scp`, re-run the workflow afterwards to put the host back in a state that matches its own git history.
+
+### First-time host setup
+
+A new host is built by the `aerly` Ansible role, which is what creates the service account, the `aerly-deploy` account and its sudoers rule, Postgres, and the nginx and mail configuration. `deploy/aerly.service` and `deploy/nginx.conf.example` in this repo are the reference copies of the unit and vhost that role installs, and are useful for reading or for standing something up by hand. If you do configure nginx yourself, keep the `proxy_buffering off` block on the SSE endpoint that the example already carries, or live updates will arrive in batches or not at all.
 
 ## Project status
 
