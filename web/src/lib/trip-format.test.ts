@@ -6,6 +6,7 @@ import {
   buildTimeline,
   classifyTrip,
   fmtPartPlaces,
+  flightStatusLabel,
   fmtPartRevisedTimeRange,
   fmtPartTimeRange,
   fmtPartTimeRangeText,
@@ -520,6 +521,75 @@ describe('fmtPartPlaces', () => {
   });
   it('collapses identical transfer endpoints to one', () => {
     expect(fmtPartPlaces('train', 'Paddington', 'Paddington')).toBe('Paddington');
+  });
+});
+
+describe('flightStatusLabel', () => {
+  const f = (over: Partial<PlanPart['flight']> = {}) =>
+    part({
+      starts_at: '2026-08-20T15:05:00Z',
+      ends_at: '2026-08-20T17:15:00Z',
+      flight: {
+        ident: 'OS967',
+        scheduled_out: '2026-08-20T15:05:00Z',
+        scheduled_in: '2026-08-20T17:15:00Z',
+        flight_status: 'Scheduled',
+        ...over,
+      } as PlanPart['flight'],
+    });
+
+  it('reads Delayed when the airline has moved the departure later', () => {
+    // Stored as Scheduled, because the aircraft is still on stand. True, and
+    // useless to somebody two hours into a delay.
+    expect(flightStatusLabel(f({ estimated_out: '2026-08-20T17:00:00Z' }))).toEqual({
+      label: 'Delayed',
+      tone: 'warning',
+    });
+  });
+
+  it('reads Delayed for a flight that got airborne late as well', () => {
+    expect(
+      flightStatusLabel(
+        f({ flight_status: 'Enroute', estimated_out: '2026-08-20T17:00:00Z' }),
+      ),
+    ).toEqual({ label: 'Delayed', tone: 'warning' });
+  });
+
+  it('lets a cancellation beat a delay, a journey not happening beating a late one', () => {
+    expect(
+      flightStatusLabel(
+        f({ flight_status: 'Cancelled', estimated_out: '2026-08-20T17:00:00Z' }),
+      ),
+    ).toEqual({ label: 'Cancelled', tone: 'error' });
+    expect(flightStatusLabel(f({ flight_status: 'Diverted' }))).toEqual({
+      label: 'Diverted',
+      tone: 'error',
+    });
+  });
+
+  it('lets an arrival beat a delay, since how late it ran is then history', () => {
+    expect(
+      flightStatusLabel(f({ flight_status: 'Arrived', estimated_out: '2026-08-20T17:00:00Z' })),
+    ).toEqual({ label: 'Arrived', tone: 'normal' });
+  });
+
+  it('does not call an early departure a delay', () => {
+    expect(flightStatusLabel(f({ estimated_out: '2026-08-20T14:40:00Z' }))).toEqual({
+      label: 'Scheduled',
+      tone: 'normal',
+    });
+  });
+
+  it('passes an unremarkable status through unchanged', () => {
+    expect(flightStatusLabel(f({ flight_status: 'Enroute' }))).toEqual({
+      label: 'Enroute',
+      tone: 'normal',
+    });
+  });
+
+  it('says nothing for a non-flight part, or a flight with no status yet', () => {
+    expect(flightStatusLabel(part({ type: 'hotel', flight: undefined }))).toBeNull();
+    expect(flightStatusLabel(f({ flight_status: '' }))).toBeNull();
   });
 });
 

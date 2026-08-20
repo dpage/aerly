@@ -316,6 +316,54 @@ describe('TripTimeline', () => {
     expect(when).not.toHaveAttribute('aria-label');
   });
 
+  it('puts the flight status on the collapsed tile, emboldened when it matters', () => {
+    const withStatus = (status: string, extra: Record<string, string> = {}) =>
+      part({
+        id: 1,
+        plan_id: 1,
+        starts_at: '2026-08-20T15:05:00Z',
+        ends_at: '2026-08-20T17:15:00Z',
+        start_tz: 'UTC',
+        end_tz: 'UTC',
+        flight: {
+          ident: 'OS967',
+          scheduled_out: '2026-08-20T15:05:00Z',
+          scheduled_in: '2026-08-20T17:15:00Z',
+          flight_status: status,
+          ...extra,
+        } as PlanPart['flight'],
+      });
+
+    // A cancellation is the most important thing a tile can say, and it must
+    // say it without being expanded first.
+    state.currentTrip = tripWith([plan([withStatus('Cancelled')], { id: 1, title: 'OS967' })]);
+    const { unmount } = renderTimeline();
+    expect(within(screen.getByTestId('part-card-1')).getByText('Cancelled')).toHaveStyle({
+      fontWeight: '700',
+    });
+    unmount();
+
+    // Held on stand under a delay: stored as Scheduled, read as Delayed.
+    state.currentTrip = tripWith([
+      plan([withStatus('Scheduled', { estimated_out: '2026-08-20T17:00:00Z' })], {
+        id: 1,
+        title: 'OS967',
+      }),
+    ]);
+    const second = renderTimeline();
+    expect(within(screen.getByTestId('part-card-1')).getByText('Delayed')).toHaveStyle({
+      fontWeight: '700',
+    });
+    second.unmount();
+
+    // An unremarkable status is stated quietly rather than shouted.
+    state.currentTrip = tripWith([plan([withStatus('Enroute')], { id: 1, title: 'OS967' })]);
+    renderTimeline();
+    expect(within(screen.getByTestId('part-card-1')).getByText('Enroute')).toHaveStyle({
+      fontWeight: '400',
+    });
+  });
+
   it('keeps the plan title on a single-leg flight plan', () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1, flight: { ident: 'BA286' } as PlanPart['flight'] })], {

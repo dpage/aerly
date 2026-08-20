@@ -162,8 +162,15 @@ describe('FlightDetailCard', () => {
     expect(screen.queryByText('Current position')).not.toBeInTheDocument();
     // No last_polled_at → that Row collapses to null.
     expect(screen.queryByText('Last polled')).not.toBeInTheDocument();
-    // Empty flight_status → the Flight status Row collapses to null.
+    // The flight's own status is no longer here at all: it reads on the
+    // collapsed tile, where nobody has to tap to find out their flight is off.
     expect(screen.queryByText('Flight status')).not.toBeInTheDocument();
+  });
+
+  it('does not repeat the flight status, which now lives on the tile', () => {
+    render(<FlightDetailCard flight={flight({ flight_status: 'Cancelled' })} />);
+    expect(screen.queryByText('Flight status')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cancelled')).not.toBeInTheDocument();
   });
 
   it('collapses the ident, callsign, route and icao rows when those fields are empty', () => {

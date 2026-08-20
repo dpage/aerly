@@ -97,8 +97,11 @@ export default function FlightDetailCard({ flight, startTz, endTz }: Props) {
         </Section>
       )}
 
+      {/* The flight's own status now sits on the collapsed tile, where it is
+          read without a tap; repeating it here would state the same fact twice
+          a tap apart. What is left is the poll freshness, which is about our
+          knowledge of the flight rather than the flight itself. */}
       <Section title="Status">
-        <Row label="Flight status" value={flight.flight_status || null} />
         <Row
           label="Last polled"
           value={flight.last_polled_at ? fmtAgo(flight.last_polled_at, now) : null}

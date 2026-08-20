@@ -47,6 +47,7 @@ import {
   bandEdgeLabels,
   bandSpanDays,
   fmtPartPlaces,
+  flightStatusLabel,
   fmtPartRevisedTimeRange,
   fmtPartTimeRange,
   fmtTimeOfDay,
@@ -616,6 +617,11 @@ function PartCard({
   // from its timetable, which is what turns the line below into a departure
   // board rather than a booking record.
   const revisedWhen = fmtPartRevisedTimeRange(part);
+  // How the flight's state should read here. Lives on the collapsed tile rather
+  // than behind a tap, because a cancellation is the single most important
+  // thing a tile can say and nobody expands a tile to find out that their
+  // flight is off.
+  const flightStatus = flightStatusLabel(part);
 
   const canEdit = trip.my_role === 'owner' || trip.my_role === 'editor';
   const isViewer = trip.my_role === 'viewer';
@@ -828,6 +834,24 @@ function PartCard({
               fmtPartTimeRange(part)
             )}
           </Typography>
+
+          {flightStatus && (
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                fontWeight: flightStatus.tone === 'normal' ? 400 : 700,
+                color:
+                  flightStatus.tone === 'error'
+                    ? 'error.main'
+                    : flightStatus.tone === 'warning'
+                      ? 'warning.main'
+                      : 'text.secondary',
+              }}
+            >
+              {flightStatus.label}
+            </Typography>
+          )}
 
           {part.type === 'flight' && part.flight?.ident && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

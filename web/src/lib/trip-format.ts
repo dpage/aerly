@@ -426,6 +426,51 @@ export function fmtPartRevisedTimeRange(part: PlanPart): string | null {
   return `${revisedStart} → ${revisedEnd}`;
 }
 
+/** True when the airline has moved the departure later than the timetable, on
+ * both counts that matter: the revised time reads differently on the clock, and
+ * it is genuinely later rather than earlier. */
+function departureIsLate(part: PlanPart): boolean {
+  const live = liveTimes(part);
+  if (!live.out) return false;
+  const startTz = part.start_tz;
+  if (fmtTimeOfDay(live.out, startTz) === fmtTimeOfDay(part.starts_at, startTz)) return false;
+  const revised = new Date(live.out).getTime();
+  const scheduled = new Date(part.starts_at).getTime();
+  return Number.isFinite(revised) && Number.isFinite(scheduled) && revised > scheduled;
+}
+
+export interface FlightStatusLabel {
+  label: string;
+  /** How loudly to say it: 'error' for a journey that is not happening,
+   * 'warning' for one that is happening late, 'normal' for the rest. */
+  tone: 'normal' | 'warning' | 'error';
+}
+
+/** How a flight's state should read on a tile, which is not quite what we
+ * store. Two departures from the stored value, both in the interest of saying
+ * the useful thing rather than the literal one:
+ *
+ * A flight held on stand through a delay is stored as Scheduled, because the
+ * status derivation asks where the aircraft is and the answer is "still here".
+ * That is correct and unhelpful: two hours late reading as "Scheduled" tells
+ * the traveller nothing. Where the airline has moved the departure later, the
+ * line says Delayed instead.
+ *
+ * Cancelled and Diverted always win, including over a delay, because a journey
+ * that is not happening is not merely a late one. Arrived wins over a delay
+ * too: once the aircraft is down, how late it ran is history.
+ *
+ * Null for anything that is not a flight, since no other plan type has a state
+ * that changes under the traveller.
+ */
+export function flightStatusLabel(part: PlanPart): FlightStatusLabel | null {
+  if (part.type !== 'flight' || !part.flight) return null;
+  const status = part.flight.flight_status?.trim() ?? '';
+  if (status === 'Cancelled' || status === 'Diverted') return { label: status, tone: 'error' };
+  if (status !== 'Arrived' && departureIsLate(part)) return { label: 'Delayed', tone: 'warning' };
+  return status ? { label: status, tone: 'normal' } : null;
+}
+
 /** The one-line plain-text form, for the places that cannot strike text
  * through: the map popup's summary line and the share text. It leads with the
  * times the flight is actually running to and keeps the timetable behind them,
