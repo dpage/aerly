@@ -93,6 +93,22 @@ describe('buildMarkerPopup', () => {
     expect(el.querySelector('svg')).not.toBeNull();
   });
 
+  it('sets its own text colour rather than inheriting the page\'s', () => {
+    // MapLibre paints the popup white and sets no colour on its content, so
+    // anything inheriting takes the app's text colour. In dark mode that is
+    // near-white on white: the heading disappeared entirely whilst the rows
+    // below, which each set their own grey, carried on rendering. A popup that
+    // states its own colour cannot lose an element to the theme again.
+    const el = buildMarkerPopup({ title: 'Imperial Riding School', type: 'hotel' });
+    expect(el.style.color).not.toBe('');
+
+    // And the heading specifically is inside that colour rather than outside
+    // it, which is the element the theme actually swallowed.
+    const heading = el.querySelector('span + span');
+    expect(heading?.textContent).toBe('Imperial Riding School');
+    expect(heading?.closest('div[style*="color"]')).toBe(el);
+  });
+
   it('renders the Type label row for every type', () => {
     for (const type of TYPES) {
       const el = buildMarkerPopup({ title: 'X', type });

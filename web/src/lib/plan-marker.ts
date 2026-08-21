@@ -149,6 +149,14 @@ export function buildMarkerPopup(opts: {
   const s = styleFor(opts.type);
   const root = document.createElement('div');
   root.style.font = '12px/1.5 system-ui,-apple-system,sans-serif';
+  // Set a colour explicitly. MapLibre paints the popup on a white background
+  // but sets no colour on its content, so anything left to inherit takes the
+  // app's own text colour — which in dark mode is near-white, and vanished.
+  // The rows below survived only because each sets its own grey; the heading
+  // did not, so a dark-mode popup showed its type and address under a blank
+  // space where the name should be. Inheriting here means a row added later
+  // cannot reintroduce the same disappearing act.
+  root.style.color = '#222';
   root.style.minWidth = '150px';
 
   const header = document.createElement('div');
