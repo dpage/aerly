@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,36 @@ import (
 
 	"golang.org/x/time/rate"
 )
+
+// redactQuery strips the query string from a transport error before it travels
+// any further. net/url's *url.Error prints the whole request URL, and this
+// request carries two things that must never reach a log: the API key, as the
+// apiKey parameter, and the caller's search text, which for a geocode is
+// somebody's address. The geocoder's own logging is careful to record the
+// length of that text rather than the text itself, and was undone entirely by
+// the error beside it quoting the lot. Every timeout wrote the live key and a
+// traveller's address into the journal in plaintext.
+//
+// Deliberately duplicated in internal/geocode, which has the same problem on
+// the geocoding endpoint and shares nothing else with this package; if you
+// change one, change the other.
+//
+// The returned error keeps its Op and its wrapped cause, so errors.Is, the
+// Timeout and Temporary behaviours and every existing comparison go on working;
+// only the URL is trimmed.
+func redactQuery(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	redacted := "(redacted)"
+	if u, perr := url.Parse(ue.URL); perr == nil {
+		u.RawQuery = ""
+		u.Fragment = ""
+		redacted = u.String()
+	}
+	return &url.Error{Op: ue.Op, URL: redacted, Err: ue.Err}
+}
 
 // Geoapify resolves POIs via the Geoapify Places API (https://api.geoapify.com).
 // It's a keyed, purpose-built service that answers categorised POI queries
@@ -87,7 +118,7 @@ func (g *Geoapify) Nearby(ctx context.Context, lat, lon float64, radiusM int, ca
 	}
 	resp, err := g.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, redactQuery(err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

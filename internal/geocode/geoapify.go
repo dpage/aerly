@@ -3,6 +3,7 @@ package geocode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,36 @@ import (
 
 	"golang.org/x/time/rate"
 )
+
+// redactQuery strips the query string from a transport error before it travels
+// any further. net/url's *url.Error prints the whole request URL, and a geocode
+// request carries two things that must never reach a log: the API key, as the
+// apiKey parameter, and the address being looked up, which belongs to somebody.
+// The caller in planparts.go is careful to log the length of that text rather
+// than the text, and was undone entirely by the error beside it quoting the
+// lot: every geocoder timeout wrote the live key and a traveller's address into
+// the journal in plaintext.
+//
+// The returned error keeps its Op and its wrapped cause, so errors.Is and the
+// Timeout and Temporary behaviours go on working; only the URL is trimmed.
+//
+// Deliberately duplicated in internal/providers, which has the same problem on
+// the Places endpoint. The two packages share nothing else, and inventing a
+// dependency between them to hold twelve lines would be the worse trade; if you
+// change one, change the other.
+func redactQuery(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	redacted := "(redacted)"
+	if u, perr := url.Parse(ue.URL); perr == nil {
+		u.RawQuery = ""
+		u.Fragment = ""
+		redacted = u.String()
+	}
+	return &url.Error{Op: ue.Op, URL: redacted, Err: ue.Err}
+}
 
 // geoapifyRPS is Geoapify's documented free-tier ceiling. We self-limit rather
 // than rely on being told off with a 429.
@@ -151,7 +182,7 @@ func (g *Geoapify) Candidates(ctx context.Context, q Query) ([]Candidate, error)
 	}
 	resp, err := g.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, redactQuery(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -209,7 +240,7 @@ func (g *Geoapify) reverse(ctx context.Context, lat, lon float64) (geoapifyResul
 	}
 	resp, err := g.HTTP.Do(req)
 	if err != nil {
-		return geoapifyResult{}, false, err
+		return geoapifyResult{}, false, redactQuery(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
