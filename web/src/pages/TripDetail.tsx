@@ -84,7 +84,7 @@ export default function TripDetail() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [descCollapsed, setDescCollapsed] = useTripDescriptionCollapsed();
   const theme = useTheme();
-  const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
+  const isNarrow = useMediaQuery(theme.breakpoints.down('md'));
   const closeActions = () => setActionsAnchor(null);
 
   const exportIcs = () => {
@@ -257,59 +257,90 @@ export default function TripDetail() {
           </Box>
         </Box>
       ) : (
-        <Box sx={{ px: 3, pt: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Button size="small" onClick={() => navigate(backTo)}>
-            ← Trips
-          </Button>
-          <Box sx={{ flexGrow: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+        <Box sx={{ px: 3, pt: 2, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {/* Row 1: back button + title */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Button size="small" onClick={() => navigate(backTo)}>
+              ← Trips
+            </Button>
             <Typography variant="h5" noWrap>
               {title}
             </Typography>
+          </Box>
+          {/* Row 2: meta + buttons */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap' }}>
             {meta && (
-              <Typography variant="body2" color="text.secondary" noWrap>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                noWrap
+                sx={{ flexGrow: 1, minWidth: 0 }}
+              >
                 {meta}
               </Typography>
             )}
+            {loaded && canEdit && online && (
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setNewPlanOpen(true)}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap', ...(!meta && { ml: 'auto' }) }}
+              >
+                New plan
+              </Button>
+            )}
+            {loaded && canEdit && online && (
+              <Button
+                size="small"
+                startIcon={<EditIcon />}
+                onClick={() => setEditOpen(true)}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
+                Edit
+              </Button>
+            )}
+            {loaded && online && (
+              <Button
+                size="small"
+                startIcon={<PeopleIcon />}
+                onClick={() => setShareOpen(true)}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
+                Share
+              </Button>
+            )}
+            {loaded && online && (
+              <Button
+                size="small"
+                startIcon={<CalendarMonthIcon />}
+                onClick={() => setSubscribeOpen(true)}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
+                Subscribe
+              </Button>
+            )}
+            {loaded && online && (
+              <Button
+                size="small"
+                startIcon={<FileDownloadIcon />}
+                onClick={exportIcs}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
+                Export .ics
+              </Button>
+            )}
+            {loaded && online && (
+              <Button
+                size="small"
+                startIcon={<PictureAsPdfIcon />}
+                onClick={exportPdf}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+              >
+                Download PDF
+              </Button>
+            )}
           </Box>
-          {loaded && canEdit && online && (
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => setNewPlanOpen(true)}
-            >
-              New plan
-            </Button>
-          )}
-          {loaded && canEdit && online && (
-            <Button size="small" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
-              Edit
-            </Button>
-          )}
-          {loaded && online && (
-            <Button size="small" startIcon={<PeopleIcon />} onClick={() => setShareOpen(true)}>
-              Share
-            </Button>
-          )}
-          {loaded && online && (
-            <Button
-              size="small"
-              startIcon={<CalendarMonthIcon />}
-              onClick={() => setSubscribeOpen(true)}
-            >
-              Subscribe
-            </Button>
-          )}
-          {loaded && online && (
-            <Button size="small" startIcon={<FileDownloadIcon />} onClick={exportIcs}>
-              Export .ics
-            </Button>
-          )}
-          {loaded && online && (
-            <Button size="small" startIcon={<PictureAsPdfIcon />} onClick={exportPdf}>
-              Download PDF
-            </Button>
-          )}
         </Box>
       )}
       {datesMismatch && (
