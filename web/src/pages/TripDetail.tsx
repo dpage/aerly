@@ -86,6 +86,11 @@ export default function TripDetail() {
   const [descCollapsed, setDescCollapsed] = useTripDescriptionCollapsed();
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('md'));
+  // Page gutter for every block stacked above the tab body. The narrow layout
+  // buys back horizontal room for the title, and each block has to quote the
+  // same value or the page grows a ragged left edge — the dates warning and the
+  // reminder toggle sitting a gutter to the right of the tags above them.
+  const pagePx = isNarrow ? 1.5 : 3;
   const closeActions = () => setActionsAnchor(null);
 
   const exportIcs = () => {
@@ -140,7 +145,7 @@ export default function TripDetail() {
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {isNarrow ? (
-        <Box sx={{ px: 1.5, pt: 2, display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
+        <Box sx={{ px: pagePx, pt: 2, display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
           <Tooltip title="Back to trips">
             <IconButton
               size="small"
@@ -258,7 +263,7 @@ export default function TripDetail() {
           </Box>
         </Box>
       ) : (
-        <Box sx={{ px: 3, pt: 2, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+        <Box sx={{ px: pagePx, pt: 2, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
           {/* Row 1: back button + title */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Button size="small" onClick={() => navigate(backTo)}>
@@ -349,7 +354,7 @@ export default function TripDetail() {
         </Box>
       )}
       {datesMismatch && (
-        <Box sx={{ px: 3, pt: 1 }}>
+        <Box sx={{ px: pagePx, pt: 1 }}>
           <Alert severity="warning" sx={{ py: 0 }}>
             Some plans fall outside this trip&apos;s dates
             {canEdit ? ' — check the dates with Edit.' : '.'}
@@ -357,7 +362,7 @@ export default function TripDetail() {
         </Box>
       )}
       {loaded && loaded.tags && loaded.tags.length > 0 && (
-        <Box sx={{ px: isNarrow ? 1.5 : 3, pt: 1 }}>
+        <Box sx={{ px: pagePx, pt: 1 }}>
           <Stack direction="row" flexWrap="wrap" gap={0.5}>
             {loaded.tags.map((tag) => (
               <Chip
@@ -373,12 +378,12 @@ export default function TripDetail() {
         </Box>
       )}
       {loaded && (
-        <Box sx={{ px: 3, pt: 1 }}>
+        <Box sx={{ px: pagePx, pt: 1 }}>
           <TripReminderToggle trip={loaded} />
         </Box>
       )}
       {loaded && loaded.description && loaded.description.trim() !== '' && (
-        <Box sx={{ px: isNarrow ? 1.5 : 3, pt: 1 }}>
+        <Box sx={{ px: pagePx, pt: 1 }}>
           <Button
             size="small"
             onClick={() => setDescCollapsed(!descCollapsed)}
@@ -411,7 +416,7 @@ export default function TripDetail() {
                     : `/trips/${tripId}`,
               )
             }
-            sx={{ px: 3, borderBottom: 1, borderColor: 'divider' }}
+            sx={{ px: pagePx, borderBottom: 1, borderColor: 'divider' }}
           >
             <Tab label="Timeline" value="timeline" />
             {!hideMaps && <Tab label="Map" value="map" />}
@@ -422,7 +427,7 @@ export default function TripDetail() {
           </Box>
         </>
       ) : unavailable ? (
-        <Box sx={{ px: 3, pt: 3 }}>
+        <Box sx={{ px: pagePx, pt: 3 }}>
           <Alert severity="info">
             {online
               ? "Sorry, this trip couldn't be loaded. Please try again."
