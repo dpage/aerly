@@ -77,7 +77,8 @@ export default function TripDetail() {
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [newPlanOpen, setNewPlanOpen] = useState(false);
-  // On phones the four toolbar buttons crowd the trip name off-screen, so the
+  // Below md the six toolbar buttons crowd the trip name off-screen — on phones
+  // and on tablets, where they still don't fit beside the meta line — so the
   // secondary actions collapse into an overflow (⋮) menu; New plan stays primary.
   const [actionsAnchor, setActionsAnchor] = useState<HTMLElement | null>(null);
   // Surfaces a failure if an export download (.ics / PDF) can't be fetched.
@@ -267,8 +268,12 @@ export default function TripDetail() {
               {title}
             </Typography>
           </Box>
-          {/* Row 2: meta + buttons */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap' }}>
+          {/* Row 2: meta + buttons. The actions hug the right edge whether or not
+              the trip has a meta line — with meta present its flexGrow eats the
+              slack, and justifyContent covers the case where it's absent (a trip
+              with no destination and no dates) for viewers, who have no
+              New plan button to carry the alignment. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'flex-end' }}>
             {meta && (
               <Typography
                 variant="body2"
@@ -285,7 +290,7 @@ export default function TripDetail() {
                 size="small"
                 startIcon={<AddIcon />}
                 onClick={() => setNewPlanOpen(true)}
-                sx={{ flexShrink: 0, whiteSpace: 'nowrap', ...(!meta && { ml: 'auto' }) }}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
               >
                 New plan
               </Button>

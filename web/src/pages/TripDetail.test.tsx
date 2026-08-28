@@ -269,7 +269,7 @@ describe('TripDetail', () => {
     expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
   });
 
-  it('shows destination and from/to dates beside the trip name', () => {
+  it('shows destination and from/to dates on the meta line', () => {
     h.state.currentTrip = trip({
       destination: 'Portugal',
       starts_on: '2026-10-01',
@@ -282,11 +282,34 @@ describe('TripDetail', () => {
     expect(screen.getByText(/Portugal ·/)).toBeInTheDocument();
   });
 
-  it('shows only the destination beside the name when the trip has no dates', () => {
+  it('shows only the destination on the meta line when the trip has no dates', () => {
     h.state.currentTrip = trip({ destination: 'Portugal' });
     renderDetail();
     // No date span → no separator, just the destination.
     expect(screen.getByText('Portugal')).toBeInTheDocument();
+  });
+
+  it('puts the meta line and the actions on the row below the trip name', () => {
+    h.state.currentTrip = trip({ destination: 'Portugal' });
+    renderDetail();
+    const meta = screen.getByText('Portugal');
+    const share = screen.getByRole('button', { name: /share/i });
+    // Wide layout is two rows: name on its own, meta + actions together below,
+    // so a long name can never squeeze the button labels into wrapping (#115).
+    expect(meta.parentElement).toBe(share.parentElement);
+    expect(screen.getByRole('heading', { name: 'Lisbon' }).parentElement).not.toBe(
+      share.parentElement,
+    );
+  });
+
+  it('right-aligns the header actions for a viewer on a trip with no meta', () => {
+    // No destination and no dates → no meta line to push the buttons over, and
+    // a viewer has no New plan button either, so the row itself must align them.
+    h.state.currentTrip = trip({ destination: '', my_role: 'viewer' });
+    renderDetail();
+    const row = screen.getByRole('button', { name: /share/i }).parentElement as HTMLElement;
+    expect(screen.queryByText('Portugal')).not.toBeInTheDocument();
+    expect(getComputedStyle(row).justifyContent).toBe('flex-end');
   });
 
   it('hides Edit for viewers', () => {
