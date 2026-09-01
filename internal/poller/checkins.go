@@ -99,8 +99,6 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 		}
 	}
 
-	p.pushCheckin(ctx, d)
-
 	// An email-only recipient whose send failed has had nothing at all, so
 	// leave the pair unmarked and let the next tick try again. The retry is
 	// bounded by the check-in window itself — once the flight departs the pair
@@ -113,9 +111,16 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 		return
 	}
 
+	// Marked before the push, not after. The push is a best-effort echo of a
+	// reminder that has already been delivered, so its outcome cannot change
+	// whether this pair is done; ordering it last would let a slow push service
+	// hold the mark open and, on a restart in that gap, re-send the in-app and
+	// email reminders the traveller has already had.
 	if err := p.Store.MarkCheckinSent(ctx, d.PlanPartID, d.UserID); err != nil {
 		slog.Error("checkin: mark sent", "part", d.PlanPartID, "user", d.UserID, "err", err)
 	}
+
+	p.pushCheckin(ctx, d)
 }
 
 // pushCheckin delivers the reminder to the recipient's subscribed devices as a

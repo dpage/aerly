@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -536,4 +538,59 @@ func TestDispatchCheckin_NoChannelsStillMarked(t *testing.T) {
 	if due, _ := s.DueCheckins(ctx, now); len(due) != 0 {
 		t.Fatalf("nothing to retry, so the pair should be marked; %d still due", len(due))
 	}
+}
+
+// blockingPusher stalls in Send until released, standing in for a push service
+// that accepts the connection and then sits on it.
+type blockingPusher struct {
+	release chan struct{}
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingPusher) Enabled() bool { return true }
+
+func (b *blockingPusher) Send(context.Context, []int64, push.Payload) {
+	b.once.Do(func() { close(b.entered) })
+	<-b.release
+}
+
+// TestDispatchCheckin_SlowPushDoesNotDelayMark: the push is a best-effort echo
+// of a reminder already delivered, so it must not sit in front of the mark. If
+// it did, a stalled push service would hold the pair open and a restart in that
+// gap would re-send the in-app and email reminders the traveller already had.
+func TestDispatchCheckin_SlowPushDoesNotDelayMark(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	optInToCheckins(t, s, owner)
+	bp := &blockingPusher{release: make(chan struct{}), entered: make(chan struct{})}
+	p.Push = bp
+	out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+	seedCheckinFlight(t, s, owner, "BA286", out)
+	now := out.Add(-store.CheckinLead)
+
+	done := make(chan struct{})
+	go func() {
+		p.remindCheckins(ctx, now)
+		close(done)
+	}()
+
+	// Once the push has been entered, the mark must already be durable.
+	select {
+	case <-bp.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the push was never attempted")
+	}
+	var sent bool
+	if err := s.Pool().QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM flight_checkin_sent WHERE user_id = $1)`, owner).Scan(&sent); err != nil {
+		t.Fatalf("sent lookup: %v", err)
+	}
+	if !sent {
+		t.Fatal("a stalled push delayed marking the reminder sent")
+	}
+
+	close(bp.release)
+	<-done
 }

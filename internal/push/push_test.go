@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
@@ -323,5 +324,40 @@ func TestSendFansOutAndDedupesUsers(t *testing.T) {
 		if n != 1 {
 			t.Errorf("endpoint %s hit %d times, want 1", ep, n)
 		}
+	}
+}
+
+// TestSendOneBoundsASlowService: webpush-go's client has no timeout of its own,
+// so a push service that accepts the connection and then stalls would hold the
+// caller for as long as it liked. sendOne bounds the request, and the failure
+// is still recorded against the subscription afterwards because the store
+// reconciliation runs on the parent context, not the timed-out one.
+func TestSendOneBoundsASlowService(t *testing.T) {
+	f := newFakeStore()
+	f.add(1, store.WebPushSubscription{ID: 10, Endpoint: "slow", UserID: 1})
+
+	// A service that never answers until its context is cancelled.
+	s := senderWith(f, func(ctx context.Context, _ []byte, _ *webpush.Subscription, _ *webpush.Options) (*http.Response, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+
+	// Shorten the bound for the test rather than sitting out the real one.
+	orig := sendTimeoutForTest
+	sendTimeoutForTest = 20 * time.Millisecond
+	defer func() { sendTimeoutForTest = orig }()
+
+	done := make(chan struct{})
+	go func() {
+		s.Send(context.Background(), []int64{1}, Payload{Title: "x"})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Send did not return: a stalled push service blocked the caller")
+	}
+	if f.failures[10] != 1 {
+		t.Errorf("a timed-out send should record a transient failure, got %d", f.failures[10])
 	}
 }

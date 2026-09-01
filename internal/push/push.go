@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
@@ -39,6 +40,14 @@ const pushTTL = 24 * 60 * 60
 // maxConcurrent bounds in-flight push requests per Send call so a large
 // recipient set can't open an unbounded number of sockets.
 const maxConcurrent = 8
+
+// sendTimeout bounds one push request. It exists because webpush-go builds its
+// own HTTP client with no timeout of its own, and Send waits for every
+// subscription before returning: without a bound, one unresponsive push service
+// would stall whatever called it for as long as it cared to hold the socket.
+// Generous enough that a merely slow service still delivers. It is a var, not
+// a const, only so the timeout test needn't sit out the real one.
+var sendTimeoutForTest = 15 * time.Second
 
 // Payload is the JSON body delivered to the service worker's push handler. The
 // service worker renders Title/Body as the OS notification and deep-links to
@@ -146,7 +155,14 @@ func (s *Sender) Send(ctx context.Context, userIDs []int64, p Payload) {
 // (404/410) is pruned immediately; any other error is a transient failure that
 // prunes only after maxFailures consecutive occurrences.
 func (s *Sender) sendOne(ctx context.Context, msg []byte, sub store.WebPushSubscription) {
-	resp, err := s.send(ctx, msg, &webpush.Subscription{
+	// Bound the HTTP call. webpush-go builds its own client with no timeout, so
+	// a push service that accepts the connection and then stalls would
+	// otherwise hold the caller open indefinitely — a poller tick, or the
+	// request handling a share. The store reconciliation below deliberately
+	// keeps the parent context, so a timed-out send still records its failure.
+	sendCtx, cancel := context.WithTimeout(ctx, sendTimeoutForTest)
+	defer cancel()
+	resp, err := s.send(sendCtx, msg, &webpush.Subscription{
 		Endpoint: sub.Endpoint,
 		Keys:     webpush.Keys{P256dh: sub.P256dh, Auth: sub.Auth},
 	}, &webpush.Options{
