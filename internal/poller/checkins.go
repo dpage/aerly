@@ -84,7 +84,10 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 			StartTZ:   checkinZone(d),
 		})
 		if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
-			slog.Error("checkin: send email", "to", d.EmailAddr, "part", d.PlanPartID, "err", err)
+			// The recipient is identified by user id rather than address: the
+			// pair already pins the failure, and the address is the traveller's
+			// personal data, which has no business in an error log.
+			slog.Error("checkin: send email", "user", d.UserID, "part", d.PlanPartID, "err", err)
 		}
 	}
 
