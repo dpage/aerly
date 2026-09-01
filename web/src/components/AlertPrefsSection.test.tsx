@@ -25,7 +25,7 @@ import AlertPrefsSection from './AlertPrefsSection';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.state.alertPrefs = { in_app: true, email: false, min_delay_min: 15 };
+  h.state.alertPrefs = { in_app: true, email: false, min_delay_min: 15, checkin: false };
   h.loadAlertPrefs.mockResolvedValue(undefined);
   h.updateAlertPrefs.mockResolvedValue(undefined);
 });
@@ -36,7 +36,9 @@ describe('AlertPrefsSection', () => {
     await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
     expect(screen.getByRole('checkbox', { name: /in-app/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /email/i })).not.toBeChecked();
-    expect((screen.getByLabelText(/minimum delay in minutes/i) as HTMLInputElement).value).toBe('15');
+    expect((screen.getByLabelText(/minimum delay in minutes/i) as HTMLInputElement).value).toBe(
+      '15',
+    );
   });
 
   it('has no Save button (auto-save)', async () => {
@@ -50,7 +52,12 @@ describe('AlertPrefsSection', () => {
     await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
     await userEvent.click(screen.getByRole('checkbox', { name: /email/i }));
     await waitFor(() =>
-      expect(h.updateAlertPrefs).toHaveBeenCalledWith({ in_app: true, email: true, min_delay_min: 15 }),
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith({
+        in_app: true,
+        email: true,
+        min_delay_min: 15,
+        checkin: false,
+      }),
     );
   });
 
@@ -59,7 +66,12 @@ describe('AlertPrefsSection', () => {
     await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
     await userEvent.click(screen.getByRole('checkbox', { name: /in-app/i }));
     await waitFor(() =>
-      expect(h.updateAlertPrefs).toHaveBeenCalledWith({ in_app: false, email: false, min_delay_min: 15 }),
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith({
+        in_app: false,
+        email: false,
+        min_delay_min: 15,
+        checkin: false,
+      }),
     );
   });
 
@@ -70,7 +82,27 @@ describe('AlertPrefsSection', () => {
     await userEvent.clear(field);
     await userEvent.tab(); // blur with empty value
     await waitFor(() =>
-      expect(h.updateAlertPrefs).toHaveBeenCalledWith(expect.objectContaining({ min_delay_min: 0 })),
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith(
+        expect.objectContaining({ min_delay_min: 0 }),
+      ),
+    );
+  });
+
+  // Issue #119: the check-in reminder is off unless asked for, and persists
+  // alongside the channels it is delivered on.
+  it('reflects and persists the check-in reminder toggle', async () => {
+    render(<AlertPrefsSection />);
+    await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
+    const toggle = screen.getByRole('checkbox', { name: /check-in opens/i });
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith({
+        in_app: true,
+        email: false,
+        min_delay_min: 15,
+        checkin: true,
+      }),
     );
   });
 
@@ -89,6 +121,8 @@ describe('AlertPrefsSection', () => {
     render(<AlertPrefsSection />);
     await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
     expect(screen.getByRole('checkbox', { name: /in-app/i })).toBeChecked();
-    expect((screen.getByLabelText(/minimum delay in minutes/i) as HTMLInputElement).value).toBe('15');
+    expect((screen.getByLabelText(/minimum delay in minutes/i) as HTMLInputElement).value).toBe(
+      '15',
+    );
   });
 });

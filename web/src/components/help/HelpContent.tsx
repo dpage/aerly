@@ -162,10 +162,9 @@ export const HELP_PAGES: HelpPage[] = [
       <Box>
         <Body>
           A trip is the container for everything else. Create one from the Trips list with{' '}
-          <strong>New trip</strong> — give it a name, and optionally a destination and dates.
-          Your own trips live under <strong>My trips</strong> (along with any you&apos;re a
-          passenger on); trips a friend has shared with you appear under <strong>Friends&apos;
-          trips</strong>.
+          <strong>New trip</strong> — give it a name, and optionally a destination and dates. Your
+          own trips live under <strong>My trips</strong> (along with any you&apos;re a passenger
+          on); trips a friend has shared with you appear under <strong>Friends&apos; trips</strong>.
         </Body>
         <SectionTitle>Dates</SectionTitle>
         <FeatureItem
@@ -471,6 +470,10 @@ export const HELP_PAGES: HelpPage[] = [
           title="Per plan"
           description="A plan's Reminder control overrides the trip setting — change its lead time, or opt a single plan in or out."
         />
+        <FeatureItem
+          title="Check-in"
+          description="In Preferences → Alerts, turn on Remind me when check-in opens to be told five minutes before online check-in opens, 24 hours ahead of each flight. It's off until you ask for it, applies to every flight you're on, and arrives on the same channels as your other alerts."
+        />
         <HelpTip>
           Reminders are about timing (a heads-up before you travel); the flight alerts above fire
           whenever the airline reports a change. They&apos;re independent — set each to taste.
@@ -547,7 +550,8 @@ export const HELP_PAGES: HelpPage[] = [
         <Body>
           Aerly is a Progressive Web App, so you can add it to your phone&apos;s Home Screen and run
           it like an ordinary app — full-screen, with its own icon, working offline from saved data,
-          and able to receive push notifications. There&apos;s nothing to download from an app store.
+          and able to receive push notifications. There&apos;s nothing to download from an app
+          store.
         </Body>
         <SectionTitle>iPhone &amp; iPad</SectionTitle>
         <FeatureItem

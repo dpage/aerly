@@ -651,14 +651,32 @@ export interface TagSuggestion {
 
 /** The kind of point of interest returned by the nearby-POI search. */
 export type PoiCategory =
-  | 'attractions' | 'viewpoints' | 'monuments_heritage'
-  | 'restaurants' | 'cafes' | 'bars' | 'pubs' | 'street_food'
-  | 'nightclubs' | 'live_venues' | 'cinemas'
-  | 'museums' | 'galleries' | 'theatres'
-  | 'parks_gardens' | 'natural_features' | 'beaches'
-  | 'markets' | 'malls' | 'speciality_shops'
-  | 'sports_centres' | 'swimming' | 'stadiums'
-  | 'zoos_aquariums' | 'theme_parks' | 'playgrounds'
+  | 'attractions'
+  | 'viewpoints'
+  | 'monuments_heritage'
+  | 'restaurants'
+  | 'cafes'
+  | 'bars'
+  | 'pubs'
+  | 'street_food'
+  | 'nightclubs'
+  | 'live_venues'
+  | 'cinemas'
+  | 'museums'
+  | 'galleries'
+  | 'theatres'
+  | 'parks_gardens'
+  | 'natural_features'
+  | 'beaches'
+  | 'markets'
+  | 'malls'
+  | 'speciality_shops'
+  | 'sports_centres'
+  | 'swimming'
+  | 'stadiums'
+  | 'zoos_aquariums'
+  | 'theme_parks'
+  | 'playgrounds'
   | 'worship';
 
 /** A single nearby point of interest (GET /api/trips/{id}/pois). */
@@ -943,12 +961,19 @@ export interface AlertPrefs {
   email: boolean;
   /** Suppress flight changes below this many minutes of delay. */
   min_delay_min: number;
+  /**
+   * Send a reminder five minutes before online check-in opens, 24 hours
+   * before each flight departs. Off unless the user asks for it, and
+   * delivered on whichever of in_app / email are on.
+   */
+  checkin: boolean;
 }
 
 export interface UpdateAlertPrefsInput {
   in_app?: boolean;
   email?: boolean;
   min_delay_min?: number;
+  checkin?: boolean;
 }
 
 // --- Web Push (PWA push notifications) ---

@@ -1,14 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Box, FormControlLabel, FormGroup, Stack, Switch, TextField, Typography } from '@mui/material';
+import {
+  Box,
+  FormControlLabel,
+  FormGroup,
+  Stack,
+  Switch,
+  TextField,
+  Typography,
+} from '@mui/material';
 
 import { errorMessage } from '../state/helpers';
 import { useStore } from '../state/store';
 
 /** Per-user alert preferences (spec §6.8) as a Preferences tab: delivery
- * channels (in-app / email) and a minimum delay threshold below which flight
- * changes are suppressed. Auto-saves — toggles persist immediately, the
- * threshold persists on blur. On failure it surfaces the error and reloads the
- * canonical prefs so the controls never sit showing an unsaved edit. */
+ * channels (in-app / email), a minimum delay threshold below which flight
+ * changes are suppressed, and the check-in reminder (issue #119), which is off
+ * unless asked for and rides the same channels. Auto-saves — toggles persist
+ * immediately, the threshold persists on blur. On failure it surfaces the error
+ * and reloads the canonical prefs so the controls never sit showing an unsaved
+ * edit. */
 export default function AlertPrefsSection() {
   const alertPrefs = useStore((s) => s.alertPrefs);
   const loadAlertPrefs = useStore((s) => s.loadAlertPrefs);
@@ -18,6 +28,7 @@ export default function AlertPrefsSection() {
   const [inApp, setInApp] = useState(true);
   const [email, setEmail] = useState(false);
   const [minDelay, setMinDelay] = useState('15');
+  const [checkin, setCheckin] = useState(false);
 
   useEffect(() => {
     void loadAlertPrefs();
@@ -28,6 +39,7 @@ export default function AlertPrefsSection() {
     setInApp(alertPrefs.in_app);
     setEmail(alertPrefs.email);
     setMinDelay(String(alertPrefs.min_delay_min));
+    setCheckin(alertPrefs.checkin);
   }, [alertPrefs]);
 
   const parseDelay = (s: string) => {
@@ -35,7 +47,12 @@ export default function AlertPrefsSection() {
     return Number.isFinite(n) && n >= 0 ? n : 0;
   };
 
-  const persist = async (patch: { in_app: boolean; email: boolean; min_delay_min: number }) => {
+  const persist = async (patch: {
+    in_app: boolean;
+    email: boolean;
+    min_delay_min: number;
+    checkin: boolean;
+  }) => {
     try {
       await updateAlertPrefs(patch);
     } catch (err) {
@@ -46,16 +63,20 @@ export default function AlertPrefsSection() {
 
   const onToggleInApp = (checked: boolean) => {
     setInApp(checked);
-    void persist({ in_app: checked, email, min_delay_min: parseDelay(minDelay) });
+    void persist({ in_app: checked, email, min_delay_min: parseDelay(minDelay), checkin });
   };
   const onToggleEmail = (checked: boolean) => {
     setEmail(checked);
-    void persist({ in_app: inApp, email: checked, min_delay_min: parseDelay(minDelay) });
+    void persist({ in_app: inApp, email: checked, min_delay_min: parseDelay(minDelay), checkin });
   };
   const onBlurDelay = () => {
     const parsed = parseDelay(minDelay);
     setMinDelay(String(parsed));
-    void persist({ in_app: inApp, email, min_delay_min: parsed });
+    void persist({ in_app: inApp, email, min_delay_min: parsed, checkin });
+  };
+  const onToggleCheckin = (checked: boolean) => {
+    setCheckin(checked);
+    void persist({ in_app: inApp, email, min_delay_min: parseDelay(minDelay), checkin: checked });
   };
 
   return (
@@ -85,6 +106,22 @@ export default function AlertPrefsSection() {
         slotProps={{ htmlInput: { min: 0, 'aria-label': 'Minimum delay in minutes' } }}
         helperText="Minutes. Flight changes below this delay won't alert you."
       />
+      <Box>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          Check-in
+        </Typography>
+        <FormGroup>
+          <FormControlLabel
+            control={
+              <Switch checked={checkin} onChange={(e) => onToggleCheckin(e.target.checked)} />
+            }
+            label="Remind me when check-in opens"
+          />
+        </FormGroup>
+        <Typography variant="caption" color="text.secondary">
+          Five minutes before online check-in opens, 24 hours ahead of each flight.
+        </Typography>
+      </Box>
     </Stack>
   );
 }

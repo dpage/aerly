@@ -15,6 +15,7 @@ type alertPrefsDTO struct {
 	InApp       bool `json:"in_app"`
 	Email       bool `json:"email"`
 	MinDelayMin int  `json:"min_delay_min"`
+	Checkin     bool `json:"checkin"`
 }
 
 // updateAlertPrefsInput is the PUT body. All fields optional (pointer) so a
@@ -23,10 +24,11 @@ type updateAlertPrefsInput struct {
 	InApp       *bool `json:"in_app"`
 	Email       *bool `json:"email"`
 	MinDelayMin *int  `json:"min_delay_min"`
+	Checkin     *bool `json:"checkin"`
 }
 
 func toAlertPrefsDTO(p *store.AlertPrefs) alertPrefsDTO {
-	return alertPrefsDTO{InApp: p.InApp, Email: p.Email, MinDelayMin: p.MinDelayMin}
+	return alertPrefsDTO{InApp: p.InApp, Email: p.Email, MinDelayMin: p.MinDelayMin, Checkin: p.Checkin}
 }
 
 func (a *API) getAlertPrefs(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +67,9 @@ func (a *API) setAlertPrefs(w http.ResponseWriter, r *http.Request) {
 			v = 0
 		}
 		prefs.MinDelayMin = v
+	}
+	if in.Checkin != nil {
+		prefs.Checkin = *in.Checkin
 	}
 	if err := a.Store.SetAlertPrefs(r.Context(), *prefs); err != nil {
 		handleStoreErr(w, err)

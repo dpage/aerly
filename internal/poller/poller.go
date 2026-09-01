@@ -241,6 +241,10 @@ func (p *Poller) tick(ctx context.Context) {
 	// Upcoming-plan reminders (issue #11) — independent of the status-change
 	// alert path above.
 	p.remindUpcoming(ctx, now)
+
+	// Flight check-in reminders (issue #119) — likewise independent, and
+	// opt-in per user rather than per trip.
+	p.remindCheckins(ctx, now)
 }
 
 // postArrivalPollInterval is how often a landed part is re-resolved inside the
