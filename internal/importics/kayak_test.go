@@ -437,3 +437,34 @@ func syntheticPlans(t *testing.T, cal *Calendar) []planops.ConfirmPlanInput {
 	}
 	return trips[0].Plans
 }
+
+// TestMapKayakFlightIdentSpacing is the issue #118 regression for the Kayak
+// shape: the SUMMARY normally spaces the designator off from the number, but an
+// unspaced one is the same flight and must map identically.
+func TestMapKayakFlightIdentSpacing(t *testing.T) {
+	out := time.Date(2026, 4, 11, 6, 0, 0, 0, time.UTC)
+	for _, summary := range []string{
+		"LH 6437 from Vienna (VIE) to Frankfurt am Main (FRA)",
+		"LH6437 from Vienna (VIE) to Frankfurt am Main (FRA)",
+	} {
+		t.Run(summary, func(t *testing.T) {
+			e := Event{
+				UID:     "0-0-AI@kayak.com",
+				Summary: summary,
+				Start:   DateTime{Time: out},
+				End:     DateTime{Time: out.Add(time.Hour)},
+			}
+			plan, ok := mapKayakFlight(e)
+			if !ok {
+				t.Fatalf("mapKayakFlight(%q) did not map", summary)
+			}
+			fd := plan.Parts[0].Flight
+			if fd.Ident != "LH6437" {
+				t.Errorf("ident = %q, want LH6437", fd.Ident)
+			}
+			if fd.OriginIATA != "VIE" || fd.DestIATA != "FRA" {
+				t.Errorf("route = %s→%s, want VIE→FRA", fd.OriginIATA, fd.DestIATA)
+			}
+		})
+	}
+}

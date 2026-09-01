@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/planops"
 )
 
@@ -186,7 +187,6 @@ func truncateForError(s string) string {
 	return s
 }
 
-var identRe = regexp.MustCompile(`^[A-Z0-9]{2,3}[0-9]{1,4}[A-Z]?$`)
 var dateRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 var iataRe = regexp.MustCompile(`^[A-Z]{3}$`)
 var timeRe = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
@@ -252,7 +252,8 @@ func (x *Extractor) Extract(ctx context.Context, body string, docs []Document) (
 		if strings.EqualFold(f.Confidence, "low") {
 			continue
 		}
-		if !identRe.MatchString(f.Ident) || !dateRe.MatchString(f.Date) {
+		ident := flightident.Normalise(f.Ident)
+		if !flightident.Valid(ident) || !dateRe.MatchString(f.Date) {
 			continue
 		}
 		d, err := time.Parse("2006-01-02", f.Date)
@@ -263,7 +264,7 @@ func (x *Extractor) Extract(ctx context.Context, body string, docs []Document) (
 		if d.Before(now.AddDate(-2, 0, 0)) || d.After(now.AddDate(2, 0, 0)) {
 			continue
 		}
-		leg := Leg{Ident: f.Ident, Date: f.Date, Confidence: f.Confidence}
+		leg := Leg{Ident: ident, Date: f.Date, Confidence: f.Confidence}
 		// Manual-fallback fields. Each is validated independently and only
 		// retained if well-formed — partial / garbled data is dropped so
 		// the manual-add path won't fire on it.
@@ -629,7 +630,8 @@ var validExtractType = map[string]bool{
 // flight part and returns the populated Leg. ok is false when the core
 // ident+date fails validation (the caller drops the part).
 func (x *Extractor) validateFlightPart(ident, date, confidence, originIATA, destIATA, departTime, arriveDate, arriveTime string) (Leg, bool) {
-	if !identRe.MatchString(ident) || !dateRe.MatchString(date) {
+	ident = flightident.Normalise(ident)
+	if !flightident.Valid(ident) || !dateRe.MatchString(date) {
 		return Leg{}, false
 	}
 	d, err := time.Parse("2006-01-02", date)

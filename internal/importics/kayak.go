@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -34,8 +35,10 @@ var kayakTripRe = regexp.MustCompile(`kayak\.com/trips/!([^?\s]+)`)
 // kayakFlightRe matches a Kayak flight SUMMARY:
 // "LH 6437 from Vienna (VIE) to Frankfurt am Main (FRA)" → airline, number,
 // origin IATA, destination IATA. The airline designator may carry a digit
-// (easyJet "U2", Wizz "W6"), so the first group allows alphanumerics.
-var kayakFlightRe = regexp.MustCompile(`^([A-Z0-9]{2,3})\s+([0-9]{1,4})\s+from\s+.+\(([A-Z]{3})\)\s+to\s+.+\(([A-Z]{3})\)$`)
+// (easyJet "U2", Wizz "W6"), so the first group allows alphanumerics, and the
+// space between designator and number is optional because feeds write it both
+// ways (#118); the two captures are joined and normalised into one ident.
+var kayakFlightRe = regexp.MustCompile(`^([A-Z0-9]{2,3})\s?([0-9]{1,4})\s+from\s+.+\(([A-Z]{3})\)\s+to\s+.+\(([A-Z]{3})\)$`)
 
 // kayakDepartRe / kayakArriveRe pull the origin / destination place names out of
 // a rail or bus DESCRIPTION line, e.g.
@@ -207,7 +210,7 @@ func mapKayakFlight(e Event) (planops.ConfirmPlanInput, bool) {
 	if m == nil {
 		return planops.ConfirmPlanInput{}, false
 	}
-	ident, origin, dest := m[1]+m[2], m[3], m[4]
+	ident, origin, dest := flightident.Normalise(m[1]+m[2]), m[3], m[4]
 	out := e.Start.Time
 	in := e.End.Time
 

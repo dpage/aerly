@@ -1,4 +1,5 @@
 import type { Flight, Trip } from '../api/types';
+import { airlineOf } from '../lib/flight-ident';
 import { greatCircleMiles } from '../lib/great-circle';
 import { classifyTrip, tripSpan } from '../lib/trip-format';
 
@@ -27,7 +28,6 @@ export type Stats = {
 };
 
 const EARTH_CIRCUMFERENCE_MI = 24901;
-const AIRLINE_RE = /^([A-Z]{2,3})\d+$/i;
 
 const UPCOMING_STATUSES: ReadonlySet<string> = new Set([
   'Scheduled',
@@ -181,9 +181,8 @@ function airlineStats(flown: Flight[]): {
 } {
   const counts = new Map<string, number>();
   for (const f of flown) {
-    const m = AIRLINE_RE.exec(f.ident);
-    if (!m) continue;
-    const code = m[1].toUpperCase();
+    const code = airlineOf(f.ident);
+    if (code === null) continue;
     counts.set(code, (counts.get(code) ?? 0) + 1);
   }
   let most: { code: string; count: number } | null = null;

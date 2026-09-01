@@ -556,3 +556,28 @@ func TestStripCodeFence(t *testing.T) {
 		}
 	}
 }
+
+// TestExtract_NormalisesIdent is the issue #118 regression for the email path:
+// an email that writes "LH 441" used to be dropped outright, because the
+// validation regex rejected the space rather than removing it. It must now be
+// accepted and stored unspaced, and an easyJet-style designator must keep its
+// digit rather than have it counted into the flight number.
+func TestExtract_NormalisesIdent(t *testing.T) {
+	x, _ := newExtractor(`{"flights":[
+		{"ident":"LH 441","date":"2026-06-12","confidence":"high"},
+		{"ident":"u2 8021","date":"2026-06-13","confidence":"high"}
+	]}`)
+	legs, err := x.Extract(context.Background(), "body", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legs) != 2 {
+		t.Fatalf("len(legs) = %d, want 2: %+v", len(legs), legs)
+	}
+	if legs[0].Ident != "LH441" {
+		t.Errorf("legs[0].Ident = %q, want LH441", legs[0].Ident)
+	}
+	if legs[1].Ident != "U28021" {
+		t.Errorf("legs[1].Ident = %q, want U28021", legs[1].Ident)
+	}
+}

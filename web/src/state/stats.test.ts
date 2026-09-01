@@ -216,6 +216,20 @@ describe('computeStats', () => {
     expect(s.highlight.distinctAirlines).toBe(3); // BA, EZY, UA
   });
 
+  // Issue #118: a letters-only designator rule dropped easyJet and Jet Airways
+  // from the tally entirely, because "U2" and "9W" carry a digit.
+  it('counts airline codes that carry a digit', () => {
+    const flights = [
+      f({ id: 1, ident: 'U28021' }),
+      f({ id: 2, ident: 'U2 8022' }),
+      f({ id: 3, ident: '9W420' }),
+      f({ id: 4, ident: 'BA286' }),
+    ];
+    const s = computeStats(flights, ME);
+    expect(s.highlight.distinctAirlines).toBe(3); // U2, 9W, BA
+    expect(s.highlight.mostAirline).toEqual({ code: 'U2', count: 2 });
+  });
+
   it('picks the most-used airline by flight count', () => {
     const flights = [
       f({ id: 1, ident: 'BA286' }),
@@ -229,10 +243,7 @@ describe('computeStats', () => {
   });
 
   it('breaks most-used airline ties alphabetically', () => {
-    const flights = [
-      f({ id: 1, ident: 'UA1' }),
-      f({ id: 2, ident: 'BA286' }),
-    ];
+    const flights = [f({ id: 1, ident: 'UA1' }), f({ id: 2, ident: 'BA286' })];
     const s = computeStats(flights, ME);
     expect(s.highlight.mostAirline).toEqual({ code: 'BA', count: 1 });
   });
