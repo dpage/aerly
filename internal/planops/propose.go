@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -388,7 +389,7 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 // building friendly "Name (CODE)" labels off-table) — empty on the fallback
 // path. The returned FlightDetail's Resolved flag records which path was taken.
 func enrichFlight(ctx context.Context, deps Deps, leg FlightFields) (fd *store.FlightDetail, originName, destName string) {
-	storedIdent := strings.ToUpper(strings.Join(strings.Fields(leg.Ident), ""))
+	storedIdent := flightident.Normalise(leg.Ident)
 	if deps.Resolver != nil {
 		if d, err := time.Parse("2006-01-02", leg.Date); err == nil {
 			if rf, rerr := deps.Resolver.Resolve(ctx, leg.Ident, d); rerr == nil {

@@ -447,3 +447,38 @@ func planParts(t *testing.T, e *testEnv, uid, tid, planID int64) []map[string]an
 	t.Fatalf("plan %d not found in trip %d", planID, tid)
 	return nil
 }
+
+// TestCreateFlightPlanNormalisesIdent is the issue #118 regression for the
+// create path: the edit path has always canonicalised a hand-typed flight
+// number, but create stored whatever it was given, so "ba 286" was persisted
+// with its space and never matched the provider's "BA286".
+func TestCreateFlightPlanNormalisesIdent(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "owner", false)
+	tid := newTrip(t, e, owner, "Trip")
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := out.Add(2 * time.Hour)
+
+	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", tid), map[string]any{
+		"type": "flight", "title": "ba 286",
+		"parts": []map[string]any{{
+			"type": "flight", "starts_at": out, "ends_at": in,
+			"flight": map[string]any{
+				"ident": "ba 286", "scheduled_out": out, "scheduled_in": in,
+				"origin_iata": "LHR", "dest_iata": "LIS",
+			},
+		}},
+	}, owner)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create flight plan: %d %s", w.Code, w.Body.String())
+	}
+	got := decodeBody[map[string]any](t, w)
+	parts, _ := got["parts"].([]any)
+	if len(parts) != 1 {
+		t.Fatalf("want 1 part, got %v", got["parts"])
+	}
+	flight, _ := parts[0].(map[string]any)["flight"].(map[string]any)
+	if flight == nil || flight["ident"] != "BA286" {
+		t.Fatalf("stored ident = %v, want BA286", flight)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/flightcoord"
+	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
 )
@@ -979,7 +980,7 @@ func (a *API) reresolveFlightPart(ctx context.Context, partID int64, ident strin
 // normalizeIdent upper-cases and strips whitespace from a flight number, so
 // "ba 286" and "BA286" canonicalise alike.
 func normalizeIdent(s string) string {
-	return strings.ToUpper(strings.Join(strings.Fields(s), ""))
+	return flightident.Normalise(s)
 }
 
 // manualRouteUpdate builds the FlightRouteUpdate for a hand-typed IATA edit on
@@ -1061,7 +1062,10 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 	case "flight":
 		if p.Flight != nil {
 			out.Flight = &store.FlightDetail{
-				Ident:        p.Flight.Ident,
+				// Normalise on the way in, so a hand-typed "BA 286" is stored,
+				// polled and displayed as the same "BA286" the edit path
+				// already produces (issue #118).
+				Ident:        flightident.Normalise(p.Flight.Ident),
 				ICAO24:       p.Flight.ICAO24,
 				Callsign:     strPtrIfSet(p.Flight.Callsign),
 				ScheduledOut: defaultTime(p.Flight.ScheduledOut, p.StartsAt),

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -96,14 +97,14 @@ func matchRebooking(confirmRef string, incoming *store.FlightDetail, candidates 
 
 	// 2. ident + same calendar day, or same route + date proximity (medium).
 	day := incoming.ScheduledOut.UTC().Truncate(24 * time.Hour)
-	ident := strings.ToUpper(strings.Join(strings.Fields(incoming.Ident), ""))
+	ident := flightident.Normalise(incoming.Ident)
 
 	var best *rebookCandidate
 	bestScore := -1
 	for i := range candidates {
 		c := &candidates[i]
 		score := -1
-		cIdent := strings.ToUpper(strings.Join(strings.Fields(c.flight.Ident), ""))
+		cIdent := flightident.Normalise(c.flight.Ident)
 		cDay := c.flight.ScheduledOut.UTC().Truncate(24 * time.Hour)
 		switch {
 		case ident != "" && cIdent == ident && cDay.Equal(day):

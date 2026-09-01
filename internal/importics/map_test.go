@@ -329,3 +329,34 @@ func TestMapSourceAlwaysUpload(t *testing.T) {
 		}
 	}
 }
+
+// TestMapFlightIdentSpacing is the issue #118 regression for the TripIt-shaped
+// import: a SUMMARY written "AY 832 LHR to HEL" is the same flight as
+// "AY832 LHR to HEL", and both are stored under the unspaced ident.
+func TestMapFlightIdentSpacing(t *testing.T) {
+	out := time.Date(2026, 10, 30, 10, 20, 0, 0, time.UTC)
+	for _, summary := range []string{"AY832 LHR to HEL", "AY 832 LHR to HEL"} {
+		t.Run(summary, func(t *testing.T) {
+			e := Event{
+				UID:     "item-1@tripit.com",
+				Summary: summary,
+				Start:   DateTime{Time: out},
+				End:     DateTime{Time: out.Add(3 * time.Hour)},
+			}
+			if got := classify(e); got != "flight" {
+				t.Fatalf("classify(%q) = %q, want flight", summary, got)
+			}
+			plan, ok := mapFlight(e)
+			if !ok {
+				t.Fatalf("mapFlight(%q) did not map", summary)
+			}
+			fd := plan.Parts[0].Flight
+			if fd.Ident != "AY832" {
+				t.Errorf("ident = %q, want AY832", fd.Ident)
+			}
+			if fd.OriginIATA != "LHR" || fd.DestIATA != "HEL" {
+				t.Errorf("route = %s→%s, want LHR→HEL", fd.OriginIATA, fd.DestIATA)
+			}
+		})
+	}
+}

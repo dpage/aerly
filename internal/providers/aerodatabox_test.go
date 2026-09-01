@@ -743,10 +743,16 @@ func TestIdentVariants(t *testing.T) {
 		{"BA0087", []string{"BA0087"}}, // already canonical → single try
 		{"BA00087", []string{"BA00087", "BA0087"}},
 
-		// Airline codes can include digits ("9W" = Jet Airways). The regex
-		// is non-greedy on the prefix so the trailing run of digits is what
-		// gets re-padded, not the airline-code digit.
+		// Airline codes can include digits ("9W" = Jet Airways, "U2" =
+		// easyJet). The designator is taken as the leading TWO characters, so
+		// the airline-code digit isn't mistaken for part of the number: "U287"
+		// pads to "U20087", not "U0287" (#118).
 		{"9W420", []string{"9W420", "9W0420"}},
+		{"U287", []string{"U287", "U20087"}},
+
+		// A hand-typed space between designator and number is normalised away
+		// before the lookup, so it finds the same flight (#118).
+		{"BA 87", []string{"BA87", "BA0087"}},
 
 		// 4-digit ident with no leading zero — already canonical width.
 		{"AC1234", []string{"AC1234"}},
@@ -758,8 +764,8 @@ func TestIdentVariants(t *testing.T) {
 		{"GIBBERISH", []string{"GIBBERISH"}},
 		{"BA0000", []string{"BA0000"}},
 		{"BA", []string{"BA"}},
-		// Pure-digit "prefix" (no letter) is passed through unchanged: the
-		// regex matches but the letter check rejects it, so we don't pad it.
+		// A pure-digit "prefix" has no airline in it, so there is nothing to
+		// pad and the input passes through unchanged.
 		{"12345", []string{"12345"}},
 	}
 	for _, c := range cases {

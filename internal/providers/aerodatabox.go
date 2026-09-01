@@ -9,13 +9,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"golang.org/x/time/rate"
+
+	"github.com/dpage/aerly/internal/flightident"
 )
 
 // AeroDataBox is a Resolver backed by the AeroDataBox API on RapidAPI.
@@ -341,48 +342,30 @@ func orFallback(s, fallback string) string {
 }
 
 // identVariants returns at most TWO candidates to try against AeroDataBox:
-// the user's literal input, and the canonical 4-digit padded form (if
-// different). We used to try every pad-length up to 5; that burst was a
-// real driver of 429s on tighter RapidAPI plans, and in practice we never
-// saw flights stored at any width other than 4. Examples:
+// the user's literal input (normalised, so a hand-typed "BA 286" is looked up
+// as "BA286"), and the canonical 4-digit padded form (if different). We used to
+// try every pad-length up to 5; that burst was a real driver of 429s on tighter
+// RapidAPI plans, and in practice we never saw flights stored at any width
+// other than 4. Examples:
 //
 //	"BA87"   → [BA87,   BA0087]
 //	"BA087"  → [BA087,  BA0087]
 //	"BA0087" → [BA0087]
 //	"9W420"  → [9W420,  9W0420]
+//	"U287"   → [U287,   U20087]   (easyJet: the designator carries a digit)
 //	"AC1234" → [AC1234]   (already 4-digit canonical)
 //
-// Idents that don't match an "airline code + digits" pattern (the prefix
-// must contain at least one letter) are passed through unchanged so we
-// don't generate junk for pure-digit or pathological inputs.
+// Idents that don't split into an airline designator and a flight number are
+// passed through unchanged so we don't generate junk for pure-digit or
+// pathological inputs.
 func identVariants(ident string) []string {
-	m := identRe.FindStringSubmatch(ident)
-	if m == nil {
+	ident = flightident.Normalise(ident)
+	canonical, ok := flightident.Canonical(ident)
+	if !ok || canonical == ident {
 		return []string{ident}
 	}
-	prefix := m[1]
-	if !strings.ContainsAny(prefix, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
-		return []string{ident}
-	}
-	num := strings.TrimLeft(m[2], "0")
-	if num == "" {
-		// e.g. "BA0000" — all zeros, weird; return as-is.
-		return []string{ident}
-	}
-	out := []string{ident}
-	// Canonical 4-digit form, only if the user didn't already type it.
-	if len(num) <= 4 {
-		canonical := prefix + strings.Repeat("0", 4-len(num)) + num
-		if canonical != ident {
-			out = append(out, canonical)
-		}
-	}
-	return out
+	return []string{ident, canonical}
 }
-
-// Airline codes can start with a digit (e.g. "9W"), but they must contain
-// at least one letter — enforced by the post-regex check above.
-var identRe = regexp.MustCompile(`^([A-Z0-9]+?)(\d+)$`)
 
 // parseRetryAfter understands both forms of the Retry-After header:
 //   - "5"                              → 5 seconds (delta-seconds form)

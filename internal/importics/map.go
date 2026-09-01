@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/geotz"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
@@ -36,8 +37,10 @@ const importSource = "upload"
 // flightRe matches a TripIt flight SUMMARY, e.g. "AY832 LHR to HEL": an
 // airline+number ident followed by an origin and destination IATA code. The
 // airline designator may contain a digit (easyJet "U2", Wizz "W6", Sichuan
-// "3U"), so the leading group allows alphanumerics.
-var flightRe = regexp.MustCompile(`^([A-Z0-9]{2,3}[0-9]{1,4})\s+([A-Z]{3})\s+to\s+([A-Z]{3})$`)
+// "3U"), so the leading group allows alphanumerics, and the space between
+// designator and number is optional because feeds write it both ways (#118);
+// the captured ident is normalised before it is stored.
+var flightRe = regexp.MustCompile(`^([A-Z0-9]{2,3}\s?[0-9]{1,4})\s+([A-Z]{3})\s+to\s+([A-Z]{3})$`)
 
 // transportRe matches a ground/rail SUMMARY, e.g.
 // "Bonny's Taxi - Home to Heathrow T3" → provider / from / to.
@@ -162,7 +165,7 @@ func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
 	if m == nil {
 		return planops.ConfirmPlanInput{}, false
 	}
-	ident, origin, dest := m[1], m[2], m[3]
+	ident, origin, dest := flightident.Normalise(m[1]), m[2], m[3]
 	out := e.Start.Time
 	in := e.End.Time
 

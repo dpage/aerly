@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/providers"
 )
 
@@ -51,7 +52,9 @@ func (a *API) resolveFlight(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Date must be in YYYY-MM-DD format.")
 		return
 	}
-	rf, err := a.Resolver.Resolve(r.Context(), in.Ident, date)
+	// A hand-typed "BA 286" must look up the same flight as "BA286" (#118).
+	ident := flightident.Normalise(in.Ident)
+	rf, err := a.Resolver.Resolve(r.Context(), ident, date)
 	if err != nil {
 		// Surface only the curated, user-facing sentinels; anything else may
 		// carry provider URLs/quota detail, so log it and return a generic
@@ -64,7 +67,7 @@ func (a *API) resolveFlight(w http.ResponseWriter, r *http.Request) {
 		default:
 			// Keep the 422 the client contract uses, but don't echo the raw
 			// error — it can carry provider URLs/quota detail; log it instead.
-			slog.Error("resolveFlight: resolver error", "err", err, "ident", in.Ident)
+			slog.Error("resolveFlight: resolver error", "err", err, "ident", ident)
 			writeError(w, http.StatusUnprocessableEntity, "Could not resolve that flight.")
 		}
 		return
