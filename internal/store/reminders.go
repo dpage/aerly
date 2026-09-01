@@ -124,6 +124,12 @@ type DueReminder struct {
 	PlanTitle  string
 	Ident      string // flight ident when the part is a flight, else ""
 	Email      string // newest verified address, "" when none
+	// OriginIATA is the departure airport of a flight part, else "". With
+	// StartLat/StartLon it lets the poller render the reminder in the
+	// airport's own zone when the part never stored one (issue #117).
+	OriginIATA string
+	StartLat   *float64
+	StartLon   *float64
 }
 
 // DueReminders returns every (plan_part, user) reminder ready to fire at `now`:
@@ -157,7 +163,8 @@ func (s *Store) DueReminders(ctx context.Context, now time.Time) ([]DueReminder,
 		)
 		SELECT pp.id, r.plan_id, r.trip_id, r.user_id, r.lead_hours,
 		       pp.starts_at, pp.start_tz, pp.start_label, pl.type, pl.title,
-		       COALESCE(fd.ident, ''),
+		       COALESCE(fd.ident, ''), COALESCE(fd.origin_iata, ''),
+		       pp.start_lat, pp.start_lon,
 		       COALESCE((
 		           SELECT e.address FROM user_emails e
 		           WHERE e.user_id = r.user_id AND e.verified = TRUE
@@ -187,7 +194,7 @@ func (s *Store) DueReminders(ctx context.Context, now time.Time) ([]DueReminder,
 		var d DueReminder
 		if err := rows.Scan(&d.PlanPartID, &d.PlanID, &d.TripID, &d.UserID, &d.LeadHours,
 			&d.StartsAt, &d.StartTZ, &d.StartLabel, &d.PlanType, &d.PlanTitle,
-			&d.Ident, &d.Email); err != nil {
+			&d.Ident, &d.OriginIATA, &d.StartLat, &d.StartLon, &d.Email); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

@@ -239,7 +239,11 @@ func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	switch kind {
 	case "delayed":
 		if eff := revisedOut(f); eff != nil {
-			return "now departing " + eff.UTC().Format("15:04 MST")
+			// Quote the revised departure on the departure airport's clock,
+			// which is the one the traveller is reading (issue #117); UTC only
+			// where the airport's zone can't be resolved at all.
+			zone := airportZone(f.OriginIATA, f.OriginLat, f.OriginLon)
+			return "now departing " + inZone(*eff, zone).Format("15:04 MST")
 		}
 		return "now delayed"
 	case "diverted":

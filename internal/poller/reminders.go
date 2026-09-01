@@ -75,7 +75,7 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 			TripID:    d.TripID,
 			Label:     label,
 			StartsAt:  d.StartsAt,
-			StartTZ:   d.StartTZ,
+			StartTZ:   reminderZone(d),
 		})
 		if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
 			slog.Error("reminder: send email", "to", d.Email, "part", d.PlanPartID, "err", err)
