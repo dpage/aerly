@@ -284,3 +284,49 @@ func TestRemindUpcoming_OutsideWindowNoSend(t *testing.T) {
 		t.Fatalf("reminder sent outside lead window: %d", cap.count())
 	}
 }
+
+// TestRemindUpcoming_FlightUsesAirportTime is the issue #117 regression: a
+// flight part carries a UTC instant and an IATA code but no stored zone, so the
+// reminder used to read "10:00 UTC" for a flight leaving Heathrow at 10:00 BST.
+// It must now be written on the departure airport's clock.
+func TestRemindUpcoming_FlightUsesAirportTime(t *testing.T) {
+	p, s, _, cap := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	// 09:00 UTC on 31 August is 10:00 BST at Heathrow.
+	out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+	f, err := mkPart(ctx, s, partSeed{
+		Ident:        "BA286",
+		ScheduledOut: out,
+		ScheduledIn:  out.Add(11 * time.Hour),
+		OriginIATA:   "LHR",
+		DestIATA:     "SFO",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	var tripID int64
+	if err := s.Pool().QueryRow(ctx,
+		`SELECT pl.trip_id FROM plan_parts pp JOIN plans pl ON pl.id = pp.plan_id WHERE pp.id = $1`,
+		f.ID).Scan(&tripID); err != nil {
+		t.Fatalf("trip lookup: %v", err)
+	}
+	if err := s.SetTripReminder(ctx, tripID, owner, 24); err != nil {
+		t.Fatalf("SetTripReminder: %v", err)
+	}
+
+	p.remindUpcoming(ctx, out.Add(-2*time.Hour))
+
+	if cap.count() != 1 {
+		t.Fatalf("want 1 reminder email, got %d", cap.count())
+	}
+	if !strings.Contains(cap.sent[0], "Flight BA286 starts Mon 31 Aug, 10:00 BST") {
+		t.Fatalf("reminder not in airport time:\n%s", cap.sent[0])
+	}
+	if strings.Contains(cap.sent[0], "10:00 UTC") || strings.Contains(cap.sent[0], "09:00 UTC") {
+		t.Fatalf("reminder still quoting UTC:\n%s", cap.sent[0])
+	}
+}

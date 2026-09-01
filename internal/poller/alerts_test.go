@@ -190,6 +190,24 @@ func TestChangeDetail(t *testing.T) {
 	}
 }
 
+// TestChangeDetail_DelayQuotedInAirportTime: a revised departure is quoted on
+// the departure airport's clock, not UTC (issue #117), and falls back to UTC
+// only when the airport can't be placed at all.
+func TestChangeDetail_DelayQuotedInAirportTime(t *testing.T) {
+	out := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	eff := out.Add(35 * time.Minute)
+	jfk := &store.Flight{OriginIATA: "JFK", ScheduledOut: out, EstimatedOut: &eff}
+	if got := changeDetail("delayed", alertState{}, alertState{}, jfk); got != "now departing 08:35 EDT" {
+		t.Errorf("JFK delay detail = %q, want 'now departing 08:35 EDT'", got)
+	}
+
+	// Nothing to place the airport by → UTC, as before.
+	unknown := &store.Flight{OriginIATA: "ZZZ", ScheduledOut: out, EstimatedOut: &eff}
+	if got := changeDetail("delayed", alertState{}, alertState{}, unknown); got != "now departing 12:35 UTC" {
+		t.Errorf("unplaceable delay detail = %q, want 'now departing 12:35 UTC'", got)
+	}
+}
+
 // TestAlert_DedupeSigMatchSuppressesReAlert covers the stored-signature match
 // branch (151-153): a change whose kind is non-empty but whose signature equals
 // the last one we stamped is suppressed. We alert once (stamping the sig), then
