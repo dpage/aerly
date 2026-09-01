@@ -76,7 +76,7 @@ describe('PushSection', () => {
 
   it('disables push when the master switch is turned off', async () => {
     h.state.pushSubscribed = true;
-    h.state.pushPrefs = { alert: true, share: true };
+    h.state.pushPrefs = { alert: true, share: true, checkin: true };
     render(<PushSection />);
     await userEvent.click(screen.getByRole('checkbox', { name: /enable push on this device/i }));
     expect(h.disablePush).toHaveBeenCalled();
@@ -114,16 +114,22 @@ describe('PushSection', () => {
 
   it('renders per-kind toggles when subscribed and toggles a kind', async () => {
     h.state.pushSubscribed = true;
-    h.state.pushPrefs = { alert: true, share: false };
+    h.state.pushPrefs = { alert: true, share: false, checkin: false };
     render(<PushSection />);
 
     const alert = screen.getByRole('checkbox', { name: /flight alerts/i });
     const share = screen.getByRole('checkbox', { name: /trip shares/i });
+    const checkin = screen.getByRole('checkbox', { name: /check-in reminders/i });
     expect(alert).toBeChecked();
     expect(share).not.toBeChecked();
+    expect(checkin).not.toBeChecked();
 
     await userEvent.click(share);
     expect(h.setPushKind).toHaveBeenCalledWith('share', true);
+
+    // Check-in reminders push like any other kind (issue #119).
+    await userEvent.click(checkin);
+    expect(h.setPushKind).toHaveBeenCalledWith('checkin', true);
 
     // Toggling the flight-alerts switch off exercises its handler too.
     await userEvent.click(alert);

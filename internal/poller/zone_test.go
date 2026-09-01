@@ -3,8 +3,6 @@ package poller
 import (
 	"testing"
 	"time"
-
-	"github.com/dpage/aerly/internal/store"
 )
 
 func f64(v float64) *float64 { return &v }
@@ -38,27 +36,26 @@ func TestAirportZone_Unresolvable(t *testing.T) {
 	}
 }
 
-// TestReminderZone_StoredWins: a part that recorded its own zone is authoritative;
+// TestPartZone_StoredWins: a part that recorded its own zone is authoritative;
 // we must not second-guess it from the airport table.
-func TestReminderZone_StoredWins(t *testing.T) {
-	d := store.DueReminder{StartTZ: "America/Denver", OriginIATA: "LHR"}
-	if got := reminderZone(d); got != "America/Denver" {
-		t.Fatalf("reminderZone = %q, want America/Denver", got)
+func TestPartZone_StoredWins(t *testing.T) {
+	if got := partZone("America/Denver", "LHR", nil, nil); got != "America/Denver" {
+		t.Fatalf("partZone = %q, want America/Denver", got)
 	}
 }
 
-// TestReminderZone_Fallbacks: with no stored zone the flight's departure airport
+// TestPartZone_Fallbacks: with no stored zone the flight's departure airport
 // answers, and a non-flight part falls back to its geocoded coordinate.
-func TestReminderZone_Fallbacks(t *testing.T) {
-	if got := reminderZone(store.DueReminder{OriginIATA: "JFK"}); got != "America/New_York" {
+func TestPartZone_Fallbacks(t *testing.T) {
+	if got := partZone("", "JFK", nil, nil); got != "America/New_York" {
 		t.Fatalf("flight fallback = %q, want America/New_York", got)
 	}
-	hotel := store.DueReminder{StartLat: f64(48.2082), StartLon: f64(16.3738)} // Vienna
-	if got := reminderZone(hotel); got != "Europe/Vienna" {
+	// Vienna: a hotel with a coordinate but no airport code.
+	if got := partZone("", "", f64(48.2082), f64(16.3738)); got != "Europe/Vienna" {
 		t.Fatalf("coordinate fallback = %q, want Europe/Vienna", got)
 	}
-	if got := reminderZone(store.DueReminder{}); got != "" {
-		t.Fatalf("bare reminder zone = %q, want \"\"", got)
+	if got := partZone("", "", nil, nil); got != "" {
+		t.Fatalf("bare zone = %q, want \"\"", got)
 	}
 }
 

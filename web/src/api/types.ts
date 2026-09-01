@@ -991,7 +991,7 @@ export interface PushSubscriptionInput {
 }
 
 /** The notification kinds a user can independently toggle for push. */
-export type PushKind = 'alert' | 'share';
+export type PushKind = 'alert' | 'share' | 'checkin';
 
 /** GET/PATCH /api/push/prefs response: each known kind mapped to on/off. */
 export interface PushPrefs {

@@ -280,29 +280,14 @@ func TestDispatchCheckin_SendErrorIsLogged(t *testing.T) {
 	}
 }
 
-// TestCheckinRouteAndZone covers the two small rendering helpers: the route
-// line is omitted when either end is unknown, and the zone falls back through
-// the airport table to the part's coordinate.
-func TestCheckinRouteAndZone(t *testing.T) {
+// TestCheckinRoute: the route line is omitted when either end is unknown, so a
+// flight with half a route reads cleanly rather than trailing an arrow.
+func TestCheckinRoute(t *testing.T) {
 	if got := checkinRoute(store.DueCheckin{OriginIATA: "LHR", DestIATA: "LIS"}); got != "LHR → LIS" {
 		t.Errorf("route = %q", got)
 	}
 	if got := checkinRoute(store.DueCheckin{OriginIATA: "LHR"}); got != "" {
 		t.Errorf("half a route should render nothing, got %q", got)
-	}
-
-	if got := checkinZone(store.DueCheckin{StartTZ: "America/Denver", OriginIATA: "LHR"}); got != "America/Denver" {
-		t.Errorf("stored zone should win, got %q", got)
-	}
-	if got := checkinZone(store.DueCheckin{OriginIATA: "LHR"}); got != "Europe/London" {
-		t.Errorf("airport-table zone = %q, want Europe/London", got)
-	}
-	lat, lon := 50.4406, -4.9954 // Newquay, deliberately off the embedded table
-	if got := checkinZone(store.DueCheckin{OriginIATA: "NQY", StartLat: &lat, StartLon: &lon}); got != "Europe/London" {
-		t.Errorf("coordinate zone = %q, want Europe/London", got)
-	}
-	if got := checkinZone(store.DueCheckin{}); got != "" {
-		t.Errorf("nothing to resolve should give \"\", got %q", got)
 	}
 }
 
@@ -386,5 +371,101 @@ func TestRemindCheckins_CancelledMidPass(t *testing.T) {
 	p.remindCheckins(ctx, out.Add(-store.CheckinLead))
 	if cap.count() != 0 {
 		t.Fatalf("dispatched on a cancelled context: %d", cap.count())
+	}
+}
+
+// checkinPushSetup wires a check-in poller with a fake pusher and an opted-in
+// traveller holding one upcoming flight, returning what the push tests need.
+func checkinPushSetup(t *testing.T) (*Poller, *store.Store, *fakePusher, int64, time.Time) {
+	t.Helper()
+	p, s, _, _ := alertPoller(t)
+	fp := &fakePusher{enabled: true}
+	p.Push = fp
+	owner := seedUser(t, s)
+	optInToCheckins(t, s, owner)
+	out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+	seedCheckinFlight(t, s, owner, "BA286", out)
+	return p, s, fp, owner, out
+}
+
+// TestPushCheckin_DeliveredWhenKindEnabled: with push configured and the kind
+// left at its default (on), the reminder reaches the traveller's devices.
+func TestPushCheckin_DeliveredWhenKindEnabled(t *testing.T) {
+	p, _, fp, owner, out := checkinPushSetup(t)
+
+	p.remindCheckins(context.Background(), out.Add(-store.CheckinLead))
+
+	if fp.count() != 1 {
+		t.Fatalf("want 1 push, got %d", fp.count())
+	}
+	got := fp.payloads[0]
+	if got.Kind != "checkin" {
+		t.Errorf("kind = %q, want checkin", got.Kind)
+	}
+	if got.Title != "Check-in opens soon: BA286" {
+		t.Errorf("title = %q", got.Title)
+	}
+	if !strings.Contains(got.Body, "opens in five minutes") || !strings.Contains(got.Body, "LHR → LIS") {
+		t.Errorf("body = %q", got.Body)
+	}
+	if got.Tag != "checkin-BA286" {
+		t.Errorf("tag = %q, want checkin-BA286", got.Tag)
+	}
+	if len(fp.users) != 1 || len(fp.users[0]) != 1 || fp.users[0][0] != owner {
+		t.Errorf("recipients = %v, want [%d]", fp.users, owner)
+	}
+}
+
+// TestPushCheckin_SkippedWhenKindDisabled: a traveller who wants check-in
+// reminders but not as a push gets the other channels and no push.
+func TestPushCheckin_SkippedWhenKindDisabled(t *testing.T) {
+	p, s, fp, owner, out := checkinPushSetup(t)
+	ctx := context.Background()
+	if err := s.SetPushKindPref(ctx, owner, "checkin", false); err != nil {
+		t.Fatalf("SetPushKindPref: %v", err)
+	}
+
+	p.remindCheckins(ctx, out.Add(-store.CheckinLead))
+
+	if fp.count() != 0 {
+		t.Fatalf("pushed with the kind off: %d", fp.count())
+	}
+	alerts, _ := s.ListFlightAlerts(ctx, owner, 10)
+	if len(alerts) != 1 {
+		t.Fatalf("the in-app channel should be unaffected, got %d", len(alerts))
+	}
+}
+
+// TestPushCheckin_NoSenderIsNoOp: with no Sender wired, or one reporting itself
+// disabled, the pass completes without pushing and still marks the pair sent.
+func TestPushCheckin_NoSenderIsNoOp(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		pushr pusher
+	}{
+		{"nil sender", nil},
+		{"disabled sender", &fakePusher{enabled: false}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, s, _, _ := alertPoller(t)
+			if c.pushr != nil {
+				p.Push = c.pushr
+			}
+			ctx := context.Background()
+			owner := seedUser(t, s)
+			optInToCheckins(t, s, owner)
+			out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+			seedCheckinFlight(t, s, owner, "BA286", out)
+			now := out.Add(-store.CheckinLead)
+
+			p.remindCheckins(ctx, now)
+
+			if fp, ok := c.pushr.(*fakePusher); ok && fp.count() != 0 {
+				t.Fatalf("a disabled sender pushed %d times", fp.count())
+			}
+			if due, _ := s.DueCheckins(ctx, now); len(due) != 0 {
+				t.Fatalf("the reminder should still be marked sent; %d still due", len(due))
+			}
+		})
 	}
 }

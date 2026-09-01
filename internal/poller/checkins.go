@@ -2,13 +2,13 @@ package poller
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/api"
-	"github.com/dpage/aerly/internal/geotz"
 	"github.com/dpage/aerly/internal/mailer"
+	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -81,7 +81,7 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 			Ident:     d.Ident,
 			Route:     checkinRoute(d),
 			StartsAt:  d.StartsAt,
-			StartTZ:   checkinZone(d),
+			StartTZ:   partZone(d.StartTZ, d.OriginIATA, d.StartLat, d.StartLon),
 		})
 		if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
 			// The recipient is identified by user id rather than address: the
@@ -91,9 +91,47 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 		}
 	}
 
+	p.pushCheckin(ctx, d)
+
 	if err := p.Store.MarkCheckinSent(ctx, d.PlanPartID, d.UserID); err != nil {
 		slog.Error("checkin: mark sent", "part", d.PlanPartID, "user", d.UserID, "err", err)
 	}
+}
+
+// pushCheckin delivers the reminder to the recipient's subscribed devices as a
+// Web Push, gated on their 'checkin' push-kind pref (default on, like the other
+// kinds: granting push permission opts a user into every kind and they toggle
+// individual ones off). Reaching here means the reminder is due and the user
+// asked for check-in reminders at all, so it is worth pushing. Best-effort: a
+// disabled Sender, a user with push off, or one with no subscriptions is a
+// silent no-op, and the Sender itself never blocks or errors out of this path.
+// Mirrors the change-alert path's pushAlert.
+func (p *Poller) pushCheckin(ctx context.Context, d store.DueCheckin) {
+	if p.Push == nil || !p.Push.Enabled() {
+		return
+	}
+	on, err := p.Store.PushKindEnabled(ctx, d.UserID, "checkin")
+	if err != nil {
+		slog.Error("checkin: push kind pref", "user", d.UserID, "err", err)
+		return
+	}
+	if !on {
+		return
+	}
+	body := "Online check-in opens in five minutes"
+	if route := checkinRoute(d); route != "" {
+		body += " (" + route + ")"
+	}
+	p.Push.Send(ctx, []int64{d.UserID}, push.Payload{
+		Title: "Check-in opens soon: " + d.Ident,
+		Body:  body,
+		// Deep-link to the flight's trip; the SW focuses/opens this on click.
+		URL: fmt.Sprintf("/trips/%d", d.TripID),
+		// One notification per flight; there is only ever one, but the tag
+		// keeps a re-delivery from stacking.
+		Tag:  "checkin-" + d.Ident,
+		Kind: "checkin",
+	})
 }
 
 // publishCheckin persists the in-app alert row (kind="checkin") and pushes the
@@ -131,25 +169,4 @@ func checkinRoute(d store.DueCheckin) string {
 		return ""
 	}
 	return d.OriginIATA + " → " + d.DestIATA
-}
-
-// checkinZone is the zone the departure should be quoted in: the part's own
-// when it stored one, else the departure airport's from the embedded table,
-// else the zone under the part's coordinate. "" leaves the mailer on UTC. A
-// flight part often stores no zone at all — the provider hands us a UTC instant
-// and an IATA code — so without this the reminder would quote UTC at a
-// traveller reading an airport clock.
-func checkinZone(d store.DueCheckin) string {
-	if d.StartTZ != "" {
-		return d.StartTZ
-	}
-	if tz, ok := airports.LookupTZ(d.OriginIATA); ok {
-		return tz
-	}
-	if d.StartLat != nil && d.StartLon != nil {
-		if tz, ok := geotz.Lookup(*d.StartLat, *d.StartLon); ok {
-			return tz
-		}
-	}
-	return ""
 }
