@@ -469,3 +469,71 @@ func TestPushCheckin_NoSenderIsNoOp(t *testing.T) {
 		})
 	}
 }
+
+// TestDispatchCheckin_EmailOnlyFailureRetries: a recipient whose only channel
+// is email, and whose send failed, has had nothing at all, so the pair must
+// stay unmarked and come round again on the next tick.
+func TestDispatchCheckin_EmailOnlyFailureRetries(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	prefs, err := s.AlertPrefsFor(ctx, owner)
+	if err != nil {
+		t.Fatalf("AlertPrefsFor: %v", err)
+	}
+	prefs.Checkin, prefs.InApp = true, false // email is the only channel
+	if err := s.SetAlertPrefs(ctx, *prefs); err != nil {
+		t.Fatalf("SetAlertPrefs: %v", err)
+	}
+	out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+	seedCheckinFlight(t, s, owner, "BA286", out)
+	now := out.Add(-store.CheckinLead)
+	p.SendAlertEmail = func(context.Context, string, string, string) error {
+		return errors.New("sendmail boom")
+	}
+
+	p.remindCheckins(ctx, now)
+
+	if due, _ := s.DueCheckins(ctx, now); len(due) != 1 {
+		t.Fatalf("an email-only failure must stay due for retry; %d due", len(due))
+	}
+
+	// Once the send succeeds the pair is marked and stops recurring.
+	var sent int
+	p.SendAlertEmail = func(context.Context, string, string, string) error { sent++; return nil }
+	p.remindCheckins(ctx, now)
+	if sent != 1 {
+		t.Fatalf("retry should have sent once, got %d", sent)
+	}
+	if due, _ := s.DueCheckins(ctx, now); len(due) != 0 {
+		t.Fatalf("a successful retry must mark the pair sent; %d still due", len(due))
+	}
+}
+
+// TestDispatchCheckin_NoChannelsStillMarked: a recipient with every channel off
+// has nothing to retry, so the pair is marked rather than reconsidered forever.
+func TestDispatchCheckin_NoChannelsStillMarked(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	prefs, err := s.AlertPrefsFor(ctx, owner)
+	if err != nil {
+		t.Fatalf("AlertPrefsFor: %v", err)
+	}
+	prefs.Checkin, prefs.InApp, prefs.Email = true, false, false
+	if err := s.SetAlertPrefs(ctx, *prefs); err != nil {
+		t.Fatalf("SetAlertPrefs: %v", err)
+	}
+	out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+	seedCheckinFlight(t, s, owner, "BA286", out)
+	now := out.Add(-store.CheckinLead)
+
+	p.remindCheckins(ctx, now)
+
+	if due, _ := s.DueCheckins(ctx, now); len(due) != 0 {
+		t.Fatalf("nothing to retry, so the pair should be marked; %d still due", len(due))
+	}
+}

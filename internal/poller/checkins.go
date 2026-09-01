@@ -57,6 +57,10 @@ func (p *Poller) remindCheckins(ctx context.Context, now time.Time) {
 // mid-send re-sends rather than silently dropping, mirroring the reminder and
 // alert paths.
 func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
+	// delivered tracks whether anything actually reached the traveller, so a
+	// recipient whose only channel failed isn't marked as reminded.
+	delivered := false
+
 	// In-app: reuses the flight_alerts inbox with kind="checkin". A failed
 	// insert (or a cancelled tick) bails before marking sent, so the reminder
 	// is retried next tick rather than silently dropped.
@@ -65,10 +69,12 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 			slog.Error("checkin: persist inbox row", "user", d.UserID, "part", d.PlanPartID, "err", err)
 			return
 		}
+		delivered = true
 	}
 
 	// Email: only when mail is configured and the user has a verified address.
-	if d.Email && p.MailFromAddress != "" && d.EmailAddr != "" {
+	emailable := d.Email && p.MailFromAddress != "" && d.EmailAddr != ""
+	if emailable {
 		send := p.SendAlertEmail
 		if send == nil {
 			send = mailer.Send
@@ -88,10 +94,24 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 			// pair already pins the failure, and the address is the traveller's
 			// personal data, which has no business in an error log.
 			slog.Error("checkin: send email", "user", d.UserID, "part", d.PlanPartID, "err", err)
+		} else {
+			delivered = true
 		}
 	}
 
 	p.pushCheckin(ctx, d)
+
+	// An email-only recipient whose send failed has had nothing at all, so
+	// leave the pair unmarked and let the next tick try again. The retry is
+	// bounded by the check-in window itself — once the flight departs the pair
+	// stops being due — so a permanently bad address costs a day of attempts
+	// rather than forever. A recipient who got the in-app reminder is marked
+	// regardless: re-sending to catch a flaky sendmail would duplicate the row
+	// they have already seen. Nothing attempted at all (every channel off) is
+	// also marked, since there is nothing to retry.
+	if !delivered && emailable {
+		return
+	}
 
 	if err := p.Store.MarkCheckinSent(ctx, d.PlanPartID, d.UserID); err != nil {
 		slog.Error("checkin: mark sent", "part", d.PlanPartID, "user", d.UserID, "err", err)

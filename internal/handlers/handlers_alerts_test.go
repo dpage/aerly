@@ -40,12 +40,19 @@ func TestPutAlertPrefs_Checkin(t *testing.T) {
 
 	// An unrelated patch leaves it on.
 	w = e.req(t, "PUT", "/api/alert-prefs", map[string]any{"min_delay_min": 45}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
 	if got := decodeBody[alertPrefsDTO](t, w); !got.Checkin || got.MinDelayMin != 45 {
 		t.Fatalf("after unrelated patch = %+v", got)
 	}
 
-	// And it can be turned back off.
+	// And it can be turned back off. The status is checked before decoding:
+	// an error body would decode to Checkin == false and pass vacuously.
 	w = e.req(t, "PUT", "/api/alert-prefs", map[string]any{"checkin": false}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
 	if got := decodeBody[alertPrefsDTO](t, w); got.Checkin {
 		t.Fatalf("after opt-out = %+v", got)
 	}

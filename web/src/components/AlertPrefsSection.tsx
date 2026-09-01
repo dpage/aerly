@@ -9,6 +9,7 @@ import {
   Typography,
 } from '@mui/material';
 
+import type { UpdateAlertPrefsInput } from '../api/types';
 import { errorMessage } from '../state/helpers';
 import { useStore } from '../state/store';
 
@@ -47,12 +48,11 @@ export default function AlertPrefsSection() {
     return Number.isFinite(n) && n >= 0 ? n : 0;
   };
 
-  const persist = async (patch: {
-    in_app: boolean;
-    email: boolean;
-    min_delay_min: number;
-    checkin: boolean;
-  }) => {
+  // Each handler sends ONLY the field it changed. Sending a full snapshot let
+  // two overlapping saves clobber each other: the later-completing request
+  // would write back the stale copy of every other field it had captured when
+  // its own control was touched, silently reverting the earlier change.
+  const persist = async (patch: UpdateAlertPrefsInput) => {
     try {
       await updateAlertPrefs(patch);
     } catch (err) {
@@ -63,20 +63,20 @@ export default function AlertPrefsSection() {
 
   const onToggleInApp = (checked: boolean) => {
     setInApp(checked);
-    void persist({ in_app: checked, email, min_delay_min: parseDelay(minDelay), checkin });
+    void persist({ in_app: checked });
   };
   const onToggleEmail = (checked: boolean) => {
     setEmail(checked);
-    void persist({ in_app: inApp, email: checked, min_delay_min: parseDelay(minDelay), checkin });
+    void persist({ email: checked });
   };
   const onBlurDelay = () => {
     const parsed = parseDelay(minDelay);
     setMinDelay(String(parsed));
-    void persist({ in_app: inApp, email, min_delay_min: parsed, checkin });
+    void persist({ min_delay_min: parsed });
   };
   const onToggleCheckin = (checked: boolean) => {
     setCheckin(checked);
-    void persist({ in_app: inApp, email, min_delay_min: parseDelay(minDelay), checkin: checked });
+    void persist({ checkin: checked });
   };
 
   return (

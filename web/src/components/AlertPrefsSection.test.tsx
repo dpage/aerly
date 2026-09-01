@@ -51,28 +51,14 @@ describe('AlertPrefsSection', () => {
     render(<AlertPrefsSection />);
     await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
     await userEvent.click(screen.getByRole('checkbox', { name: /email/i }));
-    await waitFor(() =>
-      expect(h.updateAlertPrefs).toHaveBeenCalledWith({
-        in_app: true,
-        email: true,
-        min_delay_min: 15,
-        checkin: false,
-      }),
-    );
+    await waitFor(() => expect(h.updateAlertPrefs).toHaveBeenCalledWith({ email: true }));
   });
 
   it('persists immediately when the in-app channel is toggled off', async () => {
     render(<AlertPrefsSection />);
     await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
     await userEvent.click(screen.getByRole('checkbox', { name: /in-app/i }));
-    await waitFor(() =>
-      expect(h.updateAlertPrefs).toHaveBeenCalledWith({
-        in_app: false,
-        email: false,
-        min_delay_min: 15,
-        checkin: false,
-      }),
-    );
+    await waitFor(() => expect(h.updateAlertPrefs).toHaveBeenCalledWith({ in_app: false }));
   });
 
   it('persists the threshold on blur, clamping invalid input to 0', async () => {
@@ -96,14 +82,44 @@ describe('AlertPrefsSection', () => {
     const toggle = screen.getByRole('checkbox', { name: /check-in opens/i });
     expect(toggle).not.toBeChecked();
     await userEvent.click(toggle);
-    await waitFor(() =>
-      expect(h.updateAlertPrefs).toHaveBeenCalledWith({
-        in_app: true,
-        email: false,
-        min_delay_min: 15,
-        checkin: true,
-      }),
-    );
+    await waitFor(() => expect(h.updateAlertPrefs).toHaveBeenCalledWith({ checkin: true }));
+  });
+
+  // Each control sends only its own field, so two saves that overlap can no
+  // longer clobber each other: the delay save carries no stale copy of checkin
+  // to write back when it completes second.
+  it('does not revert one preference when another save overlaps it', async () => {
+    let releaseDelay: (() => void) | undefined;
+    h.updateAlertPrefs.mockImplementation((patch: Record<string, unknown>) => {
+      if ('min_delay_min' in patch) {
+        return new Promise<void>((resolve) => {
+          releaseDelay = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+
+    render(<AlertPrefsSection />);
+    await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
+
+    // Start a delay save that hasn't completed yet...
+    const field = screen.getByLabelText(/minimum delay in minutes/i);
+    await userEvent.clear(field);
+    await userEvent.type(field, '30');
+    await userEvent.tab();
+    await waitFor(() => expect(releaseDelay).toBeDefined());
+
+    // ...then turn check-in on whilst it is still in flight.
+    await userEvent.click(screen.getByRole('checkbox', { name: /check-in opens/i }));
+    await waitFor(() => expect(h.updateAlertPrefs).toHaveBeenCalledWith({ checkin: true }));
+
+    // The delay save lands last and must carry no opinion about checkin.
+    releaseDelay!();
+    await waitFor(() => expect(h.updateAlertPrefs).toHaveBeenCalledWith({ min_delay_min: 30 }));
+    for (const [patch] of h.updateAlertPrefs.mock.calls as [Record<string, unknown>][]) {
+      expect(Object.keys(patch)).toHaveLength(1);
+    }
+    expect(screen.getByRole('checkbox', { name: /check-in opens/i })).toBeChecked();
   });
 
   it('surfaces a save error and reloads the canonical prefs', async () => {

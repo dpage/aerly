@@ -472,7 +472,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Check-in"
-          description="In Preferences → Alerts, turn on Remind me when check-in opens to be told five minutes before online check-in opens, 24 hours ahead of each flight. It's off until you ask for it, applies to every flight you're on, and arrives in-app, by email and as a push notification like your other alerts."
+          description="In Preferences → Alerts, turn on Remind me when check-in opens to be told five minutes before online check-in opens, 24 hours ahead of each flight. It's off until you ask for it, and covers every flight you own, travel on, or have turned Notify me of changes on for, arriving in-app, by email and as a push notification like your other alerts."
         />
         <HelpTip>
           Reminders are about timing (a heads-up before you travel); the flight alerts above fire
