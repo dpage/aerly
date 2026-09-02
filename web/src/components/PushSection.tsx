@@ -113,6 +113,15 @@ export default function PushSection() {
               }
               label="Check-in reminders"
             />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={prefs.reminder}
+                  onChange={(e) => void setPushKind('reminder', e.target.checked)}
+                />
+              }
+              label="Plan reminders"
+            />
           </FormGroup>
         </Box>
       )}

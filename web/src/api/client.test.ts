@@ -983,11 +983,11 @@ describe('web push', () => {
 
   it('GET /api/push/prefs', async () => {
     const spy = mockFetch(() =>
-      jsonResponse({ kinds: { alert: true, share: false, checkin: true } }),
+      jsonResponse({ kinds: { alert: true, share: false, checkin: true, reminder: true } }),
     );
     const out = await api.getPushPrefs();
     expect(spy.mock.calls[0][0]).toBe('/api/push/prefs');
-    expect(out).toEqual({ kinds: { alert: true, share: false, checkin: true } });
+    expect(out).toEqual({ kinds: { alert: true, share: false, checkin: true, reminder: true } });
   });
 
   it('PATCH /api/push/prefs with kind + enabled', async () => {

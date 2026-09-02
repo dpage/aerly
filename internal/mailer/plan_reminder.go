@@ -59,9 +59,10 @@ func PlanReminderSubject(label string) string {
 	return "Upcoming: " + label
 }
 
-// reminderLocalTime renders StartsAt in the part's IANA zone, falling back to
-// UTC when the zone is empty or unknown.
-func reminderLocalTime(t time.Time, tz string) string {
+// LocalTime renders an instant in the given IANA zone, falling back to UTC when
+// the zone is empty or unknown. Exported so the push notifications quote a plan
+// the same way its email does, rather than growing a second layout string.
+func LocalTime(t time.Time, tz string) string {
 	loc := time.UTC
 	if tz != "" {
 		if l, err := time.LoadLocation(tz); err == nil {
@@ -77,7 +78,7 @@ func reminderLocalTime(t time.Time, tz string) string {
 func BuildPlanReminderEmail(in PlanReminderInput) string {
 	site := strings.TrimRight(in.PublicURL, "/")
 	subject := PlanReminderSubject(in.Label)
-	when := reminderLocalTime(in.StartsAt, in.StartTZ)
+	when := LocalTime(in.StartsAt, in.StartTZ)
 	lead := fmt.Sprintf("%s starts %s", capitalise(in.Label), when)
 	link := fmt.Sprintf("%s/trips/%d", site, in.TripID)
 
