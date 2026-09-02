@@ -35,7 +35,7 @@ func CheckinReminderSubject(ident string) string {
 func BuildCheckinReminderEmail(in CheckinReminderInput) string {
 	site := strings.TrimRight(in.PublicURL, "/")
 	subject := CheckinReminderSubject(in.Ident)
-	when := reminderLocalTime(in.StartsAt, in.StartTZ)
+	when := LocalTime(in.StartsAt, in.StartTZ)
 
 	flight := "Flight " + in.Ident
 	if in.Route != "" {

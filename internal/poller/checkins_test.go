@@ -594,3 +594,28 @@ func TestDispatchCheckin_SlowPushDoesNotDelayMark(t *testing.T) {
 	close(bp.release)
 	<-done
 }
+
+// TestPushCheckin_MarkFailureSkipsPush: as with plan reminders, a failed
+// sent-marker write leaves the pair due for a full re-dispatch, so pushing here
+// would duplicate the notification.
+func TestPushCheckin_MarkFailureSkipsPush(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	fp := &fakePusher{enabled: true}
+	p.Push = fp
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	optInToCheckins(t, s, owner)
+	out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+	seedCheckinFlight(t, s, owner, "BA286", out)
+	now := out.Add(-store.CheckinLead)
+	blockInserts(t, s, "flight_checkin_sent")
+
+	p.remindCheckins(ctx, now)
+
+	if fp.count() != 0 {
+		t.Fatalf("pushed despite a failed mark: %d", fp.count())
+	}
+	if due, _ := s.DueCheckins(ctx, now); len(due) != 1 {
+		t.Fatalf("a failed mark should leave the pair due, got %d", len(due))
+	}
+}

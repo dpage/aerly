@@ -330,3 +330,216 @@ func TestRemindUpcoming_FlightUsesAirportTime(t *testing.T) {
 		t.Fatalf("reminder still quoting UTC:\n%s", cap.sent[0])
 	}
 }
+
+// reminderPushSetup wires a reminder poller with a fake pusher and an opted-in
+// trip holding one upcoming hotel plan, returning what the push tests need.
+func reminderPushSetup(t *testing.T) (*Poller, *store.Store, *fakePusher, int64, time.Time) {
+	t.Helper()
+	p, s, _, _ := alertPoller(t)
+	fp := &fakePusher{enabled: true}
+	p.Push = fp
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	tripID, _ := seedReminderPlan(t, s, owner, "hotel", now.Add(2*time.Hour))
+	if err := s.SetTripReminder(ctx, tripID, owner, 24); err != nil {
+		t.Fatalf("SetTripReminder: %v", err)
+	}
+	return p, s, fp, owner, now
+}
+
+// TestPushReminder_DeliveredWhenKindEnabled: an upcoming-plan reminder now
+// reaches subscribed devices too, so alerting is consistent across the app.
+func TestPushReminder_DeliveredWhenKindEnabled(t *testing.T) {
+	p, _, fp, owner, now := reminderPushSetup(t)
+
+	p.remindUpcoming(context.Background(), now)
+
+	if fp.count() != 1 {
+		t.Fatalf("want 1 push, got %d", fp.count())
+	}
+	got := fp.payloads[0]
+	if got.Kind != "reminder" {
+		t.Errorf("kind = %q, want reminder", got.Kind)
+	}
+	if got.Title != "Upcoming: Hilton Vienna" {
+		t.Errorf("title = %q", got.Title)
+	}
+	if !strings.HasPrefix(got.Body, "Starts ") {
+		t.Errorf("body = %q, want it to lead with the start time", got.Body)
+	}
+	if !strings.HasPrefix(got.Tag, "reminder-") {
+		t.Errorf("tag = %q, want a per-part tag", got.Tag)
+	}
+	if len(fp.users) != 1 || len(fp.users[0]) != 1 || fp.users[0][0] != owner {
+		t.Errorf("recipients = %v, want [%d]", fp.users, owner)
+	}
+}
+
+// TestPushReminder_SkippedWhenKindDisabled: a traveller who wants reminders but
+// not as a push keeps the other channels and gets no push.
+func TestPushReminder_SkippedWhenKindDisabled(t *testing.T) {
+	p, s, fp, owner, now := reminderPushSetup(t)
+	ctx := context.Background()
+	if err := s.SetPushKindPref(ctx, owner, "reminder", false); err != nil {
+		t.Fatalf("SetPushKindPref: %v", err)
+	}
+
+	p.remindUpcoming(ctx, now)
+
+	if fp.count() != 0 {
+		t.Fatalf("pushed with the kind off: %d", fp.count())
+	}
+	alerts, _ := s.ListFlightAlerts(ctx, owner, 10)
+	if len(alerts) != 1 {
+		t.Fatalf("the in-app channel should be unaffected, got %d", len(alerts))
+	}
+}
+
+// TestPushReminder_NoSenderIsNoOp: with no Sender, or one reporting itself
+// disabled, the pass completes and still marks the reminder sent.
+func TestPushReminder_NoSenderIsNoOp(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		pushr pusher
+	}{
+		{"nil sender", nil},
+		{"disabled sender", &fakePusher{enabled: false}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, s, _, _ := alertPoller(t)
+			if c.pushr != nil {
+				p.Push = c.pushr
+			}
+			ctx := context.Background()
+			owner := seedUser(t, s)
+			now := time.Now()
+			tripID, _ := seedReminderPlan(t, s, owner, "hotel", now.Add(2*time.Hour))
+			if err := s.SetTripReminder(ctx, tripID, owner, 24); err != nil {
+				t.Fatalf("SetTripReminder: %v", err)
+			}
+
+			p.remindUpcoming(ctx, now)
+
+			if fp, ok := c.pushr.(*fakePusher); ok && fp.count() != 0 {
+				t.Fatalf("a disabled sender pushed %d times", fp.count())
+			}
+			if due, _ := s.DueReminders(ctx, now); len(due) != 0 {
+				t.Fatalf("the reminder should still be marked sent; %d still due", len(due))
+			}
+		})
+	}
+}
+
+// TestPushReminder_SlowPushDoesNotDelayMark: as with check-ins, the push echoes
+// a reminder the in-app row has already delivered, so it must not sit in front
+// of the mark and let a restart re-send what the traveller has read.
+func TestPushReminder_SlowPushDoesNotDelayMark(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	bp := &blockingPusher{release: make(chan struct{}), entered: make(chan struct{})}
+	p.Push = bp
+	now := time.Now()
+	tripID, partID := seedReminderPlan(t, s, owner, "hotel", now.Add(2*time.Hour))
+	if err := s.SetTripReminder(ctx, tripID, owner, 24); err != nil {
+		t.Fatalf("SetTripReminder: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		p.remindUpcoming(ctx, now)
+		close(done)
+	}()
+
+	select {
+	case <-bp.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the push was never attempted")
+	}
+	var sent bool
+	if err := s.Pool().QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM plan_reminder_sent WHERE plan_part_id = $1 AND user_id = $2)`,
+		partID, owner).Scan(&sent); err != nil {
+		t.Fatalf("sent lookup: %v", err)
+	}
+	if !sent {
+		t.Fatal("a stalled push delayed marking the reminder sent")
+	}
+
+	close(bp.release)
+	<-done
+}
+
+// TestPushReminder_KindPrefErrorSwallowed covers the PushKindEnabled error
+// branch: a cancelled context fails the pref lookup, so pushReminder logs and
+// returns without sending, rather than pushing to someone who may have opted
+// out or panicking on the way past.
+func TestPushReminder_KindPrefErrorSwallowed(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	fp := &fakePusher{enabled: true}
+	p.Push = fp
+	owner := seedUser(t, s)
+	now := time.Now()
+	_, partID := seedReminderPlan(t, s, owner, "hotel", now.Add(2*time.Hour))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // PushKindEnabled errors → pushReminder returns before Send
+	p.pushReminder(ctx, store.DueReminder{
+		UserID: owner, PlanPartID: partID, TripID: 1, StartsAt: now.Add(2 * time.Hour),
+	}, "Hilton Vienna", "Europe/Vienna")
+
+	if fp.count() != 0 {
+		t.Fatalf("pushed despite a failed pref lookup: %d", fp.count())
+	}
+}
+
+// blockInserts installs a trigger that fails every insert into table, so a test
+// can exercise a store write failing for reasons the schema's own constraints
+// can't produce. Removed when the test ends.
+func blockInserts(t *testing.T, s *store.Store, table string) {
+	t.Helper()
+	ctx := context.Background()
+	fn := "block_" + table
+	if _, err := s.Pool().Exec(ctx, `
+		CREATE OR REPLACE FUNCTION `+fn+`() RETURNS trigger AS $$
+		BEGIN RAISE EXCEPTION 'blocked by test'; END;
+		$$ LANGUAGE plpgsql`); err != nil {
+		t.Fatalf("create trigger fn: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx,
+		`CREATE TRIGGER `+fn+`_trg BEFORE INSERT ON `+table+
+			` FOR EACH ROW EXECUTE FUNCTION `+fn+`()`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.Pool().Exec(context.Background(), `DROP TRIGGER IF EXISTS `+fn+`_trg ON `+table)
+	})
+}
+
+// TestPushReminder_MarkFailureSkipsPush: when the sent-marker write fails the
+// pair stays due and the next tick dispatches the whole reminder again, so
+// pushing here would put a duplicate on the traveller's lock screen.
+func TestPushReminder_MarkFailureSkipsPush(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	fp := &fakePusher{enabled: true}
+	p.Push = fp
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	tripID, _ := seedReminderPlan(t, s, owner, "hotel", now.Add(2*time.Hour))
+	if err := s.SetTripReminder(ctx, tripID, owner, 24); err != nil {
+		t.Fatalf("SetTripReminder: %v", err)
+	}
+	blockInserts(t, s, "plan_reminder_sent")
+
+	p.remindUpcoming(ctx, now)
+
+	if fp.count() != 0 {
+		t.Fatalf("pushed despite a failed mark: %d", fp.count())
+	}
+	// Still due, so the retry the skipped push was avoiding is real.
+	if due, _ := s.DueReminders(ctx, now); len(due) != 1 {
+		t.Fatalf("a failed mark should leave the pair due, got %d", len(due))
+	}
+}

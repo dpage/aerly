@@ -20,7 +20,7 @@ import (
 // pushKinds enumerates the notification kinds a user can toggle for push. The
 // absence of a stored pref means enabled, so GET fills these defaults and PATCH
 // validates against this set.
-var pushKinds = []string{"alert", "share", "checkin"}
+var pushKinds = []string{"alert", "share", "checkin", "reminder"}
 
 // pusher is the slice of *push.Sender the handlers need, as an interface so the
 // share-notification tests can substitute a fake that records pushes.

@@ -2,11 +2,13 @@ package poller
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/mailer"
+	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -62,6 +64,8 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 		return
 	}
 
+	zone := partZone(d.StartTZ, d.OriginIATA, d.StartLat, d.StartLon)
+
 	// Email: only when mail is configured and the user has a verified address.
 	if p.MailFromAddress != "" && d.Email != "" {
 		send := p.SendAlertEmail
@@ -75,16 +79,58 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 			TripID:    d.TripID,
 			Label:     label,
 			StartsAt:  d.StartsAt,
-			StartTZ:   partZone(d.StartTZ, d.OriginIATA, d.StartLat, d.StartLon),
+			StartTZ:   zone,
 		})
 		if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
-			slog.Error("reminder: send email", "to", d.Email, "part", d.PlanPartID, "err", err)
+			// Identified by user id rather than address: the pair already pins
+			// the failure, and the address is the traveller's personal data.
+			slog.Error("reminder: send email", "user", d.UserID, "part", d.PlanPartID, "err", err)
 		}
 	}
 
+	// Marked before the push, not after: the push echoes a reminder the in-app
+	// row has already delivered, so a slow push service must not hold the mark
+	// open and let a restart in that gap re-send what the traveller has read.
+	// A failed mark leaves the pair due, so the next tick will dispatch it all
+	// over again. Skip the push rather than send one the retry will repeat: a
+	// duplicate notification on the traveller's lock screen is the one part of
+	// that retry they cannot dismiss once and be done with.
 	if err := p.Store.MarkReminderSent(ctx, d.PlanPartID, d.UserID); err != nil {
 		slog.Error("reminder: mark sent", "part", d.PlanPartID, "user", d.UserID, "err", err)
+		return
 	}
+
+	p.pushReminder(ctx, d, label, zone)
+}
+
+// pushReminder delivers the reminder to the recipient's subscribed devices as a
+// Web Push, gated on their 'reminder' push-kind pref (default on, like every
+// other kind). Reaching here means the user opted the trip or plan in, so the
+// reminder is wanted; this only decides whether it also reaches their phone.
+// Best-effort: a disabled Sender, a user with push off, or one with no
+// subscriptions is a silent no-op, and the Sender never blocks this path.
+func (p *Poller) pushReminder(ctx context.Context, d store.DueReminder, label, zone string) {
+	if p.Push == nil || !p.Push.Enabled() {
+		return
+	}
+	on, err := p.Store.PushKindEnabled(ctx, d.UserID, "reminder")
+	if err != nil {
+		slog.Error("reminder: push kind pref", "user", d.UserID, "err", err)
+		return
+	}
+	if !on {
+		return
+	}
+	p.Push.Send(ctx, []int64{d.UserID}, push.Payload{
+		Title: mailer.PlanReminderSubject(label),
+		Body:  "Starts " + mailer.LocalTime(d.StartsAt, zone),
+		// Deep-link to the plan's trip; the SW focuses/opens this on click.
+		URL: fmt.Sprintf("/trips/%d", d.TripID),
+		// One notification per part, so a re-delivery replaces rather than
+		// stacks on the one already on screen.
+		Tag:  fmt.Sprintf("reminder-%d", d.PlanPartID),
+		Kind: "reminder",
+	})
 }
 
 // publishReminder persists an in-app alert row (kind="reminder") and pushes the

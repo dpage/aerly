@@ -455,7 +455,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Choose what's pushed"
-          description="Once enabled, pick which kinds to push: flight alerts, trip shares and check-in reminders. If you've blocked notifications, allow them for Aerly in your browser's site settings and try again."
+          description="Once enabled, pick which kinds to push: flight alerts, trip shares, check-in reminders and plan reminders. If you've blocked notifications, allow them for Aerly in your browser's site settings and try again."
         />
         <FeatureItem
           title="On iPhone or iPad"
@@ -464,7 +464,7 @@ export const HELP_PAGES: HelpPage[] = [
         <SectionTitle>Reminders</SectionTitle>
         <FeatureItem
           title="Per trip"
-          description="Turn on Email me reminders on a trip and set a lead time in hours to be reminded before every plan you can see on it."
+          description="Turn on Email me reminders on a trip and set a lead time in hours to be reminded before every plan you can see on it. Reminders arrive in-app, by email and as a push notification, like your other alerts."
         />
         <FeatureItem
           title="Per plan"

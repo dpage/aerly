@@ -116,8 +116,11 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 	// whether this pair is done; ordering it last would let a slow push service
 	// hold the mark open and, on a restart in that gap, re-send the in-app and
 	// email reminders the traveller has already had.
+	// A failed mark leaves the pair due, so the next tick will dispatch it all
+	// over again. Skip the push rather than send one the retry will repeat.
 	if err := p.Store.MarkCheckinSent(ctx, d.PlanPartID, d.UserID); err != nil {
 		slog.Error("checkin: mark sent", "part", d.PlanPartID, "user", d.UserID, "err", err)
+		return
 	}
 
 	p.pushCheckin(ctx, d)
