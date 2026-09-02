@@ -826,3 +826,192 @@ func tagTrip(t *testing.T, s *Store, tripID int64, label string) {
 		t.Fatalf("tagTrip: %v", err)
 	}
 }
+
+// TestRefreshStatusUnknownArrivalTerminates is the other half of
+// TestRefreshStatusUnknownArrival. That test pins the rule that a flight with
+// no real arrival time must not be declared Arrived the moment its departure
+// passes; this one pins that it does not stay Enroute for ever either. Left
+// unbounded it sits in the poll set indefinitely, and a flight the provider has
+// no record of then costs a resolver call on every tick — which is how one
+// unresolvable manual add drank a month of AeroDataBox quota in three days.
+func TestRefreshStatusUnknownArrivalTerminates(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Just inside the cap: still Enroute, because the flight may genuinely be
+	// in the air (a long-haul leg can run most of a day).
+	inside := mkFlightPart(t, s, owner, "G31850", now.Add(-20*time.Hour), now.Add(-20*time.Hour))
+	if err := s.RefreshFlightPartStatus(ctx, inside); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, inside)
+	if f.Status != "Enroute" {
+		t.Errorf("20h past departure should still be Enroute, got %q", f.Status)
+	}
+
+	// Past the cap: whatever happened, it is over.
+	beyond := mkFlightPart(t, s, owner, "G31851", now.Add(-25*time.Hour), now.Add(-25*time.Hour))
+	if err := s.RefreshFlightPartStatus(ctx, beyond); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ = s.FlightPartByID(ctx, beyond)
+	if f.Status != "Arrived" {
+		t.Errorf("past the no-arrival cap the part should be terminal, got %q", f.Status)
+	}
+
+	// And so it leaves the poll set, which is the point.
+	parts, err := s.ActiveFlightParts(ctx, now)
+	if err != nil {
+		t.Fatalf("ActiveFlightParts: %v", err)
+	}
+	for _, p := range parts {
+		if p.ID == beyond {
+			t.Fatal("a terminated part must not still be in the active poll set")
+		}
+	}
+}
+
+// TestRefreshStatusCancelledSurvivesTheCap: the new cap must not overwrite a
+// terminal status the provider gave us, or a cancelled flight would be quietly
+// relabelled as having arrived.
+func TestRefreshStatusCancelledSurvivesTheCap(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+	part := mkFlightPart(t, s, owner, "G31852", now.Add(-25*time.Hour), now.Add(-25*time.Hour))
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET flight_status = 'Cancelled' WHERE plan_part_id = $1`, part); err != nil {
+		t.Fatalf("set cancelled: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, part); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, part)
+	if f.Status != "Cancelled" {
+		t.Errorf("a cancelled flight must stay cancelled, got %q", f.Status)
+	}
+}
+
+// TestRefreshStatusUnknownArrivalHonoursDelayedDeparture: the no-arrival cap is
+// counted from the departure we actually expect, so a part held on stand
+// through a long delay is not declared over before it has left — the same rule
+// the departure branch below it already applies. The cap on that slip stops a
+// revision that is never updated again holding the part open indefinitely,
+// which is the whole point of having a cap.
+func TestRefreshStatusUnknownArrivalHonoursDelayedDeparture(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Timetabled 25h ago (past the cap), but the airline has it leaving in an
+	// hour. It has not departed, so it certainly has not arrived.
+	delayed := mkFlightPart(t, s, owner, "G31853", now.Add(-25*time.Hour), now.Add(-25*time.Hour))
+	eta := now.Add(time.Hour)
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET estimated_out = $2 WHERE plan_part_id = $1`, delayed, eta); err != nil {
+		t.Fatalf("set estimated_out: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, delayed); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, delayed)
+	if f.Status == "Arrived" {
+		t.Errorf("a flight that has not departed must not be Arrived, got %q", f.Status)
+	}
+
+	// A revised departure that stopped being updated must not defeat the cap:
+	// the slip allowance is 12h, so 12h + 24h past the timetable it is over
+	// regardless of what the stale estimate still claims.
+	stale := mkFlightPart(t, s, owner, "G31854", now.Add(-40*time.Hour), now.Add(-40*time.Hour))
+	staleETA := now.Add(-38 * time.Hour).Add(100 * time.Hour) // never updated again
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET estimated_out = $2 WHERE plan_part_id = $1`, stale, staleETA); err != nil {
+		t.Fatalf("set stale estimated_out: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, stale); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ = s.FlightPartByID(ctx, stale)
+	if f.Status != "Arrived" {
+		t.Errorf("a stale revision must not hold the part open for ever, got %q", f.Status)
+	}
+}
+
+// TestRefreshStatusUnknownArrivalObservedDeparture: an observed wheels-off is a
+// fact, not a revision that might go stale, so it is never capped — a flight
+// that really did leave twenty hours late gets its full day from when it
+// actually left, rather than being declared over sixteen hours after takeoff.
+func TestRefreshStatusUnknownArrivalObservedDeparture(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Timetabled 36h ago, actually departed 20h late (so 16h ago). Past the
+	// timetable + slip + cap, but only 16h past the real departure.
+	late := mkFlightPart(t, s, owner, "G31855", now.Add(-36*time.Hour), now.Add(-36*time.Hour))
+	departed := now.Add(-16 * time.Hour)
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET actual_out = $2 WHERE plan_part_id = $1`, late, departed); err != nil {
+		t.Fatalf("set actual_out: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, late); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, late)
+	if f.Status == "Arrived" {
+		t.Errorf("16h after a real departure is inside the cap, got %q", f.Status)
+	}
+
+	// The same flight a full day past its real departure is over.
+	over := mkFlightPart(t, s, owner, "G31856", now.Add(-48*time.Hour), now.Add(-48*time.Hour))
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET actual_out = $2 WHERE plan_part_id = $1`,
+		over, now.Add(-25*time.Hour)); err != nil {
+		t.Fatalf("set actual_out: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, over); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ = s.FlightPartByID(ctx, over)
+	if f.Status != "Arrived" {
+		t.Errorf("25h after a real departure should be terminal, got %q", f.Status)
+	}
+}
+
+// TestRefreshStatusUnknownArrivalNoLiveTimes guards the LEAST/NULL trap: with
+// neither an observed nor an estimated departure the cap must count from the
+// timetable, not from the capped arm. Postgres's LEAST ignores NULLs, so
+// without the CASE around it a part with no estimate at all would quietly wait
+// departureSlipCap longer than intended — which is exactly the shape of part
+// this whole change exists to terminate.
+func TestRefreshStatusUnknownArrivalNoLiveTimes(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// 25h past a timetabled departure, no live times at all: over.
+	bare := mkFlightPart(t, s, owner, "G31857", now.Add(-25*time.Hour), now.Add(-25*time.Hour))
+	if err := s.RefreshFlightPartStatus(ctx, bare); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, bare)
+	if f.Status != "Arrived" {
+		t.Errorf("with no live times the cap counts from the timetable, got %q", f.Status)
+	}
+}

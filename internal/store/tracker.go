@@ -534,6 +534,28 @@ func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out
 // than this far behind has in practice been rescheduled rather than delayed.
 const arrivalSlipCap = "12 hours"
 
+// departureSlipCap bounds how far an ESTIMATED departure may push the moment
+// the no-arrival cap below starts counting from. It mirrors arrivalSlipCap and
+// exists for the same reason: a revision that is never updated again would
+// otherwise hold the part non-terminal indefinitely, which is precisely what
+// that cap is there to stop. It deliberately does not apply to an observed
+// wheels-off, which is a fact rather than a revision: a flight that really did
+// leave twenty hours late gets its full day from when it actually left.
+const departureSlipCap = "12 hours"
+
+// noArrivalCap bounds how long a part whose schedule carries no real arrival
+// time — a manual add of just a flight number and a departure, where
+// scheduled_in is stored equal to scheduled_out — may stay non-terminal. The
+// arrival branches below can never fire for such a part: the live one needs a
+// live time, and the timetable one insists on an arrival strictly after the
+// departure. Without this it is declared Enroute the moment its departure
+// passes and stays that way for ever, sitting in the poll set and, when the
+// provider has no record of it either, costing a resolver call on every tick.
+// Past this cap the flight has certainly either operated or not, and nothing
+// further is coming to tell us which; it is comfortably longer than the longest
+// scheduled commercial flight.
+const noArrivalCap = "24 hours"
+
 // RefreshFlightPartStatus re-derives flight_status from the flight's times,
 // preserving terminal Cancelled / Diverted, and bumps last_polled_at.
 //
@@ -564,6 +586,28 @@ func (s *Store) RefreshFlightPartStatus(ctx context.Context, partID int64) error
 				-- scheduled departure, before takeoff.
 				WHEN COALESCE(actual_in, estimated_in) IS NULL
 					AND scheduled_in > scheduled_out AND NOW() > scheduled_in THEN 'Arrived'
+				-- No live times and no real arrival in the timetable either, so
+				-- neither branch above can ever fire. Counted from the departure
+				-- we actually expect, not the timetabled one, so a flight held
+				-- on stand through a long delay isn't declared over before it
+				-- has left; capped, so a revision that stops being updated
+				-- can't hold the part open for ever. Long enough past that
+				-- departure that the flight is over however it went.
+				WHEN COALESCE(actual_in, estimated_in) IS NULL
+					AND scheduled_in <= scheduled_out
+					AND NOW() > COALESCE(
+						-- An observed wheels-off is a fact, never capped.
+						actual_out,
+						-- An estimate can go stale and never be revised again,
+						-- so bound how far it may push the baseline. The CASE
+						-- is load-bearing: LEAST ignores NULLs, so without it a
+						-- part with no estimate at all would take the capped
+						-- arm and wait departureSlipCap longer than it should.
+						CASE WHEN estimated_out IS NOT NULL THEN
+							LEAST(estimated_out, scheduled_out + INTERVAL '`+departureSlipCap+`')
+						END,
+						scheduled_out)
+						+ INTERVAL '`+noArrivalCap+`' THEN 'Arrived'
 				-- Departure, judged the same way round as arrival: the
 				-- aircraft, not the timetable. An observed wheels-off settles
 				-- it outright; failing that the airline's revised off-block

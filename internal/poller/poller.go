@@ -309,7 +309,8 @@ func guard(where string, id int64, fn func()) {
 // needsBackfill / needsLateRefresh triggers and last_resolved_at throttle as
 // the main poll path.
 func (p *Poller) refreshMetadata(ctx context.Context, f *store.Flight, now time.Time) {
-	if p.Resolver == nil || !(needsBackfill(f) || needsLateRefresh(f, now)) {
+	if p.Resolver == nil || resolveThrottled(f, now) ||
+		!(needsBackfill(f) || needsLateRefresh(f, now)) {
 		return
 	}
 	prev := f // pre-resolve, so a newly-published gate is an alertable delta
@@ -350,7 +351,7 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 	// introduces this tick must be a real prev→cur delta for the alert step,
 	// otherwise the change is folded into prev and never alerted.
 	prev := f
-	if p.Resolver != nil && (needsBackfill(f) || needsLateRefresh(f, now)) {
+	if p.Resolver != nil && !resolveThrottled(f, now) && (needsBackfill(f) || needsLateRefresh(f, now)) {
 		if fresh, err := p.resolveAndUpdate(ctx, f, now); err == nil && fresh != nil {
 			f = fresh
 		}
@@ -457,6 +458,40 @@ func (p *Poller) publishPartChange(ctx context.Context, partID int64) {
 func needsBackfill(f *store.Flight) bool {
 	return f.OriginIATA == "" || f.DestIATA == "" || f.ICAO24 == nil ||
 		!f.ScheduledIn.After(f.ScheduledOut)
+}
+
+// unidentifiedRetryInterval is how long to leave a flight the provider has no
+// record of before asking about it again. A flight past its departure with no
+// route and no airframe is one every previous lookup has come back empty on,
+// and asking more often will not conjure an answer: at tracking cadence a
+// single such flight costs several hundred lookups a day, indefinitely, which
+// is exactly how one unresolvable manual add drank a month's quota in three.
+const unidentifiedRetryInterval = time.Hour
+
+// resolveThrottled reports whether this flight was resolved too recently to ask
+// again. It exists because the two triggers it guards disagree about time:
+// needsLateRefresh consults last_resolved_at, but needsBackfill is a pure test
+// of which fields are blank, so on its own it re-fires on every single tick.
+// A flight never resolved at all is always worth one attempt.
+func resolveThrottled(f *store.Flight, now time.Time) bool {
+	if f.LastResolvedAt == nil {
+		return false
+	}
+	return now.Sub(*f.LastResolvedAt) < resolveBackoffFor(f, now)
+}
+
+// resolveBackoffFor is the minimum gap between resolver calls for one flight:
+// the usual pre-departure ramp, except for a flight that is past its departure
+// and still completely unknown to the provider, which backs right off. "Unknown"
+// means no route and no airframe — deliberately narrower than needsBackfill,
+// which is also true of the ordinary future flight whose airframe simply hasn't
+// been assigned yet, and of one the provider knows the route of but not the
+// metal. Both of those still refresh at the normal cadence.
+func resolveBackoffFor(f *store.Flight, now time.Time) time.Duration {
+	if !now.Before(f.ScheduledOut) && f.OriginIATA == "" && f.DestIATA == "" && f.ICAO24 == nil {
+		return unidentifiedRetryInterval
+	}
+	return metadataRefreshIntervalFor(f, now)
 }
 
 // lateRefreshWindow is how close to scheduled departure we start re-asking
