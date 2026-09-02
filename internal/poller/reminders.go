@@ -91,8 +91,13 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 	// Marked before the push, not after: the push echoes a reminder the in-app
 	// row has already delivered, so a slow push service must not hold the mark
 	// open and let a restart in that gap re-send what the traveller has read.
+	// A failed mark leaves the pair due, so the next tick will dispatch it all
+	// over again. Skip the push rather than send one the retry will repeat: a
+	// duplicate notification on the traveller's lock screen is the one part of
+	// that retry they cannot dismiss once and be done with.
 	if err := p.Store.MarkReminderSent(ctx, d.PlanPartID, d.UserID); err != nil {
 		slog.Error("reminder: mark sent", "part", d.PlanPartID, "user", d.UserID, "err", err)
+		return
 	}
 
 	p.pushReminder(ctx, d, label, zone)

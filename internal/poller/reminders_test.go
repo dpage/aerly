@@ -493,3 +493,53 @@ func TestPushReminder_KindPrefErrorSwallowed(t *testing.T) {
 		t.Fatalf("pushed despite a failed pref lookup: %d", fp.count())
 	}
 }
+
+// blockInserts installs a trigger that fails every insert into table, so a test
+// can exercise a store write failing for reasons the schema's own constraints
+// can't produce. Removed when the test ends.
+func blockInserts(t *testing.T, s *store.Store, table string) {
+	t.Helper()
+	ctx := context.Background()
+	fn := "block_" + table
+	if _, err := s.Pool().Exec(ctx, `
+		CREATE OR REPLACE FUNCTION `+fn+`() RETURNS trigger AS $$
+		BEGIN RAISE EXCEPTION 'blocked by test'; END;
+		$$ LANGUAGE plpgsql`); err != nil {
+		t.Fatalf("create trigger fn: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx,
+		`CREATE TRIGGER `+fn+`_trg BEFORE INSERT ON `+table+
+			` FOR EACH ROW EXECUTE FUNCTION `+fn+`()`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.Pool().Exec(context.Background(), `DROP TRIGGER IF EXISTS `+fn+`_trg ON `+table)
+	})
+}
+
+// TestPushReminder_MarkFailureSkipsPush: when the sent-marker write fails the
+// pair stays due and the next tick dispatches the whole reminder again, so
+// pushing here would put a duplicate on the traveller's lock screen.
+func TestPushReminder_MarkFailureSkipsPush(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	fp := &fakePusher{enabled: true}
+	p.Push = fp
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	tripID, _ := seedReminderPlan(t, s, owner, "hotel", now.Add(2*time.Hour))
+	if err := s.SetTripReminder(ctx, tripID, owner, 24); err != nil {
+		t.Fatalf("SetTripReminder: %v", err)
+	}
+	blockInserts(t, s, "plan_reminder_sent")
+
+	p.remindUpcoming(ctx, now)
+
+	if fp.count() != 0 {
+		t.Fatalf("pushed despite a failed mark: %d", fp.count())
+	}
+	// Still due, so the retry the skipped push was avoiding is real.
+	if due, _ := s.DueReminders(ctx, now); len(due) != 1 {
+		t.Fatalf("a failed mark should leave the pair due, got %d", len(due))
+	}
+}
