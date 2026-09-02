@@ -23,23 +23,25 @@ import type { CalendarScope, CalendarToken } from '../api/types';
 export interface CalendarSubscribeDialogProps {
   open: boolean;
   onClose: () => void;
-  /** Which scope this dialog manages. `me` is the personal feed (no id);
-   * `trip`/`plan` need the corresponding id. */
+  /** Which scope this dialog manages. `me` and `friends` are the two
+   * whole-account feeds (no id); `trip`/`plan` need the corresponding id. */
   scope: CalendarScope;
-  /** Required for `trip`/`plan` scope; ignored for `me`. */
+  /** Required for `trip`/`plan` scope; ignored for `me`/`friends`. */
   id?: number;
   title?: string;
 }
 
 const SCOPE_BLURB: Record<CalendarScope, string> = {
   me: 'Your whole travel schedule across every trip on your Trips list.',
+  friends:
+    "Everything on your Friends' trips list — where your friends are off to, minus the trips you're travelling on yourself (those are already in your own feed).",
   trip: 'This single trip, ready to drop into a calendar.',
   plan: 'Just this one entry — changes (like a delayed flight) flow through automatically.',
 };
 
 /** Subscribe-from-your-own-calendar UI (PRD §6.7). Surfaces the private iCal
- * feed URL for a traveller / trip / plan scope, with copy-to-clipboard and a
- * regenerate action that revokes the previous link.
+ * feed URL for a traveller / friends / trip / plan scope, with copy-to-clipboard
+ * and a regenerate action that revokes the previous link.
  *
  * Talks to the calendar token API directly (it owns no store slice): on open it
  * lists existing tokens to find one for this scope, otherwise the user issues
@@ -60,10 +62,11 @@ export default function CalendarSubscribeDialog({
   useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   // Find the token already issued for this exact (scope, resource), if any.
-  // Tokens are keyed per (scope, resource_id): the `me` feed has resource_id 0,
-  // while trip/plan feeds match on their id, so this dialog only ever surfaces
-  // and revokes the token for the resource it manages.
-  const resourceId = scope === 'me' ? 0 : (id ?? 0);
+  // Tokens are keyed per (scope, resource_id): the `me` and `friends` feeds
+  // have resource_id 0, while trip/plan feeds match on their id, so this dialog
+  // only ever surfaces and revokes the token for the resource it manages.
+  const wholeAccount = scope === 'me' || scope === 'friends';
+  const resourceId = wholeAccount ? 0 : (id ?? 0);
   const matches = useCallback(
     (t: CalendarToken) => t.scope === scope && t.resource_id === resourceId,
     [scope, resourceId],
@@ -97,7 +100,7 @@ export default function CalendarSubscribeDialog({
     setBusy(true);
     setError(null);
     try {
-      const t = await api.issueCalendarToken(scope, scope === 'me' ? undefined : id);
+      const t = await api.issueCalendarToken(scope, wholeAccount ? undefined : id);
       setToken(t);
     } catch (err) {
       setError(errMsg(err));
@@ -113,7 +116,7 @@ export default function CalendarSubscribeDialog({
     try {
       // Revoke the old link first so it stops working, then mint a fresh one.
       await api.revokeCalendarToken(token.token);
-      const t = await api.issueCalendarToken(scope, scope === 'me' ? undefined : id);
+      const t = await api.issueCalendarToken(scope, wholeAccount ? undefined : id);
       setToken(t);
       setCopied(false);
     } catch (err) {

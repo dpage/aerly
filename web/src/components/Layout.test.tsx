@@ -74,7 +74,18 @@ vi.mock('./AdminDialog', () => ({ default: stubDialog('admin-dialog') }));
 vi.mock('./AlertsDialog', () => ({ default: stubDialog('alerts-dialog') }));
 vi.mock('./FriendsDialog', () => ({ default: stubDialog('friends-dialog') }));
 vi.mock('./StatsDialog', () => ({ default: stubDialog('stats-dialog') }));
-vi.mock('./CalendarSubscribeDialog', () => ({ default: stubDialog('subscribe-dialog') }));
+// The calendar dialog is rendered twice (personal + friends' feeds), so its
+// stub also exposes the scope that distinguishes them.
+vi.mock('./CalendarSubscribeDialog', () => ({
+  default: ({ open, onClose, scope }: { open: boolean; onClose?: () => void; scope: string }) =>
+    open ? (
+      <div data-testid="subscribe-dialog" data-scope={scope}>
+        <button type="button" onClick={() => onClose?.()}>
+          close-subscribe-dialog
+        </button>
+      </div>
+    ) : null,
+}));
 vi.mock('./PreferencesDialog', () => ({ default: stubDialog('preferences-dialog') }));
 
 import Layout from './Layout';
@@ -133,7 +144,8 @@ describe('Layout', () => {
     for (const label of [
       'Friends…',
       'Statistics…',
-      'Subscribe to calendar…',
+      'Subscribe to your calendar…',
+      "Subscribe to friends' calendar…",
       'Preferences…',
       'About Aerly…',
     ]) {
@@ -235,11 +247,18 @@ describe('Layout', () => {
     expect(screen.getByTestId('stats-dialog')).toBeInTheDocument();
   });
 
-  it('opens Subscribe to calendar from the menu', async () => {
+  it('opens Subscribe to your calendar from the menu', async () => {
     renderLayout();
     await openMenu();
-    await userEvent.click(screen.getByText('Subscribe to calendar…'));
-    expect(screen.getByTestId('subscribe-dialog')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('Subscribe to your calendar…'));
+    expect(screen.getByTestId('subscribe-dialog')).toHaveAttribute('data-scope', 'me');
+  });
+
+  it("opens Subscribe to friends' calendar from the menu", async () => {
+    renderLayout();
+    await openMenu();
+    await userEvent.click(screen.getByText("Subscribe to friends' calendar…"));
+    expect(screen.getByTestId('subscribe-dialog')).toHaveAttribute('data-scope', 'friends');
   });
 
   it('opens Preferences from the menu', async () => {
@@ -317,7 +336,8 @@ describe('Layout', () => {
       ['Alerts…', 'alerts-dialog'],
       ['Friends…', 'friends-dialog'],
       ['Statistics…', 'stats-dialog'],
-      ['Subscribe to calendar…', 'subscribe-dialog'],
+      ['Subscribe to your calendar…', 'subscribe-dialog'],
+      ["Subscribe to friends' calendar…", 'subscribe-dialog'],
       ['Preferences…', 'preferences-dialog'],
     ];
     for (const [item, testid] of menuDialogs) {

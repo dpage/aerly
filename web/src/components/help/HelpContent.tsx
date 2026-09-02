@@ -504,6 +504,10 @@ export const HELP_PAGES: HelpPage[] = [
           description="Get a private subscription link — your whole schedule, a single trip, or one plan — to add to Apple Calendar, Google Calendar or Outlook. It always shows exactly what you can see in the app. Regenerate the link to revoke the old one."
         />
         <FeatureItem
+          title="Your friends' trips too"
+          description="A second link covers your Friends' trips list, so you can see where everyone else is off to without their plans crowding your own calendar. It's a separate subscription, so colour it differently or switch it off whenever you like. Trips you're travelling on stay in your own feed rather than appearing twice."
+        />
+        <FeatureItem
           title="Export a trip as .ics"
           description="Use Export .ics on a trip to download a one-off calendar file of the plans you can see — the inverse of importing a TripIt or Kayak .ics. Unlike a subscription it's a fixed snapshot, handy for importing into another calendar or sharing a copy."
         />

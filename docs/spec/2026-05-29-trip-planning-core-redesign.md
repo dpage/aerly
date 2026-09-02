@@ -409,6 +409,7 @@ POST   /api/trips/{id}/ingest           paste/upload → proposed plans (no comm
 POST   /api/trips/{id}/ingest/confirm   commit confirmed/edited proposals
 
 GET    /api/calendar/me.ics?token=      personal feed
+GET    /api/calendar/friends.ics?token= friends' trips feed
 GET    /api/calendar/trip/{id}.ics?token=
 GET    /api/calendar/plan/{id}.ics?token=
 
@@ -522,6 +523,12 @@ part's tz, `SUMMARY` from plan title/type, `LOCATION` from `start_label`,
 `DESCRIPTION` with confirmation ref + notes. A single-plan feed stays live so a
 delayed flight updates its event on the next client refresh. No new external
 deps — hand-render ICS (small, well-specified text format).
+
+The two whole-account feeds partition what the viewer can see, mirroring the
+app's two trip tabs: `me.ics` carries the trips they own or are travelling on,
+and `friends.ics` the rest that friends have shared with them. They are separate
+subscriptions with separate tokens so a calendar client can colour or hide the
+friends' one on its own, and no plan appears in both.
 
 ---
 

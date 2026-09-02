@@ -25,7 +25,7 @@ func TestG4ParseICSPathID(t *testing.T) {
 	}
 }
 
-// TestG4CalendarFeedStoreErrs covers the serverError (500) branches of the three
+// TestG4CalendarFeedStoreErrs covers the serverError (500) branches of the four
 // token-authed feed handlers when the underlying event query fails (plan_parts
 // dropped) — and the calendarTokenInfo serverError branch when the token lookup
 // itself fails (calendar_tokens dropped).
@@ -36,6 +36,7 @@ func TestG4CalendarFeedStoreErrs(t *testing.T) {
 	plan := seedPlan(t, e, trip, owner, "G4 Flight")
 	seedPart(t, e, plan)
 	meTok, _ := e.store.CalendarToken(context.Background(), owner, "me", 0)
+	friendsTok, _ := e.store.CalendarToken(context.Background(), owner, "friends", 0)
 	tripTok, _ := e.store.CalendarToken(context.Background(), owner, "trip", trip)
 	planTok, _ := e.store.CalendarToken(context.Background(), owner, "plan", plan)
 
@@ -46,6 +47,7 @@ func TestG4CalendarFeedStoreErrs(t *testing.T) {
 		name, path string
 	}{
 		{"me", "/api/calendar/me.ics?token=" + meTok.Token},
+		{"friends", "/api/calendar/friends.ics?token=" + friendsTok.Token},
 		{"trip", "/api/calendar/trip/" + itoa(trip) + ".ics?token=" + tripTok.Token},
 		{"plan", "/api/calendar/plan/" + itoa(plan) + ".ics?token=" + planTok.Token},
 	} {

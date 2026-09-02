@@ -114,6 +114,24 @@ func TestCalendarTokenManagementEndpoints(t *testing.T) {
 		t.Error("token missing created_at")
 	}
 
+	// Issue a "friends" token — the companion whole-account feed (resource 0).
+	w = e.req(t, "POST", "/api/calendar/tokens", map[string]any{"scope": "friends"}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("issue friends = %d %s", w.Code, w.Body.String())
+	}
+	friendsTok := decodeBody[map[string]any](t, w)
+	friendsURL, _ := friendsTok["url"].(string)
+	if !strings.HasPrefix(friendsURL, "https://aerly.test/api/calendar/friends.ics?token=") {
+		t.Errorf("friends url = %q, want friends.ics feed url", friendsURL)
+	}
+	if rid, _ := friendsTok["resource_id"].(float64); rid != 0 {
+		t.Errorf("friends token resource_id = %v, want 0", friendsTok["resource_id"])
+	}
+	// The two whole-account feeds are separate subscriptions, so separate tokens.
+	if friendsTok["token"] == tok["token"] {
+		t.Error("friends feed shared the personal feed's token")
+	}
+
 	// Issue a "trip" token with an id → url carries that id. The trip must be
 	// one the caller can see, so seed a couple owned by uid.
 	tripA := seedTrip(t, e, uid)
@@ -152,11 +170,11 @@ func TestCalendarTokenManagementEndpoints(t *testing.T) {
 		t.Errorf("bad scope = %d, want 400", w.Code)
 	}
 
-	// List now has 3 tokens (me + trip 42 + trip 43).
+	// List now has 4 tokens (me + friends + trip A + trip B).
 	w = e.req(t, "GET", "/api/calendar/tokens", nil, uid)
 	list := decodeBody[[]map[string]any](t, w)
-	if len(list) != 3 {
-		t.Fatalf("list len = %d, want 3", len(list))
+	if len(list) != 4 {
+		t.Fatalf("list len = %d, want 4", len(list))
 	}
 
 	// Revoke the me token.
@@ -211,6 +229,14 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("member plan token: %v", err)
 	}
+	ownerFriendsTok, err := e.store.CalendarToken(context.Background(), owner, "friends", 0)
+	if err != nil {
+		t.Fatalf("owner friends token: %v", err)
+	}
+	memberFriendsTok, err := e.store.CalendarToken(context.Background(), member, "friends", 0)
+	if err != nil {
+		t.Fatalf("member friends token: %v", err)
+	}
 
 	feed := func(path string) string {
 		w := rawGet(e, path)
@@ -238,6 +264,33 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 	}
 	if strings.Contains(memberFeed, "Hidden Flight") {
 		t.Errorf("member feed LEAKED hidden plan:\n%s", memberFeed)
+	}
+
+	// The member's friends feed is the other half of the split: the trip shared
+	// with them shows up here (it is exactly what the "me" feed withholds), still
+	// without the plan hidden from them.
+	memberFriends := feed("/api/calendar/friends.ics?token=" + memberFriendsTok.Token)
+	if !strings.Contains(memberFriends, "Public Flight") {
+		t.Errorf("member friends feed missing the shared trip:\n%s", memberFriends)
+	}
+	if strings.Contains(memberFriends, "Hidden Flight") {
+		t.Errorf("member friends feed LEAKED hidden plan:\n%s", memberFriends)
+	}
+
+	// The owner's own trip is not a "friend's trip" to them, so their friends
+	// feed is empty — the two feeds partition what a viewer can see rather than
+	// double-booking it.
+	ownerFriends := feed("/api/calendar/friends.ics?token=" + ownerFriendsTok.Token)
+	if strings.Contains(ownerFriends, "BEGIN:VEVENT") {
+		t.Errorf("owner friends feed should not repeat their own trip:\n%s", ownerFriends)
+	}
+
+	// Scope enforcement cuts both ways between the two whole-account feeds.
+	if w := rawGet(e, "/api/calendar/friends.ics?token="+memberTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("me token at friends feed = %d, want 401", w.Code)
+	}
+	if w := rawGet(e, "/api/calendar/me.ics?token="+memberFriendsTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("friends token at me feed = %d, want 401", w.Code)
 	}
 
 	// Trip feed for member (its own trip token): same — hidden absent.
@@ -288,6 +341,9 @@ func TestCalendarFeedTokenAuthAndVisibility(t *testing.T) {
 	}
 	if w := rawGet(e, "/api/calendar/me.ics?token="+ownerTok.Token); w.Code != http.StatusUnauthorized {
 		t.Errorf("deactivated owner feed = %d, want 401", w.Code)
+	}
+	if w := rawGet(e, "/api/calendar/friends.ics?token="+ownerFriendsTok.Token); w.Code != http.StatusUnauthorized {
+		t.Errorf("deactivated owner friends feed = %d, want 401", w.Code)
 	}
 	// The per-trip and per-plan feed routes share the same calendarTokenInfo
 	// chokepoint, so deactivating a token's owner must revoke those too.

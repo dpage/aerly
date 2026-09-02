@@ -903,14 +903,16 @@ export interface IngestConfirmInput {
   plans: ConfirmPlanInput[];
 }
 
-/** Scope of an iCal calendar feed token. */
-export type CalendarScope = 'me' | 'trip' | 'plan';
+/** Scope of an iCal calendar feed token. `me` is the viewer's own schedule and
+ * `friends` its companion — the trips friends have shared with them but that
+ * they aren't travelling on themselves. */
+export type CalendarScope = 'me' | 'friends' | 'trip' | 'plan';
 
 export interface CalendarToken {
   scope: CalendarScope;
-  /** Trip/plan id this token's feed is pinned to; 0 for the `me` scope. Tokens
-   * are keyed per (scope, resource_id), so each trip/plan feed is independently
-   * revocable. */
+  /** Trip/plan id this token's feed is pinned to; 0 for the `me`/`friends`
+   * scopes. Tokens are keyed per (scope, resource_id), so each trip/plan feed
+   * is independently revocable. */
   resource_id: number;
   token: string;
   /** Ready-to-use feed URL. */

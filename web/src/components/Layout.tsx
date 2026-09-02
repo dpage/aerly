@@ -85,6 +85,7 @@ export default function Layout() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [subscribeOpen, setSubscribeOpen] = useState(false);
+  const [friendsSubscribeOpen, setFriendsSubscribeOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
@@ -300,7 +301,19 @@ export default function Layout() {
               <ListItemIcon>
                 <CalendarMonthIcon fontSize="small" />
               </ListItemIcon>
-              Subscribe to calendar…
+              Subscribe to your calendar…
+            </MenuItem>
+            <MenuItem
+              disabled={!online}
+              onClick={() => {
+                closeMenu();
+                setFriendsSubscribeOpen(true);
+              }}
+            >
+              <ListItemIcon>
+                <CalendarMonthIcon fontSize="small" />
+              </ListItemIcon>
+              Subscribe to friends' calendar…
             </MenuItem>
 
             <Divider />
@@ -425,6 +438,15 @@ export default function Layout() {
         open={subscribeOpen}
         onClose={() => setSubscribeOpen(false)}
         scope="me"
+      />
+      {/* The companion feed: friends' trips the viewer isn't travelling on.
+          A separate subscription (not a second calendar folded into the
+          personal one) so a calendar client can colour or hide it on its own. */}
+      <CalendarSubscribeDialog
+        open={friendsSubscribeOpen}
+        onClose={() => setFriendsSubscribeOpen(false)}
+        scope="friends"
+        title="Friends' trips"
       />
       <PreferencesDialog open={prefsOpen} onClose={() => setPrefsOpen(false)} />
       <HelpPanel />
