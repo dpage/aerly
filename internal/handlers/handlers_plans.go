@@ -955,7 +955,7 @@ func clampNonNegative(n *int) *int {
 // A provider-confirmed flight is left alone: its schedule is the baseline every
 // delay is measured against, and the store guard enforces that regardless.
 //
-// When the request didn't name a new arrival, the old block time is carried
+// When the request names no usable arrival, the old block time is carried
 // across rather than the arrival being left where it was. Otherwise moving a
 // departure later would leave an arrival before it — the degenerate shape that
 // no arrival branch can ever terminate. A flight that had no arrival to begin
@@ -971,7 +971,13 @@ func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.
 	}
 	out := part.StartsAt
 	in := out.Add(fd.ScheduledIn.Sub(fd.ScheduledOut))
-	if part.EndsAt != nil && part.EndsAt.After(out) {
+	// An arrival equal to the departure is the stored form of "no arrival
+	// known", so it is taken as given: treating it as absent would leave the
+	// old block time here whilst the part itself says there is none, which is
+	// the divergence this whole function exists to remove. Only an arrival
+	// genuinely before the departure is refused, in favour of the carried block
+	// time, since storing an inverted schedule helps nobody.
+	if part.EndsAt != nil && !part.EndsAt.Before(out) {
 		in = *part.EndsAt
 	}
 	if out.Equal(fd.ScheduledOut) && in.Equal(fd.ScheduledIn) {

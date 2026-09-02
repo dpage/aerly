@@ -628,3 +628,59 @@ func TestUpdatePlanPartLeavesResolvedFlightSchedule(t *testing.T) {
 		t.Errorf("a resolved flight's schedule was rewritten: %v → %v", gotOut, gotIn)
 	}
 }
+
+// TestUpdatePlanPartSyncsFlightScheduleClearedArrival: an arrival set equal to
+// the departure is the stored form of "no arrival known". Treating it as absent
+// would leave the old block time in flight_details whilst the part itself says
+// there is none — the divergence this sync exists to remove.
+func TestUpdatePlanPartSyncsFlightScheduleClearedArrival(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "owner", false)
+	tid := newTrip(t, e, owner, "Trip")
+	out := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
+	planID := newFlightPlan(t, e, tid, owner, "G31850", out)
+	partID := partIDOfPlan(t, e, planID)
+
+	// Starts with a two-hour block; the traveller clears the arrival.
+	if _, gotIn, _ := flightScheduleOf(t, e, partID); gotIn.Sub(out) != 2*time.Hour {
+		t.Fatalf("setup block time = %v, want 2h", gotIn.Sub(out))
+	}
+	if w := e.req(t, "PATCH", fmt.Sprintf("/api/plan-parts/%d", partID),
+		map[string]any{"starts_at": out, "ends_at": out}, owner); w.Code != http.StatusOK {
+		t.Fatalf("patch part: %d %s", w.Code, w.Body.String())
+	}
+
+	gotOut, gotIn, _ := flightScheduleOf(t, e, partID)
+	if !gotOut.Equal(out) || !gotIn.Equal(out) {
+		t.Errorf("schedule = %v → %v, want both %v", gotOut, gotIn, out)
+	}
+}
+
+// TestUpdatePlanPartSyncsFlightScheduleInvertedArrival: an arrival genuinely
+// before the departure is refused in favour of the carried block time, rather
+// than stored as an inverted schedule.
+func TestUpdatePlanPartSyncsFlightScheduleInvertedArrival(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "owner", false)
+	tid := newTrip(t, e, owner, "Trip")
+	out := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
+	planID := newFlightPlan(t, e, tid, owner, "G31850", out)
+	partID := partIDOfPlan(t, e, planID)
+
+	moved := out.AddDate(0, 0, 1)
+	if w := e.req(t, "PATCH", fmt.Sprintf("/api/plan-parts/%d", partID),
+		map[string]any{"starts_at": moved, "ends_at": out}, owner); w.Code != http.StatusOK {
+		t.Fatalf("patch part: %d %s", w.Code, w.Body.String())
+	}
+
+	gotOut, gotIn, _ := flightScheduleOf(t, e, partID)
+	if !gotOut.Equal(moved) {
+		t.Errorf("scheduled_out = %v, want %v", gotOut, moved)
+	}
+	if gotIn.Before(gotOut) {
+		t.Errorf("stored an inverted schedule: %v → %v", gotOut, gotIn)
+	}
+	if gotIn.Sub(gotOut) != 2*time.Hour {
+		t.Errorf("block time = %v, want the carried 2h", gotIn.Sub(gotOut))
+	}
+}
