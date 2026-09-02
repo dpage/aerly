@@ -534,6 +534,19 @@ func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out
 // than this far behind has in practice been rescheduled rather than delayed.
 const arrivalSlipCap = "12 hours"
 
+// noArrivalCap bounds how long a part whose schedule carries no real arrival
+// time — a manual add of just a flight number and a departure, where
+// scheduled_in is stored equal to scheduled_out — may stay non-terminal. The
+// arrival branches below can never fire for such a part: the live one needs a
+// live time, and the timetable one insists on an arrival strictly after the
+// departure. Without this it is declared Enroute the moment its departure
+// passes and stays that way for ever, sitting in the poll set and, when the
+// provider has no record of it either, costing a resolver call on every tick.
+// Past this cap the flight has certainly either operated or not, and nothing
+// further is coming to tell us which; it is comfortably longer than the longest
+// scheduled commercial flight.
+const noArrivalCap = "24 hours"
+
 // RefreshFlightPartStatus re-derives flight_status from the flight's times,
 // preserving terminal Cancelled / Diverted, and bumps last_polled_at.
 //
@@ -564,6 +577,12 @@ func (s *Store) RefreshFlightPartStatus(ctx context.Context, partID int64) error
 				-- scheduled departure, before takeoff.
 				WHEN COALESCE(actual_in, estimated_in) IS NULL
 					AND scheduled_in > scheduled_out AND NOW() > scheduled_in THEN 'Arrived'
+				-- No live times and no real arrival in the timetable either, so
+				-- neither branch above can ever fire. Long enough past the
+				-- departure that the flight is over however it went.
+				WHEN COALESCE(actual_in, estimated_in) IS NULL
+					AND scheduled_in <= scheduled_out
+					AND NOW() > scheduled_out + INTERVAL '`+noArrivalCap+`' THEN 'Arrived'
 				-- Departure, judged the same way round as arrival: the
 				-- aircraft, not the timetable. An observed wheels-off settles
 				-- it outright; failing that the airline's revised off-block

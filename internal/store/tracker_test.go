@@ -826,3 +826,75 @@ func tagTrip(t *testing.T, s *Store, tripID int64, label string) {
 		t.Fatalf("tagTrip: %v", err)
 	}
 }
+
+// TestRefreshStatusUnknownArrivalTerminates is the other half of
+// TestRefreshStatusUnknownArrival. That test pins the rule that a flight with
+// no real arrival time must not be declared Arrived the moment its departure
+// passes; this one pins that it does not stay Enroute for ever either. Left
+// unbounded it sits in the poll set indefinitely, and a flight the provider has
+// no record of then costs a resolver call on every tick — which is how one
+// unresolvable manual add drank a month of AeroDataBox quota in three days.
+func TestRefreshStatusUnknownArrivalTerminates(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Just inside the cap: still Enroute, because the flight may genuinely be
+	// in the air (a long-haul leg can run most of a day).
+	inside := mkFlightPart(t, s, owner, "G31850", now.Add(-20*time.Hour), now.Add(-20*time.Hour))
+	if err := s.RefreshFlightPartStatus(ctx, inside); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, inside)
+	if f.Status != "Enroute" {
+		t.Errorf("20h past departure should still be Enroute, got %q", f.Status)
+	}
+
+	// Past the cap: whatever happened, it is over.
+	beyond := mkFlightPart(t, s, owner, "G31851", now.Add(-25*time.Hour), now.Add(-25*time.Hour))
+	if err := s.RefreshFlightPartStatus(ctx, beyond); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ = s.FlightPartByID(ctx, beyond)
+	if f.Status != "Arrived" {
+		t.Errorf("past the no-arrival cap the part should be terminal, got %q", f.Status)
+	}
+
+	// And so it leaves the poll set, which is the point.
+	parts, err := s.ActiveFlightParts(ctx, now)
+	if err != nil {
+		t.Fatalf("ActiveFlightParts: %v", err)
+	}
+	for _, p := range parts {
+		if p.ID == beyond {
+			t.Fatal("a terminated part must not still be in the active poll set")
+		}
+	}
+}
+
+// TestRefreshStatusCancelledSurvivesTheCap: the new cap must not overwrite a
+// terminal status the provider gave us, or a cancelled flight would be quietly
+// relabelled as having arrived.
+func TestRefreshStatusCancelledSurvivesTheCap(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+	part := mkFlightPart(t, s, owner, "G31852", now.Add(-25*time.Hour), now.Add(-25*time.Hour))
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET flight_status = 'Cancelled' WHERE plan_part_id = $1`, part); err != nil {
+		t.Fatalf("set cancelled: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, part); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, part)
+	if f.Status != "Cancelled" {
+		t.Errorf("a cancelled flight must stay cancelled, got %q", f.Status)
+	}
+}

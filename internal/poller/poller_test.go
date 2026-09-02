@@ -1646,3 +1646,91 @@ func TestProvisionalRefreshIntervalFor(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveBackoffFor covers the two cadences: the ordinary pre-departure
+// ramp, and the long back-off for a flight past its departure that the provider
+// has no record of at all.
+func TestResolveBackoffFor(t *testing.T) {
+	now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	icao := "3c48f0"
+	cases := []struct {
+		name string
+		f    *store.Flight
+		want time.Duration
+	}{
+		{
+			// Departed, no route, no airframe: every lookup so far has come
+			// back empty, so stop asking every tick.
+			name: "unidentified after departure",
+			f:    &store.Flight{ScheduledOut: now.Add(-2 * time.Hour)},
+			want: unidentifiedRetryInterval,
+		},
+		{
+			// Same emptiness, but not yet departed: the provider may simply not
+			// have published it yet, so keep to the ramp.
+			name: "unidentified before departure",
+			f:    &store.Flight{ScheduledOut: now.Add(30 * time.Minute)},
+			want: 5 * time.Minute,
+		},
+		{
+			// Departed but the provider knows the route: this is a real flight
+			// missing only its metal, and we want that promptly.
+			name: "route known, airframe missing",
+			f:    &store.Flight{ScheduledOut: now.Add(-2 * time.Hour), OriginIATA: "GIG", DestIATA: "NVT"},
+			want: 5 * time.Minute,
+		},
+		{
+			name: "fully resolved and departed",
+			f: &store.Flight{ScheduledOut: now.Add(-2 * time.Hour), OriginIATA: "GIG",
+				DestIATA: "NVT", ICAO24: &icao},
+			want: 5 * time.Minute,
+		},
+		{
+			name: "well before departure",
+			f:    &store.Flight{ScheduledOut: now.Add(8 * time.Hour)},
+			want: time.Hour,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := resolveBackoffFor(c.f, now); got != c.want {
+				t.Errorf("resolveBackoffFor = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestResolveThrottled: a flight never resolved is always worth one attempt;
+// after that the backoff applies. This is the gate that stops needsBackfill —
+// a pure field test with no notion of time — re-firing on every tick.
+func TestResolveThrottled(t *testing.T) {
+	now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	unknown := func(last *time.Time) *store.Flight {
+		return &store.Flight{ScheduledOut: now.Add(-2 * time.Hour), LastResolvedAt: last}
+	}
+
+	if resolveThrottled(unknown(nil), now) {
+		t.Error("a flight never resolved should always get one attempt")
+	}
+	justAsked := now.Add(-2 * time.Minute)
+	if !resolveThrottled(unknown(&justAsked), now) {
+		t.Error("an unidentified flight asked about 2 minutes ago should be throttled")
+	}
+	longAgo := now.Add(-unidentifiedRetryInterval - time.Minute)
+	if resolveThrottled(unknown(&longAgo), now) {
+		t.Error("past the backoff the flight should be askable again")
+	}
+
+	// A known flight keeps the tight pre-departure cadence: throttled at 2
+	// minutes, free at 6.
+	known := func(last time.Time) *store.Flight {
+		return &store.Flight{ScheduledOut: now.Add(-2 * time.Hour), OriginIATA: "GIG",
+			DestIATA: "NVT", LastResolvedAt: &last}
+	}
+	if !resolveThrottled(known(now.Add(-2*time.Minute)), now) {
+		t.Error("a known flight asked about 2 minutes ago should be throttled")
+	}
+	if resolveThrottled(known(now.Add(-6*time.Minute)), now) {
+		t.Error("a known flight asked about 6 minutes ago should be askable")
+	}
+}
