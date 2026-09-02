@@ -70,6 +70,29 @@ describe('CalendarSubscribeDialog', () => {
     expect(h.api.issueCalendarToken).toHaveBeenCalledWith('trip', 42);
   });
 
+  it('issues the friends feed with no id, like the personal one', async () => {
+    const user = userEvent.setup();
+    h.api.listCalendarTokens.mockResolvedValue([]);
+    h.api.issueCalendarToken.mockResolvedValue(
+      token({ scope: 'friends', url: 'https://x/friends.ics' }),
+    );
+    render(<CalendarSubscribeDialog open scope="friends" onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: /create feed link/i }));
+    expect(h.api.issueCalendarToken).toHaveBeenCalledWith('friends', undefined);
+    expect(await screen.findByLabelText('Feed URL')).toHaveValue('https://x/friends.ics');
+  });
+
+  it('keeps the personal and friends feeds apart', async () => {
+    // Both whole-account feeds carry resource_id 0, so only the scope tells
+    // them apart — the friends dialog must not surface the personal feed URL.
+    h.api.listCalendarTokens.mockResolvedValue([
+      token({ scope: 'me', token: 'tok-me', url: 'https://x/me.ics' }),
+      token({ scope: 'friends', token: 'tok-friends', url: 'https://x/friends.ics' }),
+    ]);
+    render(<CalendarSubscribeDialog open scope="friends" onClose={vi.fn()} />);
+    expect(await screen.findByLabelText('Feed URL')).toHaveValue('https://x/friends.ics');
+  });
+
   it('matches only the token for this resource, not another trip', async () => {
     // Two trip tokens exist; the dialog for trip 42 must surface trip 42's feed
     // and ignore trip 99's — per-resource granularity.

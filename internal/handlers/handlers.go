@@ -248,6 +248,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	// prefix patterns and the handler parses the trailing "{id}.ics". The
 	// public URLs stay exactly /api/calendar/{trip,plan}/{id}.ics.
 	mux.Handle("GET /api/calendar/me.ics", http.HandlerFunc(a.calendarMe))
+	mux.Handle("GET /api/calendar/friends.ics", http.HandlerFunc(a.calendarFriends))
 	mux.Handle("GET /api/calendar/trip/", http.HandlerFunc(a.calendarTrip))
 	mux.Handle("GET /api/calendar/plan/", http.HandlerFunc(a.calendarPlan))
 

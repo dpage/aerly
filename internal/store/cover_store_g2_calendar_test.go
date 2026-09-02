@@ -126,10 +126,22 @@ func TestG2CalendarEventsForScopes(t *testing.T) {
 		t.Fatalf("plan feed = %+v", planEvents)
 	}
 
-	// A stranger sees none of it across all three scopes.
+	// "friends" feed: the owner's own trip is not a friend's, so it's empty.
+	friendEvents, err := s.CalendarEventsForFriends(ctx, owner)
+	if err != nil {
+		t.Fatalf("CalendarEventsForFriends: %v", err)
+	}
+	if len(friendEvents) != 0 {
+		t.Fatalf("friends feed = %+v, want empty for one's own trip", friendEvents)
+	}
+
+	// A stranger sees none of it across all four scopes.
 	stranger := mkUser(t, s)
 	if ev, _ := s.CalendarEventsForUser(ctx, stranger); len(ev) != 0 {
 		t.Errorf("stranger me feed = %d, want 0", len(ev))
+	}
+	if ev, _ := s.CalendarEventsForFriends(ctx, stranger); len(ev) != 0 {
+		t.Errorf("stranger friends feed = %d, want 0", len(ev))
 	}
 	if ev, _ := s.CalendarEventsForTrip(ctx, stranger, trip); len(ev) != 0 {
 		t.Errorf("stranger trip feed = %d, want 0", len(ev))
@@ -162,6 +174,9 @@ func TestG2CalendarErrorPaths(t *testing.T) {
 	}
 	if _, err := s.CalendarEventsForUser(cc, 1); err == nil {
 		t.Error("CalendarEventsForUser cancelled should error")
+	}
+	if _, err := s.CalendarEventsForFriends(cc, 1); err == nil {
+		t.Error("CalendarEventsForFriends cancelled should error")
 	}
 	if _, err := s.CalendarEventsForTrip(cc, 1, 1); err == nil {
 		t.Error("CalendarEventsForTrip cancelled should error")

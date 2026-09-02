@@ -14,8 +14,8 @@ import (
 // carry it). Regenerating revokes only that one resource's feed URL.
 type CalendarToken struct {
 	UserID     int64
-	Scope      string // "me" | "trip" | "plan"
-	ResourceID int64  // trip/plan id for trip/plan scope; 0 for the "me" scope
+	Scope      string // "me" | "friends" | "trip" | "plan"
+	ResourceID int64  // trip/plan id for trip/plan scope; 0 for the "me"/"friends" scopes
 	Token      string
 	CreatedAt  time.Time
 }
@@ -23,17 +23,18 @@ type CalendarToken struct {
 // validCalendarScope reports whether scope is one of the three feed scopes.
 func validCalendarScope(scope string) bool {
 	switch scope {
-	case "me", "trip", "plan":
+	case "me", "friends", "trip", "plan":
 		return true
 	default:
 		return false
 	}
 }
 
-// normalizeCalendarResource clamps resource_id to 0 for the "me" scope (which
-// has no resource) and rejects a missing id for trip/plan scopes.
+// normalizeCalendarResource clamps resource_id to 0 for the whole-account
+// scopes ("me"/"friends", which have no resource) and rejects a missing id for
+// trip/plan scopes.
 func normalizeCalendarResource(scope string, resourceID int64) (int64, error) {
-	if scope == "me" {
+	if scope == "me" || scope == "friends" {
 		return 0, nil
 	}
 	if resourceID <= 0 {
@@ -255,6 +256,25 @@ func calendarMineExpr(plan, trip, viewer string) string {
 func (s *Store) CalendarEventsForUser(ctx context.Context, viewerID int64) ([]*CalendarEvent, error) {
 	rows, err := s.pool.Query(ctx,
 		calendarEventSelect+` AND `+calendarMineExpr("pl", "t", "$1")+
+			` ORDER BY part.starts_at ASC, part.id ASC`, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	return scanCalendarEvents(rows)
+}
+
+// CalendarEventsForFriends returns the plan_parts a friend has shared with the
+// viewer but which are not on the viewer's own trips — the "friends" feed. It is
+// the exact complement of CalendarEventsForUser within the §4-visible set, so
+// the two feeds partition what the viewer can see and a plan never lands in both
+// calendars. The split mirrors the app's two trip tabs: "My trips" is
+// owner-or-passenger, "Friends' trips" is everything else shared with them.
+func (s *Store) CalendarEventsForFriends(ctx context.Context, viewerID int64) ([]*CalendarEvent, error) {
+	// COALESCE(...) because "is this mine?" is three-valued: a trip whose creator
+	// has since been deleted has created_by NULL, and a bare NOT would drop such
+	// a row from this feed as well as the "me" one. Unknown means "not mine".
+	rows, err := s.pool.Query(ctx,
+		calendarEventSelect+` AND NOT COALESCE(`+calendarMineExpr("pl", "t", "$1")+`, FALSE)`+
 			` ORDER BY part.starts_at ASC, part.id ASC`, viewerID)
 	if err != nil {
 		return nil, err

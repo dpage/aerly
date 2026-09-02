@@ -326,6 +326,92 @@ func TestCalendarMeFeedScopedToOwnTrips(t *testing.T) {
 	if got[sharedPlan] {
 		t.Errorf("me feed LEAKED a friend's shared-only trip plan %d (issue #76)", sharedPlan)
 	}
+
+	// The friends feed is the exact complement: the shared-only trip and nothing
+	// the viewer is travelling on themselves, so the two feeds partition what the
+	// viewer can see and no plan is double-booked across both calendars.
+	fev, err := s.CalendarEventsForFriends(ctx, viewer)
+	if err != nil {
+		t.Fatalf("CalendarEventsForFriends: %v", err)
+	}
+	fgot := map[int64]bool{}
+	for _, e := range fev {
+		fgot[e.PlanID] = true
+	}
+	if !fgot[sharedPlan] {
+		t.Errorf("friends feed missing the shared trip plan %d", sharedPlan)
+	}
+	if fgot[ownPlan] {
+		t.Errorf("friends feed repeated the viewer's own plan %d", ownPlan)
+	}
+	if fgot[paxPlan] {
+		t.Errorf("friends feed repeated the passenger plan %d", paxPlan)
+	}
+}
+
+// TestCalendarFriendsFeedExcludesTripPassengerAndHidden: the friends feed
+// honours the same two gates as the rest of the calendar layer — a trip the
+// viewer is a trip-level passenger on belongs to their own feed, not this one,
+// and a plan hidden from them never appears at all.
+func TestCalendarFriendsFeedExcludesTripPassengerAndHidden(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	viewer := mkUser(t, s)
+	friend := mkUser(t, s)
+	stranger := mkUser(t, s)
+	befriendStore(t, s, viewer, friend)
+	now := time.Now().UTC()
+
+	// A friend's trip shared with the viewer, carrying a visible plan and one
+	// hidden from them.
+	shared := mkTrip(t, s, friend)
+	addMember(t, s, shared, viewer, "viewer")
+	seen := mkTypedPlan(t, s, shared, friend, "flight", "Seen Flight", "", "")
+	mkPart(t, s, seen, now, nil, "Europe/London", "", "LHR")
+	hidden := mkTypedPlan(t, s, shared, friend, "hotel", "Hidden Hotel", "", "")
+	mkPart(t, s, hidden, now.Add(24*time.Hour), nil, "Europe/Paris", "", "Hotel")
+	setVisibility(t, s, hidden, "hidden_from", viewer)
+
+	// A second friend's trip the viewer is travelling on at the trip level
+	// (trip_passengers, e.g. every plan on it is hidden from them) — that is
+	// "my trip" territory, so it stays out of the friends feed.
+	joined := mkTrip(t, s, friend)
+	addMember(t, s, joined, viewer, "viewer")
+	joinedPlan := mkTypedPlan(t, s, joined, friend, "flight", "Joined Flight", "", "")
+	mkPart(t, s, joinedPlan, now.Add(48*time.Hour), nil, "Europe/London", "", "LGW")
+	if _, err := s.pool.Exec(ctx,
+		`INSERT INTO trip_passengers (trip_id, user_id) VALUES ($1, $2)`, joined, viewer); err != nil {
+		t.Fatalf("add trip passenger: %v", err)
+	}
+
+	ev, err := s.CalendarEventsForFriends(ctx, viewer)
+	if err != nil {
+		t.Fatalf("CalendarEventsForFriends: %v", err)
+	}
+	got := map[int64]bool{}
+	for _, e := range ev {
+		got[e.PlanID] = true
+	}
+	if !got[seen] {
+		t.Errorf("friends feed missing the visible shared plan %d", seen)
+	}
+	if got[hidden] {
+		t.Errorf("friends feed LEAKED plan %d hidden from the viewer", hidden)
+	}
+	if got[joinedPlan] {
+		t.Errorf("friends feed included plan %d on a trip the viewer travels on", joinedPlan)
+	}
+
+	// A stranger (no friendship, no membership) sees nothing at all.
+	sev, err := s.CalendarEventsForFriends(ctx, stranger)
+	if err != nil {
+		t.Fatalf("CalendarEventsForFriends(stranger): %v", err)
+	}
+	if len(sev) != 0 {
+		t.Errorf("stranger friends feed len = %d, want 0", len(sev))
+	}
 }
 
 // TestCalendarEventsExcludeDismissed: a superseded/dismissed part is omitted.

@@ -38,6 +38,24 @@ func (a *API) calendarMe(w http.ResponseWriter, r *http.Request) {
 	writeICS(w, "Aerly", events, true)
 }
 
+// calendarFriends serves the companion feed to calendarMe: the plans friends
+// have shared with the viewer that aren't on the viewer's own trips. Kept as a
+// separate subscription (rather than folded into me.ics) so a calendar client
+// can colour it differently or switch it off — most people want their own
+// itinerary always on, and their friends' comings and goings only sometimes.
+func (a *API) calendarFriends(w http.ResponseWriter, r *http.Request) {
+	info, ok := a.calendarTokenInfo(w, r, "friends", 0)
+	if !ok {
+		return
+	}
+	events, err := a.Store.CalendarEventsForFriends(r.Context(), info.UserID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeICS(w, "Aerly Friends", events, true)
+}
+
 func (a *API) calendarTrip(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseICSPathID(r.URL.Path, "/api/calendar/trip/")
 	if !ok {
@@ -377,7 +395,7 @@ func (a *API) issueCalendarToken(w http.ResponseWriter, r *http.Request) {
 	}
 	scope := strings.TrimSpace(in.Scope)
 	switch scope {
-	case "me", "trip", "plan":
+	case "me", "friends", "trip", "plan":
 	default:
 		writeError(w, http.StatusBadRequest, "Invalid scope.")
 		return
@@ -453,6 +471,8 @@ func (a *API) calendarFeedURL(scope string, id int64, token string) string {
 	}
 	var path string
 	switch scope {
+	case "friends":
+		path = "/api/calendar/friends.ics"
 	case "trip":
 		path = "/api/calendar/trip/" + strconv.FormatInt(id, 10) + ".ics"
 	case "plan":

@@ -1120,11 +1120,11 @@ func ToVehicleHireDetailDTO(d *store.VehicleHireDetail) *VehicleHireDetailDTO {
 }
 
 // CalendarTokenDTO is the wire shape for one iCal feed token. Tokens are keyed
-// per (scope, resource_id): the "me" feed has resource_id 0, while each
-// trip/plan feed carries its own resource id and is independently revocable, so
-// regenerating one trip's link no longer disturbs the others. The URL is the
-// ready-to-use feed link (the caller derives it from the public base URL since
-// the store layer is URL-unaware).
+// per (scope, resource_id): the "me" and "friends" feeds have resource_id 0,
+// while each trip/plan feed carries its own resource id and is independently
+// revocable, so regenerating one trip's link no longer disturbs the others.
+// The URL is the ready-to-use feed link (the caller derives it from the public
+// base URL since the store layer is URL-unaware).
 type CalendarTokenDTO struct {
 	Scope      string `json:"scope"`
 	ResourceID int64  `json:"resource_id"`

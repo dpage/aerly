@@ -518,6 +518,7 @@ The Go integration tests create and drop a fresh database per test via a mainten
 - Passenger trips — trips you're a passenger on (not just own) appear under **My trips**, badged to tell them apart from trips you own.
 - Trip-level passengers — add a friend as a **Passenger** in the Share-trip dialog and they become a passenger on every plan (existing and future): they see all non-hidden plans, appear in each plan's passenger list and alerts, and the trip lands under their My trips.
 - Upcoming-plan reminders — opt in at the **trip** level (with a configurable lead time in hours) to be reminded before every plan you can see; override per plan to change the lead time or to opt a single plan in or out. Reminders arrive by email and in the in-app inbox, fired per plan-part by the poller. They're independent of the gate/delay/cancellation alerts, which always fire when the API reports a change.
+- Friends' trips calendar feed — a second private iCal subscription (`/api/calendar/friends.ics`) alongside your own, covering the trips friends have shared with you but that you aren't travelling on. It is the exact complement of the personal feed, so nothing appears in both, and it's a separate subscription with its own token so a calendar client can colour or hide it independently. Grab the link from **Subscribe to friends' calendar…** in the account menu.
 
 ## Licence
 
