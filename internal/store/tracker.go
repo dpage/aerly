@@ -534,6 +534,13 @@ func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out
 // than this far behind has in practice been rescheduled rather than delayed.
 const arrivalSlipCap = "12 hours"
 
+// departureSlipCap bounds how far a live departure time may push the moment the
+// no-arrival cap below starts counting from. It mirrors arrivalSlipCap, and
+// exists for the same reason: a stale revision that is never updated again
+// would otherwise hold the part non-terminal indefinitely, which is precisely
+// what that cap is there to stop.
+const departureSlipCap = "12 hours"
+
 // noArrivalCap bounds how long a part whose schedule carries no real arrival
 // time — a manual add of just a flight number and a departure, where
 // scheduled_in is stored equal to scheduled_out — may stay non-terminal. The
@@ -578,11 +585,18 @@ func (s *Store) RefreshFlightPartStatus(ctx context.Context, partID int64) error
 				WHEN COALESCE(actual_in, estimated_in) IS NULL
 					AND scheduled_in > scheduled_out AND NOW() > scheduled_in THEN 'Arrived'
 				-- No live times and no real arrival in the timetable either, so
-				-- neither branch above can ever fire. Long enough past the
+				-- neither branch above can ever fire. Counted from the departure
+				-- we actually expect, not the timetabled one, so a flight held
+				-- on stand through a long delay isn't declared over before it
+				-- has left; capped, so a revision that stops being updated
+				-- can't hold the part open for ever. Long enough past that
 				-- departure that the flight is over however it went.
 				WHEN COALESCE(actual_in, estimated_in) IS NULL
 					AND scheduled_in <= scheduled_out
-					AND NOW() > scheduled_out + INTERVAL '`+noArrivalCap+`' THEN 'Arrived'
+					AND NOW() > LEAST(
+						COALESCE(actual_out, estimated_out, scheduled_out),
+						scheduled_out + INTERVAL '`+departureSlipCap+`')
+						+ INTERVAL '`+noArrivalCap+`' THEN 'Arrived'
 				-- Departure, judged the same way round as arrival: the
 				-- aircraft, not the timetable. An observed wheels-off settles
 				-- it outright; failing that the airline's revised off-block

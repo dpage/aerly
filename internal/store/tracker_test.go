@@ -898,3 +898,51 @@ func TestRefreshStatusCancelledSurvivesTheCap(t *testing.T) {
 		t.Errorf("a cancelled flight must stay cancelled, got %q", f.Status)
 	}
 }
+
+// TestRefreshStatusUnknownArrivalHonoursDelayedDeparture: the no-arrival cap is
+// counted from the departure we actually expect, so a part held on stand
+// through a long delay is not declared over before it has left — the same rule
+// the departure branch below it already applies. The cap on that slip stops a
+// revision that is never updated again holding the part open indefinitely,
+// which is the whole point of having a cap.
+func TestRefreshStatusUnknownArrivalHonoursDelayedDeparture(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	// Timetabled 25h ago (past the cap), but the airline has it leaving in an
+	// hour. It has not departed, so it certainly has not arrived.
+	delayed := mkFlightPart(t, s, owner, "G31853", now.Add(-25*time.Hour), now.Add(-25*time.Hour))
+	eta := now.Add(time.Hour)
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET estimated_out = $2 WHERE plan_part_id = $1`, delayed, eta); err != nil {
+		t.Fatalf("set estimated_out: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, delayed); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, delayed)
+	if f.Status == "Arrived" {
+		t.Errorf("a flight that has not departed must not be Arrived, got %q", f.Status)
+	}
+
+	// A revised departure that stopped being updated must not defeat the cap:
+	// the slip allowance is 12h, so 12h + 24h past the timetable it is over
+	// regardless of what the stale estimate still claims.
+	stale := mkFlightPart(t, s, owner, "G31854", now.Add(-40*time.Hour), now.Add(-40*time.Hour))
+	staleETA := now.Add(-38 * time.Hour).Add(100 * time.Hour) // never updated again
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET estimated_out = $2 WHERE plan_part_id = $1`, stale, staleETA); err != nil {
+		t.Fatalf("set stale estimated_out: %v", err)
+	}
+	if err := s.RefreshFlightPartStatus(ctx, stale); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, _ = s.FlightPartByID(ctx, stale)
+	if f.Status != "Arrived" {
+		t.Errorf("a stale revision must not hold the part open for ever, got %q", f.Status)
+	}
+}
