@@ -1315,6 +1315,20 @@ func TestNeedsLateRefresh(t *testing.T) {
 	if !needsLateRefresh(fresh, now) {
 		t.Error("an in-window, never-resolved flight should need a late refresh")
 	}
+
+	// In-window and already resolved: it is the staleness of what we hold that
+	// decides, on the ramp that tightens toward departure. An hour out that
+	// ramp is five minutes.
+	justAsked := now.Add(-2 * time.Minute)
+	recent := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(time.Hour), LastResolvedAt: &justAsked}
+	if needsLateRefresh(recent, now) {
+		t.Error("a flight resolved two minutes ago should not need refreshing again")
+	}
+	askedAWhileAgo := now.Add(-10 * time.Minute)
+	stale := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(time.Hour), LastResolvedAt: &askedAWhileAgo}
+	if !needsLateRefresh(stale, now) {
+		t.Error("a flight resolved ten minutes ago, an hour from departure, is stale")
+	}
 }
 
 // TestTickMetadataListErrorReturns covers the FlightPartsNeedingMetadata error
@@ -1732,5 +1746,76 @@ func TestResolveThrottled(t *testing.T) {
 	}
 	if resolveThrottled(known(now.Add(-6*time.Minute)), now) {
 		t.Error("a known flight asked about 6 minutes ago should be askable")
+	}
+}
+
+// failOnColumnChange installs a trigger that fails any UPDATE to flight_details
+// which changes col. resolveAndUpdate writes the row in several steps, each
+// touching different columns, so this is how a test reaches the error branch of
+// one particular step: a cancelled context only ever fails the first.
+func failOnColumnChange(t *testing.T, s *store.Store, col string) {
+	t.Helper()
+	ctx := context.Background()
+	fn := "fail_fd_" + col
+	if _, err := s.Pool().Exec(ctx, `
+		CREATE OR REPLACE FUNCTION `+fn+`() RETURNS trigger AS $$
+		BEGIN RAISE EXCEPTION 'blocked by test'; END;
+		$$ LANGUAGE plpgsql`); err != nil {
+		t.Fatalf("create trigger fn: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx,
+		`CREATE TRIGGER `+fn+`_trg BEFORE UPDATE ON flight_details FOR EACH ROW
+		 WHEN (NEW.`+col+` IS DISTINCT FROM OLD.`+col+`) EXECUTE FUNCTION `+fn+`()`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.Pool().Exec(context.Background(), `DROP TRIGGER IF EXISTS `+fn+`_trg ON flight_details`)
+	})
+}
+
+// TestResolveAndUpdate_StepFailures pins the distinction the steps inside
+// resolveAndUpdate draw between themselves. The airframe and gate writes carry
+// metadata the tracker and the alert path depend on, so a failure there aborts
+// the resolve. The live arrival and departure times are best-effort: a failure
+// must NOT abort, because doing so would discard the airframe and gate work
+// already persisted and leave the row half-written.
+func TestResolveAndUpdate_StepFailures(t *testing.T) {
+	cases := []struct {
+		name      string
+		col       string
+		wantAbort bool
+	}{
+		{"gate write aborts", "origin_gate", true},
+		{"arrival times are best-effort", "estimated_in", false},
+		{"departure times are best-effort", "estimated_out", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+			now := time.Now()
+			eIn, eOut := now.Add(90*time.Minute), now.Add(-50*time.Minute)
+			p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+				Ident: "RU3", OriginIATA: "LHR", DestIATA: "JFK", ICAO24: "406b05",
+				OriginGate: "A1", DestGate: "B2",
+				EstimatedIn: &eIn, EstimatedOut: &eOut,
+			}}
+			uid := seedUser(t, s)
+			f, err := mkPart(context.Background(), s, partSeed{
+				Ident: "RU3", ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+				OriginIATA: "LHR", DestIATA: "JFK",
+			}, uid)
+			if err != nil {
+				t.Fatalf("mkPart: %v", err)
+			}
+			failOnColumnChange(t, s, c.col)
+
+			_, rerr := p.resolveAndUpdate(context.Background(), f, now)
+			if c.wantAbort && rerr == nil {
+				t.Fatalf("a failed %s write should abort the resolve", c.col)
+			}
+			if !c.wantAbort && rerr != nil {
+				t.Fatalf("a failed %s write must not abort the resolve: %v", c.col, rerr)
+			}
+		})
 	}
 }
