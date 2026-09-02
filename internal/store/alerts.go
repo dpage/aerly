@@ -9,17 +9,20 @@ import (
 )
 
 // AlertPrefs is a user's per-channel alert configuration. MinDelayMin
-// suppresses time changes below the threshold.
+// suppresses time changes below the threshold; Checkin opts the user in to the
+// check-in reminder (issue #119), which rides the same InApp/Email channels.
 type AlertPrefs struct {
 	UserID      int64
 	InApp       bool
 	Email       bool
 	MinDelayMin int
+	Checkin     bool
 }
 
 // defaultAlertPrefs mirrors the alert_prefs column defaults (spec §9 / PRD
-// §6.8): in-app + email on, 15-minute delay threshold. Returned by
-// AlertPrefsFor when a user has no explicit row, and used as the upsert base.
+// §6.8): in-app + email on, 15-minute delay threshold, check-in reminders off.
+// Returned by AlertPrefsFor when a user has no explicit row, and used as the
+// upsert base.
 func defaultAlertPrefs(userID int64) AlertPrefs {
 	return AlertPrefs{UserID: userID, InApp: true, Email: true, MinDelayMin: 15}
 }
@@ -29,9 +32,9 @@ func defaultAlertPrefs(userID int64) AlertPrefs {
 func (s *Store) AlertPrefsFor(ctx context.Context, userID int64) (*AlertPrefs, error) {
 	p := defaultAlertPrefs(userID)
 	err := s.pool.QueryRow(ctx, `
-		SELECT in_app, email, min_delay_min
+		SELECT in_app, email, min_delay_min, checkin
 		FROM alert_prefs WHERE user_id = $1`, userID).
-		Scan(&p.InApp, &p.Email, &p.MinDelayMin)
+		Scan(&p.InApp, &p.Email, &p.MinDelayMin, &p.Checkin)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return &p, nil
 	}
@@ -44,13 +47,14 @@ func (s *Store) AlertPrefsFor(ctx context.Context, userID int64) (*AlertPrefs, e
 // SetAlertPrefs upserts a user's alert preferences.
 func (s *Store) SetAlertPrefs(ctx context.Context, in AlertPrefs) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO alert_prefs (user_id, in_app, email, min_delay_min)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO alert_prefs (user_id, in_app, email, min_delay_min, checkin)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (user_id) DO UPDATE
 		SET in_app = EXCLUDED.in_app,
 		    email = EXCLUDED.email,
-		    min_delay_min = EXCLUDED.min_delay_min`,
-		in.UserID, in.InApp, in.Email, in.MinDelayMin)
+		    min_delay_min = EXCLUDED.min_delay_min,
+		    checkin = EXCLUDED.checkin`,
+		in.UserID, in.InApp, in.Email, in.MinDelayMin, in.Checkin)
 	return err
 }
 

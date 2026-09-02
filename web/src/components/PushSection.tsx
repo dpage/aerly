@@ -31,8 +31,8 @@ export default function PushSection() {
   if (iosHint) {
     return (
       <Alert severity="info">
-        To get push notifications on iPhone or iPad, add Aerly to your Home Screen first (Share → Add
-        to Home Screen), then open it from there.
+        To get push notifications on iPhone or iPad, add Aerly to your Home Screen first (Share →
+        Add to Home Screen), then open it from there.
       </Alert>
     );
   }
@@ -64,8 +64,8 @@ export default function PushSection() {
         </FormGroup>
         {denied && (
           <Alert severity="warning" sx={{ mt: 1 }}>
-            Notifications are blocked. Allow them for Aerly in your browser&apos;s site settings, then
-            try again.
+            Notifications are blocked. Allow them for Aerly in your browser&apos;s site settings,
+            then try again.
           </Alert>
         )}
         {lastError === 'disabled' && (
@@ -103,6 +103,15 @@ export default function PushSection() {
                 />
               }
               label="Trip shares"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={prefs.checkin}
+                  onChange={(e) => void setPushKind('checkin', e.target.checked)}
+                />
+              }
+              label="Check-in reminders"
             />
           </FormGroup>
         </Box>

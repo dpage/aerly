@@ -7,7 +7,7 @@ coverage.txt
 coverage.html
 
 # Node / Vite
-web/node_modules/
+web/node_modules
 web/dist/
 !web/dist/.keep
 web/.vite/

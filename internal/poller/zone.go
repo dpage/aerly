@@ -5,7 +5,6 @@ import (
 
 	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/geotz"
-	"github.com/dpage/aerly/internal/store"
 )
 
 // Timezone resolution for the notifications the poller sends (issue #117).
@@ -35,16 +34,17 @@ func airportZone(iata string, lat, lon *float64) string {
 	return ""
 }
 
-// reminderZone picks the zone an upcoming-plan reminder should be written in:
-// the part's own zone when it stored one, else the departure airport's for a
-// flight, else the zone under whatever coordinate the part was geocoded to,
+// partZone picks the zone a notification about a plan part should be written
+// in: the part's own zone when it stored one, else the departure airport's for
+// a flight, else the zone under whatever coordinate the part was geocoded to,
 // which covers hotels and transfers ingested before coordinate-based anchoring
-// existed. "" leaves the mailer on its UTC fallback.
-func reminderZone(d store.DueReminder) string {
-	if d.StartTZ != "" {
-		return d.StartTZ
+// existed. "" leaves the mailer on its UTC fallback. Shared by the upcoming-plan
+// reminders and the check-in reminders, which want the same answer.
+func partZone(storedTZ, iata string, lat, lon *float64) string {
+	if storedTZ != "" {
+		return storedTZ
 	}
-	return airportZone(d.OriginIATA, d.StartLat, d.StartLon)
+	return airportZone(iata, lat, lon)
 }
 
 // inZone renders t against the named IANA zone, falling back to UTC when the

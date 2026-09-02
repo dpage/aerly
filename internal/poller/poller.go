@@ -161,6 +161,21 @@ func (p *Poller) minPollAge(f *store.Flight, now time.Time) time.Duration {
 
 func (p *Poller) tick(ctx context.Context) {
 	now := time.Now()
+
+	// Reminders run first, and deliberately ahead of everything that can bail
+	// out of the tick. They are independent of the flight-tracking passes below
+	// and read the database directly, but they are the only work here that
+	// cannot be made good later: a lead window that closes whilst a transient
+	// store error is bouncing the tracking passes is a reminder the traveller
+	// simply never gets, whereas a skipped poll cycle just means fresher data
+	// next tick.
+	//
+	// Upcoming-plan reminders (issue #11) and flight check-in reminders
+	// (issue #119) are independent of each other and of the status-change alert
+	// path further down.
+	p.remindUpcoming(ctx, now)
+	p.remindCheckins(ctx, now)
+
 	flights, err := p.Store.ActiveFlightParts(ctx, now)
 	if err != nil {
 		slog.Error("poller: list active flight parts", "err", err)
@@ -237,10 +252,6 @@ func (p *Poller) tick(ctx context.Context) {
 		}
 		guard("poller.refreshAfterArrival", f.ID, func() { p.refreshAfterArrival(ctx, f, now) })
 	}
-
-	// Upcoming-plan reminders (issue #11) — independent of the status-change
-	// alert path above.
-	p.remindUpcoming(ctx, now)
 }
 
 // postArrivalPollInterval is how often a landed part is re-resolved inside the
