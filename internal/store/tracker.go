@@ -518,8 +518,11 @@ func (s *Store) RefreshFlightPartArrival(ctx context.Context, partID int64, esti
 // schedule that turned out to differ from the published one). Once a flight is
 // provider-confirmed (resolved = true) its schedule is frozen as the delay
 // baseline and left untouched; live changes then flow through estimated/actual.
-// Callers must not pass a zero/degenerate provider schedule (the poller guards
-// on ScheduledIn.After(ScheduledOut) before calling).
+// Two callers, with different guarantees. The poller passes a provider schedule
+// and guards on ScheduledIn.After(ScheduledOut) first, so it never writes a
+// degenerate one. The plan-part edit path passes the traveller's own times,
+// where an arrival equal to the departure is a legitimate "no arrival known"
+// and must be stored as given rather than invented.
 func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out, in time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET scheduled_out = $2, scheduled_in = $3

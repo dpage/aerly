@@ -793,6 +793,19 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		handleStoreErr(w, err)
 		return
 	}
+	// A flight part's plan_parts times and its flight_details schedule are two
+	// views of the same thing, but only the first was written here: a traveller
+	// who corrected a flight's date left flight_details on the old one, and the
+	// poller then spent every tick asking the provider about a day the flight
+	// never flew. Done before the flight edit below so a re-resolve triggered in
+	// the same request looks up the corrected date, and so provider data still
+	// wins where both apply.
+	if part.Type == "flight" && (in.StartsAt != nil || in.EndsAt != nil) {
+		if err := a.syncFlightSchedule(r.Context(), id, part); err != nil {
+			handleStoreErr(w, err)
+			return
+		}
+	}
 	// A flight route/identity edit is applied after the generic part update so
 	// a re-resolve's regenerated labels win over any label sent in the same
 	// request. Reload the part afterwards so the DTO reflects the new route.
@@ -936,6 +949,43 @@ func clampNonNegative(n *int) *int {
 // honoured only for an unresolved flight (otherwise a re-resolve would clobber
 // it), where it rewrites the route, regenerates the label, and recomputes (or
 // clears) the airport's coordinates/timezone.
+// syncFlightSchedule brings an unresolved flight's scheduled_out/scheduled_in
+// back in line with the part's own times after a schedule edit.
+//
+// A provider-confirmed flight is left alone: its schedule is the baseline every
+// delay is measured against, and the store guard enforces that regardless.
+//
+// When the request names no usable arrival, the old block time is carried
+// across rather than the arrival being left where it was. Otherwise moving a
+// departure later would leave an arrival before it — the degenerate shape that
+// no arrival branch can ever terminate. A flight that had no arrival to begin
+// with keeps having none, which is the honest answer rather than an invented
+// one.
+func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.PlanPart) error {
+	fd, err := a.Store.FlightDetailFor(ctx, partID)
+	if err != nil || fd == nil {
+		return err
+	}
+	if fd.Resolved {
+		return nil
+	}
+	out := part.StartsAt
+	in := out.Add(fd.ScheduledIn.Sub(fd.ScheduledOut))
+	// An arrival equal to the departure is the stored form of "no arrival
+	// known", so it is taken as given: treating it as absent would leave the
+	// old block time here whilst the part itself says there is none, which is
+	// the divergence this whole function exists to remove. Only an arrival
+	// genuinely before the departure is refused, in favour of the carried block
+	// time, since storing an inverted schedule helps nobody.
+	if part.EndsAt != nil && !part.EndsAt.Before(out) {
+		in = *part.EndsAt
+	}
+	if out.Equal(fd.ScheduledOut) && in.Equal(fd.ScheduledIn) {
+		return nil
+	}
+	return a.Store.RefreshFlightPartSchedule(ctx, partID, out, in)
+}
+
 func (a *API) applyFlightEdit(ctx context.Context, partID int64, in flightEditReq) error {
 	fd, err := a.Store.FlightDetailFor(ctx, partID)
 	if err != nil {
