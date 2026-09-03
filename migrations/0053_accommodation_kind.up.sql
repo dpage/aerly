@@ -1,0 +1,19 @@
+-- Migration 0053: describe what sort of accommodation a 'hotel' plan is.
+--
+-- 'hotel' has always been the only accommodation type, and structurally it has
+-- always been general: a ranged stay at a place, with the part's starts_at and
+-- ends_at as the check-in and check-out instants. Only the copy was narrow. A
+-- campsite pitch, a caravan park, a bivvy by a lake and a bedchair in the back
+-- of a van parked on a friend's drive all fit the existing shape perfectly
+-- well; none of them are hotels.
+--
+-- Rather than add a plan type per sort of roof (and with it an enum change, a
+-- satellite table, and a pass over every hand-maintained per-type copy list),
+-- the type stays 'hotel' on the wire and gains a free-text description of what
+-- it actually is. Free text rather than a CHECK constraint because the long
+-- tail here is genuinely long, and a constrained set would need a migration
+-- every time reality produced a new sort of place to sleep.
+--
+-- '' means "not stated", which is what every existing row becomes; the UI
+-- falls back to the generic "Accommodation" label for those.
+ALTER TABLE hotel_details ADD COLUMN kind TEXT NOT NULL DEFAULT '';
