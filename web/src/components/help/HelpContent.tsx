@@ -86,7 +86,7 @@ const PLAN_TYPE_HELP: Record<PlanType, string> = {
     'Airline bookings. These get live tracking on the map, plus gate, terminal and baggage-belt updates where the airline publishes them.',
   train: 'Rail journeys, drawn from origin to destination on the map like a flight.',
   hotel:
-    "Somewhere to stay. Accommodation tiles carry an Explore nearby button for finding things to do around where you're staying.",
+    "Somewhere to stay, of any sort: a hotel, a B&B, a campsite, a caravan park, or a stay with friends. The Kind field records which. Accommodation tiles carry an Explore nearby button for finding things to do around where you're staying.",
   ground: 'Taxis, airport transfers and any other point-to-point road travel.',
   vehicle_hire:
     'Car hire, held as a pickup and a drop-off, so both ends appear on the timeline and map rather than just the collection.',
@@ -127,7 +127,7 @@ export const HELP_PAGES: HelpPage[] = [
     body: (
       <Box>
         <Body>
-          Aerly keeps a trip&apos;s travel in one place. Add flights, trains, hotels, car hire,
+          Aerly keeps a trip&apos;s travel in one place. Add flights, trains, accommodation, car hire,
           transfers, meals, excursions, meetings and events to a trip, and they appear on a shared
           timeline and map — with live flight tracking where available. You can browse what&apos;s
           nearby, share plans with friends, and install Aerly on your phone to get it full-screen
@@ -195,7 +195,7 @@ export const HELP_PAGES: HelpPage[] = [
     body: (
       <Box>
         <Body>
-          A plan is a single booking — a flight, a hotel, a train, a hire car, a meal, whatever the
+          A plan is a single booking — a flight, a place to stay, a train, a hire car, a meal, whatever the
           trip is made of. Open a trip and click <strong>New plan</strong> to add one.
         </Body>
         <SectionTitle>Plan types</SectionTitle>
@@ -244,7 +244,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Explore nearby"
-          description="Accommodation tiles also carry an Explore nearby button that opens the Explore view anchored to the hotel, to find things to do around where you're staying. See Explore nearby."
+          description="Accommodation tiles also carry an Explore nearby button that opens the Explore view anchored to the accommodation, to find things to do around where you're staying. See Explore nearby."
         />
         <FeatureItem
           title="Notifications"
@@ -271,7 +271,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Paths"
-          description="Anything with two ends — a flight, a train, a transfer, a hire car from pickup to drop-off — is drawn as a line between them; somewhere you simply go to, like a hotel or a restaurant, is a single pin."
+          description="Anything with two ends — a flight, a train, a transfer, a hire car from pickup to drop-off — is drawn as a line between them; somewhere you simply go to, like a campsite or a restaurant, is a single pin."
         />
         <SectionTitle>Selecting an item</SectionTitle>
         <FeatureItem
@@ -316,12 +316,12 @@ export const HELP_PAGES: HelpPage[] = [
           Explore finds points of interest around your trip — sights, museums, landmarks, parks and
           places to eat — and lets you add any of them as an excursion. Open a trip and pick the{' '}
           <strong>Explore</strong> tab, or tap <strong>Explore nearby</strong> on an accommodation
-          tile to start from the hotel.
+          tile to start from where you&apos;re staying.
         </Body>
         <SectionTitle>Searching</SectionTitle>
         <FeatureItem
           title="Where to look"
-          description="Type a place or address and search, or let it centre on the hotel when you opened it from an Explore nearby button (the place box is hidden then, since the location is already fixed)."
+          description="Type a place or address and search, or let it centre on where you're staying when you opened it from an Explore nearby button (the place box is hidden then, since the location is already fixed)."
         />
         <FeatureItem
           title="Search by interest"

@@ -737,6 +737,20 @@ describe('TripTimeline', () => {
       },
       {
         p: {
+          id: 18,
+          type: 'hotel',
+          hotel: {
+            property_name: 'Test Campsite',
+            address: '',
+            phone: '555-0100',
+            room_type: 'Grass pitch',
+            kind: 'Campsite',
+          },
+        },
+        expect: [/Campsite · Grass pitch · 555-0100/],
+      },
+      {
+        p: {
           id: 12,
           type: 'train',
           train: {

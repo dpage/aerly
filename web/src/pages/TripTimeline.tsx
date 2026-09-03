@@ -1115,7 +1115,7 @@ function partDetailLines(part: PlanPart): string[] {
   const out: string[] = [];
   switch (part.type) {
     case 'hotel':
-      if (part.hotel) out.push(join(part.hotel.room_type, part.hotel.phone));
+      if (part.hotel) out.push(join(part.hotel.kind, part.hotel.room_type, part.hotel.phone));
       break;
     case 'train':
       if (part.train) {
