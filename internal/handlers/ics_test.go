@@ -9,13 +9,14 @@ import (
 )
 
 // TestTitleCaseType pins the SUMMARY parenthetical for a non-banded event.
-// vehicle_hire gets its own human label ("Car hire"); every other type must
-// keep rendering exactly as it does today, since the feed is subscribable.
+// vehicle_hire and hotel get their own human labels ("Car hire",
+// "Accommodation"); every other type keeps rendering the plain title-cased
+// wire key, unchanged, since the feed is subscribable.
 func TestTitleCaseType(t *testing.T) {
 	cases := map[string]string{
 		"vehicle_hire": "Car hire",
 		"flight":       "Flight",
-		"hotel":        "Hotel",
+		"hotel":        "Accommodation",
 		"ground":       "Ground",
 		"train":        "Train",
 		"":             "Plan",

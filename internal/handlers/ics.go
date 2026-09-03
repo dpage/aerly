@@ -564,6 +564,8 @@ func titleCaseType(t string) string {
 		return "Plan"
 	case "vehicle_hire":
 		return "Car hire"
+	case "hotel":
+		return "Accommodation"
 	default:
 		return strings.ToUpper(t[:1]) + t[1:]
 	}
