@@ -58,6 +58,9 @@ type ExtractedPart struct {
 	Address   string
 	Phone     string
 	RoomType  string
+	// HotelKind is the sort of accommodation the source describes (e.g.
+	// "Campsite", "Caravan park"), '' when it does not say.
+	HotelKind string
 
 	// Train (Type=="train").
 	Operator  string

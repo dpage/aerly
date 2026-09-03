@@ -295,6 +295,7 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 			Address:      part.Address,
 			Phone:        part.Phone,
 			RoomType:     part.RoomType,
+			Kind:         part.HotelKind,
 		}
 		if out.StartLabel == "" {
 			out.StartLabel = part.HotelName
