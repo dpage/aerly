@@ -183,3 +183,10 @@ func TestToFlightDetailDTOMapsGateAndTerminal(t *testing.T) {
 		t.Errorf("dest baggage belt = %q, want 34", out.DestBaggageBelt)
 	}
 }
+
+func TestToHotelDetailDTOCarriesKind(t *testing.T) {
+	got := ToHotelDetailDTO(&store.HotelDetail{PropertyName: "Test Campsite", Kind: "Campsite"})
+	if got.Kind != "Campsite" {
+		t.Fatalf("Kind = %q, want %q", got.Kind, "Campsite")
+	}
+}

@@ -722,6 +722,7 @@ type HotelDetailDTO struct {
 	Address           string     `json:"address"`
 	Phone             string     `json:"phone"`
 	RoomType          string     `json:"room_type"`
+	Kind              string     `json:"kind"`
 	Guests            *int       `json:"guests,omitempty"`
 	StandardCheckin   *string    `json:"standard_checkin,omitempty"` // HH:MM
 	StandardCheckout  *string    `json:"standard_checkout,omitempty"`
@@ -1029,6 +1030,7 @@ func ToHotelDetailDTO(d *store.HotelDetail) *HotelDetailDTO {
 		Address:          d.Address,
 		Phone:            d.Phone,
 		RoomType:         d.RoomType,
+		Kind:             d.Kind,
 		Guests:           d.Guests,
 		StandardCheckin:  d.StandardCheckin,
 		StandardCheckout: d.StandardCheckout,

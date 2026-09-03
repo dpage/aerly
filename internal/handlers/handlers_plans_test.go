@@ -684,3 +684,26 @@ func TestUpdatePlanPartSyncsFlightScheduleInvertedArrival(t *testing.T) {
 		t.Errorf("block time = %v, want the carried 2h", gotIn.Sub(gotOut))
 	}
 }
+
+// TestPatchHotelPartUpdatesKind covers the hotel per-type update block's Kind
+// field, so a stay can be re-typed from a hotel to a campsite via PATCH.
+func TestPatchHotelPartUpdatesKind(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "hotelkindpatch", false)
+	_, _, partID := g2makePlanOfType(t, e, owner, "hotel", map[string]any{
+		"property_name": "Test Campsite",
+	})
+	w := e.req(t, "PATCH", fmt.Sprintf("/api/plan-parts/%d", partID),
+		map[string]any{"hotel": map[string]any{"kind": "Campsite"}}, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("hotel kind edit = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	body := decodeBody[map[string]any](t, w)
+	hotel, ok := body["hotel"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected hotel object in response, got %v", body)
+	}
+	if hotel["kind"] != "Campsite" {
+		t.Errorf("kind = %v, want Campsite", hotel["kind"])
+	}
+}

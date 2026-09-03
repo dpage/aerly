@@ -232,6 +232,7 @@ type hotelEditReq struct {
 	PropertyName *string `json:"property_name,omitempty"`
 	Phone        *string `json:"phone,omitempty"`
 	RoomType     *string `json:"room_type,omitempty"`
+	Kind         *string `json:"kind,omitempty"`
 	Guests       *int    `json:"guests,omitempty"`
 }
 
@@ -887,6 +888,7 @@ func (a *API) applyPartDetailEdit(ctx context.Context, id int64, partType string
 				PropertyName: in.Hotel.PropertyName,
 				Phone:        in.Hotel.Phone,
 				RoomType:     in.Hotel.RoomType,
+				Kind:         in.Hotel.Kind,
 				Guests:       clampNonNegative(in.Hotel.Guests),
 			})
 		}

@@ -132,11 +132,15 @@ func coalesceTime(ts ...*time.Time) time.Time {
 // are the part's StartsAt / EndsAt; StandardCheckin/Checkout are local
 // time-of-day hints for the smart-times calc.
 type HotelDetail struct {
-	PlanPartID       int64
-	PropertyName     string
-	Address          string
-	Phone            string
-	RoomType         string
+	PlanPartID   int64
+	PropertyName string
+	Address      string
+	Phone        string
+	RoomType     string
+	// Kind describes what sort of accommodation this is (e.g. "Campsite",
+	// "Caravan park", "Staying with friends"). Free text, '' when not stated,
+	// in which case callers show the generic accommodation label.
+	Kind             string
 	Guests           *int
 	StandardCheckin  *string // "HH:MM" local, nil → default
 	StandardCheckout *string
@@ -460,9 +464,9 @@ func insertDetailTx(ctx context.Context, tx pgx.Tx, partID int64, planType strin
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO hotel_details (plan_part_id, property_name, address, phone,
-				room_type, guests, standard_checkin, standard_checkout)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-			partID, d.PropertyName, d.Address, d.Phone, d.RoomType, d.Guests,
+				room_type, kind, guests, standard_checkin, standard_checkout)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			partID, d.PropertyName, d.Address, d.Phone, d.RoomType, d.Kind, d.Guests,
 			d.StandardCheckin, d.StandardCheckout)
 		return err
 	case "train":
@@ -1285,10 +1289,10 @@ func (s *Store) HotelDetailFor(ctx context.Context, partID int64) (*HotelDetail,
 	var d HotelDetail
 	var ci, co *time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT plan_part_id, property_name, address, phone, room_type, guests,
+		SELECT plan_part_id, property_name, address, phone, room_type, kind, guests,
 			standard_checkin, standard_checkout
 		FROM hotel_details WHERE plan_part_id = $1`, partID).Scan(
-		&d.PlanPartID, &d.PropertyName, &d.Address, &d.Phone, &d.RoomType,
+		&d.PlanPartID, &d.PropertyName, &d.Address, &d.Phone, &d.RoomType, &d.Kind,
 		&d.Guests, &ci, &co)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil //nolint:nilnil
@@ -1483,20 +1487,22 @@ type HotelDetailUpdate struct {
 	PropertyName *string
 	Phone        *string
 	RoomType     *string
+	Kind         *string
 	Guests       *int
 }
 
 // UpdateHotelDetail writes a hotel detail edit, upserting the satellite row.
 func (s *Store) UpdateHotelDetail(ctx context.Context, partID int64, up HotelDetailUpdate) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO hotel_details (plan_part_id, property_name, phone, room_type, guests)
-		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''), COALESCE($4, ''), $5)
+		INSERT INTO hotel_details (plan_part_id, property_name, phone, room_type, kind, guests)
+		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''), COALESCE($4, ''), COALESCE($5, ''), $6)
 		ON CONFLICT (plan_part_id) DO UPDATE SET
 			property_name = COALESCE($2, hotel_details.property_name),
 			phone         = COALESCE($3, hotel_details.phone),
 			room_type     = COALESCE($4, hotel_details.room_type),
-			guests        = COALESCE($5, hotel_details.guests)`,
-		partID, up.PropertyName, up.Phone, up.RoomType, up.Guests)
+			kind          = COALESCE($5, hotel_details.kind),
+			guests        = COALESCE($6, hotel_details.guests)`,
+		partID, up.PropertyName, up.Phone, up.RoomType, up.Kind, up.Guests)
 	return err
 }
 
