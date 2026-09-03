@@ -296,6 +296,7 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 			Phone:        part.Phone,
 			RoomType:     part.RoomType,
 			Kind:         part.HotelKind,
+			Guests:       part.Guests,
 		}
 		if out.StartLabel == "" {
 			out.StartLabel = part.HotelName
@@ -314,6 +315,9 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 			Operator:  part.Operator,
 			ServiceNo: part.ServiceNo,
 			Class:     part.Class,
+			Coach:     part.Coach,
+			Seat:      part.Seat,
+			Platform:  part.Platform,
 		}
 	case "ground":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 9)
@@ -328,7 +332,13 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 			e := combineLocal(d, part.EndTime, 9)
 			out.EndsAt = &e
 		}
-		out.Ground = &store.GroundDetail{Provider: part.Provider, Vehicle: part.Vehicle}
+		out.Ground = &store.GroundDetail{
+			Provider: part.Provider,
+			Phone:    part.Phone,
+			Vehicle:  part.Vehicle,
+			Driver:   part.Driver,
+			Pax:      part.Pax,
+		}
 	case "vehicle_hire":
 		// A hire desk opening time (09:00) is a better guess than a hotel's
 		// 15:00/11:00 check-in/out defaults when the email omits a time.
@@ -350,10 +360,17 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 		}
 	case "dining":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 19)
-		out.Dining = &store.DiningDetail{ReservationName: part.ReservationName}
+		out.Dining = &store.DiningDetail{
+			ReservationName: part.ReservationName,
+			Phone:           part.Phone,
+			PartySize:       part.PartySize,
+		}
 	case "excursion":
 		out.StartsAt = combineLocal(part.StartDate, part.StartTime, 9)
-		out.Excursion = &store.ExcursionDetail{}
+		out.Excursion = &store.ExcursionDetail{
+			Provider:    part.Provider,
+			TicketCount: part.TicketCount,
+		}
 		if out.StartLabel == "" {
 			out.StartLabel = part.ExcursionTitle
 		}

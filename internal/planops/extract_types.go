@@ -53,23 +53,44 @@ type ExtractedPart struct {
 
 	Flight FlightFields // Type=="flight"
 
+	// Shared by several types, because they mean the same thing wherever they
+	// appear and Type decides which satellite they land in. Phone is the
+	// booking-specific contact number (the property, the transfer firm, the
+	// restaurant); Provider is whoever runs the thing (the transfer company,
+	// the tour operator).
+	Phone    string
+	Provider string
+
+	// Counts of people or tickets. Pointers because the columns behind them are
+	// nullable on purpose: "not stated" and a genuine zero are different facts,
+	// mirroring how HireExcessAmount treats a missing figure.
+	Guests      *int // Type=="hotel"
+	Pax         *int // Type=="ground"
+	PartySize   *int // Type=="dining"
+	TicketCount *int // Type=="excursion"
+
 	// Hotel (Type=="hotel"). StartDate/EndDate are check-in/out days.
 	HotelName string
 	Address   string
-	Phone     string
 	RoomType  string
 	// HotelKind is the sort of accommodation the source describes (e.g.
 	// "Campsite", "Caravan park"), '' when it does not say.
 	HotelKind string
 
-	// Train (Type=="train").
+	// Train (Type=="train"). Coach/Seat/Platform are printed on most tickets,
+	// so they are worth capturing even though none of them is load-bearing.
 	Operator  string
 	ServiceNo string
 	Class     string
+	Coach     string
+	Seat      string
+	Platform  string
 
-	// Ground (Type=="ground").
-	Provider string
-	Vehicle  string
+	// Ground (Type=="ground"). Driver is the named driver when a transfer
+	// confirmation gives one; it stays empty for a journey the traveller drives
+	// themselves, which has no driver to name.
+	Vehicle string
+	Driver  string
 
 	// Dining (Type=="dining").
 	ReservationName string
