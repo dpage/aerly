@@ -22,7 +22,7 @@ func TestPlansPromptDrawsHireLineAtOwnership(t *testing.T) {
 
 	for _, want := range []string{
 		"already own",
-		`is "ground", not "vehicle_hire"`,
+		"not the traveller's own",
 		"hire company",
 	} {
 		if !strings.Contains(p, want) {
@@ -39,10 +39,10 @@ func TestExtractPlansSelfDrivenJourneyStaysGround(t *testing.T) {
 	  "parts":[
 	    {"type":"ground","confidence":"high","start_date":"2026-09-11",
 	     "start_label":"Home","end_label":"Test Campsite",
-	     "ground":{"provider":"","phone":"","vehicle":"Test Van","driver":"","pax":2}},
+	     "ground":{"provider":"","vehicle":"Test Van"}},
 	    {"type":"ground","confidence":"high","start_date":"2026-09-14",
 	     "start_label":"Test Campsite","end_label":"Home",
-	     "ground":{"provider":"","phone":"","vehicle":"Test Van","driver":"","pax":2}}]}]}`
+	     "ground":{"provider":"","vehicle":"Test Van"}}]}]}`
 	x, _ := newExtractor(raw)
 	plans, err := x.ExtractPlans(context.Background(), "body", nil)
 	if err != nil {
