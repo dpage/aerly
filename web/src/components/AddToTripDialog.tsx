@@ -1057,6 +1057,7 @@ function toHotelInput(h: Partial<HotelDetail>): Partial<HotelDetail> {
     property_name: h.property_name,
     address: h.address,
     phone: h.phone,
+    kind: h.kind,
     room_type: h.room_type,
     guests: h.guests,
     standard_checkin: h.standard_checkin,

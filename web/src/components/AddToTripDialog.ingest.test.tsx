@@ -446,7 +446,7 @@ describe('AddToTripDialog - paste/confirm flow', () => {
     expect(flight).not.toHaveProperty('track');
   });
 
-  it('strips derived hotel suggestion fields from the confirm payload', async () => {
+  it('strips derived hotel suggestion fields but keeps real ones (kind) in the confirm payload', async () => {
     h.state.ingest.mockImplementation(async () => {
       h.state.ingestProposals = [
         proposal({
@@ -459,7 +459,7 @@ describe('AddToTripDialog - paste/confirm flow', () => {
                 address: 'Sal, Cape Verde',
                 phone: '',
                 room_type: 'Double',
-                kind: '',
+                kind: 'Campsite',
                 standard_checkin: '15:00',
                 standard_checkout: '11:00',
                 checkin_suggested: '2026-10-12T15:00:00Z',
@@ -481,6 +481,9 @@ describe('AddToTripDialog - paste/confirm flow', () => {
     const hotel = h.state.confirmIngest.mock.calls[0][1][0].parts[0].hotel;
     expect(hotel.property_name).toBe('Melia Tortuga Beach Resort and Spa');
     expect(hotel.standard_checkin).toBe('15:00');
+    // The kind an LLM extraction captured is real data, not server-derived:
+    // it must survive the confirm payload alongside the other real fields.
+    expect(hotel.kind).toBe('Campsite');
     expect(hotel).not.toHaveProperty('checkin_suggested');
     expect(hotel).not.toHaveProperty('checkout_suggested');
   });
