@@ -100,13 +100,13 @@ func TestRenderItineraryPDFSingleAddress(t *testing.T) {
 	}
 	// The place label repeats the title, so it must not also appear as its own
 	// detail line. In the content stream the title renders as
-	// "(Hotel: <name> \(Check-in\))" while a stray label line would render as the
-	// bare "(<name>)".
+	// "(Accommodation: <name> \(Check-in\))" while a stray label line would render
+	// as the bare "(<name>)".
 	if strings.Contains(s, "("+name+")") {
 		t.Errorf("the place label should not repeat as a line when it echoes the title")
 	}
-	if !strings.Contains(s, `(Hotel: `+name+` \(Check-in\))`) {
-		t.Errorf("the title should still name the hotel and mark the check-in:\n%s", s)
+	if !strings.Contains(s, `(Accommodation: `+name+` \(Check-in\))`) {
+		t.Errorf("the title should still name the accommodation and mark the check-in:\n%s", s)
 	}
 }
 
@@ -126,8 +126,8 @@ func TestRenderItineraryPDFHotelCheckOut(t *testing.T) {
 	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
 
 	for _, want := range []string{
-		`Hotel: Radisson Blu \(Check-in\)`,
-		`Hotel: Radisson Blu \(Check-out\)`,
+		`Accommodation: Radisson Blu \(Check-in\)`,
+		`Accommodation: Radisson Blu \(Check-out\)`,
 		"Check-in: Mon 7 Sep, 15:00",
 		"Check-out: Wed 9 Sep, 12:00",
 		"Monday, 7 September 2026",
@@ -339,7 +339,7 @@ func TestPageSize(t *testing.T) {
 
 func TestTypeLabel(t *testing.T) {
 	cases := map[string]string{
-		"flight": "Flight", "train": "Train", "hotel": "Hotel", "vehicle_hire": "Car hire",
+		"flight": "Flight", "train": "Train", "hotel": "Accommodation", "vehicle_hire": "Car hire",
 		"ferry": "Ferry", "bus": "Bus", "coach": "Bus", "": "Plan", "spaceflight": "Spaceflight",
 	}
 	for in, want := range cases {
@@ -551,14 +551,14 @@ func TestPDFHotelOutputUnchangedByBandingRefactor(t *testing.T) {
 		"Test Trip",
 		"Monday, 7 September 2026",
 		"15:00",
-		`Hotel: Test Hotel \(Check-in\)`,
+		`Accommodation: Test Hotel \(Check-in\)`,
 		"Address: 1 Test Street, Testville TE1 1ST",
 		"Check-in: Mon 7 Sep, 15:00",
 		"Confirmation: TESTREF1",
 		"Booked with: Test Bookings Tel: +44 20 7946 0100",
 		"Wednesday, 9 September 2026",
 		"12:00",
-		`Hotel: Test Hotel \(Check-out\)`,
+		`Accommodation: Test Hotel \(Check-out\)`,
 		"Address: 1 Test Street, Testville TE1 1ST",
 		"Check-out: Wed 9 Sep, 12:00",
 		"Aerly itinerary  \xb7  Page 1 of 1",

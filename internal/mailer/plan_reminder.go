@@ -36,7 +36,7 @@ func PlanReminderLabel(planType, title, ident string) string {
 	case "train":
 		return "your train"
 	case "hotel":
-		return "your hotel check-in"
+		return "your check-in"
 	case "ground":
 		return "your transfer"
 	case "dining":

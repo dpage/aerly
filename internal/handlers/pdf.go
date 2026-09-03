@@ -110,7 +110,7 @@ func typeLabel(t string) string {
 	case "train":
 		return "Train"
 	case "hotel":
-		return "Hotel"
+		return "Accommodation"
 	case "vehicle_hire":
 		return "Car hire"
 	case "ferry":

@@ -562,7 +562,7 @@ func planTypeLabel(t string) string {
 	case "flight":
 		return "Flight"
 	case "hotel":
-		return "Hotel"
+		return "Accommodation"
 	case "train":
 		return "Train"
 	case "ground":

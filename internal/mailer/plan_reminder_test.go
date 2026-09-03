@@ -11,7 +11,7 @@ func TestPlanReminderLabel(t *testing.T) {
 		{"flight", "", "BA123", "flight BA123"},
 		{"flight", "Trip home", "BA123", "flight BA123"}, // ident wins for flights
 		{"hotel", "Hilton Vienna", "", "Hilton Vienna"},
-		{"hotel", "", "", "your hotel check-in"},
+		{"hotel", "", "", "your check-in"},
 		{"dining", "", "", "your reservation"},
 		{"excursion", "", "", "your excursion"},
 		{"flight", "", "", "your flight"}, // flight with no ident falls through to the type word
@@ -20,8 +20,8 @@ func TestPlanReminderLabel(t *testing.T) {
 		{"meeting", "", "", "your meeting"},
 		{"event", "", "", "your event"},
 		{"vehicle_hire", "", "", "your car hire"},
-		{"mystery", "", "", "your plan"},            // unknown type → default
-		{"hotel", "   ", "", "your hotel check-in"}, // whitespace-only title is not used
+		{"mystery", "", "", "your plan"},      // unknown type → default
+		{"hotel", "   ", "", "your check-in"}, // whitespace-only title is not used
 	}
 	for _, c := range cases {
 		if got := PlanReminderLabel(c.typ, c.title, c.ident); got != c.want {
@@ -83,7 +83,7 @@ func TestBuildPlanReminderEmail_NonUTCZone(t *testing.T) {
 		ToAddr:    "alice@example.com",
 		PublicURL: "https://aerly.test",
 		TripID:    1,
-		Label:     "your hotel check-in",
+		Label:     "your check-in",
 		StartsAt:  time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC),
 		StartTZ:   "Europe/Vienna", // UTC+2 in June → 11:30
 	})

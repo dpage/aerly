@@ -12,7 +12,7 @@ import (
 func TestPlanTypeLabel_AllTypes(t *testing.T) {
 	cases := map[string]string{
 		"flight":       "Flight",
-		"hotel":        "Hotel",
+		"hotel":        "Accommodation",
 		"train":        "Train",
 		"ground":       "Ground transport",
 		"vehicle_hire": "Car hire",
@@ -36,8 +36,8 @@ func TestPlanLabel_TitleThenTypeFallback(t *testing.T) {
 		t.Errorf("planLabel = %q, want The Plaza", got)
 	}
 	noTitle := planops.ProposedPlan{Type: "hotel"}
-	if got := planLabel(noTitle); got != "Hotel" {
-		t.Errorf("planLabel fallback = %q, want Hotel", got)
+	if got := planLabel(noTitle); got != "Accommodation" {
+		t.Errorf("planLabel fallback = %q, want Accommodation", got)
 	}
 }
 
@@ -48,8 +48,8 @@ func TestPlanDetail_WithAndWithoutDate(t *testing.T) {
 		Parts: []planops.ProposedPart{{Type: "hotel", StartsAt: start}},
 	}
 	got := planDetail(withDate)
-	if got != "Hotel · 12 Jun 2026" {
-		t.Errorf("planDetail = %q, want %q", got, "Hotel · 12 Jun 2026")
+	if got != "Accommodation · 12 Jun 2026" {
+		t.Errorf("planDetail = %q, want %q", got, "Accommodation · 12 Jun 2026")
 	}
 	noDate := planops.ProposedPlan{Type: "dining"}
 	if got := planDetail(noDate); got != "Dining" {
@@ -88,7 +88,7 @@ func TestPlanReplyFailure_NonFlight(t *testing.T) {
 	if f.Label != "The Plaza" {
 		t.Errorf("label = %q, want The Plaza", f.Label)
 	}
-	if f.Detail != "Hotel · 12 Jun 2026" {
+	if f.Detail != "Accommodation · 12 Jun 2026" {
 		t.Errorf("detail = %q", f.Detail)
 	}
 }
@@ -101,7 +101,7 @@ func TestPlanReplyItem_NonFlight(t *testing.T) {
 		Parts: []planops.ProposedPart{{Type: "hotel", StartsAt: start}},
 	}
 	item := planReplyItem(p)
-	if item.Label != "The Plaza" || item.Detail != "Hotel · 12 Jun 2026" {
+	if item.Label != "The Plaza" || item.Detail != "Accommodation · 12 Jun 2026" {
 		t.Errorf("item = %+v", item)
 	}
 	if item.ManualNote {
