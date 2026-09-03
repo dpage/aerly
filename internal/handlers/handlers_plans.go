@@ -73,6 +73,7 @@ type hotelDetailReq struct {
 	Address          string  `json:"address"`
 	Phone            string  `json:"phone"`
 	RoomType         string  `json:"room_type"`
+	Kind             string  `json:"kind"`
 	Guests           *int    `json:"guests"`
 	StandardCheckin  *string `json:"standard_checkin"`
 	StandardCheckout *string `json:"standard_checkout"`
@@ -1143,6 +1144,7 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 				Address:          p.Hotel.Address,
 				Phone:            p.Hotel.Phone,
 				RoomType:         p.Hotel.RoomType,
+				Kind:             p.Hotel.Kind,
 				Guests:           p.Hotel.Guests,
 				StandardCheckin:  p.Hotel.StandardCheckin,
 				StandardCheckout: p.Hotel.StandardCheckout,

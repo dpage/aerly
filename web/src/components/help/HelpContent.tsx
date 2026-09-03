@@ -86,7 +86,7 @@ const PLAN_TYPE_HELP: Record<PlanType, string> = {
     'Airline bookings. These get live tracking on the map, plus gate, terminal and baggage-belt updates where the airline publishes them.',
   train: 'Rail journeys, drawn from origin to destination on the map like a flight.',
   hotel:
-    "Somewhere to stay, of any sort: a hotel, a B&B, a campsite, a caravan park, or a stay with friends. The Kind field records which. Accommodation tiles carry an Explore nearby button for finding things to do around where you're staying.",
+    "Somewhere to stay, of any sort: a hotel, a B&B, a campsite, a caravan park or a stay with friends. The Kind field records which. Accommodation tiles carry an Explore nearby button for finding things to do around where you're staying.",
   ground: 'Taxis, airport transfers and any other point-to-point road travel.',
   vehicle_hire:
     'Car hire, held as a pickup and a drop-off, so both ends appear on the timeline and map rather than just the collection.',
@@ -244,7 +244,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Explore nearby"
-          description="Accommodation tiles also carry an Explore nearby button that opens the Explore view anchored to the accommodation, to find things to do around where you're staying. See Explore nearby."
+          description="Accommodation tiles also carry an Explore nearby button that opens the Explore view anchored to where you're staying, to find things to do nearby. See Explore nearby."
         />
         <FeatureItem
           title="Notifications"

@@ -55,7 +55,7 @@ func TestHotelDetailKindRoundTrip(t *testing.T) {
 	}
 
 	// 4: a nil Kind on update leaves the existing value alone (COALESCE path).
-	if err := s.UpdateHotelDetail(ctx, partID, HotelDetailUpdate{RoomType: nil}); err != nil {
+	if err := s.UpdateHotelDetail(ctx, partID, HotelDetailUpdate{}); err != nil {
 		t.Fatalf("UpdateHotelDetail with nil Kind: %v", err)
 	}
 	hd, err = s.HotelDetailFor(ctx, partID)

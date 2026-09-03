@@ -335,7 +335,7 @@ export default function TripTimeline() {
           >
             New plan
           </Link>{' '}
-          to add a flight, hotel, or other plan.
+          to add a flight, accommodation or other plan.
         </Typography>
         {addOpen && (
           <AddToTripDialog

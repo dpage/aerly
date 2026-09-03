@@ -11,7 +11,7 @@ import (
 
 // ReplyItem is a booking that was added: a flight, hotel, train, taxi, etc.
 // Label is the headline (a flight ident, a hotel name…); Detail is the
-// secondary line (a flight date, or "Hotel · 12 Jun 2026").
+// secondary line (a flight date, or "Accommodation · 12 Jun 2026").
 //
 // ManualNote is set when a flight was inserted from the email's own schedule
 // details rather than the airline's provider data; the reply tells the user to
