@@ -768,7 +768,7 @@ describe('planTypeLabel', () => {
   it('labels every known plan type', () => {
     expect(planTypeLabel('flight')).toBe('Flight');
     expect(planTypeLabel('train')).toBe('Train');
-    expect(planTypeLabel('hotel')).toBe('Hotel');
+    expect(planTypeLabel('hotel')).toBe('Accommodation');
     expect(planTypeLabel('dining')).toBe('Dining');
     expect(planTypeLabel('excursion')).toBe('Excursion');
     expect(planTypeLabel('ice_cream')).toBe('Ice cream');
@@ -777,6 +777,9 @@ describe('planTypeLabel', () => {
   });
   it('labels vehicle_hire as Car hire, matching the PDF and calendar labels', () => {
     expect(planTypeLabel('vehicle_hire')).toBe('Car hire');
+  });
+  it('labels the hotel plan type as accommodation, since it covers campsites and vans too', () => {
+    expect(planTypeLabel('hotel')).toBe('Accommodation');
   });
   it('falls back to the raw type for an unknown value', () => {
     expect(planTypeLabel('mystery' as unknown as Parameters<typeof planTypeLabel>[0])).toBe(

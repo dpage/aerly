@@ -136,10 +136,11 @@ describe('AddToTripDialog - manual tab', () => {
     h.state.createPlan.mockResolvedValue(undefined);
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
 
-    // Switch the type to Hotel — exercises the per-type label helpers and the
-    // showEnd/isTransfer branches (hotel shows an end but is not a transfer).
+    // Switch the type to Accommodation — exercises the per-type label helpers
+    // and the showEnd/isTransfer branches (hotel shows an end but is not a
+    // transfer).
     await userEvent.click(screen.getByLabelText('Type'));
-    await userEvent.click(await screen.findByRole('option', { name: /hotel/i }));
+    await userEvent.click(await screen.findByRole('option', { name: /accommodation/i }));
 
     // Hotel-specific labels appear; flight ident field does not. A hotel isn't a
     // transfer, so there's no "To" label — the room is its own detail field now.

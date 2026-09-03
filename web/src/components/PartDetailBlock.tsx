@@ -44,10 +44,11 @@ function TypeSection({ part }: { part: PlanPart }) {
   const h = part.hotel;
   if (h) {
     return (
-      <Section title="Hotel">
-        <Row label="Property" value={h.property_name || null} />
+      <Section title="Accommodation">
+        <Row label="Kind" value={h.kind || null} />
+        <Row label="Name" value={h.property_name || null} />
         <Row label="Phone" value={h.phone || null} />
-        <Row label="Room" value={h.room_type || null} />
+        <Row label="Room / pitch" value={h.room_type || null} />
         <Row label="Guests" value={h.guests ?? null} />
       </Section>
     );

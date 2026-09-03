@@ -78,7 +78,7 @@ describe('PartDetailBlock PlaceSection', () => {
         part={part({
           type: 'hotel',
           start_address: '',
-          hotel: { property_name: 'X', address: '5 Rua', phone: '', room_type: '' },
+          hotel: { property_name: 'X', address: '5 Rua', phone: '', room_type: '', kind: '' },
         })}
       />,
     );
@@ -104,15 +104,40 @@ describe('PartDetailBlock TypeSection', () => {
             address: '1 Rua',
             phone: '+351 1',
             room_type: 'Suite',
+            kind: 'Hotel',
             guests: 2,
           },
         })}
       />,
     );
-    expect(screen.getByText('Hotel')).toBeInTheDocument();
+    expect(screen.getByText('Accommodation')).toBeInTheDocument();
     expect(screen.getByText('Hotel Lisboa')).toBeInTheDocument();
     expect(screen.getByText('Suite')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
+  });
+
+  it('renders a campsite as accommodation, with its kind and pitch', () => {
+    render(
+      <PartDetailBlock
+        part={part({
+          type: 'hotel',
+          hotel: {
+            property_name: 'Test Campsite',
+            address: '',
+            phone: '',
+            room_type: 'Grass pitch',
+            kind: 'Campsite',
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('Accommodation')).toBeInTheDocument();
+    expect(screen.getByText('Kind')).toBeInTheDocument();
+    expect(screen.getByText('Campsite')).toBeInTheDocument();
+    expect(screen.getByText('Name')).toBeInTheDocument();
+    expect(screen.getByText('Test Campsite')).toBeInTheDocument();
+    expect(screen.getByText('Room / pitch')).toBeInTheDocument();
+    expect(screen.getByText('Grass pitch')).toBeInTheDocument();
   });
 
   it('renders ground transport fields', () => {
@@ -248,14 +273,16 @@ describe('PartDetailBlock TypeSection', () => {
             address: '',
             phone: '',
             room_type: '',
+            kind: '',
             guests: undefined,
           },
         })}
       />,
     );
-    expect(screen.queryByText('Hotel')).not.toBeInTheDocument();
-    expect(screen.queryByText('Property')).not.toBeInTheDocument();
-    expect(screen.queryByText('Room')).not.toBeInTheDocument();
+    expect(screen.queryByText('Accommodation')).not.toBeInTheDocument();
+    expect(screen.queryByText('Kind')).not.toBeInTheDocument();
+    expect(screen.queryByText('Name')).not.toBeInTheDocument();
+    expect(screen.queryByText('Room / pitch')).not.toBeInTheDocument();
     expect(screen.queryByText('Guests')).not.toBeInTheDocument();
   });
 
@@ -385,7 +412,7 @@ describe('PartDetailBlock TypeSection', () => {
   it('renders no type section when no detail object is populated', () => {
     render(<PartDetailBlock part={part({ type: 'flight', start_label: 'LHR' })} />);
     expect(screen.getByText('Where')).toBeInTheDocument();
-    expect(screen.queryByText('Hotel')).not.toBeInTheDocument();
+    expect(screen.queryByText('Accommodation')).not.toBeInTheDocument();
     expect(screen.queryByText('Train')).not.toBeInTheDocument();
   });
 });

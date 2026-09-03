@@ -91,6 +91,7 @@ function hotel(over: Partial<PlanPart> = {}): PlanPart {
       address: '8028 Leesburg Pike',
       phone: '+1 703 555 0100',
       room_type: 'King',
+      kind: '',
     },
     ...over,
   };
@@ -602,7 +603,7 @@ describe('PlanMapView', () => {
     const pin = pinFor(2);
     // setPopup was given DOM content with the venue's title + type.
     expect(pin.popup?.html).toContain('Tysons Marriott');
-    expect(pin.popup?.html).toContain('Hotel');
+    expect(pin.popup?.html).toContain('Accommodation');
   });
 
   it("gives a hotel's check-out pin the property it stands at", () => {

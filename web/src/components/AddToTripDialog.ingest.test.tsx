@@ -459,6 +459,7 @@ describe('AddToTripDialog - paste/confirm flow', () => {
                 address: 'Sal, Cape Verde',
                 phone: '',
                 room_type: 'Double',
+                kind: '',
                 standard_checkin: '15:00',
                 standard_checkout: '11:00',
                 checkin_suggested: '2026-10-12T15:00:00Z',

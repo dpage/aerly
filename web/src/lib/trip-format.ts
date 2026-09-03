@@ -564,7 +564,7 @@ export function fmtPartPlaces(type: PlanType, startLabel?: string, endLabel?: st
 export const PLAN_TYPE_LABELS: Record<PlanType, string> = {
   flight: 'Flight',
   train: 'Train',
-  hotel: 'Hotel',
+  hotel: 'Accommodation',
   ground: 'Ground transport',
   vehicle_hire: 'Car hire',
   dining: 'Dining',
@@ -579,8 +579,9 @@ export const PLAN_TYPE_LABELS: Record<PlanType, string> = {
  * the help page's list) read this rather than keeping their own copy. */
 export const PLAN_TYPES = Object.keys(PLAN_TYPE_LABELS) as PlanType[];
 
-/** Display label for a plan type, e.g. "Hotel", "Ground transport". Falls back
- * to the raw key for a type the server knows about and this client doesn't. */
+/** Display label for a plan type, e.g. "Accommodation", "Ground transport".
+ * Falls back to the raw key for a type the server knows about and this client
+ * doesn't. */
 export function planTypeLabel(type: PlanType): string {
   return PLAN_TYPE_LABELS[type] ?? type;
 }

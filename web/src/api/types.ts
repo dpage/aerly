@@ -420,6 +420,9 @@ export interface HotelDetail {
   address: string;
   phone: string;
   room_type: string;
+  /** What sort of accommodation this is (e.g. 'Campsite', 'Caravan park',
+   * 'Staying with friends'). Free text, '' when not stated. */
+  kind: string;
   guests?: number;
   /** Property's standard check-in time of day (HH:MM), if known. */
   standard_checkin?: string;
