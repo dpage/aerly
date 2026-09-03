@@ -144,17 +144,17 @@ describe('AddToTripDialog - manual tab', () => {
 
     // Hotel-specific labels appear; flight ident field does not. A hotel isn't a
     // transfer, so there's no "To" label — the room is its own detail field now.
-    expect(screen.getByLabelText('Property')).toBeInTheDocument();
+    expect(screen.getByLabelText('Place')).toBeInTheDocument();
     expect(screen.getByLabelText('Check-in')).toBeInTheDocument();
     expect(screen.getByLabelText('Check-out')).toBeInTheDocument();
-    expect(screen.getByLabelText(/Room type/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Room \/ pitch/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/Flight number/)).not.toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText(/^Title/), 'Hotel Lisboa');
-    await userEvent.type(screen.getByLabelText('Property'), 'Lobby');
-    await userEvent.type(screen.getByLabelText(/Room type/), 'Suite');
+    await userEvent.type(screen.getByLabelText('Place'), 'Lobby');
+    await userEvent.type(screen.getByLabelText(/Room \/ pitch/), 'Suite');
     await userEvent.type(screen.getByLabelText('Guests'), '2');
-    await userEvent.type(screen.getByLabelText('Property address'), '1 Rua');
+    await userEvent.type(screen.getByLabelText('Place address'), '1 Rua');
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const [, input] = h.state.createPlan.mock.calls[0];
@@ -162,12 +162,28 @@ describe('AddToTripDialog - manual tab', () => {
     expect(input.parts[0].flight).toBeUndefined();
     expect(input.parts[0].start_label).toBe('Lobby');
     // The room/guests land on the hotel detail, and the property name mirrors
-    // the single "Property" (start_label) field rather than a duplicate input.
+    // the single "Place" (start_label) field rather than a duplicate input.
     expect(input.parts[0].hotel).toMatchObject({
       property_name: 'Lobby',
       room_type: 'Suite',
       guests: 2,
     });
+  });
+
+  it('accepts free-text Kind that was typed but never selected from the dropdown', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: /accommodation/i }));
+
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Night by the loch');
+    await userEvent.type(screen.getByLabelText('Place'), 'Loch Ness shore');
+    await userEvent.type(screen.getByLabelText(/Kind/), 'Bivvy by the lake');
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const [, input] = h.state.createPlan.mock.calls[0];
+    expect(input.parts[0].hotel).toMatchObject({ kind: 'Bivvy by the lake' });
   });
 
   it('builds a dining plan (single endpoint, no end field)', async () => {

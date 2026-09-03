@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { errorMessage } from '../state/helpers';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -25,7 +26,14 @@ import {
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 
 import { useStore } from '../state/store';
-import { bandEdgeLabels, fmtPartPlaces, PLAN_TYPES, planTypeLabel, typeHasEnd } from '../lib/trip-format';
+import {
+  ACCOMMODATION_KINDS,
+  bandEdgeLabels,
+  fmtPartPlaces,
+  PLAN_TYPES,
+  planTypeLabel,
+  typeHasEnd,
+} from '../lib/trip-format';
 import PlanTypeIcon from './PlanTypeIcon';
 import type {
   ConfirmPlanInput,
@@ -282,6 +290,7 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
 
   // Per-type detail fields (counts kept as strings, parsed on submit). Only the
   // block matching the chosen type is rendered and sent.
+  const [hotelKind, setHotelKind] = useState('');
   const [hotelPhone, setHotelPhone] = useState('');
   const [roomType, setRoomType] = useState('');
   const [guests, setGuests] = useState('');
@@ -339,11 +348,13 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
     if (type === 'flight' && ident.trim()) {
       part.flight = { ident: ident.trim().toUpperCase() };
     }
-    // Per-type detail. The hotel's name is the single "Property" field
-    // (start_label); mirror it into property_name so the map detail shows it.
+    // Per-type detail. The stay's name is the single "Place" field
+    // (start_label); mirror it into property_name so the map detail's "Name"
+    // row stays in sync.
     if (type === 'hotel') {
       part.hotel = {
         property_name: startLabel.trim() || undefined,
+        kind: hotelKind.trim() || undefined,
         room_type: roomType.trim() || undefined,
         guests: parseCount(guests),
         phone: hotelPhone.trim() || undefined,
@@ -517,8 +528,18 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
 
       {type === 'hotel' && (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <Autocomplete
+            freeSolo
+            options={ACCOMMODATION_KINDS}
+            value={hotelKind}
+            inputValue={hotelKind}
+            onInputChange={(_, v) => setHotelKind(v)}
+            onChange={(_, v) => setHotelKind(v ?? '')}
+            sx={{ flexGrow: 1 }}
+            renderInput={(params) => <TextField {...params} label="Kind (optional)" />}
+          />
           <TextField
-            label="Room type (optional)"
+            label="Room / pitch (optional)"
             value={roomType}
             onChange={(e) => setRoomType(e.target.value)}
             sx={{ flexGrow: 1 }}
@@ -1400,7 +1421,7 @@ function partDatePreview(part: { type: PlanType; starts_at: string; ends_at?: st
 function placeholderFor(type: PlanType): string {
   switch (type) {
     case 'hotel':
-      return 'Hotel Lisboa';
+      return 'Glen Nevis campsite';
     case 'train':
       return 'Eurostar to Paris';
     case 'ground':
@@ -1429,7 +1450,7 @@ function startFieldLabel(type: PlanType): string {
     case 'ground':
       return 'From';
     case 'hotel':
-      return 'Property';
+      return 'Place';
     case 'vehicle_hire':
       return 'Pickup location';
     default:

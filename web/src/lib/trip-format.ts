@@ -579,6 +579,20 @@ export const PLAN_TYPE_LABELS: Record<PlanType, string> = {
  * the help page's list) read this rather than keeping their own copy. */
 export const PLAN_TYPES = Object.keys(PLAN_TYPE_LABELS) as PlanType[];
 
+/** Common sorts of accommodation, offered as suggestions on the stay forms.
+ * Deliberately not a constrained set: the long tail is genuinely long, so the
+ * inputs accept any text and these merely save typing the usual ones. */
+export const ACCOMMODATION_KINDS = [
+  'Hotel',
+  'B&B',
+  'Hostel',
+  'Apartment',
+  'Campsite',
+  'Caravan park',
+  'Staying with friends',
+  'Wild camping',
+] as const;
+
 /** Display label for a plan type, e.g. "Accommodation", "Ground transport".
  * Falls back to the raw key for a type the server knows about and this client
  * doesn't. */

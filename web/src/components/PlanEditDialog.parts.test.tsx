@@ -434,7 +434,7 @@ describe('PlanEditDialog — part detail editors', () => {
     );
     // No duplicate "Property name" field — the single "Place" carries the name.
     expect(screen.queryByRole('textbox', { name: /property name/i })).not.toBeInTheDocument();
-    await userEvent.type(screen.getByRole('textbox', { name: /room type/i }), 'Suite');
+    await userEvent.type(screen.getByRole('textbox', { name: /room \/ pitch/i }), 'Suite');
     await userEvent.type(screen.getByRole('spinbutton', { name: /guests/i }), '2');
     // Renaming the hotel via "Place" mirrors into property_name.
     const place = screen.getByRole('textbox', { name: /^place$/i });
@@ -445,6 +445,37 @@ describe('PlanEditDialog — part detail editors', () => {
     const [, patch] = h.updatePlanPart.mock.calls[0];
     expect(patch.start_label).toBe('New name');
     expect(patch.hotel).toMatchObject({ room_type: 'Suite', guests: 2, property_name: 'New name' });
+  });
+
+  it('edits a hotel part\'s kind: Campsite to Caravan park patches only hotel.kind', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(
+      plan({
+        type: 'hotel',
+        parts: [
+          part({
+            type: 'hotel',
+            start_label: 'Site',
+            end_label: '',
+            hotel: {
+              property_name: 'Site',
+              address: '',
+              phone: '',
+              room_type: '',
+              kind: 'Campsite',
+              guests: 0,
+            },
+          }),
+        ],
+      }),
+    );
+    const kind = screen.getByRole('combobox', { name: /^kind$/i });
+    await userEvent.clear(kind);
+    await userEvent.type(kind, 'Caravan park');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+    const [, patch] = h.updatePlanPart.mock.calls[0];
+    expect(patch.hotel).toEqual({ kind: 'Caravan park' });
   });
 
   it('edits a vehicle hire part: category/vehicle/transmission/fuel policy/mileage patch onto vehicle_hire', async () => {

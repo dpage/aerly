@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { errorMessage } from '../state/helpers';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Dialog,
@@ -24,6 +25,7 @@ import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/g
 import { coordsFromText, isMapsUrl } from '../lib/maps-url';
 import { MAPS_NO_COORDS, resolveCoordsFromInput } from '../lib/resolve-coords';
 import {
+  ACCOMMODATION_KINDS,
   isTransferType,
   planTypeLabel,
   splitLocal,
@@ -66,6 +68,7 @@ interface IceCreamForm {
 /** The editable per-type detail for the remaining plan types. Numbers are held
  * as strings so the field can be cleared while editing; parsed on save. */
 interface HotelForm {
+  kind: string;
   phone: string;
   roomType: string;
   guests: string;
@@ -178,6 +181,7 @@ function partForm(part: PlanPart): PartForm {
     hotel:
       part.type === 'hotel'
         ? {
+            kind: part.hotel?.kind ?? '',
             phone: part.hotel?.phone ?? '',
             roomType: part.hotel?.room_type ?? '',
             guests: part.hotel?.guests != null ? String(part.hotel.guests) : '',
@@ -336,11 +340,12 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
     const h = form.hotel;
     const hi = init.hotel;
     const d: NonNullable<UpdatePlanPartInput['hotel']> = {};
-    // The hotel's name is the single "Place" field (start_label); mirror an edit
-    // of it into property_name so the map detail's "Property" row stays in sync
+    // The stay's name is the single "Place" field (start_label); mirror an edit
+    // of it into property_name so the map detail's "Name" row stays in sync
     // rather than asking for the name twice.
     if (form.start.label.trim() !== init.start.label.trim())
       d.property_name = form.start.label.trim();
+    if (h.kind.trim() !== hi.kind.trim()) d.kind = h.kind.trim();
     if (h.phone.trim() !== hi.phone.trim()) d.phone = h.phone.trim();
     if (h.roomType.trim() !== hi.roomType.trim()) d.room_type = h.roomType.trim();
     const guests = parseCount(h.guests);
@@ -1048,8 +1053,8 @@ function IceCreamFields({
   );
 }
 
-/** Hotel detail inputs: property name, phone, room type and guest count — the
- * fields the map list shows for a stay (PartDetailBlock). */
+/** Accommodation detail inputs: kind, property name, phone, room/pitch and
+ * guest count — the fields the map list shows for a stay (PartDetailBlock). */
 function HotelFields({
   form,
   onChange,
@@ -1060,11 +1065,21 @@ function HotelFields({
   return (
     <Stack spacing={1.5}>
       <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
-        Hotel
+        Accommodation
       </Typography>
+      <Autocomplete
+        freeSolo
+        size="small"
+        options={ACCOMMODATION_KINDS}
+        value={form.kind}
+        inputValue={form.kind}
+        onInputChange={(_, v) => onChange('kind', v)}
+        onChange={(_, v) => onChange('kind', v ?? '')}
+        renderInput={(params) => <TextField {...params} label="Kind" />}
+      />
       <Stack direction="row" spacing={1}>
         <TextField
-          label="Room type"
+          label="Room / pitch"
           size="small"
           value={form.roomType}
           onChange={(e) => onChange('roomType', e.target.value)}
