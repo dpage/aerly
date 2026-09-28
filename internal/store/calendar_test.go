@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -434,5 +435,50 @@ func TestCalendarEventsExcludeDismissed(t *testing.T) {
 	}
 	if len(ev) != 0 {
 		t.Errorf("dismissed part should be excluded; got %d events", len(ev))
+	}
+}
+
+// TestCalendarEventsTitleFlightLegsByOwnIdent guards the multi-leg feed bug: a
+// round trip with a connection is one plan whose title names only the outbound
+// flight ("LX3537 VIE ↔ ZRH"), so titling every leg from the plan put that on
+// the connecting and return flights too. Each leg of a multi-leg flight plan is
+// titled by its own flight number; a single-leg plan keeps its own title.
+func TestCalendarEventsTitleFlightLegsByOwnIdent(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	start := time.Date(2026, 11, 2, 19, 15, 0, 0, time.UTC)
+
+	mkLeg := func(planID int64, ident string, at time.Time) {
+		t.Helper()
+		pid := mkPart(t, s, planID, at, nil, "Europe/Zurich", "", ident)
+		if _, err := s.pool.Exec(ctx,
+			`INSERT INTO flight_details (plan_part_id, ident, scheduled_out, scheduled_in)
+			 VALUES ($1, $2, $3, $3)`,
+			pid, ident, at); err != nil {
+			t.Fatalf("insert flight_details: %v", err)
+		}
+	}
+	round := mkTypedPlan(t, s, trip, owner, "flight", "LX3537 VIE ↔ ZRH", "ZE527B", "")
+	for i, ident := range []string{"LX3537", "LX282", "LX283", "LX1574"} {
+		mkLeg(round, ident, start.Add(time.Duration(i)*24*time.Hour))
+	}
+	single := mkTypedPlan(t, s, trip, owner, "flight", "Flight home", "", "")
+	mkLeg(single, "BA286", start.Add(10*24*time.Hour))
+
+	ev, err := s.CalendarEventsForTrip(ctx, owner, trip)
+	if err != nil {
+		t.Fatalf("CalendarEventsForTrip: %v", err)
+	}
+	var got []string
+	for _, e := range ev {
+		got = append(got, e.Title)
+	}
+	want := []string{"LX3537", "LX282", "LX283", "LX1574", "Flight home"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("titles = %q, want %q", got, want)
 	}
 }
