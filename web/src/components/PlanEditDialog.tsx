@@ -648,6 +648,19 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
           return;
         }
       }
+      if (!f) continue;
+      if (
+        hasEnd(part) &&
+        f.start.date &&
+        f.start.time &&
+        f.end.date &&
+        f.end.time &&
+        zonedTimeToUtc(f.end.date, f.end.time, f.end.tz) <
+          zonedTimeToUtc(f.start.date, f.start.time, f.start.tz)
+      ) {
+        setError('A plan can’t end before it starts.');
+        return;
+      }
     }
     setBusy(true);
     try {
@@ -865,6 +878,10 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
                         heading={isTransferType(part.type) ? 'To' : 'Until'}
                         form={form.end}
                         onChange={(f, v) => patchEnd(part.id, 'end', f, v)}
+                        // Local dates only compare within one timezone (a
+                        // flight can land on an earlier local date).
+                        minDate={form.end.tz === form.start.tz ? form.start.date : undefined}
+                        openOn={form.start}
                         // A non-transfer's "end" is the same place (a hotel's
                         // check-out), so only its time is editable — no second
                         // Place/Address.
@@ -1427,10 +1444,16 @@ function EndFields({
   onAcceptCoords,
   onRejectCoords,
   homeCoords = null,
+  minDate,
+  openOn,
 }: {
   heading: string;
   form: EndForm;
   onChange: (field: keyof EndForm, value: string) => void;
+  /** YYYY-MM-DD: earlier dates can't be picked. */
+  minDate?: string;
+  /** Another endpoint whose moment the picker opens on while this one is blank. */
+  openOn?: EndForm;
   timeOnly?: boolean;
   unlocated?: boolean;
   onResolveCoords?: () => void;
@@ -1559,6 +1582,16 @@ function EndFields({
               }
             }}
             ampm={false}
+            referenceDate={
+              openOn
+                ? (zonedDateTime(openOn.date, openOn.time, pickerZone(openOn.tz))?.setZone(
+                    pickerZone(form.tz),
+                  ) ?? undefined)
+                : undefined
+            }
+            minDate={
+              minDate ? (zonedDateTime(minDate, '00:00', pickerZone(form.tz)) ?? undefined) : undefined
+            }
             slotProps={{ textField: { size: 'small' } }}
             sx={{ flex: 1 }}
           />
