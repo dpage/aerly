@@ -1,11 +1,11 @@
 import type { Plan, PlanPart } from '../api/types';
-import { fmtPartPlaces, fmtPartTimeRangeText, planTypeLabel } from './trip-format';
+import { fmtPartDateRange, fmtPartPlaces, fmtPartTimeRangeText, planTypeLabel } from './trip-format';
 import { formatCost } from './format';
 import { fmtGate } from './gate';
 
 /** Build the plain-text summary of a plan that gets copied to the clipboard or
  * handed to the native share sheet. It mirrors what a tile shows at a glance —
- * title, place(s), when, and the booking details someone would actually want to
+ * title, place(s), date and time, and the booking details someone would actually want to
  * paste into a message — one field per line so it reads cleanly in any app. */
 export function buildPlanShareText(plan: Plan, part: PlanPart): string {
   const title = plan.title || planTypeLabel(part.type);
@@ -13,6 +13,9 @@ export function buildPlanShareText(plan: Plan, part: PlanPart): string {
 
   const places = fmtPartPlaces(part.type, part.start_label, part.end_label);
   if (places && places !== title) lines.push(places);
+
+  const date = fmtPartDateRange(part);
+  if (date) lines.push(date);
 
   const when = fmtPartTimeRangeText(part);
   if (when) lines.push(when);

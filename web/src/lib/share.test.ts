@@ -93,6 +93,29 @@ describe('buildPlanShareText', () => {
     expect(text).toContain('Cost:');
   });
 
+  it('includes the local date, not just the time', () => {
+    const text = buildPlanShareText(plan(), part());
+    const lines = text.split('\n');
+    const dateLine = lines.findIndex((l) => l.includes('12 Oct 2026'));
+    expect(dateLine).toBeGreaterThan(0);
+    expect(lines[dateLine]).not.toContain('→');
+    expect(lines[dateLine + 1]).toMatch(/^10:00 .* → 12:30 /);
+  });
+
+  it('shows both dates when the plan ends on a different local day', () => {
+    const text = buildPlanShareText(
+      plan({ title: 'The Grand', type: 'hotel' }),
+      part({
+        type: 'hotel',
+        starts_at: '2026-10-12T14:00:00Z',
+        ends_at: '2026-10-15T10:00:00Z',
+        start_tz: 'UTC',
+        end_tz: 'UTC',
+      }),
+    );
+    expect(text).toMatch(/Mon,? 12 Oct 2026 → Thu,? 15 Oct 2026/);
+  });
+
   it('appends notes as a trailing block', () => {
     const text = buildPlanShareText(plan({ notes: '  Window seat  ' }), part());
     expect(text).toMatch(/\n\nWindow seat$/);
