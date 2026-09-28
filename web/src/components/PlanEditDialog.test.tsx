@@ -35,6 +35,9 @@ vi.mock('../api/client', () => ({
 import type { PlanPart } from '../api/types';
 import PlanEditDialog from './PlanEditDialog';
 
+// The edit dialog's date/time picker, as a plain input (see the mock's notes).
+vi.mock('@mui/x-date-pickers/DateTimePicker', () => import('../test/date-time-picker-mock'));
+
 function part(over: Partial<PlanPart> = {}): PlanPart {
   return {
     id: 100,

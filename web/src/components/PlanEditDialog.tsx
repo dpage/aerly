@@ -19,6 +19,7 @@ import {
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import PlanAttachments from './PlanAttachments';
 import TimezoneSelect from './TimezoneSelect';
+import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
@@ -1531,22 +1532,24 @@ function EndFields({
         </Box>
       )}
       <Stack direction="row" spacing={1}>
-        <TextField
-          label="Date"
-          type="date"
-          size="small"
-          value={form.date}
-          onChange={(e) => onChange('date', e.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ flex: 1 }}
-        />
-        <TextField
-          label="Time"
-          type="time"
-          size="small"
-          value={form.time}
-          onChange={(e) => onChange('time', e.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
+        {/* The same picker the New plan form uses, not the browser's native
+            date/time inputs, which follow the OS locale (AM/PM on an en-US
+            system). It edits the wall-clock digits only; the zone below says
+            where that clock is. */}
+        <DateTimePicker
+          label="Date & time"
+          value={localDateTime(form.date, form.time)}
+          onChange={(d) => {
+            if (d == null) {
+              onChange('date', '');
+              onChange('time', '');
+            } else if (!Number.isNaN(d.getTime())) {
+              onChange('date', ymd(d));
+              onChange('time', hm(d));
+            }
+          }}
+          ampm={false}
+          slotProps={{ textField: { size: 'small' } }}
           sx={{ flex: 1 }}
         />
       </Stack>
@@ -1558,4 +1561,23 @@ function EndFields({
       />
     </Stack>
   );
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** A form's local "YYYY-MM-DD" + "HH:MM" as a picker value (a Date whose
+ * local fields carry those digits), or null when either is blank or malformed. */
+function localDateTime(date: string, time: string): Date | null {
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, mi] = time.split(':').map(Number);
+  if (!y || !m || !d || !time || Number.isNaN(h) || Number.isNaN(mi)) return null;
+  return new Date(y, m - 1, d, h, mi);
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function hm(d: Date): string {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
