@@ -5,11 +5,47 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  # paths-filter lists a pull request's changed files through the API.
+  pull-requests: read
+
 jobs:
+  # Work out which halves of the tree changed so each suite runs only when its
+  # own code (or this workflow) did. Skipped jobs report as passing, so this
+  # stays safe under required status checks. The Go filter covers everything
+  # Go compiles or embeds: migrations/*.sql and web/dist/.keep included.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            go:
+              - '.github/workflows/ci.yml'
+              - 'go.mod'
+              - 'go.sum'
+              - 'cmd/**'
+              - 'internal/**'
+              - 'migrations/**'
+              - 'web/*.go'
+              - 'web/dist/.keep'
+            web:
+              - '.github/workflows/ci.yml'
+              - 'web/**'
+
   # The Go and web suites are independent, so run them as separate jobs in
   # parallel: the overall CI wall-clock is then max(go, web) rather than their
   # sum. Only the Go job needs Postgres; only the web job needs Node.
   go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
 
     services:
@@ -51,6 +87,8 @@ jobs:
           go run ./cmd/coverage-gate -profile=coverage.out -min=90 -enforce
 
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
 
     defaults:
