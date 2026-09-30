@@ -442,7 +442,8 @@ func TestCalendarEventsExcludeDismissed(t *testing.T) {
 // round trip with a connection is one plan whose title names only the outbound
 // flight ("LX3537 VIE ↔ ZRH"), so titling every leg from the plan put that on
 // the connecting and return flights too. Each leg of a multi-leg flight plan is
-// titled by its own flight number; a single-leg plan keeps its own title.
+// titled by its own flight number; a single-leg plan keeps its own title, or
+// its flight number where that title is blank, as flightPartTitle does.
 func TestCalendarEventsTitleFlightLegsByOwnIdent(t *testing.T) {
 	s := newStore(t)
 	if s == nil {
@@ -468,6 +469,8 @@ func TestCalendarEventsTitleFlightLegsByOwnIdent(t *testing.T) {
 	}
 	single := mkTypedPlan(t, s, trip, owner, "flight", "Flight home", "", "")
 	mkLeg(single, "BA286", start.Add(10*24*time.Hour))
+	untitled := mkTypedPlan(t, s, trip, owner, "flight", "", "", "")
+	mkLeg(untitled, "BA287", start.Add(11*24*time.Hour))
 
 	ev, err := s.CalendarEventsForTrip(ctx, owner, trip)
 	if err != nil {
@@ -477,7 +480,7 @@ func TestCalendarEventsTitleFlightLegsByOwnIdent(t *testing.T) {
 	for _, e := range ev {
 		got = append(got, e.Title)
 	}
-	want := []string{"LX3537", "LX282", "LX283", "LX1574", "Flight home"}
+	want := []string{"LX3537", "LX282", "LX283", "LX1574", "Flight home", "BA287"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("titles = %q, want %q", got, want)
 	}
