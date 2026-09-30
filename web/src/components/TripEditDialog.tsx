@@ -138,7 +138,10 @@ export default function TripEditDialog({ open, trip, onClose, onDeleted }: Props
               type="date"
               value={endsOn}
               onChange={(e) => setEndsOn(e.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
+              slotProps={{
+                inputLabel: { shrink: true },
+                htmlInput: { min: startsOn || undefined },
+              }}
               error={!datesValid}
               helperText={!datesValid ? 'End is before start' : undefined}
               fullWidth
