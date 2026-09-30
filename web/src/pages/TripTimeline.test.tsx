@@ -315,7 +315,7 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     const tile = within(screen.getByTestId('part-card-1'));
-    const when = tile.getByText('15:05 UTC → 17:15 UTC');
+    const when = tile.getByText('15:05 UTC → 17:15 UTC · 2h 10m');
     expect(when).not.toHaveAttribute('aria-label');
   });
 
