@@ -41,6 +41,9 @@ vi.mock('../api/client', () => ({
 import type { PlanPart } from '../api/types';
 import PlanEditDialog from './PlanEditDialog';
 
+// The edit dialog's date/time picker, as a plain input (see the mock's notes).
+vi.mock('@mui/x-date-pickers/DateTimePicker', () => import('../test/date-time-picker-mock'));
+
 function part(over: Partial<PlanPart> = {}): PlanPart {
   return {
     id: 100,
@@ -117,9 +120,9 @@ describe('PlanEditDialog — part detail editors', () => {
     h.updatePlanPart.mockResolvedValue(part({}));
     render_(plan({ parts: [part()] }));
     // The departure time prefills as London-local 12:35 (11:35Z in BST).
-    const times = screen.getAllByLabelText(/^time$/i);
-    await userEvent.clear(times[0]);
-    await userEvent.type(times[0], '13:35');
+    const whens = screen.getAllByLabelText('Date & time');
+    expect(whens[0]).toHaveValue('2026-10-12T12:35');
+    fireEvent.change(whens[0], { target: { value: '2026-10-12T13:35' } });
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
     const [partId, patch] = h.updatePlanPart.mock.calls[0];
@@ -127,6 +130,21 @@ describe('PlanEditDialog — part detail editors', () => {
     // 13:35 BST → 12:35Z, carrying the tz.
     expect(patch.starts_at).toBe('2026-10-12T12:35:00.000Z');
     expect(patch.start_tz).toBe('Europe/London');
+  });
+
+  it('ignores a half-typed date/time and clears both when the picker is emptied', async () => {
+    h.updatePlanPart.mockResolvedValue(part({}));
+    render_(plan({ parts: [part()] }));
+    const when = screen.getAllByLabelText('Date & time')[0];
+    // A half-typed value (Invalid Date) leaves the form as it was.
+    fireEvent.change(when, { target: { value: '2026-10-1' } });
+    expect(when).toHaveValue('2026-10-12T12:35');
+    // Emptying it clears the date and time; a part can't lose its start, so
+    // nothing is written for it.
+    fireEvent.change(when, { target: { value: '' } });
+    expect(when).toHaveValue('');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    expect(h.updatePlanPart).not.toHaveBeenCalled();
   });
 
   it('does not write parts that were not edited', async () => {
@@ -149,15 +167,14 @@ describe('PlanEditDialog — part detail editors', () => {
 
     const labels = screen.getAllByRole('textbox', { name: /^place$/i });
     const addresses = screen.getAllByRole('textbox', { name: /^address$/i });
-    const dates = screen.getAllByLabelText(/^date$/i);
+    const whens = screen.getAllByLabelText('Date & time');
     const tzs = screen.getAllByRole('combobox', { name: /^timezone$/i });
 
     await userEvent.clear(labels[0]);
     await userEvent.type(labels[0], 'Heathrow');
     await userEvent.clear(addresses[0]);
     await userEvent.type(addresses[0], 'TW6');
-    await userEvent.clear(dates[0]);
-    await userEvent.type(dates[0], '2026-10-13');
+    fireEvent.change(whens[0], { target: { value: '2026-10-13T12:35' } });
     await userEvent.clear(tzs[0]);
     await userEvent.type(tzs[0], 'Europe/Paris');
 
@@ -197,11 +214,9 @@ describe('PlanEditDialog — part detail editors', () => {
     );
     expect(screen.getByText('Until')).toBeInTheDocument();
     // Filling the empty check-out date/time saves an ends_at instant.
-    const dates = screen.getAllByLabelText(/^date$/i);
-    const times = screen.getAllByLabelText(/^time$/i);
-    // The end endpoint is the last date/time pair (start is first).
-    await userEvent.type(dates[dates.length - 1], '2026-10-15');
-    await userEvent.type(times[times.length - 1], '10:00');
+    const whens = screen.getAllByLabelText('Date & time');
+    // The end endpoint is the last picker (start is first).
+    fireEvent.change(whens[whens.length - 1], { target: { value: '2026-10-15T10:00' } });
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
     const [, patch] = h.updatePlanPart.mock.calls[0];

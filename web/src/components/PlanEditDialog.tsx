@@ -19,6 +19,10 @@ import {
 import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import PlanAttachments from './PlanAttachments';
 import TimezoneSelect from './TimezoneSelect';
+import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterLuxon } from '@mui/x-date-pickers/AdapterLuxon';
+import { DateTime, IANAZone } from 'luxon';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
 import { endUnlocated, isUnlocated, parseLatLon, startUnlocated } from '../lib/geo';
@@ -1531,24 +1535,34 @@ function EndFields({
         </Box>
       )}
       <Stack direction="row" spacing={1}>
-        <TextField
-          label="Date"
-          type="date"
-          size="small"
-          value={form.date}
-          onChange={(e) => onChange('date', e.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ flex: 1 }}
-        />
-        <TextField
-          label="Time"
-          type="time"
-          size="small"
-          value={form.time}
-          onChange={(e) => onChange('time', e.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ flex: 1 }}
-        />
+        {/* The same picker the New plan form uses, not the browser's native
+            date/time inputs, which follow the OS locale (AM/PM on an en-US
+            system). It edits the wall-clock digits only; the zone below says
+            where that clock is. Its values are Luxon DateTimes in that zone,
+            under Luxon's adapter, because a plain Date can only hold the
+            digits in the browser's zone, and a time in that zone's
+            spring-forward gap (a New York 01:30 viewed from London on the day
+            London's clocks change) would shift by an hour. The date-fns
+            adapter can't take a zone. */}
+        <LocalizationProvider dateAdapter={AdapterLuxon}>
+          <DateTimePicker
+            label="Date & time"
+            value={zonedDateTime(form.date, form.time, pickerZone(form.tz))}
+            timezone={pickerZone(form.tz)}
+            onChange={(d) => {
+              if (d == null) {
+                onChange('date', '');
+                onChange('time', '');
+              } else if (d.isValid) {
+                onChange('date', d.toFormat('yyyy-MM-dd'));
+                onChange('time', d.toFormat('HH:mm'));
+              }
+            }}
+            ampm={false}
+            slotProps={{ textField: { size: 'small' } }}
+            sx={{ flex: 1 }}
+          />
+        </LocalizationProvider>
       </Stack>
       <TimezoneSelect
         value={form.tz}
@@ -1558,4 +1572,20 @@ function EndFields({
       />
     </Stack>
   );
+}
+
+/** The picker's zone for a form's tz: blank (or, mid-typing, not yet a valid
+ * IANA name) is UTC, as it is when the form is saved. */
+function pickerZone(tz: string): string {
+  return tz && IANAZone.isValidZone(tz) ? tz : 'UTC';
+}
+
+/** A form's "YYYY-MM-DD" + "HH:MM" as a picker value in zone, or null when
+ * either is blank or malformed. */
+function zonedDateTime(date: string, time: string, zone: string): DateTime | null {
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  if (!year || !month || !day || !time || Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  const dt = DateTime.fromObject({ year, month, day, hour, minute }, { zone });
+  return dt.isValid ? dt : null;
 }
