@@ -388,6 +388,16 @@ export function fmtPartTimeRange(part: PlanPart): string {
   return `${start} → ${end}`;
 }
 
+/** A part's local calendar date(s) for the share text, e.g. "Mon 12 Oct 2026",
+ * or "Mon 12 Oct 2026 → Thu 15 Oct 2026" when it ends on a different local day
+ * (a stay, a red-eye). Each end reads in its own tz, like fmtPartTimeRange. */
+export function fmtPartDateRange(part: PlanPart): string {
+  const start = fmtDayHeader(part.starts_at, part.start_tz);
+  if (!part.ends_at) return start;
+  const end = fmtDayHeader(part.ends_at, part.end_tz || part.start_tz);
+  return end === start ? start : `${start} → ${end}`;
+}
+
 /** The live times a flight is actually running to, in the same precedence the
  * server uses for `effective_at` (observed, then the airline's estimate, then
  * the timetable), so what a tile reads agrees with where it sorts. Only flights
