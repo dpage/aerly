@@ -200,14 +200,31 @@ type CalendarEvent struct {
 // calendar feed can never drift from the canonical spec §4 rule again — a plan
 // hidden from the token owner is absent from every feed, and another user's
 // token (a different $1) can never surface the owner's private plans.
+//
+// A flight leg of a multi-leg plan is titled by its own flight number, as the
+// tracker titles it (see flightPartTitle): the plan's title names only the
+// outbound flight ("LX3537 VIE ↔ ZRH"), so stamping it on every leg captions
+// the connecting and return flights with the outbound's number and route. A
+// single-leg plan keeps its own title, falling back to the flight number when
+// that title is blank, which is flightPartTitle's rule too. The extra COALESCE
+// arms are for the LEFT JOIN: fd.ident is absent on every non-flight part, and
+// on a flight part whose details have not been fetched yet, and the column must
+// not come back NULL.
 var calendarEventSelect = `
-	SELECT part.id, part.plan_id, pl.type, pl.title, pl.confirmation_ref,
+	SELECT part.id, part.plan_id, pl.type,
+	       CASE WHEN pl.type <> 'flight' THEN pl.title
+	            WHEN (SELECT count(*) FROM plan_parts sib
+	                  WHERE sib.plan_id = pl.id) > 1
+	            THEN COALESCE(NULLIF(fd.ident, ''), pl.title)
+	            ELSE COALESCE(NULLIF(pl.title, ''), fd.ident, pl.title) END,
+	       pl.confirmation_ref,
 	       pl.notes, part.starts_at, part.ends_at, part.start_tz, part.end_tz,
 	       part.start_label, part.end_label, part.status, part.updated_at,
 	       t.id, t.name, t.starts_on, t.ends_on
 	  FROM plan_parts part
 	  JOIN plans pl ON pl.id = part.plan_id
 	  JOIN trips t ON t.id = pl.trip_id
+	  LEFT JOIN flight_details fd ON fd.plan_part_id = part.id
 	 WHERE part.dismissed_at IS NULL
 	   AND ` + planVisibleExpr("pl", "t", "$1")
 
