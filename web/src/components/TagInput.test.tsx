@@ -66,4 +66,21 @@ describe('TagInput', () => {
     // Already present (case-insensitively) so the set is unchanged.
     expect(onChange).toHaveBeenCalledWith(['family']);
   });
+
+  it('commits a typed tag on comma, for keyboards without Enter', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TagInput value={['family']} onChange={onChange} />);
+    await user.type(screen.getByRole('combobox'), 'beach,');
+    expect(onChange).toHaveBeenCalledWith(['family', 'beach']);
+  });
+
+  it('commits pending text when the field loses focus', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TagInput value={[]} onChange={onChange} />);
+    await user.type(screen.getByRole('combobox'), 'beach');
+    await user.tab();
+    expect(onChange).toHaveBeenCalledWith(['beach']);
+  });
 });
