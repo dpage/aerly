@@ -84,7 +84,19 @@ export default function TagInput({
       options={options}
       value={value}
       inputValue={input}
-      onInputChange={(_, v) => setInput(v)}
+      // Mobile keyboards often don't deliver Enter to the combo, so a comma
+      // also commits what's been typed, and leaving the field (autoSelect)
+      // commits any pending text rather than dropping it.
+      autoSelect
+      onInputChange={(_, v, reason) => {
+        if (reason === 'input' && v.includes(',')) {
+          const parts = v.split(',');
+          setInput(parts.pop() ?? '');
+          commit([...value, ...parts]);
+          return;
+        }
+        setInput(v);
+      }}
       onChange={(_, v) => {
         commit(v as string[]);
         setInput('');
