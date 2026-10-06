@@ -59,6 +59,11 @@ vi.mock('../components/PlanMapView', () => ({
   },
 }));
 
+const getTrackerPart = vi.fn();
+vi.mock('../api/client', () => ({
+  api: { getTrackerPart: (id: number) => getTrackerPart(id) },
+}));
+
 import Tracker from './Tracker';
 
 function trip(over: Partial<Trip> = {}): Trip {
@@ -94,6 +99,7 @@ function renderTracker(initial = '/tracker') {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getTrackerPart.mockRejectedValue(new Error('not stubbed'));
   state.trackerParts = [];
   state.trackerTag = '';
   state.trackerWindow = {};
@@ -128,6 +134,44 @@ describe('Tracker page', () => {
     };
     expect(props.parts).toHaveLength(1);
     expect(props.initialSelectedPartId).toBe(5);
+  });
+
+  it('a ?part= deep link loads an untagged window around that part, not the saved one', async () => {
+    state.trackerTag = 'work';
+    state.trips = [trip({ tags: ['work'] })];
+    state.trackerWindow = { from: '2026-01-01', to: '2026-07-19' };
+    getTrackerPart.mockResolvedValue(
+      planPart({ id: 5, starts_at: '2026-10-05T11:35:00Z', ends_at: '2026-10-05T20:08:00Z' }),
+    );
+    renderTracker('/tracker?part=5');
+    await waitFor(() => expect(loadTracker).toHaveBeenCalled());
+    expect(getTrackerPart).toHaveBeenCalledWith(5);
+    expect(loadTracker).toHaveBeenCalledTimes(1);
+    expect(loadTracker).toHaveBeenCalledWith({
+      tag: '',
+      window: { from: '2026-10-04', to: '2026-10-06' },
+    });
+  });
+
+  it('falls back to the saved window when the deep-linked part cannot be fetched', async () => {
+    state.trackerWindow = { from: '2026-01-01', to: '2026-07-19' };
+    renderTracker('/tracker?part=5');
+    await waitFor(() => expect(loadTracker).toHaveBeenCalled());
+    expect(loadTracker).toHaveBeenCalledWith({ window: { from: '2026-01-01', to: '2026-07-19' } });
+  });
+
+  it('keeps the deep-linked part on the map even when a filter would hide it', () => {
+    state.trackerMineOnly = true;
+    state.trackerParts = [planPart({ id: 5, owner: undefined, passengers: [] })];
+    renderTracker('/tracker?part=5');
+    const props = planMapSpy.mock.calls.at(-1)![0] as { parts: PlanPart[] };
+    expect(props.parts.map((p) => p.id)).toEqual([5]);
+
+    // Without the deep link the same filter hides it.
+    planMapSpy.mockClear();
+    renderTracker('/tracker');
+    const plain = planMapSpy.mock.calls.at(-1)![0] as { parts: PlanPart[] };
+    expect(plain.parts).toHaveLength(0);
   });
 
   it('changing the tag seeds the window from the tag span and reloads', async () => {
