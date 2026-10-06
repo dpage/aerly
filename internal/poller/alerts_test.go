@@ -153,6 +153,29 @@ func TestSnapshotAndSignature(t *testing.T) {
 		t.Errorf("wheels-off alone must not manufacture a delay: %+v", st)
 	}
 
+	// Departed: an observed wheels-off, or a derived Enroute/Arrived status.
+	if st := snapshot(offOnly); !st.departed {
+		t.Errorf("wheels-off should mark the flight departed: %+v", st)
+	}
+	for _, status := range []string{"Enroute", "Arrived"} {
+		if st := snapshot(&store.Flight{Status: status, ScheduledOut: out}); !st.departed {
+			t.Errorf("status %s should mark the flight departed: %+v", status, st)
+		}
+	}
+	if st := snapshot(earlyF); st.departed {
+		t.Errorf("a Scheduled flight with no wheels-off has not departed: %+v", st)
+	}
+	// A deeper delay alerts before departure and is silent after it.
+	before := alertState{status: "Scheduled", hasDelay: true, delayMin: 30}
+	if got := changeKind(alertState{}, before); got != "delayed" {
+		t.Errorf("pre-departure delay kind = %q, want delayed", got)
+	}
+	after := before
+	after.departed = true
+	if got := changeKind(alertState{}, after); got != "" {
+		t.Errorf("post-departure delay kind = %q, want none", got)
+	}
+
 	// Belt and destination-terminal both fold into the signature.
 	full := alertState{
 		status: "Scheduled", destBelt: "7", destTerminal: "2", originTerminal: "1",
@@ -463,6 +486,44 @@ func TestAlert_DelayAboveThresholdAlerts(t *testing.T) {
 	}
 	if cap.count() != 1 {
 		t.Fatalf("expected 1 email, got %d", cap.count())
+	}
+}
+
+// TestAlert_NoDelayAlertOnceDeparted: a flight that pushed back on time and
+// then taxied for half an hour must not alert as delayed when the provider
+// moves its revised departure to the takeoff time. Seen on a Heathrow
+// departure, where the "now delayed" alert arrived after the aircraft was
+// airborne. Gate-style always-alerts are unaffected.
+func TestAlert_NoDelayAlertOnceDeparted(t *testing.T) {
+	p, s, hub, cap := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "BA300", ScheduledOut: now.Add(-40 * time.Minute), ScheduledIn: now.Add(7 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "IAD",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	prev := f
+	// Revised departure lands on the takeoff time, 26 minutes after schedule,
+	// and the status re-derivation has the flight Enroute.
+	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(26*time.Minute))
+	setStatus(t, s, f.ID, "Enroute")
+	p.maybeAlert(ctx, prev, f.ID)
+
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Fatalf("expected no delay alert after departure, got %+v", got)
+	}
+	if cap.count() != 0 {
+		t.Fatalf("expected no email after departure, got %d", cap.count())
 	}
 }
 
