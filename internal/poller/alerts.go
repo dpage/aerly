@@ -55,6 +55,7 @@ type alertState struct {
 	delayMin       int  // departure delay = revised off-block - scheduled_out, clamped >= 0
 	hasDelay       bool // false until the provider publishes a revised departure
 	terminalDV     bool // status is Cancelled or Diverted
+	departed       bool // the aircraft has left: wheels-off observed, or Enroute/Arrived
 	originGate     string
 	destGate       string
 	destBelt       string // arrival baggage belt
@@ -72,6 +73,7 @@ func snapshot(f *store.Flight) alertState {
 		destTerminal:   f.DestTerminal,
 	}
 	st.terminalDV = f.Status == "Cancelled" || f.Status == "Diverted"
+	st.departed = f.ActualOut != nil || f.Status == "Enroute" || f.Status == "Arrived"
 	eff := revisedOut(f)
 	if eff != nil {
 		d := int(eff.Sub(f.ScheduledOut).Minutes())
@@ -220,7 +222,13 @@ func changeKind(prev, cur alertState) string {
 	// delay as a candidate; the min_delay_min threshold is applied per
 	// recipient so a 5-minute slip below everyone's threshold is suppressed
 	// there, and dedupe stops the same delay re-firing.
-	if cur.hasDelay && cur.delayMin > prev.delayMin && cur.delayMin > 0 {
+	//
+	// Not once the aircraft has left, though: a departure delay is news only to
+	// someone still waiting to board. AeroDataBox has been seen to move the
+	// revised departure to the takeoff time as the flight leaves, so without
+	// this an on-time pushback followed by a long taxi alerted as "now
+	// delayed" just after the aircraft was airborne.
+	if cur.hasDelay && !cur.departed && cur.delayMin > prev.delayMin && cur.delayMin > 0 {
 		return "delayed"
 	}
 	return ""
