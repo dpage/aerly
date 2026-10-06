@@ -431,6 +431,8 @@ export const api = {
     const qs = params.toString();
     return request<TrackerResponse>('GET', qs ? `/api/tracker?${qs}` : '/api/tracker');
   },
+  /** One trackable part the viewer can see (404 otherwise). */
+  getTrackerPart: (id: number) => request<PlanPart>('GET', `/api/tracker/part/${id}`),
 
   // -------------------------------------------------------------------------
   // Nearby points of interest (Explore panel): sights/museums/landmarks/parks/

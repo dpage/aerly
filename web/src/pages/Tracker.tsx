@@ -21,9 +21,10 @@ import { useTheme } from '@mui/material/styles';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { format, parseISO } from 'date-fns';
 
+import { api } from '../api/client';
 import { useStore } from '../state/store';
 import type { TrackerWindow } from '../state/trackerSlice';
-import type { PlanType } from '../api/types';
+import type { PlanPart, PlanType } from '../api/types';
 import { FILTER_TYPES, filterTrackerParts } from '../lib/tracker-filter';
 import { planTypeColor } from '../lib/plan-marker';
 import { planTypeLabel, tripSpan } from '../lib/trip-format';
@@ -42,6 +43,12 @@ const fmtWinDay = (s?: string): string | null => {
   return isValidDate(d) ? format(d, 'd MMM') : null;
 };
 
+/** A Tracker window spanning a part's days, padded a day each side. */
+const partWindow = (part: PlanPart): TrackerWindow => {
+  const start = parseISO(part.starts_at).getTime();
+  const end = part.ends_at ? parseISO(part.ends_at).getTime() : start;
+  return { from: ymd(new Date(start - DAY_MS)), to: ymd(new Date(end + DAY_MS)) };
+};
 
 /** Global tracker (PRD §6.5): the unified map+list view over every mappable part
  * in a date window, optionally scoped to a tag. Identical to the trip Map tab
@@ -82,6 +89,10 @@ export default function Tracker() {
   }, [mobile]);
 
   // Initial load: default the window to now−7d … now+30d when none is persisted.
+  // A ?part= deep link (tapping a flight alert) instead loads a window around
+  // that part, untagged, so the part is actually on the map: the saved window
+  // can be months away from it, and the selection would then silently match
+  // nothing. Falls back to the normal load if the part can't be fetched.
   useEffect(() => {
     const w: TrackerWindow =
       win.from || win.to
@@ -90,7 +101,14 @@ export default function Tracker() {
             from: ymd(new Date(Date.now() - 7 * DAY_MS)),
             to: ymd(new Date(Date.now() + 30 * DAY_MS)),
           };
-    void loadTracker({ window: w });
+    if (focusedPartId == null) {
+      void loadTracker({ window: w });
+      return;
+    }
+    api
+      .getTrackerPart(focusedPartId)
+      .then((part) => loadTracker({ tag: '', window: partWindow(part) }))
+      .catch(() => loadTracker({ window: w }));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
   }, []);
 
@@ -143,10 +161,13 @@ export default function Tracker() {
       : 'Everyone';
   const pillLabel = [scopeLabel, windowLabel].filter(Boolean).join(' · ');
 
-  const visibleParts = useMemo(
-    () => filterTrackerParts(parts, { mineOnly, hiddenTypes, meId: me?.id }),
-    [parts, mineOnly, hiddenTypes, me?.id],
-  );
+  // The deep-linked part stays on the map even if the type or mine-only
+  // filters would hide it, or the link would open on an empty selection.
+  const visibleParts = useMemo(() => {
+    const shown = filterTrackerParts(parts, { mineOnly, hiddenTypes, meId: me?.id });
+    const focused = parts.find((p) => p.id === focusedPartId);
+    return focused && !shown.includes(focused) ? [...shown, focused] : shown;
+  }, [parts, mineOnly, hiddenTypes, me?.id, focusedPartId]);
   const filtersActive = mineOnly || hiddenTypes.length > 0;
 
   return (
