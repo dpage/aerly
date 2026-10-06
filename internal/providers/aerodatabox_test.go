@@ -202,7 +202,9 @@ func TestAeroDataBoxQueriesByLocalDepartureDate(t *testing.T) {
 		gotQuery = r.URL.RawQuery
 		_, _ = w.Write([]byte(`[]`))
 	})
-	_, _ = a.Resolve(context.Background(), "BA292", time.Date(2026, 4, 9, 0, 0, 0, 0, time.UTC))
+	// Relative to now: a fixed date drifts out of the provider's ±180-day
+	// window, Resolve then skips the request, and there's no query to inspect.
+	_, _ = a.Resolve(context.Background(), "BA292", time.Now().UTC().Truncate(24*time.Hour))
 	if !strings.Contains(gotQuery, "dateLocalRole=Departure") {
 		t.Errorf("query %q missing dateLocalRole=Departure (date must match local departure)", gotQuery)
 	}
@@ -223,6 +225,8 @@ func TestAeroDataBoxPicksOperatorAndBuilds(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(body))
 	})
+	// Pin the clock so the fixed flight date stays inside the ±180-day window.
+	a.Now = func() time.Time { return time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC) }
 	rf, err := a.Resolve(context.Background(), "ba286", time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -841,6 +845,8 @@ func TestAeroDataBoxResolveTriesPaddedVariants(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		}
 	})
+	// Pin the clock so the fixed flight date stays inside the ±180-day window.
+	a.Now = func() time.Time { return time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC) }
 	rf, err := a.Resolve(context.Background(), "BA87", time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
