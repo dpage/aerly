@@ -24,6 +24,7 @@ import {
   Typography,
 } from '@mui/material';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
+import { parseISO } from 'date-fns';
 
 import { useStore } from '../state/store';
 import {
@@ -93,6 +94,10 @@ export default function AddToTripDialog({
   const ingestProposals = useStore((s) => s.ingestProposals);
   const ingestBusy = useStore((s) => s.ingestBusy);
   const setError = useStore((s) => s.setError);
+  // The trip's fixed start, when set: a new plan defaults to it.
+  const tripStartsOn = useStore((s) =>
+    s.currentTrip?.id === tripId ? s.currentTrip.starts_on : undefined,
+  );
 
   const [tab, setTab] = useState<CaptureTab>('manual');
   const [busy, setBusy] = useState(false);
@@ -194,7 +199,12 @@ export default function AddToTripDialog({
             </Tabs>
 
             {tab === 'manual' && (
-              <ManualTab disabled={working} onCreate={handleManualCreate} prefill={prefill} />
+              <ManualTab
+                disabled={working}
+                onCreate={handleManualCreate}
+                prefill={prefill}
+                tripStartsOn={tripStartsOn}
+              />
             )}
             {tab === 'paste' && (
               <PasteTab
@@ -235,9 +245,12 @@ interface ManualTabProps {
   onCreate: (input: CreatePlanInput) => void;
   /** Seeds the form on mount/refresh — see `PlanPrefill`. */
   prefill?: PlanPrefill;
+  /** The trip's YYYY-MM-DD start, when set — the default start for a new plan. */
+  tripStartsOn?: string;
 }
 
-function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
+function ManualTab({ disabled, onCreate, prefill, tripStartsOn }: ManualTabProps) {
+  const tripStart = useMemo(() => (tripStartsOn ? parseISO(tripStartsOn) : null), [tripStartsOn]);
   const [type, setType] = useState<PlanType>(prefill?.type ?? 'flight');
   const [title, setTitle] = useState(prefill?.title ?? '');
   const [confRef, setConfRef] = useState('');
@@ -258,7 +271,7 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
   const [endAddress, setEndAddress] = useState('');
   const [startLat, setStartLat] = useState<number | undefined>(prefill?.startLat);
   const [startLon, setStartLon] = useState<number | undefined>(prefill?.startLon);
-  const [startsAt, setStartsAt] = useState<Date | null>(() => defaultStart());
+  const [startsAt, setStartsAt] = useState<Date | null>(() => defaultStart(tripStart));
   const [endsAt, setEndsAt] = useState<Date | null>(null);
 
   // Re-seed if a fresh prefill arrives while the tab is already mounted (the
@@ -521,6 +534,7 @@ function ManualTab({ disabled, onCreate, prefill }: ManualTabProps) {
             value={endsAt}
             onChange={setEndsAt}
             ampm={false}
+            referenceDate={startsAt ?? undefined}
             sx={{ flexGrow: 1 }}
           />
         )}
@@ -1353,10 +1367,11 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
 // helpers
 // ---------------------------------------------------------------------------
 
-function defaultStart(): Date {
+/** The next full hour, or the trip's start when that's still ahead. */
+function defaultStart(tripStart: Date | null): Date {
   const d = new Date();
   d.setHours(d.getHours() + 1, 0, 0, 0);
-  return d;
+  return tripStart && d < tripStart ? new Date(tripStart) : d;
 }
 
 /** Parse an optional count field into a non-negative integer, or undefined when
