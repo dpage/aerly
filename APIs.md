@@ -1,9 +1,9 @@
 # API reference
 
 Aerly uses external APIs for flight scheduling/metadata, live positioning, points-of-interest
-discovery, address geocoding, and LLM-based booking extraction. This document covers each,
-explains their limitations, and compares the alternative unified APIs that handle the flight
-concerns from a single integration.
+discovery, address geocoding, destination weather forecasts, and LLM-based booking extraction.
+This document covers each, explains their limitations, and compares the alternative unified APIs
+that handle the flight concerns from a single integration.
 
 ---
 
@@ -171,8 +171,11 @@ destination forecast to the flight departure summary email (and a one-line summa
 notification). The client is `internal/weather`, with a one-hour in-memory cache in front of it, and
 a failed or slow lookup (abandoned after five seconds) just sends the summary without weather.
 
-**Cost:** Free, with no API key, for non-commercial use under Open-Meteo's terms. The API root is
-configurable with `OPEN_METEO_BASE_URL` (for a self-hosted instance).
+**Cost:** Free, with no API key, **for non-commercial use only** (up to 10,000 calls a day) under
+Open-Meteo's terms. Aerly qualifies today because it is not run commercially. If that changes, it
+needs either a self-hosted instance (point `OPEN_METEO_BASE_URL` at it) or a paid subscription,
+which uses a separate `customer-api.open-meteo.com` endpoint with an `apikey` parameter that
+`internal/weather` does not send yet.
 
 **Limitations:**
 
