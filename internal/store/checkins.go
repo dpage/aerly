@@ -47,6 +47,15 @@ type DueCheckin struct {
 // VisiblePlanUserIDs, reusing the tested predicate rather than duplicating it
 // in SQL, which is the same division of labour as DueReminders.
 func (s *Store) DueCheckins(ctx context.Context, now time.Time) ([]DueCheckin, error) {
+	return s.dueFlightNotices(ctx, now, CheckinLead, "checkin", "flight_checkin_sent")
+}
+
+// dueFlightNotices is the query shared by DueCheckins and
+// DueDepartureSummaries: every (flight part, user) pair whose departure is
+// inside `lead` of `now`, where the user has the boolean alert_prefs column
+// prefCol on and has no row yet in sentTable. prefCol and sentTable are spliced
+// into the SQL, so they must be Go constants and never user input.
+func (s *Store) dueFlightNotices(ctx context.Context, now time.Time, lead time.Duration, prefCol, sentTable string) ([]DueCheckin, error) {
 	rows, err := s.pool.Query(ctx, `
 		WITH recip AS (
 			SELECT pl.id AS plan_id, pl.trip_id, pl.created_by AS user_id
@@ -75,17 +84,17 @@ func (s *Store) DueCheckins(ctx context.Context, now time.Time) ([]DueCheckin, e
 		JOIN plan_parts part ON part.plan_id = r.plan_id
 		JOIN flight_details fd ON fd.plan_part_id = part.id
 		LEFT JOIN alert_prefs ap ON ap.user_id = r.user_id
-		WHERE COALESCE(ap.checkin, FALSE)
+		WHERE COALESCE(ap.`+prefCol+`, FALSE)
 		  AND part.status <> 'cancelled'
 		  AND part.dismissed_at IS NULL
 		  AND fd.flight_status NOT IN ('Cancelled', 'Diverted')
 		  AND part.starts_at > $1
 		  AND $1 >= part.starts_at - $2::interval
 		  AND NOT EXISTS (
-		      SELECT 1 FROM flight_checkin_sent cs
+		      SELECT 1 FROM `+sentTable+` cs
 		      WHERE cs.plan_part_id = part.id AND cs.user_id = r.user_id
 		  )
-		ORDER BY part.starts_at, r.user_id`, now, CheckinLead)
+		ORDER BY part.starts_at, r.user_id`, now, lead)
 	if err != nil {
 		return nil, err
 	}

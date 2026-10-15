@@ -135,7 +135,7 @@ func TestPushPrefs_DefaultsAllEnabled(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	got := decodeBody[pushPrefsDTO](t, w)
-	if !got.Kinds["alert"] || !got.Kinds["share"] {
+	if !got.Kinds["alert"] || !got.Kinds["share"] || !got.Kinds["departure"] {
 		t.Fatalf("expected all kinds default enabled, got %+v", got.Kinds)
 	}
 }
@@ -157,6 +157,20 @@ func TestPushPrefs_SetAndPersist(t *testing.T) {
 	got = decodeBody[pushPrefsDTO](t, w)
 	if got.Kinds["alert"] {
 		t.Fatalf("alert pref did not persist: %+v", got.Kinds)
+	}
+}
+
+func TestPushPrefs_DepartureKindToggles(t *testing.T) {
+	e := setup(t, nil, enabledPushConfig())
+	uid := e.user(t, "alice", false)
+
+	w := e.req(t, "PATCH", "/api/push/prefs", map[string]any{"kind": "departure", "enabled": false}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	got := decodeBody[pushPrefsDTO](t, w)
+	if got.Kinds["departure"] || !got.Kinds["checkin"] {
+		t.Fatalf("after patch = %+v", got.Kinds)
 	}
 }
 
