@@ -30,6 +30,7 @@ import (
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/weather"
 	"github.com/dpage/aerly/migrations"
 	"github.com/dpage/aerly/web"
 )
@@ -254,6 +255,9 @@ func run(configPath string) error {
 	// Web Push is the third alert channel. Reuse the API's Sender (stateless and
 	// concurrency-safe); a no-op unless VAPID keys are configured.
 	p.Push = api.Push
+	// Destination forecasts for departure summaries. Open-Meteo needs no key;
+	// the cache lets several travellers on one flight share a single call.
+	p.Weather = weather.NewCached(weather.NewOpenMeteo(cfg.OpenMeteoBaseURL), time.Hour)
 	// Reuse the API's feed service so the periodic feed-refresh sweep shares the
 	// same SSRF-guarded fetcher and store as the on-demand (add/edit) refreshes.
 	p.Feeds = api.Feeds
