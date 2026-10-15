@@ -401,7 +401,7 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 	if err != nil {
 		slog.Warn("emailingest: select trip for ingested batch", "err", err)
 		for _, p := range proposals {
-			failed = append(failed, planReplyFailure(p, err))
+			failed = append(failed, planReplyFailures(p, err)...)
 		}
 		return added, failed, "", nil
 	}
@@ -414,7 +414,7 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 		committed, err := planops.Commit(ctx, s.PlanDeps, tripID, userID, []planops.ConfirmPlanInput{in})
 		if err != nil {
 			slog.Warn("emailingest: planops commit", "err", err, "trip", tripID)
-			failed = append(failed, planReplyFailure(p, err))
+			failed = append(failed, planReplyFailures(p, err)...)
 			continue
 		}
 		// Geocode addressed parts (hotels, transfers, …) so they plot on the
@@ -435,7 +435,7 @@ func (s *Service) capturePlans(ctx context.Context, userID int64, body string, e
 		// trip.updated drives the trips-list refresh (App.tsx onTrip) so a
 		// brand-new auto-created trip appears without a manual reload.
 		notify.TripUpdated(ctx, s.Store, s.Hub, tripID)
-		added = append(added, planReplyItem(p))
+		added = append(added, planReplyItems(p)...)
 	}
 
 	// When at least two bookings landed and their flight legs don't form one
@@ -508,35 +508,48 @@ func looksLikeSeparateTrips(proposals []planops.ProposedPlan) bool {
 	return false
 }
 
-// planReplyItem renders a committed proposal of any type as a ReplyItem for the
-// confirmation email. Flights show "IDENT" + date (ManualNote set when the
-// schedule came from the email's own details rather than the resolver, i.e. the
-// enrich fallback path that leaves FlightDetail.Resolved false). Every other
+// planReplyItems renders a committed proposal of any type as ReplyItems for the
+// confirmation email. Flights show "IDENT" + date for each leg (ManualNote set
+// when the schedule came from the email's own details rather than the resolver,
+// i.e. the enrich fallback path that leaves FlightDetail.Resolved false). Every other
 // type shows its title (or the type label) + "<Type> · <date>".
 //
 // ManualNote keys off Resolved, not the airframe: the resolver's schedule
 // endpoint never returns an ICAO24/Mode-S hex for a future flight (that only
 // arrives once the aircraft is live-tracked near departure), so an airframe
 // check would mis-flag every resolved future flight as "from the email".
-func planReplyItem(p planops.ProposedPlan) ReplyItem {
-	if p.Type == "flight" && len(p.Parts) > 0 && p.Parts[0].Flight != nil {
-		fd := p.Parts[0].Flight
-		return ReplyItem{
-			Label:      fd.Ident,
-			Detail:     fd.ScheduledOut.Format("2006-01-02"),
-			ManualNote: !fd.Resolved,
+func planReplyItems(p planops.ProposedPlan) []ReplyItem {
+	if p.Type == "flight" {
+		// One row per leg: a connecting or return booking is a single plan
+		// with several flight parts, and listing only the first hid the rest
+		// (issue #128).
+		var items []ReplyItem
+		for _, part := range p.Parts {
+			if fd := part.Flight; fd != nil {
+				items = append(items, ReplyItem{
+					Label:      fd.Ident,
+					Detail:     fd.ScheduledOut.Format("2006-01-02"),
+					ManualNote: !fd.Resolved,
+				})
+			}
+		}
+		if len(items) > 0 {
+			return items
 		}
 	}
-	return ReplyItem{Label: planLabel(p), Detail: planDetail(p)}
+	return []ReplyItem{{Label: planLabel(p), Detail: planDetail(p)}}
 }
 
-// planReplyFailure renders a proposal that couldn't be committed.
-func planReplyFailure(p planops.ProposedPlan, err error) ReplyFailure {
-	if p.Type == "flight" && len(p.Parts) > 0 && p.Parts[0].Flight != nil {
-		fd := p.Parts[0].Flight
-		return ReplyFailure{Label: fd.Ident, Detail: fd.ScheduledOut.Format("2006-01-02"), Reason: failureReason(err)}
+// planReplyFailures renders a proposal that couldn't be committed, one row per
+// flight leg as planReplyItems does.
+func planReplyFailures(p planops.ProposedPlan, err error) []ReplyFailure {
+	reason := failureReason(err)
+	items := planReplyItems(p)
+	out := make([]ReplyFailure, 0, len(items))
+	for _, it := range items {
+		out = append(out, ReplyFailure{Label: it.Label, Detail: it.Detail, Reason: reason})
 	}
-	return ReplyFailure{Label: planLabel(p), Detail: planDetail(p), Reason: failureReason(err)}
+	return out
 }
 
 // planLabel is the headline for a non-flight booking: its title, else the type.

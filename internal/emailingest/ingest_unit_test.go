@@ -65,7 +65,7 @@ func TestPlanReplyFailure_Flight(t *testing.T) {
 			ScheduledOut: time.Date(2026, 7, 20, 15, 40, 0, 0, time.UTC),
 		}}},
 	}
-	f := planReplyFailure(p, errors.New("upstream down"))
+	f := planReplyFailures(p, errors.New("upstream down"))[0]
 	if f.Label != "BA171" {
 		t.Errorf("label = %q, want BA171", f.Label)
 	}
@@ -84,7 +84,7 @@ func TestPlanReplyFailure_NonFlight(t *testing.T) {
 		Title: "The Plaza",
 		Parts: []planops.ProposedPart{{Type: "hotel", StartsAt: start}},
 	}
-	f := planReplyFailure(p, errors.New("commit failed"))
+	f := planReplyFailures(p, errors.New("commit failed"))[0]
 	if f.Label != "The Plaza" {
 		t.Errorf("label = %q, want The Plaza", f.Label)
 	}
@@ -100,7 +100,7 @@ func TestPlanReplyItem_NonFlight(t *testing.T) {
 		Title: "The Plaza",
 		Parts: []planops.ProposedPart{{Type: "hotel", StartsAt: start}},
 	}
-	item := planReplyItem(p)
+	item := planReplyItems(p)[0]
 	if item.Label != "The Plaza" || item.Detail != "Accommodation · 12 Jun 2026" {
 		t.Errorf("item = %+v", item)
 	}
