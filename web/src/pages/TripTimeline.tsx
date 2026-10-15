@@ -48,6 +48,7 @@ import {
   bandSpanDays,
   fmtPartPlaces,
   flightStatusLabel,
+  fmtPartDuration,
   fmtPartRevisedTimeRange,
   fmtPartTimeRange,
   fmtTimeOfDay,
@@ -617,6 +618,9 @@ function PartCard({
   // from its timetable, which is what turns the line below into a departure
   // board rather than a booking record.
   const revisedWhen = fmtPartRevisedTimeRange(part);
+  // Total time of a transfer, shown after its range because the two ends can
+  // sit in different time zones and the clock times alone don't say it.
+  const duration = fmtPartDuration(part);
   // How the flight's state should read here. Lives on the collapsed tile rather
   // than behind a tap, because a cancellation is the single most important
   // thing a tile can say and nobody expands a tile to find out that their
@@ -829,9 +833,10 @@ function PartCard({
                 >
                   {revisedWhen}
                 </Box>
+                {duration && ` · ${duration}`}
               </>
             ) : (
-              fmtPartTimeRange(part)
+              `${fmtPartTimeRange(part)}${duration ? ` · ${duration}` : ''}`
             )}
           </Typography>
 

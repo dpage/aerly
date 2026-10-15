@@ -398,6 +398,25 @@ export function fmtPartDateRange(part: PlanPart): string {
   return end === start ? start : `${start} → ${end}`;
 }
 
+/** How long a transfer takes door to door, e.g. "10h 30m", worked out from the
+ * instants rather than the wall-clocks so a range that crosses time zones reads
+ * true (22:30 GMT+1 → 10:00 GMT+2 is 10h 30m). Uses the times the flight is
+ * actually running to, like the revised range, and counts whole clock minutes
+ * so it agrees with the times shown. Null for a single-place type, a part with
+ * no end, or an end that isn't after the start. */
+export function fmtPartDuration(part: PlanPart): string | null {
+  if (!isTransferType(part.type) || !part.ends_at) return null;
+  const live = liveTimes(part);
+  const start = parseInstant(live.out ?? part.starts_at);
+  const end = parseInstant(live.in ?? part.ends_at);
+  if (start === null || end === null) return null;
+  const mins = Math.floor(end / 60000) - Math.floor(start / 60000);
+  if (mins <= 0) return null;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
 /** The live times a flight is actually running to, in the same precedence the
  * server uses for `effective_at` (observed, then the airline's estimate, then
  * the timetable), so what a tile reads agrees with where it sorts. Only flights
@@ -609,4 +628,3 @@ export const ACCOMMODATION_KINDS = [
 export function planTypeLabel(type: PlanType): string {
   return PLAN_TYPE_LABELS[type] ?? type;
 }
-

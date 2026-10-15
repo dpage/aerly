@@ -7,6 +7,7 @@ import {
   classifyTrip,
   fmtPartPlaces,
   flightStatusLabel,
+  fmtPartDuration,
   fmtPartRevisedTimeRange,
   fmtPartTimeRange,
   fmtPartTimeRangeText,
@@ -690,6 +691,65 @@ describe('fmtPartTimeRangeText', () => {
         part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, flight: undefined }),
       ),
     ).toBe('09:00 UTC');
+  });
+});
+
+describe('fmtPartDuration', () => {
+  it('measures the instants, so a range across time zones reads true', () => {
+    // 22:30 in Paris (CET) → 10:00 next day in Helsinki (EET) is 10h 30m.
+    expect(
+      fmtPartDuration(
+        part({
+          starts_at: '2026-11-10T21:30:00Z',
+          ends_at: '2026-11-11T08:00:00Z',
+          start_tz: 'Europe/Paris',
+          end_tz: 'Europe/Helsinki',
+          flight: undefined,
+        }),
+      ),
+    ).toBe('10h 30m');
+  });
+
+  it('drops the hours under an hour', () => {
+    expect(
+      fmtPartDuration(
+        part({
+          starts_at: '2026-10-12T09:00:00Z',
+          ends_at: '2026-10-12T09:45:00Z',
+          flight: undefined,
+        }),
+      ),
+    ).toBe('45m');
+  });
+
+  it('follows the times the flight is actually running to', () => {
+    expect(
+      fmtPartDuration(
+        part({
+          starts_at: '2026-08-20T15:05:00Z',
+          ends_at: '2026-08-20T17:15:00Z',
+          flight: {
+            ident: 'OS967',
+            estimated_out: '2026-08-20T17:00:00Z',
+            estimated_in: '2026-08-20T19:00:00Z',
+          } as PlanPart['flight'],
+        }),
+      ),
+    ).toBe('2h 0m');
+  });
+
+  it('is null with no end, and for single-place types', () => {
+    expect(fmtPartDuration(part({ ends_at: undefined, flight: undefined }))).toBeNull();
+    expect(
+      fmtPartDuration(
+        part({
+          type: 'hotel',
+          starts_at: '2026-10-12T14:00:00Z',
+          ends_at: '2026-10-14T10:00:00Z',
+          flight: undefined,
+        }),
+      ),
+    ).toBeNull();
   });
 });
 
