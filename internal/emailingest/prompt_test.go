@@ -3,6 +3,7 @@ package emailingest
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildPrompt_TextAndHTML(t *testing.T) {
@@ -96,5 +97,15 @@ func TestBuildPrompt_StyleNoiseDoesntTruncateReservation(t *testing.T) {
 	body, _ := buildPrompt(p, 2000, 0, 0)
 	if !strings.Contains(body, "RESERVATION DETAIL HERE") {
 		t.Errorf("reservation truncated away by style noise: %q", body)
+	}
+}
+
+func TestAssemblePrompt_TodayIncludesWeekday(t *testing.T) {
+	// The weekday lets the model resolve a typed note such as "LX 963 on
+	// Sunday" to a date.
+	now := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	got := assemblePrompt(plansSystemPrompt, now, "tok", "LX 963 on Sunday")
+	if !strings.Contains(got, "Today is Thursday 2026-10-15T09:00:00Z") {
+		t.Errorf("prompt lacks weekday-qualified date: %q", got)
 	}
 }
