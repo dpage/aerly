@@ -56,13 +56,13 @@ describe('loadPushState', () => {
     mockPush.currentPermission.mockReturnValue('granted');
     mockPush.isSubscribed.mockResolvedValue(true);
     mockApi.getPushPrefs.mockResolvedValue({
-      kinds: { alert: true, share: false, checkin: true, reminder: true },
+      kinds: { alert: true, share: false, checkin: true, departure: true, reminder: true },
     });
     await useStore.getState().loadPushState();
     const s = useStore.getState();
     expect(s.pushSubscribed).toBe(true);
     expect(s.pushPermission).toBe('granted');
-    expect(s.pushPrefs).toEqual({ alert: true, share: false, checkin: true, reminder: true });
+    expect(s.pushPrefs).toEqual({ alert: true, share: false, checkin: true, departure: true, reminder: true });
   });
 
   it('skips prefs when supported but not subscribed', async () => {
@@ -88,14 +88,14 @@ describe('enablePush', () => {
     mockPush.enablePush.mockResolvedValue({ ok: true });
     mockPush.currentPermission.mockReturnValue('granted');
     mockApi.getPushPrefs.mockResolvedValue({
-      kinds: { alert: true, share: true, checkin: true, reminder: true },
+      kinds: { alert: true, share: true, checkin: true, departure: true, reminder: true },
     });
     await useStore.getState().enablePush();
     const s = useStore.getState();
     expect(s.pushSubscribed).toBe(true);
     expect(s.pushBusy).toBe(false);
     expect(s.pushLastError).toBeNull();
-    expect(s.pushPrefs).toEqual({ alert: true, share: true, checkin: true, reminder: true });
+    expect(s.pushPrefs).toEqual({ alert: true, share: true, checkin: true, departure: true, reminder: true });
   });
 
   it('records the failure reason and clears busy', async () => {
