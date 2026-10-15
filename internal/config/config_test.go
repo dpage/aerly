@@ -22,6 +22,7 @@ func base(t *testing.T) {
 	t.Setenv("OPENSKY_ENABLED", "")
 	t.Setenv("AERODATABOX_RAPIDAPI_KEY", "")
 	t.Setenv("DEV_AUTH_BYPASS", "")
+	t.Setenv("OPEN_METEO_BASE_URL", "")
 	t.Setenv("WEBPUSH_VAPID_PUBLIC_KEY", "")
 	t.Setenv("WEBPUSH_VAPID_PRIVATE_KEY", "")
 	t.Setenv("WEBPUSH_VAPID_SUBJECT", "")
@@ -611,5 +612,25 @@ func TestAttachmentsS3MissingBucket(t *testing.T) {
 	t.Setenv("ATTACHMENTS_S3_SECRET_KEY", "sk")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "must include a bucket") {
 		t.Errorf("expected missing-bucket error, got %v", err)
+	}
+}
+
+func TestLoadOpenMeteoBaseURL(t *testing.T) {
+	base(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OpenMeteoBaseURL != "https://api.open-meteo.com" {
+		t.Errorf("default OpenMeteoBaseURL = %q", cfg.OpenMeteoBaseURL)
+	}
+
+	t.Setenv("OPEN_METEO_BASE_URL", "http://weather.example.test/")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OpenMeteoBaseURL != "http://weather.example.test" {
+		t.Errorf("OpenMeteoBaseURL = %q, want trailing slash trimmed", cfg.OpenMeteoBaseURL)
 	}
 }
