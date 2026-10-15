@@ -22,6 +22,41 @@ func TestGetAlertPrefs_Defaults(t *testing.T) {
 	if got.Checkin {
 		t.Fatalf("check-in reminders should default off: %+v", got)
 	}
+	// So are departure summaries (issue #130).
+	if got.DepartureSummary {
+		t.Fatalf("departure summaries should default off: %+v", got)
+	}
+}
+
+// TestPutAlertPrefs_DepartureSummary: the preference round-trips on its own,
+// leaves check-in alone, and survives an unrelated later patch.
+func TestPutAlertPrefs_DepartureSummary(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "alice", false)
+
+	w := e.req(t, "PUT", "/api/alert-prefs", map[string]any{"departure_summary": true}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	if got := decodeBody[alertPrefsDTO](t, w); !got.DepartureSummary || got.Checkin || !got.InApp {
+		t.Fatalf("after opt-in = %+v", got)
+	}
+
+	w = e.req(t, "PUT", "/api/alert-prefs", map[string]any{"min_delay_min": 45}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	if got := decodeBody[alertPrefsDTO](t, w); !got.DepartureSummary || got.MinDelayMin != 45 {
+		t.Fatalf("after unrelated patch = %+v", got)
+	}
+
+	w = e.req(t, "PUT", "/api/alert-prefs", map[string]any{"departure_summary": false}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	if got := decodeBody[alertPrefsDTO](t, w); got.DepartureSummary {
+		t.Fatalf("after opt-out = %+v", got)
+	}
 }
 
 // TestPutAlertPrefs_Checkin: the check-in preference round-trips on its own and
