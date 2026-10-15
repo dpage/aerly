@@ -2,6 +2,7 @@ package mailer
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -133,6 +134,23 @@ func contactLine(in DepartureSummaryInput) string {
 	return fmt.Sprintf("For help or changes, contact %s: %s", who, in.ContactPhone)
 }
 
+// celsius renders a temperature as a whole number of degrees, e.g. "24°C".
+// It rounds half away from zero (fmt's %.0f rounds half to even, so 0.5 would
+// read 0 but 1.5 would read 2), and a reading that rounds to zero from below
+// prints as "0°C" rather than "-0°C".
+func celsius(v float64) string {
+	r := math.Round(v)
+	if r == 0 {
+		r = 0 // drops the sign of a negative zero
+	}
+	return fmt.Sprintf("%.0f°C", r)
+}
+
+// tempRange renders a day's high and low as "24°C / 18°C".
+func tempRange(d ForecastDay) string {
+	return celsius(d.MaxC) + " / " + celsius(d.MinC)
+}
+
 // forecastPlace names the place the forecast is for, falling back to the
 // destination label.
 func forecastPlace(in DepartureSummaryInput) string {
@@ -150,7 +168,7 @@ func DepartureSummaryWeatherLine(in DepartureSummaryInput) string {
 		return ""
 	}
 	d := in.Forecast[0]
-	line := fmt.Sprintf("%.0f°C / %.0f°C", d.MaxC, d.MinC)
+	line := tempRange(d)
 	if place := forecastPlace(in); place != "" {
 		line = place + ": " + line
 	}
@@ -220,7 +238,7 @@ func BuildDepartureSummaryEmail(in DepartureSummaryInput) string {
 			HTMLEscape(heading))
 		for _, d := range in.Forecast {
 			date := d.Date.Format("2 Jan")
-			temps := fmt.Sprintf("%.0f°C / %.0f°C", d.MaxC, d.MinC)
+			temps := tempRange(d)
 			fmt.Fprintf(&plain, "%s  %s %s  %s  %s\r\n",
 				date, d.Emoji, d.Text, precipText(d), temps)
 			cell := `<td style="padding:4px 12px 4px 0;border-bottom:1px solid #e5e7eb;">%s</td>`

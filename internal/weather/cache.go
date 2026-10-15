@@ -9,7 +9,9 @@ import (
 
 // Cached wraps a Forecaster with an in-memory cache. Several travellers on the
 // same flight ask for the same destination and dates, and a forecast changes
-// slowly, so one upstream call serves them all.
+// slowly, so one upstream call serves them all. A struct literal such as
+// &Cached{Inner: f, TTL: time.Hour} is safe as well as NewCached: a nil Now
+// falls back to time.Now and the map is created on first store.
 type Cached struct {
 	Inner Forecaster
 	TTL   time.Duration
@@ -42,7 +44,11 @@ func NewCached(inner Forecaster, ttl time.Duration) *Cached {
 // places (about a kilometre) for the key, so nearby lookups share an entry.
 func (c *Cached) Forecast(ctx context.Context, lat, lon float64, tz string, from time.Time, days int) ([]Day, error) {
 	key := fmt.Sprintf("%.2f|%.2f|%s|%s|%d", lat, lon, tz, from.Format("2006-01-02"), days)
-	now := c.Now()
+	nowFn := c.Now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	now := nowFn()
 
 	c.mu.Lock()
 	e, ok := c.buf[key]
@@ -56,7 +62,7 @@ func (c *Cached) Forecast(ctx context.Context, lat, lon float64, tz string, from
 		return nil, err
 	}
 	c.mu.Lock()
-	if len(c.buf) >= maxCacheEntries {
+	if c.buf == nil || len(c.buf) >= maxCacheEntries {
 		c.buf = map[string]cacheEntry{}
 	}
 	c.buf[key] = cacheEntry{days: append([]Day(nil), out...), expires: now.Add(c.TTL)}

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Day is one day's forecast. Temperatures are in Celsius; PrecipPct is nil
@@ -65,6 +66,18 @@ type openMeteoResponse struct {
 // maxErrBody bounds how much of an error response is quoted back in an error.
 const maxErrBody = 200
 
+// truncate cuts s to at most n bytes, backing up to a rune boundary so a
+// multi-byte character is never split, as providers' truncate does.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "..."
+}
+
 // Forecast returns up to days daily forecasts starting at the calendar date of
 // from. tz is an IANA zone name; empty asks Open-Meteo to work it out from the
 // coordinates. Dates outside Open-Meteo's forecast range produce an error.
@@ -100,11 +113,8 @@ func (o *OpenMeteo) Forecast(ctx context.Context, lat, lon float64, tz string, f
 		return nil, fmt.Errorf("open-meteo: reading response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		msg := strings.TrimSpace(string(body))
-		if len(msg) > maxErrBody {
-			msg = msg[:maxErrBody] + "..."
-		}
-		return nil, fmt.Errorf("open-meteo: status %d: %s", resp.StatusCode, msg)
+		return nil, fmt.Errorf("open-meteo: status %d: %s", resp.StatusCode,
+			truncate(strings.TrimSpace(string(body)), maxErrBody))
 	}
 
 	var raw openMeteoResponse

@@ -181,3 +181,22 @@ func TestBuildDepartureSummaryEmail_Escaping(t *testing.T) {
 		t.Errorf("escaped form missing:\n%s", html)
 	}
 }
+
+func TestCelsiusRounding(t *testing.T) {
+	for in, want := range map[float64]string{
+		0.5:  "1°C", // half away from zero, not half to even
+		2.5:  "3°C",
+		-0.4: "0°C", // never "-0°C"
+		-0.5: "-1°C",
+		-3.6: "-4°C",
+		18.4: "18°C",
+	} {
+		if got := celsius(in); got != want {
+			t.Errorf("celsius(%v) = %q, want %q", in, got, want)
+		}
+	}
+	d := ForecastDay{MaxC: 0.5, MinC: -0.2}
+	if got := tempRange(d); got != "1°C / 0°C" {
+		t.Errorf("tempRange = %q", got)
+	}
+}

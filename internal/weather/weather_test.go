@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 var day0 = time.Date(2026, 10, 16, 14, 30, 0, 0, time.UTC)
@@ -245,5 +246,31 @@ func TestDescribe(t *testing.T) {
 		if text != want || emoji == "" {
 			t.Errorf("Describe(%d) = %q, %q; want %q", code, text, emoji, want)
 		}
+	}
+}
+
+func TestCachedStructLiteralIsSafe(t *testing.T) {
+	inner := &fakeForecaster{}
+	c := &Cached{Inner: inner, TTL: time.Hour} // no Now, no map
+	for i := 0; i < 2; i++ {
+		if _, err := c.Forecast(context.Background(), 1, 2, "UTC", day0, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if inner.calls != 1 {
+		t.Errorf("calls = %d, want 1 (second call served from the cache)", inner.calls)
+	}
+}
+
+func TestTruncateKeepsRunesWhole(t *testing.T) {
+	if got := truncate("short", 10); got != "short" {
+		t.Errorf("short string changed: %q", got)
+	}
+	// "é" is two bytes; cutting at 3 would split the second one.
+	if got := truncate("aéé", 4); got != "aé..." {
+		t.Errorf("got %q, want %q", got, "aé...")
+	}
+	if got := truncate(strings.Repeat("é", 300), maxErrBody); !utf8.ValidString(got) {
+		t.Errorf("truncated body is not valid UTF-8: %q", got)
 	}
 }

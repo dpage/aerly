@@ -62,7 +62,13 @@ describe('loadPushState', () => {
     const s = useStore.getState();
     expect(s.pushSubscribed).toBe(true);
     expect(s.pushPermission).toBe('granted');
-    expect(s.pushPrefs).toEqual({ alert: true, share: false, checkin: true, departure: true, reminder: true });
+    expect(s.pushPrefs).toEqual({
+      alert: true,
+      share: false,
+      checkin: true,
+      departure: true,
+      reminder: true,
+    });
   });
 
   it('skips prefs when supported but not subscribed', async () => {
@@ -95,7 +101,13 @@ describe('enablePush', () => {
     expect(s.pushSubscribed).toBe(true);
     expect(s.pushBusy).toBe(false);
     expect(s.pushLastError).toBeNull();
-    expect(s.pushPrefs).toEqual({ alert: true, share: true, checkin: true, departure: true, reminder: true });
+    expect(s.pushPrefs).toEqual({
+      alert: true,
+      share: true,
+      checkin: true,
+      departure: true,
+      reminder: true,
+    });
   });
 
   it('records the failure reason and clears busy', async () => {
