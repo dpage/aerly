@@ -147,6 +147,15 @@ describe('PlanEditDialog — part detail editors', () => {
     expect(h.updatePlanPart).not.toHaveBeenCalled();
   });
 
+  it('refuses to save a part that ends before it starts', async () => {
+    render_(plan({ parts: [part()] }));
+    const when = screen.getAllByLabelText('Date & time')[0];
+    fireEvent.change(when, { target: { value: '2026-10-13T12:35' } });
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    expect(h.setError).toHaveBeenCalledWith('A plan can’t end before it starts.');
+    expect(h.updatePlanPart).not.toHaveBeenCalled();
+  });
+
   it('does not write parts that were not edited', async () => {
     h.updatePlan.mockResolvedValue(undefined);
     render_(plan({ parts: [part()] }));
@@ -174,7 +183,7 @@ describe('PlanEditDialog — part detail editors', () => {
     await userEvent.type(labels[0], 'Heathrow');
     await userEvent.clear(addresses[0]);
     await userEvent.type(addresses[0], 'TW6');
-    fireEvent.change(whens[0], { target: { value: '2026-10-13T12:35' } });
+    fireEvent.change(whens[0], { target: { value: '2026-10-11T12:35' } });
     await userEvent.clear(tzs[0]);
     await userEvent.type(tzs[0], 'Europe/Paris');
 

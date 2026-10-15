@@ -805,8 +805,10 @@ function NewTripDialog({
     }
   }, [open]);
 
+  const datesValid = !startsOn || !endsOn || startsOn <= endsOn;
+
   const submit = async () => {
-    if (!name.trim() || busy) return;
+    if (!name.trim() || !datesValid || busy) return;
     setBusy(true);
     const trip = await createTrip({
       name: name.trim(),
@@ -855,6 +857,9 @@ function NewTripDialog({
               value={endsOn}
               onChange={(e) => setEndsOn(e.target.value)}
               InputLabelProps={{ shrink: true }}
+              inputProps={{ min: startsOn || undefined }}
+              error={!datesValid}
+              helperText={!datesValid ? 'End is before start' : undefined}
               fullWidth
             />
           </Stack>
@@ -867,7 +872,7 @@ function NewTripDialog({
         <Button
           variant="contained"
           onClick={() => void submit()}
-          disabled={!online || !name.trim() || busy}
+          disabled={!online || !name.trim() || !datesValid || busy}
         >
           Create
         </Button>
