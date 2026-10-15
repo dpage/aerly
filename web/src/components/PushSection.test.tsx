@@ -76,7 +76,13 @@ describe('PushSection', () => {
 
   it('disables push when the master switch is turned off', async () => {
     h.state.pushSubscribed = true;
-    h.state.pushPrefs = { alert: true, share: true, checkin: true, reminder: true };
+    h.state.pushPrefs = {
+      alert: true,
+      share: true,
+      checkin: true,
+      departure: true,
+      reminder: true,
+    };
     render(<PushSection />);
     await userEvent.click(screen.getByRole('checkbox', { name: /enable push on this device/i }));
     expect(h.disablePush).toHaveBeenCalled();
@@ -114,7 +120,13 @@ describe('PushSection', () => {
 
   it('renders per-kind toggles when subscribed and toggles a kind', async () => {
     h.state.pushSubscribed = true;
-    h.state.pushPrefs = { alert: true, share: false, checkin: false, reminder: false };
+    h.state.pushPrefs = {
+      alert: true,
+      share: false,
+      checkin: false,
+      departure: false,
+      reminder: false,
+    };
     render(<PushSection />);
 
     const alert = screen.getByRole('checkbox', { name: /flight alerts/i });
@@ -131,6 +143,9 @@ describe('PushSection', () => {
     // ordinary upcoming-plan reminders.
     await userEvent.click(checkin);
     expect(h.setPushKind).toHaveBeenCalledWith('checkin', true);
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /departure summaries/i }));
+    expect(h.setPushKind).toHaveBeenCalledWith('departure', true);
 
     await userEvent.click(screen.getByRole('checkbox', { name: /plan reminders/i }));
     expect(h.setPushKind).toHaveBeenCalledWith('reminder', true);

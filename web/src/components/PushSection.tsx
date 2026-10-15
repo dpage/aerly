@@ -116,6 +116,15 @@ export default function PushSection() {
             <FormControlLabel
               control={
                 <Switch
+                  checked={prefs.departure}
+                  onChange={(e) => void setPushKind('departure', e.target.checked)}
+                />
+              }
+              label="Departure summaries"
+            />
+            <FormControlLabel
+              control={
+                <Switch
                   checked={prefs.reminder}
                   onChange={(e) => void setPushKind('reminder', e.target.checked)}
                 />
