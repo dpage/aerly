@@ -18,6 +18,11 @@ import (
 // carries, starting from the arrival date.
 const forecastDays = 5
 
+// forecastTimeout bounds each forecast fetch so a slow provider cannot stall
+// the poll loop; the summary then goes out without weather.
+// A variable only so a test can shorten it.
+var forecastTimeout = 5 * time.Second
+
 // remindDepartures dispatches flight departure summaries (issue #130), four
 // hours before each leg. It is the check-in reminder pass (remindCheckins)
 // with different content: the same due query shape, the same visibility
@@ -135,6 +140,11 @@ func effectiveTimes(f *store.Flight) (departs time.Time, arrives *time.Time) {
 		arrives = f.EstimatedIn
 	case !f.ScheduledIn.IsZero():
 		in := f.ScheduledIn
+		// Only the departure is delayed: carry the same delay to the
+		// timetable arrival rather than quoting a time the flight can't make.
+		if delay := departs.Sub(f.ScheduledOut); delay != 0 {
+			in = in.Add(delay)
+		}
 		arrives = &in
 	}
 	return departs, arrives
@@ -159,7 +169,9 @@ func (p *Poller) departureForecast(ctx context.Context, f *store.Flight, destTZ 
 	}
 	local := inZone(landing, destTZ)
 	from := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
-	days, err := p.Weather.Forecast(ctx, lat, lon, destTZ, from, forecastDays)
+	fctx, cancel := context.WithTimeout(ctx, forecastTimeout)
+	defer cancel()
+	days, err := p.Weather.Forecast(fctx, lat, lon, destTZ, from, forecastDays)
 	if err != nil {
 		slog.Warn("departure: forecast", "part", f.ID, "err", err)
 		return nil

@@ -623,6 +623,7 @@ func TestEffectiveTimes(t *testing.T) {
 	in := sched.Add(9 * time.Hour)
 	estIn := in.Add(15 * time.Minute)
 	actIn := in.Add(10 * time.Minute)
+	shiftedIn := in.Add(20 * time.Minute)
 
 	for _, c := range []struct {
 		name        string
@@ -636,6 +637,7 @@ func TestEffectiveTimes(t *testing.T) {
 		{"actual", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ActualOut: &act,
 			ScheduledIn: in, EstimatedIn: &estIn, ActualIn: &actIn}, act, &actIn, false},
 		{"no arrival", store.Flight{ScheduledOut: sched}, sched, nil, true},
+		{"departure delay shifts timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in}, est, &shiftedIn, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dep, arr := effectiveTimes(&c.f)
@@ -649,5 +651,34 @@ func TestEffectiveTimes(t *testing.T) {
 				t.Errorf("arrives = %v, want %v", arr, *c.wantArr)
 			}
 		})
+	}
+}
+
+// blockingForecast waits for its context to end, as a stalled provider would.
+type blockingForecast struct{ err chan error }
+
+func (b *blockingForecast) Forecast(ctx context.Context, _, _ float64, _ string, _ time.Time, _ int) ([]weather.Day, error) {
+	<-ctx.Done()
+	b.err <- ctx.Err()
+	return nil, ctx.Err()
+}
+
+func TestDepartureForecast_SlowProviderAbandoned(t *testing.T) {
+	old := forecastTimeout
+	forecastTimeout = 50 * time.Millisecond
+	defer func() { forecastTimeout = old }()
+
+	p := &Poller{Weather: &blockingForecast{err: make(chan error, 1)}}
+	f := &store.Flight{DestIATA: "ORD"}
+	start := time.Now()
+	got := p.departureForecast(context.Background(), f, "America/Chicago", depOut)
+	if got != nil {
+		t.Errorf("forecast = %v, want nil", got)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Errorf("slow forecaster held the caller for %v", time.Since(start))
+	}
+	if err := <-p.Weather.(*blockingForecast).err; !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("forecaster ctx err = %v, want DeadlineExceeded", err)
 	}
 }

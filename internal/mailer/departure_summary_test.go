@@ -1,12 +1,30 @@
 package mailer
 
 import (
+	"io"
+	"mime/quotedprintable"
 	"strings"
 	"testing"
 	"time"
 )
 
 func intp(v int) *int { return &v }
+
+// decodedHTML returns the quoted-printable HTML part of msg, decoded.
+func decodedHTML(t *testing.T, msg string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(msg, "Content-Type: text/html")
+	if !ok {
+		t.Fatalf("no HTML part\n%s", msg)
+	}
+	_, body, _ := strings.Cut(rest, "\r\n\r\n")
+	body, _, _ = strings.Cut(body, "\r\n--ae-")
+	b, err := io.ReadAll(quotedprintable.NewReader(strings.NewReader(body)))
+	if err != nil {
+		t.Fatalf("decode HTML: %v", err)
+	}
+	return string(b)
+}
 
 func depInput() DepartureSummaryInput {
 	sched := time.Date(2026, 10, 15, 10, 10, 0, 0, time.UTC) // 11:10 BST
@@ -135,10 +153,30 @@ func TestBuildDepartureSummaryEmail(t *testing.T) {
 		"18 Oct  🌧 Rain  -  19°C / 12°C",
 		"border-collapse",
 		"— Aerly",
+		"Weather data by Open-Meteo.com\r\n",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("email missing %q\n---\n%s", want, msg)
 		}
+	}
+	html := decodedHTML(t, msg)
+	for _, want := range []string{
+		// The nil PrecipPct day renders as "-" in the HTML table too.
+		`border-bottom:1px solid #e5e7eb;">-</td>`,
+		`Weather data by <a href="https://open-meteo.com/" style="color:#6b7280;">Open-Meteo.com</a>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("HTML missing %q\n---\n%s", want, html)
+		}
+	}
+}
+
+func TestBuildDepartureSummaryEmail_NoForecastNoAttribution(t *testing.T) {
+	in := depInput()
+	in.Forecast = nil
+	msg := BuildDepartureSummaryEmail(in)
+	if strings.Contains(msg, "Open-Meteo") {
+		t.Errorf("attribution present without a forecast\n---\n%s", msg)
 	}
 }
 

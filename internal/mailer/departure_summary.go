@@ -196,6 +196,11 @@ func precipText(d ForecastDay) string {
 	return fmt.Sprintf("%d%% rain", *d.PrecipPct)
 }
 
+const (
+	openMeteoURL       = "https://open-meteo.com/"
+	weatherAttribution = "Weather data by Open-Meteo.com"
+)
+
 // BuildDepartureSummaryEmail renders the complete RFC822 message (plain +
 // branded HTML alternative). The headline leads so it reads well in a
 // notification preview; the weather block is left out when there is no
@@ -249,7 +254,10 @@ func BuildDepartureSummaryEmail(in DepartureSummaryInput) string {
 			html.WriteString("</tr>")
 		}
 		html.WriteString("</table>")
-		plain.WriteString("\r\n")
+		// Open-Meteo's data is CC-BY 4.0: credit it wherever it is shown.
+		plain.WriteString("\r\n" + weatherAttribution + "\r\n\r\n")
+		fmt.Fprintf(&html, `<p style="margin:8px 0 0;font-size:12px;color:#6b7280;">Weather data by <a href="%s" style="color:#6b7280;">Open-Meteo.com</a></p>`,
+			openMeteoURL)
 	}
 	plain.WriteString("— Aerly\r\n")
 

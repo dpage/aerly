@@ -164,6 +164,26 @@ investigation the next time someone asks "why don't we just use Google?":
 
 ---
 
+### Open-Meteo — destination weather forecast
+
+[Open-Meteo](https://open-meteo.com/) is an open weather API. Aerly uses it to add a five-day
+destination forecast to the flight departure summary email (and a one-line summary to its push
+notification). The client is `internal/weather`, with a one-hour in-memory cache in front of it, and
+a failed or slow lookup (abandoned after five seconds) just sends the summary without weather.
+
+**Cost:** Free, with no API key, for non-commercial use under Open-Meteo's terms. The API root is
+configurable with `OPEN_METEO_BASE_URL` (for a self-hosted instance).
+
+**Limitations:**
+
+- **Attribution required.** The data is licensed CC-BY 4.0, so the departure summary email carries a
+  "Weather data by Open-Meteo.com" line, linked to open-meteo.com in the HTML part, whenever it
+  shows a forecast.
+- **Coordinates required.** The forecast is looked up by the destination airport's coordinates; a
+  leg with none known goes out without weather.
+
+---
+
 ### LLM providers — booking extraction
 
 Aerly uses a large language model to extract structured bookings from unstructured input: text
