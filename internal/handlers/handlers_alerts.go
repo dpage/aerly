@@ -12,23 +12,25 @@ import (
 // alertPrefsDTO is the wire shape for GET/PUT /api/alert-prefs. Matches the
 // merged FE contract (web/src/api/types.ts AlertPrefs).
 type alertPrefsDTO struct {
-	InApp       bool `json:"in_app"`
-	Email       bool `json:"email"`
-	MinDelayMin int  `json:"min_delay_min"`
-	Checkin     bool `json:"checkin"`
+	InApp            bool `json:"in_app"`
+	Email            bool `json:"email"`
+	MinDelayMin      int  `json:"min_delay_min"`
+	Checkin          bool `json:"checkin"`
+	DepartureSummary bool `json:"departure_summary"`
 }
 
 // updateAlertPrefsInput is the PUT body. All fields optional (pointer) so a
 // partial patch leaves the rest unchanged — matches UpdateAlertPrefsInput.
 type updateAlertPrefsInput struct {
-	InApp       *bool `json:"in_app"`
-	Email       *bool `json:"email"`
-	MinDelayMin *int  `json:"min_delay_min"`
-	Checkin     *bool `json:"checkin"`
+	InApp            *bool `json:"in_app"`
+	Email            *bool `json:"email"`
+	MinDelayMin      *int  `json:"min_delay_min"`
+	Checkin          *bool `json:"checkin"`
+	DepartureSummary *bool `json:"departure_summary"`
 }
 
 func toAlertPrefsDTO(p *store.AlertPrefs) alertPrefsDTO {
-	return alertPrefsDTO{InApp: p.InApp, Email: p.Email, MinDelayMin: p.MinDelayMin, Checkin: p.Checkin}
+	return alertPrefsDTO{InApp: p.InApp, Email: p.Email, MinDelayMin: p.MinDelayMin, Checkin: p.Checkin, DepartureSummary: p.DepartureSummary}
 }
 
 func (a *API) getAlertPrefs(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +72,9 @@ func (a *API) setAlertPrefs(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Checkin != nil {
 		prefs.Checkin = *in.Checkin
+	}
+	if in.DepartureSummary != nil {
+		prefs.DepartureSummary = *in.DepartureSummary
 	}
 	if err := a.Store.SetAlertPrefs(r.Context(), *prefs); err != nil {
 		handleStoreErr(w, err)

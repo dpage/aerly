@@ -25,7 +25,13 @@ import AlertPrefsSection from './AlertPrefsSection';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.state.alertPrefs = { in_app: true, email: false, min_delay_min: 15, checkin: false };
+  h.state.alertPrefs = {
+    in_app: true,
+    email: false,
+    min_delay_min: 15,
+    checkin: false,
+    departure_summary: false,
+  };
   h.loadAlertPrefs.mockResolvedValue(undefined);
   h.updateAlertPrefs.mockResolvedValue(undefined);
 });
@@ -83,6 +89,17 @@ describe('AlertPrefsSection', () => {
     expect(toggle).not.toBeChecked();
     await userEvent.click(toggle);
     await waitFor(() => expect(h.updateAlertPrefs).toHaveBeenCalledWith({ checkin: true }));
+  });
+
+  it('reflects and persists the departure summary toggle', async () => {
+    render(<AlertPrefsSection />);
+    await waitFor(() => expect(h.loadAlertPrefs).toHaveBeenCalled());
+    const toggle = screen.getByRole('checkbox', { name: /departure summary/i });
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(h.updateAlertPrefs).toHaveBeenCalledWith({ departure_summary: true }),
+    );
   });
 
   // Each control sends only its own field, so two saves that overlap can no

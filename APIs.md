@@ -1,9 +1,9 @@
 # API reference
 
 Aerly uses external APIs for flight scheduling/metadata, live positioning, points-of-interest
-discovery, address geocoding, and LLM-based booking extraction. This document covers each,
-explains their limitations, and compares the alternative unified APIs that handle the flight
-concerns from a single integration.
+discovery, address geocoding, destination weather forecasts, and LLM-based booking extraction.
+This document covers each, explains their limitations, and compares the alternative unified APIs
+that handle the flight concerns from a single integration.
 
 ---
 
@@ -161,6 +161,29 @@ investigation the next time someone asks "why don't we just use Google?":
   Maps link carrying no coordinates in the URL) that motivated part of this work anyway.
 - Google also prohibits scraping its Maps content, which is the second reason the abandoned
   `og:image`-scraping approach for share links was the wrong direction.
+
+---
+
+### Open-Meteo — destination weather forecast
+
+[Open-Meteo](https://open-meteo.com/) is an open weather API. Aerly uses it to add a five-day
+destination forecast to the flight departure summary email (and a one-line summary to its push
+notification). The client is `internal/weather`, with a one-hour in-memory cache in front of it, and
+a failed or slow lookup (abandoned after five seconds) just sends the summary without weather.
+
+**Cost:** Free, with no API key, **for non-commercial use only** (up to 10,000 calls a day) under
+Open-Meteo's terms. Aerly qualifies today because it is not run commercially. If that changes, it
+needs either a self-hosted instance (point `OPEN_METEO_BASE_URL` at it) or a paid subscription,
+which uses a separate `customer-api.open-meteo.com` endpoint with an `apikey` parameter that
+`internal/weather` does not send yet.
+
+**Limitations:**
+
+- **Attribution required.** The data is licensed CC-BY 4.0, so the departure summary email carries a
+  "Weather data by Open-Meteo.com" line, linked to open-meteo.com in the HTML part, whenever it
+  shows a forecast.
+- **Coordinates required.** The forecast is looked up by the destination airport's coordinates; a
+  leg with none known goes out without weather.
 
 ---
 

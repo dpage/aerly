@@ -32,8 +32,12 @@ type Config struct {
 	OpenSkyEnabled  bool // true if we should query OpenSky even without creds
 	AeroDataBoxKey  string
 	GeoapifyKey     string
-	PollInterval    time.Duration
-	DevAuthBypass   bool
+	// OpenMeteoBaseURL is the Open-Meteo forecast API root used by the
+	// departure summary. It needs no key; the override exists for tests and
+	// for self-hosted Open-Meteo instances.
+	OpenMeteoBaseURL string
+	PollInterval     time.Duration
+	DevAuthBypass    bool
 
 	// GeocodeMinConfidence and GeocodeMargin are the confidence policy for
 	// accepting a geocoding candidate without a re-rank. Both defaults are
@@ -124,6 +128,7 @@ func Load() (*Config, error) {
 		OpenSkyEnabled:      os.Getenv("OPENSKY_ENABLED") == "1",
 		AeroDataBoxKey:      os.Getenv("AERODATABOX_RAPIDAPI_KEY"),
 		GeoapifyKey:         os.Getenv("GEOAPIFY_API_KEY"),
+		OpenMeteoBaseURL:    strings.TrimRight(getenv("OPEN_METEO_BASE_URL", "https://api.open-meteo.com"), "/"),
 		PollInterval:        pollInterval,
 		DevAuthBypass:       os.Getenv("DEV_AUTH_BYPASS") == "1",
 		MailFromAddress:     os.Getenv("MAIL_FROM_ADDRESS"),

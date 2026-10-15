@@ -954,7 +954,7 @@ export interface FlightAlert {
   plan_id: number;
   trip_id: number;
   ident: string;
-  kind: string; // delayed|cancelled|diverted|gate
+  kind: string; // delayed|cancelled|diverted|gate|checkin|departure
   status: string;
   message: string;
   created_at: string;
@@ -972,6 +972,11 @@ export interface AlertPrefs {
    * delivered on whichever of in_app / email are on.
    */
   checkin: boolean;
+  /**
+   * Send a summary (status, gate, weather at the destination) four hours
+   * before each flight leg departs. Off unless the user asks for it.
+   */
+  departure_summary: boolean;
 }
 
 export interface UpdateAlertPrefsInput {
@@ -979,6 +984,7 @@ export interface UpdateAlertPrefsInput {
   email?: boolean;
   min_delay_min?: number;
   checkin?: boolean;
+  departure_summary?: boolean;
 }
 
 // --- Web Push (PWA push notifications) ---
@@ -996,7 +1002,7 @@ export interface PushSubscriptionInput {
 }
 
 /** The notification kinds a user can independently toggle for push. */
-export type PushKind = 'alert' | 'share' | 'checkin' | 'reminder';
+export type PushKind = 'alert' | 'share' | 'checkin' | 'departure' | 'reminder';
 
 /** GET/PATCH /api/push/prefs response: each known kind mapped to on/off. */
 export interface PushPrefs {

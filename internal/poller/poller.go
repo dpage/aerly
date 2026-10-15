@@ -18,6 +18,7 @@ import (
 	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/weather"
 )
 
 type Poller struct {
@@ -43,6 +44,10 @@ type Poller struct {
 	// channel alongside in-app and email. nil (or a disabled Sender) skips the
 	// push channel; the other channels are unaffected.
 	Push pusher
+
+	// Weather supplies the destination forecast in departure summaries. nil
+	// sends them without weather; so does any forecast error.
+	Weather weather.Forecaster
 
 	// Feeds refreshes trip-scoped iCal feed subscriptions on its own cadence
 	// (feedInterval). nil disables the feed-refresh pass.
@@ -170,11 +175,12 @@ func (p *Poller) tick(ctx context.Context) {
 	// simply never gets, whereas a skipped poll cycle just means fresher data
 	// next tick.
 	//
-	// Upcoming-plan reminders (issue #11) and flight check-in reminders
-	// (issue #119) are independent of each other and of the status-change alert
-	// path further down.
+	// Upcoming-plan reminders (issue #11), flight check-in reminders
+	// (issue #119) and departure summaries (issue #130) are independent of each
+	// other and of the status-change alert path further down.
 	p.remindUpcoming(ctx, now)
 	p.remindCheckins(ctx, now)
+	p.remindDepartures(ctx, now)
 
 	flights, err := p.Store.ActiveFlightParts(ctx, now)
 	if err != nil {

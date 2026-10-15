@@ -30,6 +30,7 @@ export default function AlertPrefsSection() {
   const [email, setEmail] = useState(false);
   const [minDelay, setMinDelay] = useState('15');
   const [checkin, setCheckin] = useState(false);
+  const [departureSummary, setDepartureSummary] = useState(false);
 
   useEffect(() => {
     void loadAlertPrefs();
@@ -41,6 +42,7 @@ export default function AlertPrefsSection() {
     setEmail(alertPrefs.email);
     setMinDelay(String(alertPrefs.min_delay_min));
     setCheckin(alertPrefs.checkin);
+    setDepartureSummary(alertPrefs.departure_summary);
   }, [alertPrefs]);
 
   const parseDelay = (s: string) => {
@@ -77,6 +79,10 @@ export default function AlertPrefsSection() {
   const onToggleCheckin = (checked: boolean) => {
     setCheckin(checked);
     void persist({ checkin: checked });
+  };
+  const onToggleDepartureSummary = (checked: boolean) => {
+    setDepartureSummary(checked);
+    void persist({ departure_summary: checked });
   };
 
   return (
@@ -120,6 +126,26 @@ export default function AlertPrefsSection() {
         </FormGroup>
         <Typography variant="caption" color="text.secondary">
           Five minutes before online check-in opens, 24 hours ahead of each flight.
+        </Typography>
+      </Box>
+      <Box>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          Departure summary
+        </Typography>
+        <FormGroup>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={departureSummary}
+                onChange={(e) => onToggleDepartureSummary(e.target.checked)}
+              />
+            }
+            label="Send me a departure summary"
+          />
+        </FormGroup>
+        <Typography variant="caption" color="text.secondary">
+          A summary of your flight&apos;s status, gate and the weather where you land, four hours
+          before each departure.
         </Typography>
       </Box>
     </Stack>
