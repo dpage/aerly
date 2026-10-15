@@ -106,6 +106,6 @@ func TestAssemblePrompt_TodayIncludesWeekday(t *testing.T) {
 	now := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
 	got := assemblePrompt(plansSystemPrompt, now, "tok", "LX 963 on Sunday")
 	if !strings.Contains(got, "Today is Thursday 2026-10-15T09:00:00Z") {
-		t.Errorf("prompt lacks weekday-qualified date: %q", got[strings.Index(got, "Today is"):][:60])
+		t.Errorf("prompt lacks weekday-qualified date: %q", got)
 	}
 }
