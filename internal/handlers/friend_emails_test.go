@@ -54,3 +54,31 @@ func TestBuildFriendRequestEmailKeepsReviewLinkAlongsideAccept(t *testing.T) {
 		t.Error("Accept URL should be present alongside Review")
 	}
 }
+
+// The invite only lands for an account that verifies the invited address, so
+// the email must name that address rather than promise "just sign in".
+func TestBuildFriendInviteEmailNamesInvitedAddress(t *testing.T) {
+	in := friendInviteInput{
+		FromAddr:     "noreply@aerly.test",
+		ToAddr:       "bob@example.com",
+		PublicURL:    "https://aerly.test",
+		InviterName:  "Alice",
+		InviterLogin: "alice",
+	}
+	decoded := decodeQP(buildFriendInviteEmail(in))
+	if !strings.Contains(decoded, "with an account that uses bob@example.com") {
+		t.Errorf("plain body does not name the invited address:\n%s", decoded)
+	}
+	if !strings.Contains(decoded, "uses <strong>bob@example.com</strong>") {
+		t.Errorf("HTML body does not name the invited address:\n%s", decoded)
+	}
+	if strings.Contains(decoded, "Preferences → Emails") {
+		t.Error("add-address hint shown although addresses can't be added")
+	}
+
+	in.CanAddEmails = true
+	decoded = decodeQP(buildFriendInviteEmail(in))
+	if n := strings.Count(decoded, "add bob@example.com under Preferences → Emails"); n != 2 {
+		t.Errorf("add-address hint appears %d times, want once per MIME part:\n%s", n, decoded)
+	}
+}

@@ -225,11 +225,22 @@ func (s *Store) ResendVerification(ctx context.Context, userID, emailID int64) (
 // Returns ErrNotFound when the token is unknown, already consumed, or
 // older than 24 hours. The update is atomic — the token is cleared as
 // part of the same statement so a second call returns ErrNotFound.
+//
+// Friend invites and shares queued for the newly verified address are
+// claimed in the same transaction, as LinkLogin does at sign-in: an invitee
+// whose login email differs from the invited address adds that address here,
+// and would otherwise wait for their next sign-in to see the invite land.
 func (s *Store) VerifyEmailByToken(ctx context.Context, token string) (*UserEmail, error) {
 	if token == "" {
 		return nil, ErrNotFound
 	}
-	row, err := scanUserEmail(s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	row, err := scanUserEmail(tx.QueryRow(ctx, `
 		UPDATE user_emails
 		SET verified = TRUE, verified_at = NOW(), verify_token = NULL
 		WHERE verify_token = $1
@@ -237,6 +248,12 @@ func (s *Store) VerifyEmailByToken(ctx context.Context, token string) (*UserEmai
 		RETURNING `+userEmailColumns,
 		token))
 	if err != nil {
+		return nil, err
+	}
+	if _, err := consumePendingInvitesTx(ctx, tx, row.UserID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return row, nil

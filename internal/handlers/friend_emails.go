@@ -9,7 +9,10 @@ import (
 
 // friendInviteInput is the data needed to render an email to an address
 // that doesn't have an Aerly account yet — they're being asked to sign up
-// and the queued request will auto-accept on first sign-in.
+// and the queued request will auto-accept on first sign-in, but only if
+// that sign-in (or a later verified address) is ToAddr. CanAddEmails says
+// whether the recipient can add ToAddr to an existing account, which needs
+// the Emails preferences tab (email ingest enabled).
 type friendInviteInput struct {
 	FromAddr     string
 	ToAddr       string
@@ -17,6 +20,7 @@ type friendInviteInput struct {
 	InviterName  string // falls back to InviterUsername when empty
 	InviterLogin string
 	Message      string
+	CanAddEmails bool
 }
 
 // friendRequestInput is the data needed for the "X added you as a friend"
@@ -45,8 +49,12 @@ func buildFriendInviteEmail(in friendInviteInput) string {
 
 	plain := fmt.Sprintf(
 		"%s has invited you to join them on Aerly so you can keep track of each other's flights.\r\n\r\n"+
-			"Sign in at %s/ and your friendship will be set up automatically.\r\n",
-		inviter, link)
+			"Sign in at %s/ with an account that uses %s and your friendship will be set up automatically.\r\n",
+		inviter, link, in.ToAddr)
+	if in.CanAddEmails {
+		plain += "\r\nIf you sign in with a different email address, add " + in.ToAddr +
+			" under Preferences → Emails and verify it; the friendship is set up as soon as you do.\r\n"
+	}
 	if msg := strings.TrimSpace(in.Message); msg != "" {
 		plain += "\r\nMessage from " + inviter + ":\r\n  " + msg + "\r\n"
 	}
@@ -54,9 +62,16 @@ func buildFriendInviteEmail(in friendInviteInput) string {
 
 	htmlBody := fmt.Sprintf(
 		`<p style="margin:0 0 12px;font-size:15px;"><strong>%s</strong> has invited you to join them on Aerly so you can keep track of each other's flights.</p>`+
-			`<p style="margin:0 0 16px;font-size:15px;">Sign in and your friendship will be set up automatically — no extra step on your side.</p>`+
-			`<p style="margin:0;"><a href="%s/" style="display:inline-block;padding:10px 18px;border-radius:6px;background:%s;color:#ffffff;font-weight:600;text-decoration:none;">Open Aerly</a></p>`,
-		mailer.HTMLEscape(inviter), mailer.HTMLEscape(link), mailer.BrandColor)
+			`<p style="margin:0 0 16px;font-size:15px;">Sign in with an account that uses <strong>%s</strong> and your friendship will be set up automatically.</p>`,
+		mailer.HTMLEscape(inviter), mailer.HTMLEscape(in.ToAddr))
+	if in.CanAddEmails {
+		htmlBody += fmt.Sprintf(
+			`<p style="margin:0 0 16px;font-size:15px;">If you sign in with a different email address, add %s under Preferences → Emails and verify it; the friendship is set up as soon as you do.</p>`,
+			mailer.HTMLEscape(in.ToAddr))
+	}
+	htmlBody += fmt.Sprintf(
+		`<p style="margin:0;"><a href="%s/" style="display:inline-block;padding:10px 18px;border-radius:6px;background:%s;color:#ffffff;font-weight:600;text-decoration:none;">Open Aerly</a></p>`,
+		mailer.HTMLEscape(link), mailer.BrandColor)
 	if msg := strings.TrimSpace(in.Message); msg != "" {
 		htmlBody += fmt.Sprintf(
 			`<p style="margin:18px 0 6px;font-size:13px;color:#666;">Message from %s:</p>`+
