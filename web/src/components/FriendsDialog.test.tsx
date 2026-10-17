@@ -19,6 +19,7 @@ vi.mock('../api/client', () => ({ api: h.api }));
 
 import FriendsDialog from './FriendsDialog';
 import { useStore } from '../state/store';
+import { setMatchMedia } from '../test/setup';
 
 function user(over: Partial<User> = {}): User {
   return {
@@ -408,5 +409,38 @@ describe('FriendsDialog', () => {
     });
     render(<FriendsDialog open onClose={() => {}} />);
     expect(await screen.findByText('eve')).toBeInTheDocument();
+  });
+
+  // A phone-width dialog can't fit Friend, Status and the action buttons side
+  // by side: the table overflowed and clipped Accept/Decline off the right
+  // edge. Narrow screens drop the Status column and put the chip under the
+  // name instead.
+  it('drops the Status column on narrow screens, keeping status and actions', async () => {
+    setMatchMedia(true);
+    h.api.listFriends.mockResolvedValue([
+      friend({ friend_id: 2, status: 'pending', direction: 'incoming' }),
+      {
+        email: 'dan@example.com',
+        status: 'pending',
+        direction: 'outgoing',
+        requested_at: new Date().toISOString(),
+      },
+    ]);
+    render(<FriendsDialog open onClose={() => {}} />);
+    await screen.findByText('Bob');
+    expect(screen.queryByRole('columnheader', { name: 'Status' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(2);
+    expect(screen.getByText(/wants to friend you/i)).toBeInTheDocument();
+    expect(screen.getByText(/invite sent/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept Bob' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Decline Bob' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel invite to dan@example.com' })).toBeInTheDocument();
+  });
+
+  it('keeps the Status column on wide screens', async () => {
+    h.api.listFriends.mockResolvedValue([friend({ friend_id: 2, status: 'accepted' })]);
+    render(<FriendsDialog open onClose={() => {}} />);
+    await screen.findByText('Bob');
+    expect(screen.getByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
   });
 });

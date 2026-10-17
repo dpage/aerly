@@ -20,6 +20,8 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
@@ -52,12 +54,42 @@ const rowKey = (f: Friendship) =>
     ? `outgoing:${f.email}`
     : `friend:${f.friend_id}`;
 
+// The Friend cell: avatar, name and, on narrow screens, the status chip
+// beneath the name. A phone-width dialog can't fit a separate Status column
+// as well as the action buttons; with all three the table overflowed and
+// clipped the Accept/Decline buttons off the right edge.
+function FriendCell({
+  avatar,
+  label,
+  status,
+  narrow,
+}: {
+  avatar: React.ReactNode;
+  label: string;
+  status: React.ReactNode;
+  narrow: boolean;
+}) {
+  return (
+    <TableCell>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        {avatar}
+        <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+          <span>{label}</span>
+          {narrow && <Box sx={{ mt: 0.5 }}>{status}</Box>}
+        </Box>
+      </Box>
+    </TableCell>
+  );
+}
+
 export default function FriendsDialog({ open, onClose }: Props) {
   const setError = useStore((s) => s.setError);
   const users = useStore((s) => s.users);
   const friends = useStore((s) => s.friendships);
   const refreshFriendships = useStore((s) => s.refreshFriendships);
   const refreshUsers = useStore((s) => s.refreshUsers);
+  const theme = useTheme();
+  const isNarrow = useMediaQuery(theme.breakpoints.down('sm'));
   const userIndex = useMemo(() => buildUserIndex(users), [users]);
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -140,7 +172,15 @@ export default function FriendsDialog({ open, onClose }: Props) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      // Narrow screens: halve MUI's 32px dialog margin so the friend table
+      // (name, status chip, action buttons) fits even a 320px-wide phone.
+      sx={isNarrow ? { '& .MuiDialog-paper': { mx: 2, width: 'calc(100% - 32px)' } } : undefined}
+    >
       <DialogTitle>Friends</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={3}>
@@ -187,11 +227,14 @@ export default function FriendsDialog({ open, onClose }: Props) {
               You don't have any friends on Aerly yet. Invite someone by their email above.
             </Typography>
           ) : (
-            <Table size="small">
+            <Table
+              size="small"
+              sx={isNarrow ? { '& .MuiTableCell-root': { px: 1 } } : undefined}
+            >
               <TableHead>
                 <TableRow>
                   <TableCell>Friend</TableCell>
-                  <TableCell align="center">Status</TableCell>
+                  {!isNarrow && <TableCell align="center">Status</TableCell>}
                   <TableCell align="right" />
                 </TableRow>
               </TableHead>
@@ -203,24 +246,22 @@ export default function FriendsDialog({ open, onClose }: Props) {
                   // a registered user. Do NOT consult userIndex here.
                   if (f.direction === 'outgoing' && f.status === 'pending') {
                     const email = f.email ?? '';
+                    const status = (
+                      <Chip label="invite sent" size="small" color="warning" variant="outlined" />
+                    );
                     return (
                       <TableRow key={rowKey(f)} hover>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <FriendCell
+                          avatar={
                             <Avatar sx={{ width: 24, height: 24 }}>
                               {email.charAt(0).toUpperCase() || '?'}
                             </Avatar>
-                            <span>{email}</span>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Chip
-                            label="invite sent"
-                            size="small"
-                            color="warning"
-                            variant="outlined"
-                          />
-                        </TableCell>
+                          }
+                          label={email}
+                          status={status}
+                          narrow={isNarrow}
+                        />
+                        {!isNarrow && <TableCell align="center">{status}</TableCell>}
                         <TableCell align="right">
                           <Tooltip title="Cancel">
                             <IconButton
@@ -241,28 +282,25 @@ export default function FriendsDialog({ open, onClose }: Props) {
                   const friendId = f.friend_id!;
                   const label = friendLabel(friendId);
                   const user = userIndex.get(friendId);
+                  const status =
+                    f.status === 'accepted' ? (
+                      <Chip label="accepted" size="small" color="success" variant="outlined" />
+                    ) : (
+                      <Chip label="wants to friend you" size="small" color="info" variant="outlined" />
+                    );
                   return (
                     <TableRow key={rowKey(f)} hover>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <FriendCell
+                        avatar={
                           <Avatar src={user?.avatar_url} sx={{ width: 24, height: 24 }}>
                             {label.charAt(0).toUpperCase()}
                           </Avatar>
-                          <span>{label}</span>
-                        </Box>
-                      </TableCell>
-                      <TableCell align="center">
-                        {f.status === 'accepted' ? (
-                          <Chip label="accepted" size="small" color="success" variant="outlined" />
-                        ) : (
-                          <Chip
-                            label="wants to friend you"
-                            size="small"
-                            color="info"
-                            variant="outlined"
-                          />
-                        )}
-                      </TableCell>
+                        }
+                        label={label}
+                        status={status}
+                        narrow={isNarrow}
+                      />
+                      {!isNarrow && <TableCell align="center">{status}</TableCell>}
                       <TableCell align="right">
                         <Box sx={{ display: 'inline-flex', gap: 0.5 }}>
                           {f.status === 'pending' && f.direction === 'incoming' && (
