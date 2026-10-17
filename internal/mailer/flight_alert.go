@@ -12,7 +12,9 @@ import (
 // "gate" / "belt"); When is the new effective time for a delay (zero for
 // cancellations, which have no meaningful new time). Detail is a short human
 // phrase describing the change, e.g. "now departing 14:35", "to a different
-// airport", "now departs gate B32", or "bags on belt 34".
+// airport", "now departs gate B32", or "bags on belt 34". The route and time
+// fields describe which flight changed, since a traveller with several
+// flights booked can't tell them apart from the ident alone (issue #144).
 type FlightAlertInput struct {
 	FromAddr  string
 	ToAddr    string
@@ -21,6 +23,49 @@ type FlightAlertInput struct {
 	Kind      string    // delayed|cancelled|diverted|gate|belt|terminal
 	Detail    string    // ready-to-render change phrase
 	When      time.Time // new effective time for delays; zero otherwise
+
+	Origin    string     // departure airport label, e.g. "London Heathrow (LHR)"
+	Dest      string     // arrival airport label
+	DepartsAt time.Time  // best known departure; zero leaves it out
+	OriginTZ  string     // IANA; falls back to UTC when empty/invalid
+	ArrivesAt *time.Time // best known arrival; nil leaves it out
+	DestTZ    string     // IANA; falls back to UTC when empty/invalid
+}
+
+// FlightAlertDetails returns the sentence identifying the flight, e.g.
+// "Flight from London Heathrow (LHR) to Sydney (SYD), departing Mon 1 Mar,
+// 10:00 GMT, arriving Wed 3 Mar, 06:00 AEDT." Each time is quoted on its own
+// airport's clock. Parts that aren't known are left out, and "" is returned
+// when nothing is.
+func FlightAlertDetails(in FlightAlertInput) string {
+	var route string
+	switch {
+	case in.Origin != "" && in.Dest != "":
+		route = "Flight from " + in.Origin + " to " + in.Dest
+	case in.Origin != "":
+		route = "Flight from " + in.Origin
+	case in.Dest != "":
+		route = "Flight to " + in.Dest
+	}
+	var parts []string
+	if route != "" {
+		parts = append(parts, route)
+	}
+	if !in.DepartsAt.IsZero() {
+		parts = append(parts, "departing "+LocalTime(in.DepartsAt, in.OriginTZ))
+	}
+	if in.ArrivesAt != nil {
+		parts = append(parts, "arriving "+LocalTime(*in.ArrivesAt, in.DestTZ))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	s := strings.Join(parts, ", ")
+	if route == "" {
+		// A bare time list still needs to read as a sentence.
+		s = "Flight " + s
+	}
+	return s + "."
 }
 
 // FlightAlertSubject returns the Subject line for a flight-change alert, e.g.
@@ -62,16 +107,25 @@ func BuildFlightAlertEmail(in FlightAlertInput) string {
 		lead = subject + " — " + in.Detail
 	}
 
+	details := FlightAlertDetails(in)
+	plainDetails, htmlDetails := "", ""
+	if details != "" {
+		plainDetails = details + "\r\n\r\n"
+		htmlDetails = `<p style="margin:0 0 16px;font-size:15px;">` + HTMLEscape(details) + `</p>`
+	}
+
 	plain := fmt.Sprintf(
 		"%s.\r\n\r\n"+
+			"%s"+
 			"Open Aerly to see the latest on this flight: %s/\r\n\r\n"+
 			"— Aerly\r\n",
-		lead, site)
+		lead, plainDetails, site)
 
 	htmlBody := fmt.Sprintf(
 		`<p style="margin:0 0 16px;font-size:15px;">%s.</p>`+
+			`%s`+
 			`<p style="margin:0;"><a href="%s/" style="display:inline-block;padding:10px 18px;border-radius:6px;background:%s;color:#ffffff;font-weight:600;text-decoration:none;">Open Aerly</a></p>`,
-		HTMLEscape(lead), HTMLEscape(site), BrandColor)
+		HTMLEscape(lead), htmlDetails, HTMLEscape(site), BrandColor)
 
 	return AssembleRFC822(in.FromAddr, in.ToAddr, subject,
 		plain, HTMLShell(subject, htmlBody, in.PublicURL))
