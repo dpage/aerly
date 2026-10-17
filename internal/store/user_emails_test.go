@@ -454,3 +454,36 @@ func TestPrimaryEmail_FallsBackToOldestWhenNoneFlagged(t *testing.T) {
 		t.Errorf("PrimaryEmail = %q, want oldest verified", got)
 	}
 }
+
+// An invite addressed to an email the invitee adds after signing up (their
+// login email is a different address) must be claimed when they verify it,
+// not left waiting for their next sign-in.
+func TestVerifyEmailByToken_ClaimsPendingInvites(t *testing.T) {
+	s := newStore(t)
+	inviter := mkUser(t, s)
+	if _, err := s.UpsertPendingFriendInvite(ctx, inviter, "second@example.com", ""); err != nil {
+		t.Fatalf("seed invite: %v", err)
+	}
+	u, _ := s.InviteUser(ctx, InvitePayload{Username: "alice"})
+	_, token, _ := s.InsertUnverifiedEmail(ctx, u.ID, "Second@Example.com")
+
+	if _, err := s.VerifyEmailByToken(ctx, token); err != nil {
+		t.Fatalf("VerifyEmailByToken: %v", err)
+	}
+	got, err := s.FriendshipBetween(ctx, u.ID, inviter)
+	if err != nil {
+		t.Fatalf("missing friendship: %v", err)
+	}
+	if got.Status != "accepted" {
+		t.Errorf("status = %q, want accepted", got.Status)
+	}
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM pending_friend_invites WHERE email_lower = 'second@example.com'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("count pending: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("pending invites not drained: %d remain", n)
+	}
+}

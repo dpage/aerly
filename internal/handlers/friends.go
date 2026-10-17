@@ -197,6 +197,7 @@ func (a *API) sendFriendInviteEmail(ctx context.Context, inviter *store.User, to
 		InviterName:  inviter.Name,
 		InviterLogin: inviter.Username,
 		Message:      message,
+		CanAddEmails: a.Config.EmailIngestEnabled,
 	})
 	sendCtx, cancel := context.WithTimeout(ctx, friendEmailSendTimeout)
 	defer cancel()
