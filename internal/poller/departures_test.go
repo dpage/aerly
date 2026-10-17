@@ -638,6 +638,10 @@ func TestEffectiveTimes(t *testing.T) {
 			ScheduledIn: in, EstimatedIn: &estIn, ActualIn: &actIn}, act, &actIn, false},
 		{"no arrival", store.Flight{ScheduledOut: sched}, sched, nil, true},
 		{"departure delay shifts timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in}, est, &shiftedIn, false},
+		// Wheels-off runs a taxi-time behind the off-block estimate, so it
+		// shifts the timetable arrival by the estimate's delay, not its own.
+		{"wheels-off does not shift timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ActualOut: &act, ScheduledIn: in}, act, &shiftedIn, false},
+		{"wheels-off alone leaves timetable arrival", store.Flight{ScheduledOut: sched, ActualOut: &act, ScheduledIn: in}, act, &in, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dep, arr := effectiveTimes(&c.f)
