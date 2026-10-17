@@ -49,17 +49,21 @@ export function setMatchMedia(matches: boolean): void {
   matchMediaMatches = matches;
 }
 
+// A plain function rather than vi.fn(), so a suite's vi.resetAllMocks() in
+// its own beforeEach (which runs after this file's) can't wipe the stub and
+// leave useMediaQuery reading .matches off undefined.
 function installMatchMedia(): void {
-  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+  const noop = () => {};
+  window.matchMedia = ((query: string) => ({
     matches: matchMediaMatches,
     media: query,
     onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  }));
+    addListener: noop,
+    removeListener: noop,
+    addEventListener: noop,
+    removeEventListener: noop,
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
 }
 installMatchMedia();
 
