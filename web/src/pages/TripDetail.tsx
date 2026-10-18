@@ -36,7 +36,7 @@ import { showExternalPlansEnabled } from '../lib/showExternalPlans';
 import { useTripDescriptionCollapsed } from '../lib/tripDescriptionCollapsed';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
-import { fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
+import { countPartsNeedingZone, fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
 import AddToTripDialog from '../components/AddToTripDialog';
 import TripMembersDialog from '../components/TripMembersDialog';
 import TripEditDialog from '../components/TripEditDialog';
@@ -141,6 +141,7 @@ export default function TripDetail() {
   // Only owners/editors get the tag editor; viewers see nothing to change.
   const canEdit = loaded != null && loaded.my_role !== 'viewer';
   const datesMismatch = loaded != null && plansOutsideTripDates(loaded, loaded.plans);
+  const zoneCount = loaded != null ? countPartsNeedingZone(loaded.plans) : 0;
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -358,6 +359,13 @@ export default function TripDetail() {
           <Alert severity="warning" sx={{ py: 0 }}>
             Some plans fall outside this trip&apos;s dates
             {canEdit ? ' — check the dates with Edit.' : '.'}
+          </Alert>
+        </Box>
+      )}
+      {zoneCount > 0 && (
+        <Box sx={{ px: pagePx, pt: 1 }}>
+          <Alert severity="info" sx={{ py: 0 }}>
+            {zoneCount === 1 ? '1 plan needs a time zone' : `${zoneCount} plans need a time zone`}
           </Alert>
         </Box>
       )}

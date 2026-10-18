@@ -27,6 +27,8 @@ import {
   planTypeLabel,
   tripSpan,
   typeHasEnd,
+  zoneConfirmPatch,
+  countPartsNeedingZone,
 } from './trip-format';
 import { block, partBlocks } from '../test/blocks';
 
@@ -1103,5 +1105,72 @@ describe('floatingISO', () => {
   it("keeps a local Date's wall-clock digits whatever the runner's zone", () => {
     expect(floatingISO(new Date(2026, 6, 1, 15, 0))).toBe('2026-07-01T15:00:00Z');
     expect(floatingISO(new Date(2026, 0, 5, 9, 7, 42))).toBe('2026-01-05T09:07:00Z');
+  });
+});
+
+describe('zone confirm and count', () => {
+  const hotel = (over: Partial<PlanPart>): PlanPart =>
+    ({
+      id: 7, plan_id: 3, type: 'hotel', seq: 0, status: 'planned',
+      starts_at: '2026-10-18T09:00:00Z', ends_at: '2026-10-21T01:00:00Z',
+      start_tz: 'Asia/Tashkent', end_tz: 'Asia/Tashkent',
+      start_tz_source: 'inferred', end_tz_source: 'inferred',
+      start_label: 'Test Hotel',
+      start: block('2026-10-18T09:00:00Z', 'Asia/Tashkent', { tz_source: 'inferred' }),
+      end: block('2026-10-21T01:00:00Z', 'Asia/Tashkent', { tz_source: 'inferred' }),
+      ...over,
+    }) as PlanPart;
+
+  it('confirms the shown zone without touching the time', () => {
+    expect(zoneConfirmPatch(hotel({}), 'start', 'Asia/Tashkent')).toEqual({
+      start_tz: 'Asia/Tashkent',
+      start_tz_source: 'confirmed',
+    });
+  });
+
+  it('keeps the shown wall-clock time when a different zone is picked', () => {
+    expect(zoneConfirmPatch(hotel({}), 'start', 'Asia/Samarkand')).toEqual({
+      start_tz: 'Asia/Samarkand',
+      start_tz_source: 'confirmed',
+      start_local: '2026-10-18T14:00',
+    });
+    expect(zoneConfirmPatch(hotel({}), 'end', 'Europe/London')).toEqual({
+      end_tz: 'Europe/London',
+      end_tz_source: 'confirmed',
+      end_local: '2026-10-21T06:00',
+    });
+  });
+
+  it('confirms the shown end zone without touching the time', () => {
+    expect(zoneConfirmPatch(hotel({}), 'end', 'Asia/Tashkent')).toEqual({
+      end_tz: 'Asia/Tashkent',
+      end_tz_source: 'confirmed',
+    });
+  });
+
+  it('reads a floating time by its digits', () => {
+    const p = hotel({
+      start_tz: '', start_tz_source: 'floating',
+      starts_at: '2026-10-18T14:00:00Z',
+      start: block('2026-10-18T14:00:00Z', ''),
+    });
+    expect(zoneConfirmPatch(p, 'start', 'Asia/Tashkent').start_local).toBe('2026-10-18T14:00');
+  });
+
+  it('takes the scheduled time from starts_at when the start block is an estimate', () => {
+    const p = hotel({
+      start: block('2026-10-18T10:30:00Z', 'Asia/Tashkent', { kind: 'estimated', delay_min: 90 }),
+    });
+    expect(zoneConfirmPatch(p, 'start', 'Asia/Samarkand').start_local).toBe('2026-10-18T14:00');
+  });
+
+  it('counts non-dismissed parts with a start or end needing a zone', () => {
+    const plans = [
+      { parts: [hotel({ start: block('2026-10-18T09:00:00Z', '') })] },
+      { parts: [hotel({ end: block('2026-10-21T01:00:00Z', '', { tz_source: 'unknown' }) })] },
+      { parts: [hotel({ start: block('2026-10-18T09:00:00Z', ''), dismissed_at: '2026-10-01T00:00:00Z' })] },
+      { parts: [hotel({})] },
+    ] as Plan[];
+    expect(countPartsNeedingZone(plans)).toBe(2);
   });
 });

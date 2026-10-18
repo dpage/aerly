@@ -32,6 +32,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import { api } from '../api/client';
 import { useStore } from '../state/store';
 import type { ExternalEvent, Plan, PlanPart, Trip } from '../api/types';
+import TimeMarker from '../components/TimeMarker';
 import PlanTypeIcon from '../components/PlanTypeIcon';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
@@ -840,6 +841,14 @@ function PartCard({
               `${fmtPartTimeRange(part)}${duration ? ` · ${duration}` : ''}`
             )}
           </Typography>
+          {edge !== 'last' && <TimeMarker part={part} which="start" canEdit={canEdit} />}
+          {endBlockOf(part) &&
+            edge !== 'first' &&
+            (edge === 'last' ||
+              endBlockOf(part)?.kind === 'derived' ||
+              endBlockOf(part)?.tz_source !== startBlockOf(part).tz_source) && (
+              <TimeMarker part={part} which="end" canEdit={canEdit} />
+            )}
 
           {flightStatus && (
             <Typography

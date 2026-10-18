@@ -1,8 +1,24 @@
 // Display + classification helpers for the trip list and timeline (spec §11,
 // PRD §6.1/§6.2). Pure functions, unit-tested in trip-format.test.ts.
 
-import type { ExternalEvent, Plan, PlanPart, PlanType, TimeBlock, Trip } from '../api/types';
-import { blockFor, durationMin, fmtCompact, fmtDayHeading, fmtDuration, isRevised } from './time';
+import type {
+  ExternalEvent,
+  Plan,
+  PlanPart,
+  PlanType,
+  TimeBlock,
+  Trip,
+  UpdatePlanPartInput,
+} from '../api/types';
+import {
+  blockFor,
+  durationMin,
+  fmtCompact,
+  fmtDayHeading,
+  fmtDuration,
+  isRevised,
+  needsZone,
+} from './time';
 
 /** Which home-screen group a trip falls under. */
 export type TripBucket = 'upcoming' | 'now' | 'past';
@@ -606,4 +622,45 @@ export const ACCOMMODATION_KINDS = [
  * doesn't. */
 export function planTypeLabel(type: PlanType): string {
   return PLAN_TYPE_LABELS[type] ?? type;
+}
+
+/** The PATCH that confirms the zone of one end of a part. When the zone picked
+ * differs from the one shown, the scheduled wall-clock time is sent too (taken
+ * from starts_at/ends_at, not from the block, so an estimate or actual, which
+ * is a real instant, is never moved). The scheduled wall-clock time is kept and
+ * the instant moves: a guessed zone was a guess about where, not about when. A
+ * floating end's digits are already wall-clock. */
+export function zoneConfirmPatch(
+  part: PlanPart,
+  which: 'start' | 'end',
+  tz: string,
+): UpdatePlanPartInput {
+  const b = which === 'start' ? startBlockOf(part) : endBlockOf(part);
+  const shown = b && b.tz_source !== 'floating' ? b.tz : '';
+  if (which === 'start') {
+    const patch: UpdatePlanPartInput = { start_tz: tz, start_tz_source: 'confirmed' };
+    if (tz !== shown) {
+      const { date, time } = splitLocal(part.starts_at, shown);
+      patch.start_local = `${date}T${time}`;
+    }
+    return patch;
+  }
+  const patch: UpdatePlanPartInput = { end_tz: tz, end_tz_source: 'confirmed' };
+  if (tz !== shown && part.ends_at) {
+    const { date, time } = splitLocal(part.ends_at, shown);
+    patch.end_local = `${date}T${time}`;
+  }
+  return patch;
+}
+
+/** How many live parts have a start or end whose zone is unknown or floating. */
+export function countPartsNeedingZone(plans: Plan[]): number {
+  let n = 0;
+  for (const plan of plans) {
+    for (const part of plan.parts) {
+      if (part.dismissed_at) continue;
+      if (needsZone(startBlockOf(part)) || needsZone(endBlockOf(part))) n++;
+    }
+  }
+  return n;
 }
