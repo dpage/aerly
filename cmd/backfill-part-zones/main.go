@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -24,13 +25,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 
-	"github.com/dpage/aerly/internal/config"
 	"github.com/dpage/aerly/internal/db"
 	"github.com/dpage/aerly/internal/store"
 	"github.com/dpage/aerly/internal/timing"
-	"github.com/dpage/aerly/migrations"
 )
 
 func main() {
@@ -42,31 +42,56 @@ func main() {
 }
 
 func run() error {
+	dbURL := flag.String("db", "", "database connection string (default: the DATABASE_URL environment variable)")
 	dryRun := flag.Bool("n", true, "dry run: list the changes, make none (use -n=false to apply)")
 	flag.Parse()
 
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.Warn(".env present but failed to parse", "err", err)
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+	url := *dbURL
+	if url == "" {
+		url = os.Getenv("DATABASE_URL")
+	}
+	if url == "" {
+		return errors.New("no database: pass -db or set DATABASE_URL")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	pool, err := db.Open(ctx, url)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+	if err := requireMigration(ctx, pool); err != nil {
 		return err
 	}
 	s := store.New(pool)
 
 	return process(ctx, s, *dryRun)
+}
+
+// requiredMigration is the one that adds the zone source columns. The job runs
+// as an account that cannot change the schema, so it checks rather than applies.
+const requiredMigration = 55
+
+type queryer interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// requireMigration refuses to run unless migration 0055 has been applied.
+func requireMigration(ctx context.Context, q queryer) error {
+	var n int
+	if err := q.QueryRow(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE version = $1`, requiredMigration).Scan(&n); err != nil {
+		return fmt.Errorf("check migrations: %w", err)
+	}
+	if n == 0 {
+		return errors.New("migration 0055 is not applied; deploy first")
+	}
+	return nil
 }
 
 // zoneStore is the part of the store the job needs.

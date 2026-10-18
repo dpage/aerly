@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,9 +216,7 @@ func TestRunDryRunThenApply(t *testing.T) {
 	partID := seedFloating(t, s)
 	pool.Close()
 
-	withEnv(t, map[string]string{
-		"DATABASE_URL": dbURL, "SESSION_KEY": "0123456789abcdef0123456789abcdef", "DEV_AUTH_BYPASS": "1",
-	})
+	withEnv(t, map[string]string{"DATABASE_URL": dbURL})
 	type snapshot struct {
 		startTZ, startSrc, endTZ, endSrc string
 		startsAt, endsAt                 time.Time
@@ -271,17 +270,23 @@ func TestRunDryRunThenApply(t *testing.T) {
 }
 
 func TestRunErrors(t *testing.T) {
-	t.Run("config", func(t *testing.T) {
-		withEnv(t, map[string]string{"DATABASE_URL": "postgres://example/db", "SESSION_KEY": "short", "DEV_AUTH_BYPASS": "1"})
+	t.Run("no database", func(t *testing.T) {
+		withEnv(t, map[string]string{"DATABASE_URL": ""})
 		resetFlags(t, nil)
-		if err := run(); err == nil {
-			t.Fatal("want config error")
+		if err := run(); err == nil || !strings.Contains(err.Error(), "no database") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("db flag wins over env", func(t *testing.T) {
+		withEnv(t, map[string]string{"DATABASE_URL": "postgres://example/ignored"})
+		resetFlags(t, []string{"-db", "postgres://aerly:aerly@127.0.0.1:1/postgres?sslmode=disable&connect_timeout=2"})
+		if err := run(); err == nil || strings.Contains(err.Error(), "no database") {
+			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("db open", func(t *testing.T) {
 		withEnv(t, map[string]string{
 			"DATABASE_URL": "postgres://aerly:aerly@127.0.0.1:1/postgres?sslmode=disable&connect_timeout=2",
-			"SESSION_KEY":  "0123456789abcdef0123456789abcdef", "DEV_AUTH_BYPASS": "1",
 		})
 		resetFlags(t, nil)
 		if err := run(); err == nil {
@@ -294,7 +299,7 @@ func TestRunErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Chdir(dir)
-		withEnv(t, map[string]string{"DATABASE_URL": "postgres://example/db", "SESSION_KEY": "short", "DEV_AUTH_BYPASS": "1"})
+		withEnv(t, map[string]string{"DATABASE_URL": ""})
 		resetFlags(t, nil)
 		if err := run(); err == nil {
 			t.Fatal("want error after the .env warning")
@@ -341,5 +346,42 @@ func TestProcessErrors(t *testing.T) {
 	}
 	if err := process(ctx, f, false); err != nil || f.applied != 1 {
 		t.Errorf("apply applied %d, err %v", f.applied, err)
+	}
+}
+
+func TestRunRefusesUnmigratedDatabase(t *testing.T) {
+	dbURL := testsupport.NewDatabaseURL(t) // created but not migrated
+	withEnv(t, map[string]string{"DATABASE_URL": ""})
+	resetFlags(t, []string{"-db", dbURL, "-n=false"})
+	err := run()
+	if err == nil {
+		t.Fatal("want a refusal")
+	}
+	t.Log(err)
+}
+
+func TestRequireMigration(t *testing.T) {
+	dbURL := testsupport.NewDatabaseURL(t)
+	ctx := context.Background()
+	pool, err := db.Open(ctx, dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	// Before any migration there is no schema_migrations table at all.
+	if err := requireMigration(ctx, pool); err == nil {
+		t.Error("want error with no schema_migrations table")
+	}
+	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireMigration(ctx, pool); err != nil {
+		t.Errorf("migrated database refused: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version = 55`); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireMigration(ctx, pool); err == nil || !strings.Contains(err.Error(), "migration 0055 is not applied; deploy first") {
+		t.Errorf("err = %v", err)
 	}
 }
