@@ -60,10 +60,11 @@ import (
 const delaySigBucketMin = 1
 
 // terminalQuietPeriod is how long before the effective departure terminal
-// alerts stop unless the gate at the same end changed in the same poll. By then
-// the traveller is airside or boarding, and a terminal relabelled by the
-// provider with the gate unchanged sent people looking for a move that never
-// happened.
+// alerts stop on their own. By then the traveller is airside or boarding, and a
+// terminal relabelled by the provider with the gate unchanged sent people
+// looking for a move that never happened. A terminal that changes in the same
+// poll as the gate at that end is the exception: the gate change corroborates
+// it, so it is taken at once and named in the gate alert instead.
 const terminalQuietPeriod = 30 * time.Minute
 
 // Terminal ends, used to key the pending terminal changes.
@@ -87,8 +88,9 @@ type pendingTerminal struct {
 
 // terminalTracker holds the unconfirmed terminal changes. It lives in memory
 // on the Poller rather than in the database: a restart forgets a change that
-// was awaiting confirmation, which costs at most that one alert, against a
-// migration for state that only matters for one poll interval.
+// was awaiting confirmation, which loses that one alert, against a migration
+// for state that only matters for one poll interval. The poller prunes entries
+// for parts that have left every poll set after each complete tick (prune).
 type terminalTracker struct {
 	mu      sync.Mutex
 	pending map[pendingTerminalKey]pendingTerminal
@@ -107,6 +109,11 @@ type alertState struct {
 	destBelt       string // arrival baggage belt
 	originTerminal string
 	destTerminal   string
+
+	// Set by evaluateAlert, never by snapshot: the terminal at that end changed
+	// alongside its gate inside the quiet period, so the gate alert names it.
+	originTerminalWithGate bool
+	destTerminalWithGate   bool
 }
 
 func snapshot(f *store.Flight) alertState {
@@ -248,10 +255,10 @@ func (p *Poller) evaluateAlert(partID int64, prev, cur *store.Flight, reported b
 	sigSt = curSt
 
 	quiet := curSt.departed || inQuietPeriod(cur, now)
-	prevSt.originTerminal, sigSt.originTerminal = p.terminals.settle(partID, originEnd,
-		prevSt.originTerminal, curSt.originTerminal, reported, quiet && !gateChanged(prevSt.originGate, curSt.originGate))
-	prevSt.destTerminal, sigSt.destTerminal = p.terminals.settle(partID, destEnd,
-		prevSt.destTerminal, curSt.destTerminal, reported, quiet && !gateChanged(prevSt.destGate, curSt.destGate))
+	prevSt.originTerminal, sigSt.originTerminal, curSt.originTerminalWithGate = p.terminals.settle(partID, originEnd,
+		prevSt.originTerminal, curSt.originTerminal, reported, quiet, gateChanged(prevSt.originGate, curSt.originGate))
+	prevSt.destTerminal, sigSt.destTerminal, curSt.destTerminalWithGate = p.terminals.settle(partID, destEnd,
+		prevSt.destTerminal, curSt.destTerminal, reported, quiet, gateChanged(prevSt.destGate, curSt.destGate))
 
 	kind = changeKind(prevSt, curSt)
 	if kind == "" {
@@ -272,11 +279,17 @@ func inQuietPeriod(f *store.Flight, now time.Time) bool {
 }
 
 // settle advances the pending terminal change for one end of a part and
-// returns the previous terminal changeKind should compare against, and the
-// terminal to fold into the dedupe signature.
+// returns the previous terminal changeKind should compare against, the
+// terminal to fold into the dedupe signature, and whether the gate alert should
+// name the terminal (withGate). gateMoved says whether the gate at this end
+// changed (assigned or moved) in this poll.
 //
-//   - suppress (the quiet period, with no gate change at this end) drops any
-//     pending change and accepts the new terminal silently;
+//   - in the quiet period with no gate change at this end, any pending change
+//     is dropped and the new terminal accepted silently;
+//   - in the quiet period with a gate change at this end, a terminal that
+//     differs from the stable one (the pending change's from, else prev) is
+//     taken at once, corroborated by the gate change, and named in the gate
+//     alert; the terminal goes into the signature so it is not alerted again;
 //   - a poll with no fresh provider report (reported false) leaves any pending
 //     change as it is and alerts nothing, since all it saw is what the last
 //     report already stored;
@@ -289,39 +302,64 @@ func inQuietPeriod(f *store.Flight, now time.Time) bool {
 // Whilst a change is pending, both returns hold the stable terminal for the
 // signature and the current one for the comparison, so nothing alerts and an
 // alert for something else on the same poll stamps the stable terminal.
-func (tt *terminalTracker) settle(partID int64, end, prev, cur string, reported, suppress bool) (cmpPrev, sigTerm string) {
+func (tt *terminalTracker) settle(partID int64, end, prev, cur string, reported, quiet, gateMoved bool) (cmpPrev, sigTerm string, withGate bool) {
 	key := pendingTerminalKey{partID: partID, end: end}
 	tt.mu.Lock()
 	defer tt.mu.Unlock()
 	pend, ok := tt.pending[key]
 	switch {
-	case suppress:
+	case quiet && !gateMoved:
 		delete(tt.pending, key)
-		return cur, cur
+		return cur, cur, false
 	case !reported && ok:
-		return cur, pend.from
+		return cur, pend.from, false
 	case !reported:
-		return cur, cur
+		return cur, cur, false
+	case quiet:
+		stable := prev
+		if ok {
+			stable = pend.from
+		}
+		delete(tt.pending, key)
+		if terminalChanged(stable, cur) {
+			return stable, cur, true
+		}
+		return cur, cur, false
 	case ok && cur == pend.to:
 		delete(tt.pending, key)
-		return pend.from, cur
+		return pend.from, cur, false
 	case ok && cur == pend.from:
 		delete(tt.pending, key)
-		return cur, cur
+		return cur, cur, false
 	case ok && cur == "":
 		// The provider dropped the field; keep waiting on what we had.
-		return cur, pend.from
+		return cur, pend.from, false
 	case ok:
 		tt.pending[key] = pendingTerminal{from: pend.from, to: cur}
-		return cur, pend.from
+		return cur, pend.from, false
 	case terminalChanged(prev, cur):
 		if tt.pending == nil {
 			tt.pending = make(map[pendingTerminalKey]pendingTerminal)
 		}
 		tt.pending[key] = pendingTerminal{from: prev, to: cur}
-		return cur, prev
+		return cur, prev, false
 	default:
-		return prev, cur
+		return prev, cur, false
+	}
+}
+
+// prune drops the pending terminal changes for every part not in keep. The
+// poller calls it after a tick whose poll queries all succeeded, with the union
+// of the parts they listed, so a part that leaves every poll set (dismissed,
+// deleted, or landed and past the post-arrival window) with a change still
+// pending does not hold its entry for the life of the process.
+func (tt *terminalTracker) prune(keep map[int64]struct{}) {
+	tt.mu.Lock()
+	defer tt.mu.Unlock()
+	for key := range tt.pending {
+		if _, ok := keep[key.partID]; !ok {
+			delete(tt.pending, key)
+		}
 	}
 }
 
@@ -364,7 +402,9 @@ func changeKind(prev, cur alertState) string {
 	// first resolves the flight, and announcing that as a "terminal change"
 	// read as a reassignment that never happened. By the time prev reaches
 	// here evaluateAlert has already held back an unconfirmed change and one
-	// inside the quiet period.
+	// inside the quiet period. (A terminal that changed with its gate inside
+	// the quiet period does reach here, but the gate alert above outranks it
+	// and names the terminal in its detail.)
 	if terminalChanged(prev.originTerminal, cur.originTerminal) || terminalChanged(prev.destTerminal, cur.destTerminal) {
 		return "terminal"
 	}
@@ -409,8 +449,9 @@ func terminalChanged(prev, cur string) bool {
 
 // changeDetail builds the human phrase appended to the headline. For a delay it
 // names the airline's revised departure; for a gate change it names the new gate
-// (departure preferred when both moved) and for an assignment the gate assigned;
-// cancellation/diversion stand alone.
+// (departure preferred when both moved) and for an assignment the gate assigned,
+// adding that end's terminal when it changed alongside the gate inside the
+// quiet period; cancellation/diversion stand alone.
 func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	switch kind {
 	case "delayed":
@@ -426,18 +467,18 @@ func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 		return "diverted to a different airport"
 	case "gate":
 		if gateMoved(prev.originGate, cur.originGate) {
-			return "now departs gate " + cur.originGate
+			return "now departs gate " + cur.originGate + withTerminal(cur.originTerminalWithGate, cur.originTerminal)
 		}
 		if gateMoved(prev.destGate, cur.destGate) {
-			return "now arrives at gate " + cur.destGate
+			return "now arrives at gate " + cur.destGate + withTerminal(cur.destTerminalWithGate, cur.destTerminal)
 		}
 		return "gate changed"
 	case "gate_assigned":
 		if gateAssigned(prev.originGate, cur.originGate) {
-			return "departs gate " + cur.originGate
+			return "departs gate " + cur.originGate + withTerminal(cur.originTerminalWithGate, cur.originTerminal)
 		}
 		if gateAssigned(prev.destGate, cur.destGate) {
-			return "arrives at gate " + cur.destGate
+			return "arrives at gate " + cur.destGate + withTerminal(cur.destTerminalWithGate, cur.destTerminal)
 		}
 		return "gate assigned"
 	case "belt":
@@ -453,6 +494,15 @@ func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	default:
 		return ""
 	}
+}
+
+// withTerminal is the ", terminal N" suffix a gate alert carries when the
+// terminal at that end changed alongside the gate, else "".
+func withTerminal(changed bool, terminal string) string {
+	if !changed {
+		return ""
+	}
+	return ", terminal " + terminal
 }
 
 // alertMessage is the one-liner carried in the in-app SSE payload.

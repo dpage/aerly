@@ -253,6 +253,18 @@ func (p *Poller) tick(ctx context.Context) {
 		slog.Error("poller: list recently-arrived flight parts", "err", err)
 		return
 	}
+
+	// All three poll queries succeeded, so between them they list every part
+	// the alert step can still see: forget pending terminal changes for the
+	// rest. Any query failing returns above, and so skips this, rather than
+	// mistaking an unlisted part for one that has gone.
+	polled := make(map[int64]struct{}, len(flights)+len(meta)+len(landed))
+	for _, set := range [][]*store.Flight{flights, meta, landed} {
+		for _, f := range set {
+			polled[f.ID] = struct{}{}
+		}
+	}
+	p.terminals.prune(polled)
 	for _, f := range landed {
 		if ctx.Err() != nil {
 			return

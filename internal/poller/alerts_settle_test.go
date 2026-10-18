@@ -1,6 +1,7 @@
 package poller
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -154,11 +155,67 @@ func TestEvaluateAlertSequences(t *testing.T) {
 			},
 		},
 		{
-			name:  "terminal and gate change together inside the quiet period: the gate alerts",
+			name:  "origin gate and terminal change together inside the quiet period: one gate alert naming both",
 			depIn: near,
 			start: pollStep{originGate: "A12", originTerminal: "5"},
 			polls: []pollStep{
-				{originGate: "A10", originTerminal: "1", wantKind: "gate", wantDetail: "now departs gate A10"},
+				{originGate: "B32", originTerminal: "2", wantKind: "gate", wantDetail: "now departs gate B32, terminal 2"},
+				{originGate: "B32", originTerminal: "2"},
+			},
+		},
+		{
+			name:  "destination gate and terminal change together inside the quiet period",
+			depIn: near,
+			start: pollStep{destGate: "B12", destTerminal: "1"},
+			polls: []pollStep{
+				{destGate: "B14", destTerminal: "3", wantKind: "gate", wantDetail: "now arrives at gate B14, terminal 3"},
+				{destGate: "B14", destTerminal: "3"},
+			},
+		},
+		{
+			name:  "gate assigned with a terminal change inside the quiet period",
+			depIn: near,
+			start: pollStep{originTerminal: "5"},
+			polls: []pollStep{
+				{originGate: "B32", originTerminal: "2", wantKind: "gate_assigned", wantDetail: "departs gate B32, terminal 2"},
+				{originGate: "B32", originTerminal: "2"},
+			},
+		},
+		{
+			name:  "gate change in the quiet period settles a pending terminal against the stable value",
+			depIn: 31 * time.Minute, // first poll just outside the quiet period, second inside
+			start: pollStep{originGate: "A12", originTerminal: "5"},
+			polls: []pollStep{
+				{originGate: "A12", originTerminal: "2"},
+				{originGate: "B32", originTerminal: "2", wantKind: "gate", wantDetail: "now departs gate B32, terminal 2"},
+			},
+		},
+		{
+			name:  "gate change in the quiet period with the terminal back where it was names no terminal",
+			depIn: 31 * time.Minute,
+			start: pollStep{originGate: "A12", originTerminal: "5"},
+			polls: []pollStep{
+				{originGate: "A12", originTerminal: "2"},
+				{originGate: "B32", originTerminal: "5", wantKind: "gate", wantDetail: "now departs gate B32"},
+				{originGate: "B32", originTerminal: "5"},
+			},
+		},
+		{
+			name:  "gate and terminal change together outside the quiet period: terminal still waits",
+			depIn: far,
+			start: pollStep{originGate: "A12", originTerminal: "5"},
+			polls: []pollStep{
+				{originGate: "B32", originTerminal: "2", wantKind: "gate", wantDetail: "now departs gate B32"},
+				{originGate: "B32", originTerminal: "2", wantKind: "terminal", wantDetail: "now departs terminal 2"},
+			},
+		},
+		{
+			name:  "terminal change at the other end from a gate change in the quiet period stays quiet",
+			depIn: near,
+			start: pollStep{originGate: "A12", destTerminal: "1"},
+			polls: []pollStep{
+				{originGate: "B32", destTerminal: "3", wantKind: "gate", wantDetail: "now departs gate B32"},
+				{originGate: "B32", destTerminal: "3"},
 			},
 		},
 		{
@@ -260,5 +317,73 @@ func TestInQuietPeriod(t *testing.T) {
 		if got := inQuietPeriod(tc.f, now); got != tc.want {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestEvaluateAlert_FoldedTerminalInSignature: a terminal folded into a
+// quiet-period gate alert goes into the dedupe signature, so a later alert
+// with the same state cannot announce it again.
+func TestEvaluateAlert_FoldedTerminalInSignature(t *testing.T) {
+	p := &Poller{}
+	now := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	dep := now.Add(20 * time.Minute)
+	prev := &store.Flight{Ident: "XX100", Status: "Scheduled", ScheduledOut: dep, OriginGate: "A12", OriginTerminal: "5"}
+	cur := &store.Flight{Ident: "XX100", Status: "Scheduled", ScheduledOut: dep, OriginGate: "B32", OriginTerminal: "2"}
+	kind, _, sigSt := p.evaluateAlert(1, prev, cur, true, now)
+	if kind != "gate" || sigSt.originTerminal != "2" {
+		t.Fatalf("got kind %q, signature terminal %q; want gate with terminal 2", kind, sigSt.originTerminal)
+	}
+}
+
+// TestTerminalTrackerPrune: pending changes for parts no longer in any poll
+// set are dropped, and those still being polled are kept.
+func TestTerminalTrackerPrune(t *testing.T) {
+	var tt terminalTracker
+	tt.prune(map[int64]struct{}{}) // nothing pending: a no-op, not a panic
+	tt.settle(1, originEnd, "5", "3", true, false, false)
+	tt.settle(2, destEnd, "1", "2", true, false, false)
+	tt.prune(map[int64]struct{}{1: {}})
+	if _, ok := tt.pending[pendingTerminalKey{partID: 1, end: originEnd}]; !ok {
+		t.Error("pending change for a part still polled was pruned")
+	}
+	if _, ok := tt.pending[pendingTerminalKey{partID: 2, end: destEnd}]; ok {
+		t.Error("pending change for a part no longer polled survived the prune")
+	}
+}
+
+// TestTickPrunesPendingTerminals: a tick whose poll queries all succeed drops
+// pending terminal changes for parts in none of its poll sets and keeps those
+// for parts still being polled; a tick whose queries fail prunes nothing.
+func TestTickPrunesPendingTerminals(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		// Six hours out: listed by the metadata pass, which with no resolver
+		// never reaches the alert step, so only the prune can touch it.
+		Ident: "XX100", ScheduledOut: now.Add(6 * time.Hour), ScheduledIn: now.Add(9 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	gone := f.ID + 1000 // a part no poll set will ever list
+	p.terminals.settle(f.ID, originEnd, "5", "3", true, false, false)
+	p.terminals.settle(gone, destEnd, "1", "2", true, false, false)
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	p.tick(cancelled)
+	if _, ok := p.terminals.pending[pendingTerminalKey{partID: gone, end: destEnd}]; !ok {
+		t.Fatal("a tick whose queries failed pruned a pending change")
+	}
+
+	p.tick(ctx)
+	if _, ok := p.terminals.pending[pendingTerminalKey{partID: gone, end: destEnd}]; ok {
+		t.Error("pending change for a part outside every poll set survived the tick")
+	}
+	if _, ok := p.terminals.pending[pendingTerminalKey{partID: f.ID, end: originEnd}]; !ok {
+		t.Error("pending change for a part still polled was pruned")
 	}
 }
