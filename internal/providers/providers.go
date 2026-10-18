@@ -168,8 +168,8 @@ type ResolvedFlight struct {
 	// almost every flight, which is why the alert path deliberately measures
 	// against EstimatedOut alone (timing.Effective decides the effective
 	// departure). What it is good for is the one thing a clock cannot tell
-	// you: the aircraft is airborne. It mirrors ActualIn, which is likewise the runway time rather than the
-	// on-stand time.
+	// you: the aircraft is airborne. It mirrors ActualIn, which is likewise the
+	// runway time rather than the on-stand time.
 	//
 	// Both nil for a flight the provider only holds a timetable for, which is
 	// why everything downstream falls back to ScheduledOut.

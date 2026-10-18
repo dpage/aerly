@@ -672,7 +672,8 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	// have to be in the row before the caller re-derives the status, or a
 	// flight still on stand under a rolling delay is declared Enroute off its
 	// timetabled departure. Also the only source of estimated_out, which is
-	// what the departure-delay alert measures against.
+	// what the departure-delay alert measures against, and replaced outright in
+	// the same way, so a withdrawn delay estimate is cleared.
 	if err := p.Store.RefreshFlightPartDeparture(ctx, f.ID, rf.EstimatedOut, rf.ActualOut); err != nil {
 		slog.Error("poller: refresh departure times failed", "id", f.ID, "err", err)
 	}
