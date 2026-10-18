@@ -1125,3 +1125,59 @@ func TestAlert_SameGateDoesNotReAlert(t *testing.T) {
 		t.Fatalf("new gate: expected 1 gate re-alert, got %+v", got)
 	}
 }
+
+// TestResolveClearsWithdrawnEstimateWithoutAlerting: a provider that stops
+// sending an estimate it sent earlier has the estimate cleared from the row,
+// and the clearing is not announced as a delay.
+func TestResolveClearsWithdrawnEstimateWithoutAlerting(t *testing.T) {
+	p, s, hub, cap := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "XX100", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	est := f.ScheduledOut.Add(45 * time.Minute).UTC().Truncate(time.Second)
+	res := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", EstimatedOut: &est,
+	}}
+	p.Resolver = res
+
+	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+	p.maybeAlert(ctx, f, f.ID, true)
+	if got := drainAlerts(t, ch); len(got) != 1 {
+		t.Fatalf("the published delay should alert once, got %d", len(got))
+	}
+	delayed, _ := s.FlightPartByID(ctx, f.ID)
+	if delayed.EstimatedOut == nil {
+		t.Fatal("the first resolve should have stored the estimate")
+	}
+	emails := cap.count()
+
+	// The provider drops the estimate; the next resolve must clear it.
+	res.rf = &providers.ResolvedFlight{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK"}
+	if _, err := p.resolveAndUpdate(ctx, delayed, now.Add(time.Minute)); err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+	cleared, _ := s.FlightPartByID(ctx, f.ID)
+	if cleared.EstimatedOut != nil {
+		t.Errorf("a withdrawn estimate should be cleared, got %v", cleared.EstimatedOut)
+	}
+
+	p.maybeAlert(ctx, delayed, f.ID, true)
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Errorf("clearing an estimate must not raise an alert, got %d", len(got))
+	}
+	if cap.count() != emails {
+		t.Errorf("clearing an estimate must not send email, got %d new", cap.count()-emails)
+	}
+}

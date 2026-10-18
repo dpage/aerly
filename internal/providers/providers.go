@@ -166,9 +166,9 @@ type ResolvedFlight struct {
 	// the off-block time it would be compared against; feeding it into the
 	// departure-delay calculation would report a phantom ten-minute delay on
 	// almost every flight, which is why the alert path deliberately measures
-	// against EstimatedOut alone (see poller.effectiveOut). What it is good
-	// for is the one thing a clock cannot tell you: the aircraft is airborne.
-	// It mirrors ActualIn, which is likewise the runway time rather than the
+	// against EstimatedOut alone (timing.Effective decides the effective
+	// departure). What it is good for is the one thing a clock cannot tell
+	// you: the aircraft is airborne. It mirrors ActualIn, which is likewise the runway time rather than the
 	// on-stand time.
 	//
 	// Both nil for a flight the provider only holds a timetable for, which is

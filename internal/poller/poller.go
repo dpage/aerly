@@ -660,7 +660,8 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	// the flight is still airborne is already in the row when the status is
 	// re-derived and can keep the part out of Arrived. Unlike the schedule
 	// below these are not frozen on resolved: the whole point is that they keep
-	// moving as the flight runs late.
+	// moving as the flight runs late. Estimates are replaced outright, so one
+	// the provider stops sending is cleared.
 	// Best-effort, like the schedule refresh below: a failure here must not
 	// abort the resolve and discard the airframe, gate and belt work already
 	// persisted above.

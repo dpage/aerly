@@ -376,62 +376,6 @@ func TestRefreshStatusHeldOnStand(t *testing.T) {
 	}
 }
 
-// TestRefreshDepartureKeepsKnownTimes: the departure mirror of
-// TestRefreshArrivalKeepsKnownTimes — a poll that comes back without live
-// coverage must leave an earlier revision standing rather than blanking it.
-func TestRefreshDepartureKeepsKnownTimes(t *testing.T) {
-	s := newStore(t)
-	if s == nil {
-		return
-	}
-	now := time.Now()
-	owner := mkUser(t, s)
-	part := mkFlightPart(t, s, owner, "OS962", now.Add(-3*time.Hour), now.Add(-time.Hour))
-
-	est, act := now.Add(-170*time.Minute), now.Add(-165*time.Minute)
-	if err := s.RefreshFlightPartDeparture(ctx, part, &est, &act); err != nil {
-		t.Fatalf("RefreshFlightPartDeparture: %v", err)
-	}
-	if err := s.RefreshFlightPartDeparture(ctx, part, nil, nil); err != nil {
-		t.Fatalf("RefreshFlightPartDeparture (omitted): %v", err)
-	}
-	got, _ := s.FlightPartByID(ctx, part)
-	if got.EstimatedOut == nil || !got.EstimatedOut.Truncate(time.Second).Equal(est.UTC().Truncate(time.Second)) {
-		t.Errorf("estimated_out wiped by an omission: %v", got.EstimatedOut)
-	}
-	if got.ActualOut == nil || !got.ActualOut.Truncate(time.Second).Equal(act.UTC().Truncate(time.Second)) {
-		t.Errorf("actual_out wiped by an omission: %v", got.ActualOut)
-	}
-}
-
-// TestRefreshArrivalKeepsKnownTimes: the resolver omits the live times until it
-// has coverage, and an omission (nil) must leave a time we already know alone
-// rather than wiping it — the same overwrite-when-supplied rule the belt uses.
-func TestRefreshArrivalKeepsKnownTimes(t *testing.T) {
-	s := newStore(t)
-	if s == nil {
-		return
-	}
-	now := time.Now()
-	owner := mkUser(t, s)
-	part := mkFlightPart(t, s, owner, "OS962", now.Add(-3*time.Hour), now.Add(-time.Hour))
-
-	est, act := now.Add(-70*time.Minute), now.Add(-75*time.Minute)
-	if err := s.RefreshFlightPartArrival(ctx, part, &est, &act); err != nil {
-		t.Fatalf("RefreshFlightPartArrival: %v", err)
-	}
-	if err := s.RefreshFlightPartArrival(ctx, part, nil, nil); err != nil {
-		t.Fatalf("RefreshFlightPartArrival (omitted): %v", err)
-	}
-	got, _ := s.FlightPartByID(ctx, part)
-	if got.EstimatedIn == nil || !got.EstimatedIn.Truncate(time.Second).Equal(est.UTC().Truncate(time.Second)) {
-		t.Errorf("estimated_in wiped by an omission: %v", got.EstimatedIn)
-	}
-	if got.ActualIn == nil || !got.ActualIn.Truncate(time.Second).Equal(act.UTC().Truncate(time.Second)) {
-		t.Errorf("actual_in wiped by an omission: %v", got.ActualIn)
-	}
-}
-
 // TestFlightPartsRecentlyArrived: only parts that landed inside
 // postArrivalWindow come back, which is the band in which the belt is still
 // worth asking for. History, flights still in the air, and terminal statuses
@@ -1117,5 +1061,81 @@ func TestRefreshStatusUnknownArrivalNoLiveTimes(t *testing.T) {
 	f, _ := s.FlightPartByID(ctx, bare)
 	if f.Status != "Arrived" {
 		t.Errorf("with no live times the cap counts from the timetable, got %q", f.Status)
+	}
+}
+
+// TestRefreshFlightPartDepartureClearsEstimate pins the replace-outright rule:
+// an estimate the provider stops sending is cleared rather than left standing,
+// whilst an observed wheels-off, once set, is never wiped by a later nil.
+func TestRefreshFlightPartDepartureClearsEstimate(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	owner := mkUser(t, s)
+	id := mkFlightPart(t, s, owner, "XX100", now.Add(time.Hour), now.Add(3*time.Hour))
+
+	first := now.Add(70 * time.Minute)
+	second := now.Add(95 * time.Minute)
+	act := now.Add(80 * time.Minute)
+
+	if err := s.RefreshFlightPartDeparture(ctx, id, &first, &act); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture: %v", err)
+	}
+	if err := s.RefreshFlightPartDeparture(ctx, id, &second, nil); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture (replace): %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, id)
+	if f.EstimatedOut == nil || !f.EstimatedOut.Equal(second) {
+		t.Errorf("a new estimate should replace the old one, got %v want %v", f.EstimatedOut, second)
+	}
+
+	if err := s.RefreshFlightPartDeparture(ctx, id, nil, nil); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture (clear): %v", err)
+	}
+	f, _ = s.FlightPartByID(ctx, id)
+	if f.EstimatedOut != nil {
+		t.Errorf("a withdrawn estimate should be cleared, got %v", f.EstimatedOut)
+	}
+	if f.ActualOut == nil || !f.ActualOut.Equal(act) {
+		t.Errorf("an observed actual must survive a nil, got %v want %v", f.ActualOut, act)
+	}
+}
+
+// TestRefreshFlightPartArrivalClearsEstimate is the arrival-side mirror.
+func TestRefreshFlightPartArrivalClearsEstimate(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	owner := mkUser(t, s)
+	id := mkFlightPart(t, s, owner, "XX101", now.Add(time.Hour), now.Add(3*time.Hour))
+
+	first := now.Add(190 * time.Minute)
+	second := now.Add(215 * time.Minute)
+	act := now.Add(200 * time.Minute)
+
+	if err := s.RefreshFlightPartArrival(ctx, id, &first, &act); err != nil {
+		t.Fatalf("RefreshFlightPartArrival: %v", err)
+	}
+	if err := s.RefreshFlightPartArrival(ctx, id, &second, nil); err != nil {
+		t.Fatalf("RefreshFlightPartArrival (replace): %v", err)
+	}
+	f, _ := s.FlightPartByID(ctx, id)
+	if f.EstimatedIn == nil || !f.EstimatedIn.Equal(second) {
+		t.Errorf("a new estimate should replace the old one, got %v want %v", f.EstimatedIn, second)
+	}
+
+	if err := s.RefreshFlightPartArrival(ctx, id, nil, nil); err != nil {
+		t.Fatalf("RefreshFlightPartArrival (clear): %v", err)
+	}
+	f, _ = s.FlightPartByID(ctx, id)
+	if f.EstimatedIn != nil {
+		t.Errorf("a withdrawn estimate should be cleared, got %v", f.EstimatedIn)
+	}
+	if f.ActualIn == nil || !f.ActualIn.Equal(act) {
+		t.Errorf("an observed actual must survive a nil, got %v want %v", f.ActualIn, act)
 	}
 }

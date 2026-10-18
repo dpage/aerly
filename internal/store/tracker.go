@@ -479,24 +479,20 @@ func (s *Store) SetFlightPartTerminalStatus(ctx context.Context, partID int64, s
 
 // RefreshFlightPartDeparture stores the live departure times: the airline's
 // revised off-block estimate and the observed wheels-off. The mirror of
-// RefreshFlightPartArrival, and COALESCE-guarded the same way so a poll that
-// comes back without live coverage leaves an earlier revision standing rather
-// than blanking it.
+// RefreshFlightPartArrival. The estimate is replaced outright, so one the
+// provider stops sending is cleared; the actual, once set, is never cleared.
 func (s *Store) RefreshFlightPartDeparture(ctx context.Context, partID int64, estimatedOut, actualOut *time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET
-			estimated_out = COALESCE($2, estimated_out),
+			estimated_out = $2,
 			actual_out    = COALESCE($3, actual_out)
 		WHERE plan_part_id = $1`, partID, estimatedOut, actualOut)
 	return err
 }
 
-// RefreshFlightPartArrival overwrites the live arrival times when the resolver
-// supplies them, leaving the existing column alone for a nil (the provider
-// omits both until the flight has live coverage, and an omission must not wipe
-// a time we already know). Mirrors RefreshFlightPartBelt's
-// overwrite-when-supplied rule, with NULL playing the part empty-string plays
-// there.
+// RefreshFlightPartArrival stores the live arrival times. The estimate is
+// replaced outright, so one the provider stops sending is cleared; the actual,
+// once set, is never cleared (a nil leaves it alone).
 //
 // These are what let a late flight be recognised as late: the derived status
 // keys off the arrival we actually expect rather than the timetabled one, so a
@@ -505,7 +501,7 @@ func (s *Store) RefreshFlightPartDeparture(ctx context.Context, partID int64, es
 func (s *Store) RefreshFlightPartArrival(ctx context.Context, partID int64, estimatedIn, actualIn *time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET
-			estimated_in = COALESCE($2, estimated_in),
+			estimated_in = $2,
 			actual_in    = COALESCE($3, actual_in)
 		WHERE plan_part_id = $1`, partID, estimatedIn, actualIn)
 	return err
