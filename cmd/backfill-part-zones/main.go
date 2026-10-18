@@ -146,7 +146,9 @@ type report struct {
 // plan decides a fix for every floating end it can, in two passes. The first
 // uses only each end's own evidence (coordinates or airport, so confirmed);
 // those zones then join the trip's zoned ends, and the second pass infers the
-// rest from the enlarged set, so one run settles the lot. It is pure apart from
+// rest from the enlarged set, so one run settles the lot. Second-pass zones
+// are not added to the set, so no guess is made from another guess and the
+// result does not depend on the order of the ends. It is pure apart from
 // the trip callback, which supplies a trip's already-zoned ends (called once
 // per trip).
 func plan(ends []store.FloatingEnd, trip func(int64) ([]store.ZonedEnd, error)) ([]store.ZoneFix, report, error) {
@@ -175,7 +177,11 @@ func plan(ends []store.FloatingEnd, trip func(int64) ([]store.ZonedEnd, error)) 
 		}
 		fixes = append(fixes, store.ZoneFix{PartID: e.PartID, End: e.End, TZ: tz, Source: string(src), At: at})
 		rep.Old = append(rep.Old, e.At)
-		zonedByTrip[e.TripID] = append(zonedByTrip[e.TripID], store.ZonedEnd{At: at, TZ: tz})
+		// Only an end's own evidence joins the trip's zoned ends: a pass-2
+		// guess must not feed another, or the result depends on the order.
+		if src == timing.Confirmed {
+			zonedByTrip[e.TripID] = append(zonedByTrip[e.TripID], store.ZonedEnd{At: at, TZ: tz})
+		}
 		return true
 	}
 

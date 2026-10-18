@@ -128,6 +128,38 @@ func TestPlanSettlesInOneRun(t *testing.T) {
 	}
 }
 
+// TestPlanOrderIndependent: second-pass ends infer only from pre-existing
+// and confirmed zones, never from each other, so reordering them gives the
+// same fixes. Chained, end 2 would take London from end 1's guess on day 7.
+func TestPlanOrderIndependent(t *testing.T) {
+	d := func(day int, hour int) time.Time { return time.Date(2026, 7, day, hour, 0, 0, 0, time.UTC) }
+	zoned := []store.ZonedEnd{
+		{At: d(1, 0), TZ: "Europe/Paris"},
+		{At: d(11, 0), TZ: "Europe/London"},
+	}
+	trip := func(int64) ([]store.ZonedEnd, error) { return zoned, nil }
+	a := store.FloatingEnd{PartID: 1, TripID: 1, End: "start", At: d(8, 0)}  // nearest London
+	b := store.FloatingEnd{PartID: 2, TripID: 1, End: "start", At: d(5, 12)} // nearest Paris
+	zones := func(ends ...store.FloatingEnd) map[int64]string {
+		fixes, _, err := plan(ends, trip)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[int64]string{}
+		for _, f := range fixes {
+			out[f.PartID] = f.TZ
+		}
+		return out
+	}
+	ab, ba := zones(a, b), zones(b, a)
+	if ab[1] != "Europe/London" || ab[2] != "Europe/Paris" {
+		t.Errorf("a then b = %v", ab)
+	}
+	if ba[1] != ab[1] || ba[2] != ab[2] {
+		t.Errorf("order changed the result: a,b = %v; b,a = %v", ab, ba)
+	}
+}
+
 func TestPlanNothingLeftFloating(t *testing.T) {
 	fixes, rep, err := plan([]store.FloatingEnd{
 		{PartID: 5, TripID: 1, End: "start", At: time.Now()},
