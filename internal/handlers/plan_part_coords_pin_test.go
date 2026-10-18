@@ -141,8 +141,9 @@ func TestPinRederivesZoneKeepingWallClock(t *testing.T) {
 }
 
 // TestPinZoneRules covers the edges of the pin path: an explicit time in the
-// same request is not re-anchored, an explicit zone wins, the same zone is a
-// no-op, and pinned end coordinates derive the end's own zone.
+// same request is not re-anchored, an explicit zone wins, the same zone keeps
+// the time but confirms the zone, and pinned end coordinates derive the end's
+// own zone.
 func TestPinZoneRules(t *testing.T) {
 	e := setup(t, nil, nil)
 	ctx := context.Background()
@@ -223,6 +224,25 @@ func TestPinZoneRules(t *testing.T) {
 		got, _ := e.store.PlanPartByID(ctx, id)
 		if got.StartTZ != "Europe/Madrid" || !got.StartsAt.Equal(checkin) {
 			t.Errorf("got %q %v, want Europe/Madrid %v", got.StartTZ, got.StartsAt.UTC(), checkin)
+		}
+	})
+
+	t.Run("pin inside an inferred zone confirms it", func(t *testing.T) {
+		path, id := pinHotel(t, e, uid, store.CreatePlanPartPayload{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartTZ: "Europe/Madrid", EndTZ: "Europe/Madrid",
+			StartTZSource: "inferred", EndTZSource: "inferred",
+		})
+		body := map[string]any{"start_lat": 41.39, "start_lon": 2.17, "start_coords_pinned": true}
+		if w := e.req(t, "PATCH", path, body, uid); w.Code != http.StatusOK {
+			t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
+		}
+		got, _ := e.store.PlanPartByID(ctx, id)
+		if got.StartTZ != "Europe/Madrid" || got.StartTZSource != "confirmed" || !got.StartsAt.Equal(checkin) {
+			t.Errorf("start = %q/%q %v, want Europe/Madrid/confirmed %v", got.StartTZ, got.StartTZSource, got.StartsAt.UTC(), checkin)
+		}
+		if got.EndTZ != "Europe/Madrid" || got.EndTZSource != "confirmed" || got.EndsAt == nil || !got.EndsAt.Equal(checkout) {
+			t.Errorf("end = %q/%q %v, want Europe/Madrid/confirmed %v", got.EndTZ, got.EndTZSource, got.EndsAt, checkout)
 		}
 	})
 
