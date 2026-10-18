@@ -1,9 +1,12 @@
 package api
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/store"
 )
 
@@ -91,7 +94,7 @@ func TestToFlightDetailDTO_PositionAndTrack(t *testing.T) {
 		{Ts: time.Now(), Lat: 51.5, Lon: -0.1},
 		{Ts: time.Now(), Lat: 52.0, Lon: -1.0},
 	}
-	dto := ToFlightDetailDTO(d, latest, track)
+	dto := ToFlightDetailDTO(d, latest, track, "", "", "", "")
 	if dto.LatestPosition == nil {
 		t.Error("latest position not projected")
 	}
@@ -99,7 +102,7 @@ func TestToFlightDetailDTO_PositionAndTrack(t *testing.T) {
 		t.Errorf("track len = %d, want 2", len(dto.Track))
 	}
 	// No position/track → both nil/empty.
-	bare := ToFlightDetailDTO(d, nil, nil)
+	bare := ToFlightDetailDTO(d, nil, nil, "", "", "", "")
 	if bare.LatestPosition != nil || bare.Track != nil {
 		t.Error("bare flight should carry no position or track")
 	}
@@ -193,5 +196,104 @@ func TestToPlanPartDTO_FlightTZFallbackKeepsFloating(t *testing.T) {
 	}
 	if dto.EndTZ != "America/New_York" || dto.EndTZSource != "confirmed" {
 		t.Errorf("end = %q/%q, want America/New_York/confirmed", dto.EndTZ, dto.EndTZSource)
+	}
+}
+
+func TestPlanPartTimeBlocks_FlightWithLateDeparture(t *testing.T) {
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := time.Date(2026, 6, 1, 17, 0, 0, 0, time.UTC)
+	est := out.Add(40 * time.Minute)
+	part := &store.PlanPart{ID: 1, PlanID: 2, Type: "flight", StartsAt: out, EndsAt: &in}
+	flight := &store.FlightDetail{
+		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK",
+		ScheduledOut: out, ScheduledIn: in, EstimatedOut: &est,
+	}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	lhr, _ := airports.LookupCity("LHR")
+	jfk, _ := airports.LookupCity("JFK")
+	dep := dto.Flight.Departure
+	if !dep.At.Equal(est) || dep.TZ != "Europe/London" || dep.TZSource != "confirmed" ||
+		dep.Place != lhr || dep.Kind != "estimated" || dep.DelayMin != 40 {
+		t.Errorf("departure block = %+v", dep)
+	}
+	arr := dto.Flight.Arrival
+	if arr == nil {
+		t.Fatal("arrival block missing")
+	}
+	if !arr.At.Equal(in.Add(40*time.Minute)) || arr.TZ != "America/New_York" || arr.TZSource != "confirmed" ||
+		arr.Place != jfk || arr.Kind != "derived" || arr.DelayMin != 40 {
+		t.Errorf("arrival block = %+v", arr)
+	}
+	if dto.Start != dep || dto.End == nil || *dto.End != *arr {
+		t.Errorf("part start/end %+v / %+v differ from flight blocks", dto.Start, dto.End)
+	}
+	if !dto.EffectiveAt.Equal(est) {
+		t.Errorf("effective_at = %v, want %v", dto.EffectiveAt, est)
+	}
+}
+
+func TestPlanPartTimeBlocks_DepartureOnlyFlightOmitsArrival(t *testing.T) {
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	part := &store.PlanPart{ID: 1, PlanID: 2, Type: "flight", StartsAt: out}
+	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", ScheduledOut: out}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if dto.Flight.Arrival != nil || dto.End != nil {
+		t.Errorf("arrival/end = %+v / %+v, want nil", dto.Flight.Arrival, dto.End)
+	}
+	b, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(b)
+	if !strings.Contains(js, `"start":{`) || !strings.Contains(js, `"departure":{`) {
+		t.Errorf("JSON lacks start/departure blocks: %s", js)
+	}
+	if strings.Contains(js, `"arrival"`) || strings.Contains(js, `"end":`) {
+		t.Errorf("JSON should omit arrival and end: %s", js)
+	}
+}
+
+func TestPlanPartTimeBlocks_FloatingFlightEndKeepsFallbackZone(t *testing.T) {
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	part := &store.PlanPart{Type: "flight", StartsAt: out, StartTZSource: "floating"}
+	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", ScheduledOut: out}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if dto.Start.TZ != "Europe/London" || dto.Start.TZSource != "floating" || dto.Start.Place == "" {
+		t.Errorf("start = %+v, want airport zone kept with floating source", dto.Start)
+	}
+}
+
+func TestPlanPartTimeBlocks_Hotel(t *testing.T) {
+	in := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
+	outT := time.Date(2026, 6, 3, 11, 0, 0, 0, time.UTC)
+	part := &store.PlanPart{
+		Type: "hotel", StartsAt: in, EndsAt: &outT,
+		StartTZ: "Europe/Paris", StartTZSource: "confirmed",
+		EndTZ: "Europe/Paris", EndTZSource: "inferred",
+	}
+	dto := ToPlanPartDTO(part, nil, &store.HotelDetail{PropertyName: "Test Hotel"}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	want := TimeBlockDTO{At: in, TZ: "Europe/Paris", TZSource: "confirmed", Place: "Paris", Kind: "scheduled"}
+	if dto.Start != want {
+		t.Errorf("start = %+v, want %+v", dto.Start, want)
+	}
+	if dto.End == nil || !dto.End.At.Equal(outT) || dto.End.TZSource != "inferred" ||
+		dto.End.Place != "Paris" || dto.End.Kind != "scheduled" {
+		t.Errorf("end = %+v", dto.End)
+	}
+	if dto.Flight != nil {
+		t.Error("hotel should carry no flight block")
+	}
+}
+
+func TestPlanPartTimeBlocks_FloatingPartHasNoZoneOrPlace(t *testing.T) {
+	at := time.Date(2026, 6, 1, 19, 0, 0, 0, time.UTC)
+	part := &store.PlanPart{Type: "dining", StartsAt: at, StartTZSource: "floating"}
+	dto := ToPlanPartDTO(part, nil, nil, nil, nil, &store.DiningDetail{}, nil, nil, nil, nil, nil, nil, nil)
+	if dto.Start.TZ != "" || dto.Start.Place != "" || dto.Start.TZSource != "floating" {
+		t.Errorf("floating start = %+v", dto.Start)
+	}
+	if dto.End != nil {
+		t.Errorf("end = %+v, want nil", dto.End)
 	}
 }

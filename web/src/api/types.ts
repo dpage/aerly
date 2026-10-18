@@ -377,7 +377,7 @@ export interface ExternalEvent {
   /** IANA zone of the wall-clock time, for local display; absent for UTC. */
   start_tz?: string;
   /** How start_tz is known: confirmed (feed TZID), inferred (calendar or user default) or unknown. */
-  start_tz_source: "confirmed" | "inferred" | "unknown";
+  start_tz_source: TZSource;
   all_day: boolean;
 }
 
@@ -387,6 +387,9 @@ export interface PlanVisibility {
 }
 
 export interface FlightDetail {
+  /** Effective departure and arrival; arrival is absent without an arrival time. */
+  departure: TimeBlock;
+  arrival?: TimeBlock;
   ident: string;
   icao24?: string;
   callsign: string;
@@ -515,7 +518,22 @@ export interface EventDetail {
 /** How a part's time zone is known; see the time zone redesign. */
 export type TZSource = 'confirmed' | 'inferred' | 'unknown' | 'floating';
 
+export type TimeKind = 'actual' | 'estimated' | 'derived' | 'scheduled';
+
+/** One end's time as it should be shown: instant, zone, place, origin and delay. */
+export interface TimeBlock {
+  at: string;
+  tz: string;
+  tz_source: TZSource;
+  place: string;
+  kind: TimeKind;
+  delay_min: number;
+}
+
 export interface PlanPart {
+  /** Effective time of each end; end is absent without an end time. */
+  start: TimeBlock;
+  end?: TimeBlock;
   id: number;
   plan_id: number;
   type: PlanType;

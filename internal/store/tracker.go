@@ -696,10 +696,10 @@ type TrackerPart struct {
 var trackerVisible = planVisibleExpr("pl", "t", "$1")
 
 // effectiveArrival is the SQL for a flight part's effective arrival, mirroring
-// FlightDetail.EffectiveIn / flights.go's COALESCE(actual, estimated, scheduled).
+// timing.Effective's arrival / flights.go's COALESCE(actual, estimated, scheduled).
 const effectiveArrival = `COALESCE(fd.actual_in, fd.estimated_in, fd.scheduled_in)`
 
-// effectiveDeparture mirrors FlightDetail.EffectiveOut; it's what the tracker
+// effectiveDeparture mirrors timing.Effective's departure; it's what the tracker
 // reports as the part's effective_at so the front end sorts uniformly.
 const effectiveDeparture = `COALESCE(fd.actual_out, fd.estimated_out, fd.scheduled_out)`
 

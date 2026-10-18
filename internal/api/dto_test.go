@@ -169,7 +169,7 @@ func TestToFlightDetailDTOMapsGateAndTerminal(t *testing.T) {
 		OriginGate: "B32", OriginTerminal: "5", DestGate: "", DestTerminal: "",
 		AircraftType: "Boeing 777-300ER", DestBaggageBelt: "34",
 	}
-	out := ToFlightDetailDTO(d, nil, nil)
+	out := ToFlightDetailDTO(d, nil, nil, "", "", "", "")
 	if out.OriginGate != "B32" || out.OriginTerminal != "5" {
 		t.Errorf("origin gate/terminal = %q/%q, want B32/5", out.OriginGate, out.OriginTerminal)
 	}

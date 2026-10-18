@@ -8,7 +8,38 @@ import (
 
 	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
+
+// TimeBlockDTO is one end's time as the client should show it: the instant,
+// the zone it is quoted in, how sure that zone is, the place the label names,
+// where the time came from, and its delay against the timetable.
+type TimeBlockDTO struct {
+	At       time.Time `json:"at"`
+	TZ       string    `json:"tz"`
+	TZSource string    `json:"tz_source"`
+	Place    string    `json:"place"`
+	Kind     string    `json:"kind"`
+	DelayMin int       `json:"delay_min"`
+}
+
+// newTimeBlock builds a block. The place is named only when there is a zone to
+// quote it in: a floating or unknown zone leaves it empty, because the client
+// shows "needs a time zone" there and a city would contradict that.
+func newTimeBlock(end timing.End, tz, src, iata string) TimeBlockDTO {
+	place := ""
+	if tz != "" {
+		place = timing.PlaceName(tz, iata)
+	}
+	return TimeBlockDTO{
+		At:       end.At,
+		TZ:       tz,
+		TZSource: src,
+		Place:    place,
+		Kind:     string(end.Kind),
+		DelayMin: int(end.Delay / time.Minute),
+	}
+}
 
 // CoordsDTO is a resolved latitude/longitude pair.
 type CoordsDTO struct {
@@ -635,38 +666,42 @@ type PlanVisibilityDTO struct {
 // is populated, selected by Type. effective_at = COALESCE(actual, estimated,
 // scheduled) so the front end sorts every type uniformly.
 type PlanPartDTO struct {
-	ID            int64                 `json:"id"`
-	PlanID        int64                 `json:"plan_id"`
-	Type          string                `json:"type"`
-	Seq           int                   `json:"seq"`
-	StartsAt      time.Time             `json:"starts_at"`
-	EndsAt        *time.Time            `json:"ends_at,omitempty"`
-	StartTZ       string                `json:"start_tz"`
-	EndTZ         string                `json:"end_tz"`
-	StartTZSource string                `json:"start_tz_source"`
-	EndTZSource   string                `json:"end_tz_source"`
-	StartLabel    string                `json:"start_label"`
-	StartLat      *float64              `json:"start_lat,omitempty"`
-	StartLon      *float64              `json:"start_lon,omitempty"`
-	StartAddress  string                `json:"start_address"`
-	EndLabel      string                `json:"end_label"`
-	EndLat        *float64              `json:"end_lat,omitempty"`
-	EndLon        *float64              `json:"end_lon,omitempty"`
-	EndAddress    string                `json:"end_address"`
-	Status        string                `json:"status"`
-	EffectiveAt   time.Time             `json:"effective_at"`
-	SupersedesID  *int64                `json:"supersedes_id,omitempty"`
-	DismissedAt   *time.Time            `json:"dismissed_at,omitempty"`
-	Flight        *FlightDetailDTO      `json:"flight,omitempty"`
-	Hotel         *HotelDetailDTO       `json:"hotel,omitempty"`
-	Train         *TrainDetailDTO       `json:"train,omitempty"`
-	Ground        *GroundDetailDTO      `json:"ground,omitempty"`
-	Dining        *DiningDetailDTO      `json:"dining,omitempty"`
-	Excursion     *ExcursionDetailDTO   `json:"excursion,omitempty"`
-	IceCream      *IceCreamDetailDTO    `json:"ice_cream,omitempty"`
-	Meeting       *MeetingDetailDTO     `json:"meeting,omitempty"`
-	Event         *EventDetailDTO       `json:"event,omitempty"`
-	VehicleHire   *VehicleHireDetailDTO `json:"vehicle_hire,omitempty"`
+	ID            int64      `json:"id"`
+	PlanID        int64      `json:"plan_id"`
+	Type          string     `json:"type"`
+	Seq           int        `json:"seq"`
+	StartsAt      time.Time  `json:"starts_at"`
+	EndsAt        *time.Time `json:"ends_at,omitempty"`
+	StartTZ       string     `json:"start_tz"`
+	EndTZ         string     `json:"end_tz"`
+	StartTZSource string     `json:"start_tz_source"`
+	// Start and End are the effective time blocks for each end of the part;
+	// End is nil when the part has no end time.
+	Start        TimeBlockDTO          `json:"start"`
+	End          *TimeBlockDTO         `json:"end,omitempty"`
+	EndTZSource  string                `json:"end_tz_source"`
+	StartLabel   string                `json:"start_label"`
+	StartLat     *float64              `json:"start_lat,omitempty"`
+	StartLon     *float64              `json:"start_lon,omitempty"`
+	StartAddress string                `json:"start_address"`
+	EndLabel     string                `json:"end_label"`
+	EndLat       *float64              `json:"end_lat,omitempty"`
+	EndLon       *float64              `json:"end_lon,omitempty"`
+	EndAddress   string                `json:"end_address"`
+	Status       string                `json:"status"`
+	EffectiveAt  time.Time             `json:"effective_at"`
+	SupersedesID *int64                `json:"supersedes_id,omitempty"`
+	DismissedAt  *time.Time            `json:"dismissed_at,omitempty"`
+	Flight       *FlightDetailDTO      `json:"flight,omitempty"`
+	Hotel        *HotelDetailDTO       `json:"hotel,omitempty"`
+	Train        *TrainDetailDTO       `json:"train,omitempty"`
+	Ground       *GroundDetailDTO      `json:"ground,omitempty"`
+	Dining       *DiningDetailDTO      `json:"dining,omitempty"`
+	Excursion    *ExcursionDetailDTO   `json:"excursion,omitempty"`
+	IceCream     *IceCreamDetailDTO    `json:"ice_cream,omitempty"`
+	Meeting      *MeetingDetailDTO     `json:"meeting,omitempty"`
+	Event        *EventDetailDTO       `json:"event,omitempty"`
+	VehicleHire  *VehicleHireDetailDTO `json:"vehicle_hire,omitempty"`
 	// Title is the owning plan's title (the user-facing name of the booking,
 	// e.g. an ice cream parlour's name), copied onto the part so the map marker
 	// and list can show it. '' when unknown (e.g. ingest preview parts).
@@ -709,6 +744,10 @@ type FlightDetailDTO struct {
 	DestTerminal    string     `json:"dest_terminal"`
 	AircraftType    string     `json:"aircraft_type"`
 	DestBaggageBelt string     `json:"dest_baggage_belt"`
+	// Departure and Arrival are the effective time blocks; Arrival is nil when
+	// the flight has no arrival time.
+	Departure TimeBlockDTO  `json:"departure"`
+	Arrival   *TimeBlockDTO `json:"arrival,omitempty"`
 	// Resolved is true when the route came from the flight-data provider. The
 	// client makes the origin/dest IATA editable only when this is false (a
 	// manually-entered flight the provider can't track), so a manual route is
@@ -975,8 +1014,13 @@ func ToPlanPartDTO(
 				endSrc = airportFallbackSource(endSrc)
 			}
 		}
-		dto.Flight = ToFlightDetailDTO(flight, latest, track)
-		dto.EffectiveAt = flight.EffectiveOut()
+		dto.Flight = ToFlightDetailDTO(flight, latest, track, startTZ, startSrc, endTZ, endSrc)
+		dto.EffectiveAt = dto.Flight.Departure.At
+		dto.Start = dto.Flight.Departure
+		if dto.Flight.Arrival != nil {
+			arr := *dto.Flight.Arrival
+			dto.End = &arr
+		}
 	case hotel != nil:
 		dto.Hotel = ToHotelDetailDTO(hotel)
 	case train != nil:
@@ -1000,11 +1044,20 @@ func ToPlanPartDTO(
 	dto.EndTZ = endTZ
 	dto.StartTZSource = startSrc
 	dto.EndTZSource = endSrc
+	if flight == nil {
+		dto.Start = newTimeBlock(timing.End{At: p.StartsAt, Kind: timing.Scheduled}, startTZ, startSrc, "")
+		if p.EndsAt != nil {
+			end := newTimeBlock(timing.End{At: *p.EndsAt, Kind: timing.Scheduled}, endTZ, endSrc, "")
+			dto.End = &end
+		}
+	}
 	return dto
 }
 
-// ToFlightDetailDTO mirrors the old ToFlightDTO position handling.
-func ToFlightDetailDTO(d *store.FlightDetail, latest *store.Position, track []*store.Position) *FlightDetailDTO {
+// ToFlightDetailDTO mirrors the old ToFlightDTO position handling and adds the
+// per-end time blocks, quoted in the zones the caller supplies.
+func ToFlightDetailDTO(d *store.FlightDetail, latest *store.Position, track []*store.Position, originTZ, originSrc, destTZ, destSrc string) *FlightDetailDTO {
+	t := timing.Effective(d.Times())
 	callsign := ""
 	if d.Callsign != nil {
 		callsign = *d.Callsign
@@ -1030,6 +1083,11 @@ func ToFlightDetailDTO(d *store.FlightDetail, latest *store.Position, track []*s
 		DestBaggageBelt: d.DestBaggageBelt,
 		Resolved:        d.Resolved,
 		LastPolledAt:    d.LastPolledAt,
+		Departure:       newTimeBlock(t.Departure, originTZ, originSrc, d.OriginIATA),
+	}
+	if t.Arrival != nil {
+		arr := newTimeBlock(*t.Arrival, destTZ, destSrc, d.DestIATA)
+		out.Arrival = &arr
 	}
 	if latest != nil {
 		pp := ToPositionDTO(latest)

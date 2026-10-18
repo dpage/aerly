@@ -3,12 +3,14 @@ package store
 import (
 	"testing"
 	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 func g1ptr[T any](v T) *T { return &v }
 
-// TestG1PlanHelperMethods covers the pure helpers: EffectiveAt, EffectiveOut,
-// EffectiveIn, coalesceTime, and IsEmpty.
+// TestG1PlanHelperMethods covers the pure helpers: EffectiveAt, FlightDetail.Times,
+// and IsEmpty.
 func TestG1PlanHelperMethods(t *testing.T) {
 	now := time.Now()
 	part := &PlanPart{StartsAt: now}
@@ -20,20 +22,21 @@ func TestG1PlanHelperMethods(t *testing.T) {
 	est := now.Add(time.Hour)
 	act := now.Add(2 * time.Hour)
 
-	// Scheduled-only: falls through to scheduled.
+	// FlightDetail.Times carries all six times through to the timing package.
 	d := &FlightDetail{ScheduledOut: sched, ScheduledIn: sched}
-	if !d.EffectiveOut().Equal(sched) || !d.EffectiveIn().Equal(sched) {
-		t.Fatalf("scheduled-only should use scheduled times")
+	ft := d.Times()
+	if !ft.ScheduledOut.Equal(sched) || !ft.ScheduledIn.Equal(sched) ||
+		ft.EstimatedOut != nil || ft.EstimatedIn != nil || ft.ActualOut != nil || ft.ActualIn != nil {
+		t.Fatalf("scheduled-only Times() = %+v", ft)
 	}
-	// Estimated present: prefers estimated.
 	d.EstimatedOut, d.EstimatedIn = &est, &est
-	if !d.EffectiveOut().Equal(est) || !d.EffectiveIn().Equal(est) {
-		t.Fatalf("should prefer estimated")
-	}
-	// Actual present: prefers actual.
 	d.ActualOut, d.ActualIn = &act, &act
-	if !d.EffectiveOut().Equal(act) || !d.EffectiveIn().Equal(act) {
-		t.Fatalf("should prefer actual")
+	ft = d.Times()
+	if ft.EstimatedOut != &est || ft.EstimatedIn != &est || ft.ActualOut != &act || ft.ActualIn != &act {
+		t.Fatalf("Times() dropped an estimate or actual: %+v", ft)
+	}
+	if got := timing.Effective(ft).Departure; !got.At.Equal(act) || got.Kind != timing.Actual {
+		t.Fatalf("effective departure = %+v, want actual", got)
 	}
 
 	if !(UpdatePlanPartPayload{}).IsEmpty() {
