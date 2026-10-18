@@ -1342,7 +1342,7 @@ function ConfirmStep({ proposals, onCancel, onConfirm, busy }: ConfirmStepProps)
                 <Typography variant="caption" color="text.secondary">
                   {fmtPartPlaces(part.type, part.start_label, part.end_label) ||
                     planTypeLabel(part.type)}
-                  {part.starts_at ? partDatePreview(part) : ''}
+                  {part.starts_at ? partDatePreview({ ...part, starts_at: part.starts_at }) : ''}
                 </Typography>
               </Box>
             ))}

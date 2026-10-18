@@ -299,6 +299,12 @@ func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid plan type.")
 			return
 		}
+		for i := range p.Parts {
+			if err := applyLocalTimes(&p.Parts[i]); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
 		plans = append(plans, toConfirmPlanInput(p))
 	}
 	deps := planops.Deps{Store: a.Store, Extractor: a.Extractor, Resolver: a.Resolver}

@@ -796,7 +796,12 @@ export interface UpdatePlanInput {
 export interface PlanPartInput {
   type: PlanType;
   seq?: number;
-  starts_at: string;
+  /** An instant; send this or start_local, not both. */
+  starts_at?: string;
+  /** Wall-clock "YYYY-MM-DDTHH:MM" at start_tz, converted by the server. */
+  start_local?: string;
+  /** Wall-clock "YYYY-MM-DDTHH:MM" at end_tz, converted by the server. */
+  end_local?: string;
   ends_at?: string;
   start_tz?: string;
   end_tz?: string;
@@ -828,6 +833,9 @@ export interface PlanPartInput {
 
 export interface UpdatePlanPartInput {
   starts_at?: string;
+  /** Wall-clock "YYYY-MM-DDTHH:MM" at the sent (or current) zone. */
+  start_local?: string;
+  end_local?: string;
   ends_at?: string;
   start_tz?: string;
   end_tz?: string;
