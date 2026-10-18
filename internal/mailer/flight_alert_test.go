@@ -8,13 +8,14 @@ import (
 
 func TestFlightAlertSubject(t *testing.T) {
 	cases := map[string]string{
-		"delayed":   "Your flight BA123 is now delayed",
-		"cancelled": "Your flight BA123 has been cancelled",
-		"diverted":  "Your flight BA123 has been diverted",
-		"gate":      "Gate change: BA123",
-		"belt":      "Baggage belt: BA123",
-		"terminal":  "Terminal change: BA123",
-		"":          "Your flight BA123 is now delayed", // unknown kind → delayed
+		"delayed":       "Your flight BA123 is now delayed",
+		"cancelled":     "Your flight BA123 has been cancelled",
+		"diverted":      "Your flight BA123 has been diverted",
+		"gate":          "Gate change: BA123",
+		"gate_assigned": "Gate assigned: BA123",
+		"belt":          "Baggage belt: BA123",
+		"terminal":      "Terminal change: BA123",
+		"":              "Your flight BA123 is now delayed", // unknown kind → delayed
 	}
 	for kind, want := range cases {
 		if got := FlightAlertSubject("BA123", kind); got != want {
@@ -77,6 +78,26 @@ func TestBuildFlightAlertEmail_GateChange(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Errorf("gate-change email missing %q:\n%s", want, msg)
 		}
+	}
+}
+
+// A first gate is announced as an assignment, never as a change.
+func TestBuildFlightAlertEmail_GateAssigned(t *testing.T) {
+	msg := BuildFlightAlertEmail(FlightAlertInput{
+		FromAddr:  "alerts@example.com",
+		ToAddr:    "test.user@example.com",
+		PublicURL: "http://localhost:8080",
+		Ident:     "XX100",
+		Kind:      "gate_assigned",
+		Detail:    "departs gate A12",
+	})
+	for _, want := range []string{"Gate assigned: XX100", "Gate assigned: XX100 — departs gate A12."} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("gate-assigned email missing %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "Gate change") {
+		t.Errorf("gate-assigned email reads as a change:\n%s", msg)
 	}
 }
 

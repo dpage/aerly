@@ -433,7 +433,7 @@ export const HELP_PAGES: HelpPage[] = [
         <SectionTitle>Alerts inbox</SectionTitle>
         <FeatureItem
           title="What lands here"
-          description="Flight changes — delays, gate changes, terminal changes, the arrival baggage belt, cancellations and diversions — plus reminders and notifications that a trip has been shared with you. A badge on your avatar shows the unread count."
+          description="Flight changes — delays, a gate being assigned or changed, terminal changes, the arrival baggage belt, cancellations and diversions — plus reminders and notifications that a trip has been shared with you. A badge on your avatar shows the unread count."
         />
         <FeatureItem
           title="Open, delete, clear"
