@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/importics"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 func TestNormalizeURL(t *testing.T) {
@@ -190,6 +191,37 @@ func TestMapEventsTimezone(t *testing.T) {
 	}
 	if !out[0].StartsAt.Equal(utc) {
 		t.Errorf("UTC instant changed under fallback: %v", out[0].StartsAt)
+	}
+}
+
+func TestMapEventsZoneSource(t *testing.T) {
+	utc := time.Date(2026, 5, 12, 16, 0, 0, 0, time.UTC)
+	timed := func(tzid string) []importics.Event {
+		return []importics.Event{{UID: "e", Summary: "Test Event",
+			Start: importics.DateTime{Time: utc, HasTime: true, TZID: tzid}}}
+	}
+	cases := []struct {
+		name          string
+		in            []importics.Event
+		calTZ, userTZ string
+		wantTZ        string
+		want          timing.Source
+	}{
+		{"event TZID is confirmed", timed("Europe/London"), "America/Vancouver", "Europe/Paris", "Europe/London", timing.Confirmed},
+		{"calendar zone is inferred", timed(""), "America/Vancouver", "", "America/Vancouver", timing.Inferred},
+		{"user fallback is inferred", timed(""), "", "Europe/London", "Europe/London", timing.Inferred},
+		{"no zone is unknown", timed(""), "", "", "", timing.Unknown},
+		{"all-day is unknown", []importics.Event{{UID: "d", Summary: "Test Event",
+			Start: importics.DateTime{Time: utc}}}, "", "Europe/London", "", timing.Unknown},
+	}
+	for _, c := range cases {
+		out := mapEvents(c.in, c.calTZ, c.userTZ)
+		if len(out) != 1 {
+			t.Fatalf("%s: want 1 event, got %d", c.name, len(out))
+		}
+		if out[0].StartTZ != c.wantTZ || out[0].StartTZSource != string(c.want) {
+			t.Errorf("%s: tz/source = %q/%q, want %q/%q", c.name, out[0].StartTZ, out[0].StartTZSource, c.wantTZ, c.want)
+		}
 	}
 }
 

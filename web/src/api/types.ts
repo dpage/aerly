@@ -376,6 +376,8 @@ export interface ExternalEvent {
   ends_at?: string;
   /** IANA zone of the wall-clock time, for local display; absent for UTC. */
   start_tz?: string;
+  /** How start_tz is known: confirmed (feed TZID), inferred (calendar or user default) or unknown. */
+  start_tz_source: "confirmed" | "inferred" | "unknown";
   all_day: boolean;
 }
 

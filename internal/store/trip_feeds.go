@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/dpage/aerly/internal/timing"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -39,7 +40,10 @@ type TripFeedEvent struct {
 	StartsAt    time.Time
 	EndsAt      *time.Time
 	StartTZ     string
-	AllDay      bool
+	// StartTZSource is a timing.Source name: confirmed or inferred when StartTZ
+	// is set, otherwise unknown. Empty is stored as unknown.
+	StartTZSource string
+	AllDay        bool
 	// FeedName is the owning feed's display name. Populated only on the read
 	// path (TripFeedEventsForTrip); empty when parsing/storing events.
 	FeedName string
@@ -175,12 +179,16 @@ func (s *Store) ReplaceFeedEvents(ctx context.Context, feedID int64, events []Tr
 		return err
 	}
 	for _, e := range events {
+		source := e.StartTZSource
+		if source == "" {
+			source = string(timing.Unknown)
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO trip_feed_events
-				(feed_id, uid, summary, description, location, starts_at, ends_at, start_tz, all_day)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+				(feed_id, uid, summary, description, location, starts_at, ends_at, start_tz, start_tz_source, all_day)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 			feedID, e.UID, e.Summary, e.Description, e.Location,
-			e.StartsAt, e.EndsAt, e.StartTZ, e.AllDay); err != nil {
+			e.StartsAt, e.EndsAt, e.StartTZ, source, e.AllDay); err != nil {
 			return err
 		}
 	}
@@ -192,7 +200,7 @@ func (s *Store) ReplaceFeedEvents(ctx context.Context, feedID int64, events []Tr
 func (s *Store) TripFeedEventsForTrip(ctx context.Context, tripID int64) ([]*TripFeedEvent, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT e.id, e.feed_id, e.uid, e.summary, e.description, e.location,
-		       e.starts_at, e.ends_at, e.start_tz, e.all_day, f.name
+		       e.starts_at, e.ends_at, e.start_tz, e.start_tz_source, e.all_day, f.name
 		  FROM trip_feed_events e
 		  JOIN trip_feeds f ON f.id = e.feed_id
 		 WHERE f.trip_id = $1
@@ -205,7 +213,7 @@ func (s *Store) TripFeedEventsForTrip(ctx context.Context, tripID int64) ([]*Tri
 	for rows.Next() {
 		var e TripFeedEvent
 		if err := rows.Scan(&e.ID, &e.FeedID, &e.UID, &e.Summary, &e.Description, &e.Location,
-			&e.StartsAt, &e.EndsAt, &e.StartTZ, &e.AllDay, &e.FeedName); err != nil {
+			&e.StartsAt, &e.EndsAt, &e.StartTZ, &e.StartTZSource, &e.AllDay, &e.FeedName); err != nil {
 			return nil, err
 		}
 		out = append(out, &e)

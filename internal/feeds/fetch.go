@@ -18,6 +18,7 @@ import (
 
 	"github.com/dpage/aerly/internal/importics"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // maxFeedBytes caps how much of a feed we read, so a hostile or runaway URL
@@ -204,12 +205,17 @@ func mapEvents(in []importics.Event, calTZ, fallbackTZ string) []store.TripFeedE
 		// Display zone: the event's own TZID, else the calendar default, else the
 		// user-set fallback. For a UTC-stamped feed with no zone info this is what
 		// turns "all times in UTC" into the event's real local time.
-		zone := e.Start.TZID
+		// A TZID is the feed's own statement of the zone (confirmed); the
+		// calendar default and the user fallback are assumptions (inferred).
+		zone, source := e.Start.TZID, timing.Confirmed
 		if zone == "" {
-			zone = calTZ
+			zone, source = calTZ, timing.Inferred
 		}
 		if zone == "" {
 			zone = fallbackTZ
+		}
+		if zone == "" {
+			source = timing.Unknown
 		}
 		start, ok := resolveInstant(e.Start, zone)
 		if !ok {
@@ -224,8 +230,10 @@ func mapEvents(in []importics.Event, calTZ, fallbackTZ string) []store.TripFeedE
 			AllDay:      !e.Start.HasTime,
 		}
 		// Date-only events have no time of day, so no zone applies.
+		ev.StartTZSource = string(timing.Unknown)
 		if !ev.AllDay {
 			ev.StartTZ = zone
+			ev.StartTZSource = string(source)
 		}
 		if end, ok := resolveInstant(e.End, zone); ok {
 			ev.EndsAt = &end

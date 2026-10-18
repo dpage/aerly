@@ -564,22 +564,25 @@ type ExternalEventDTO struct {
 	StartsAt    time.Time  `json:"starts_at"`
 	EndsAt      *time.Time `json:"ends_at,omitempty"`
 	StartTZ     string     `json:"start_tz,omitempty"`
-	AllDay      bool       `json:"all_day"`
+	// StartTZSource is confirmed, inferred or unknown.
+	StartTZSource string `json:"start_tz_source"`
+	AllDay        bool   `json:"all_day"`
 }
 
 // ToExternalEventDTO projects a cached feed event into its DTO.
 func ToExternalEventDTO(e *store.TripFeedEvent) ExternalEventDTO {
 	return ExternalEventDTO{
-		ID:          e.ID,
-		FeedID:      e.FeedID,
-		FeedName:    e.FeedName,
-		Title:       e.Summary,
-		Location:    e.Location,
-		Description: e.Description,
-		StartsAt:    e.StartsAt,
-		EndsAt:      e.EndsAt,
-		StartTZ:     e.StartTZ,
-		AllDay:      e.AllDay,
+		ID:            e.ID,
+		FeedID:        e.FeedID,
+		FeedName:      e.FeedName,
+		Title:         e.Summary,
+		Location:      e.Location,
+		Description:   e.Description,
+		StartsAt:      e.StartsAt,
+		EndsAt:        e.EndsAt,
+		StartTZ:       e.StartTZ,
+		StartTZSource: e.StartTZSource,
+		AllDay:        e.AllDay,
 	}
 }
 
