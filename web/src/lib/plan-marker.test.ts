@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
 import type { PlanType } from '../api/types';
+import { block } from '../test/blocks';
+import { setViewerZone } from './time';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from './plan-marker';
 
 const TYPES: PlanType[] = [
@@ -93,7 +95,7 @@ describe('buildMarkerPopup', () => {
     expect(el.querySelector('svg')).not.toBeNull();
   });
 
-  it('sets its own text colour rather than inheriting the page\'s', () => {
+  it("sets its own text colour rather than inheriting the page's", () => {
     // MapLibre paints the popup white and sets no colour on its content, so
     // anything inheriting takes the app's text colour. In dark mode that is
     // near-white on white: the heading disappeared entirely whilst the rows
@@ -180,18 +182,32 @@ describe('buildMarkerPopup', () => {
     expect(el.textContent).not.toContain('Address');
   });
 
-  it('renders a When row when an iso is supplied', () => {
+  it('renders When and Your time rows from a block', () => {
+    setViewerZone('Europe/London');
     const el = buildMarkerPopup({
-      title: 'BA217',
+      title: 'XX100',
       type: 'flight',
-      iso: '2026-07-01T14:00:00Z',
-      tz: 'America/New_York',
+      when: block('2026-10-18T09:00:00Z', 'Asia/Tashkent', { place: 'Tashkent' }),
     });
-    expect(el.textContent).toContain('When');
-    expect(el.textContent).toMatch(/EDT/);
+    expect(el.textContent).toContain('Sun 18 Oct, 14:00 Tashkent (UTC+5)');
+    expect(el.textContent).toContain('Your time');
+    expect(el.textContent).toContain('Sun 18 Oct, 10:00 (UTC+1)');
+    setViewerZone(null);
   });
 
-  it('omits the When row when no iso is supplied', () => {
+  it('omits Your time when the viewer is in the same zone', () => {
+    setViewerZone('Asia/Tashkent');
+    const el = buildMarkerPopup({
+      title: 'XX100',
+      type: 'flight',
+      when: block('2026-10-18T09:00:00Z', 'Asia/Tashkent'),
+    });
+    expect(el.textContent).toContain('When');
+    expect(el.textContent).not.toContain('Your time');
+    setViewerZone(null);
+  });
+
+  it('omits the When row when no time is supplied', () => {
     const el = buildMarkerPopup({ title: 'BA217', type: 'flight' });
     expect(el.textContent).not.toContain('When');
   });

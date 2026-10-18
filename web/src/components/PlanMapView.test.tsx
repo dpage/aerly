@@ -16,6 +16,7 @@ vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
 import PlanMapView from './PlanMapView';
 import { fmtScrubTime, planePlacementAt, positionAt, trackFC, tracksFC } from '../lib/flight-track';
+import { partBlocks } from '../test/blocks';
 
 function user(over: Partial<User> = {}): User {
   return {
@@ -32,7 +33,7 @@ function user(over: Partial<User> = {}): User {
 }
 
 function flight(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 1,
     plan_id: 1,
     type: 'flight',
@@ -64,12 +65,12 @@ function flight(over: Partial<PlanPart> = {}): PlanPart {
         { ts: '2026-10-12T11:00:00Z', lat: 48, lon: -30, is_estimated: false },
       ],
     },
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function hotel(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 2,
     plan_id: 2,
     type: 'hotel',
@@ -93,8 +94,8 @@ function hotel(over: Partial<PlanPart> = {}): PlanPart {
       room_type: 'King',
       kind: '',
     },
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 beforeEach(() => {

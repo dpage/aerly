@@ -3,8 +3,9 @@
 // colour and a glyph so a glance at the map distinguishes a hotel from a
 // restaurant from an airport, rather than a field of identical dots.
 
-import type { PlanType } from '../api/types';
-import { fmtLocalDateTime, planTypeLabel } from './trip-format';
+import type { PlanType, TimeBlock } from '../api/types';
+import { fmtFull, fmtViewer } from './time';
+import { planTypeLabel } from './trip-format';
 
 interface TypeStyle {
   /** Pin fill colour. */
@@ -125,8 +126,8 @@ function iceCreamConeSvg(scoop: string, ring: string): string {
 
 /** A labelled popover for a map marker: a coloured type glyph + the title, then
  * a Type / Location / Address / When field list. Built with textContent so
- * extracted strings can't inject markup. Pass `iso`+`tz` to render a local When
- * line. */
+ * extracted strings can't inject markup. Pass `when` to render a When line
+ * in the item's own zone, and a Your time line when the viewer's differs. */
 export interface MarkerPerson {
   name: string;
   avatarUrl?: string;
@@ -139,8 +140,8 @@ export function buildMarkerPopup(opts: {
   location?: string;
   /** The street address of the place (shown as its own row). */
   address?: string;
-  iso?: string;
-  tz?: string;
+  /** The time to show, in its own zone, plus the viewer's when it differs. */
+  when?: TimeBlock;
   /** Who added the plan (shown as text). */
   owner?: string;
   /** Who's on the plan (shown as small avatars). */
@@ -174,7 +175,8 @@ export function buildMarkerPopup(opts: {
   header.append(title);
   root.append(header);
 
-  const when = opts.iso ? fmtLocalDateTime(opts.iso, opts.tz) : '';
+  const when = opts.when ? fmtFull(opts.when) : '';
+  const yours = opts.when ? (fmtViewer(opts.when) ?? '') : '';
   // The place name, shown only when it adds something over the title.
   const location = opts.location && opts.location !== opts.title ? opts.location : '';
   // The street address, shown when it isn't already covered by the title or the
@@ -186,6 +188,7 @@ export function buildMarkerPopup(opts: {
     ['Location', location],
     ['Address', address],
     ['When', when],
+    ['Your time', yours],
     ['Added by', opts.owner ?? ''],
   ];
   const grid = document.createElement('div');

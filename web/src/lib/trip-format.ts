@@ -1,7 +1,8 @@
 // Display + classification helpers for the trip list and timeline (spec §11,
 // PRD §6.1/§6.2). Pure functions, unit-tested in trip-format.test.ts.
 
-import type { ExternalEvent, Plan, PlanPart, PlanType, Trip } from '../api/types';
+import type { ExternalEvent, Plan, PlanPart, PlanType, TimeBlock, Trip } from '../api/types';
+import { durationMin, fmtCompact, fmtDayHeading, fmtDuration, isRevised } from './time';
 
 /** Which home-screen group a trip falls under. */
 export type TripBucket = 'upcoming' | 'now' | 'past';
@@ -387,93 +388,46 @@ function tzOffsetMs(tz: string, utcMs: number): number {
   return asUTC - utcMs;
 }
 
-/** A part's local-time range: "14:30" for an instant, "14:30 → 18:05" when it
- * has an end. Ends render in their own tz so a flight reads in arrival-local. */
+/** A part's current times: "14:00 UTC+5", or "14:00 UTC+5 → ≈18:05 UTC+1" with
+ * an end. Each end reads in its own zone, from the server's blocks. */
 export function fmtPartTimeRange(part: PlanPart): string {
-  const start = fmtTimeOfDay(part.starts_at, part.start_tz);
-  if (!part.ends_at) return start;
-  const end = fmtTimeOfDay(part.ends_at, part.end_tz || part.start_tz);
-  return `${start} → ${end}`;
+  const start = fmtCompact(part.start);
+  return part.end ? `${start} → ${fmtCompact(part.end)}` : start;
 }
 
-/** A part's local calendar date(s) for the share text, e.g. "Mon 12 Oct 2026",
- * or "Mon 12 Oct 2026 → Thu 15 Oct 2026" when it ends on a different local day
- * (a stay, a red-eye). Each end reads in its own tz, like fmtPartTimeRange. */
+// The timetable time behind a revised block, in the same zone. A floating
+// end's timetable is wall-clock digits, so it never takes the zone a provider
+// estimate carries (newTimeBlock in internal/api/dto.go does the same).
+function timetableBlock(b: TimeBlock, at: string): TimeBlock {
+  return { ...b, at, tz: b.tz_source === 'floating' ? '' : b.tz, kind: 'scheduled', delay_min: 0 };
+}
+
+/** The timetable range, when either end is running to a reported or worked-out
+ * time at least a minute away from it; null when the part is on schedule. */
+export function fmtPartScheduledRange(part: PlanPart): string | null {
+  if (!isRevised(part.start) && !isRevised(part.end)) return null;
+  const f = part.flight;
+  const start = fmtCompact(timetableBlock(part.start, f?.scheduled_out ?? part.starts_at));
+  if (!part.end) return start;
+  const endAt = f?.scheduled_in ?? part.ends_at ?? part.starts_at;
+  return `${start} → ${fmtCompact(timetableBlock(part.end, endAt))}`;
+}
+
+/** A part's local date(s) for the share text, e.g. "Sun, 18 Oct 2026", or a
+ * range when it ends on a different local day. */
 export function fmtPartDateRange(part: PlanPart): string {
-  const start = fmtDayHeader(part.starts_at, part.start_tz);
-  if (!part.ends_at) return start;
-  const end = fmtDayHeader(part.ends_at, part.end_tz || part.start_tz);
+  const start = fmtDayHeading(part.start);
+  if (!part.end) return start;
+  const end = fmtDayHeading(part.end);
   return end === start ? start : `${start} → ${end}`;
 }
 
-/** How long a transfer takes door to door, e.g. "10h 30m", worked out from the
- * instants rather than the wall-clocks so a range that crosses time zones reads
- * true (22:30 GMT+1 → 10:00 GMT+2 is 10h 30m). Uses the times the flight is
- * actually running to, like the revised range, and counts whole clock minutes
- * so it agrees with the times shown. Null for a single-place type, a part with
- * no end, or an end that isn't after the start. */
+/** How long a transfer takes, end block minus start block, e.g. "8h 5m". Null
+ * for a single-place type, a part with no end, or an end not after the start. */
 export function fmtPartDuration(part: PlanPart): string | null {
-  if (!isTransferType(part.type) || !part.ends_at) return null;
-  const live = liveTimes(part);
-  const start = parseInstant(live.out ?? part.starts_at);
-  const end = parseInstant(live.in ?? part.ends_at);
-  if (start === null || end === null) return null;
-  const mins = Math.floor(end / 60000) - Math.floor(start / 60000);
-  if (mins <= 0) return null;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return h ? `${h}h ${m}m` : `${m}m`;
-}
-
-/** The live times a flight is actually running to, in the same precedence the
- * server uses for `effective_at` (observed, then the airline's estimate, then
- * the timetable), so what a tile reads agrees with where it sorts. Only flights
- * carry these; every other type has nothing but its schedule. */
-function liveTimes(part: PlanPart): { out?: string; in?: string } {
-  if (part.type !== 'flight' || !part.flight) return {};
-  return {
-    out: part.flight.actual_out ?? part.flight.estimated_out,
-    in: part.flight.actual_in ?? part.flight.estimated_in,
-  };
-}
-
-/** The revised time range, when the flight is running to times that read
- * differently from its timetable; null when it is on schedule or has no live
- * coverage at all.
- *
- * The comparison is on the formatted times rather than the raw instants,
- * because the question being asked is whether a reader would see a different
- * clock time: a revision of forty seconds still shows as 17:05 and is not worth
- * striking the timetable through for.
- */
-export function fmtPartRevisedTimeRange(part: PlanPart): string | null {
-  const live = liveTimes(part);
-  if (!live.out && !live.in) return null;
-
-  const startTz = part.start_tz;
-  const endTz = part.end_tz || part.start_tz;
-  const revisedStart = fmtTimeOfDay(live.out ?? part.starts_at, startTz);
-  const scheduledStart = fmtTimeOfDay(part.starts_at, startTz);
-
-  if (!part.ends_at) return revisedStart === scheduledStart ? null : revisedStart;
-
-  const revisedEnd = fmtTimeOfDay(live.in ?? part.ends_at, endTz);
-  const scheduledEnd = fmtTimeOfDay(part.ends_at, endTz);
-  if (revisedStart === scheduledStart && revisedEnd === scheduledEnd) return null;
-  return `${revisedStart} → ${revisedEnd}`;
-}
-
-/** True when the airline has moved the departure later than the timetable, on
- * both counts that matter: the revised time reads differently on the clock, and
- * it is genuinely later rather than earlier. */
-function departureIsLate(part: PlanPart): boolean {
-  const live = liveTimes(part);
-  if (!live.out) return false;
-  const startTz = part.start_tz;
-  if (fmtTimeOfDay(live.out, startTz) === fmtTimeOfDay(part.starts_at, startTz)) return false;
-  const revised = new Date(live.out).getTime();
-  const scheduled = new Date(part.starts_at).getTime();
-  return Number.isFinite(revised) && Number.isFinite(scheduled) && revised > scheduled;
+  if (!isTransferType(part.type)) return null;
+  const mins = durationMin(part.start, part.end);
+  return mins == null ? null : fmtDuration(mins);
 }
 
 export interface FlightStatusLabel {
@@ -504,19 +458,19 @@ export function flightStatusLabel(part: PlanPart): FlightStatusLabel | null {
   if (part.type !== 'flight' || !part.flight) return null;
   const status = part.flight.flight_status?.trim() ?? '';
   if (status === 'Cancelled' || status === 'Diverted') return { label: status, tone: 'error' };
-  if (status !== 'Arrived' && departureIsLate(part)) return { label: 'Delayed', tone: 'warning' };
+  // A departure the airline has reported or estimated later than the timetable.
+  const late =
+    (part.start.kind === 'estimated' || part.start.kind === 'actual') && part.start.delay_min > 0;
+  if (status !== 'Arrived' && late) return { label: 'Delayed', tone: 'warning' };
   return status ? { label: status, tone: 'normal' } : null;
 }
 
-/** The one-line plain-text form, for the places that cannot strike text
- * through: the map popup's summary line and the share text. It leads with the
- * times the flight is actually running to and keeps the timetable behind them,
- * so someone reading a shared plan is told when to turn up rather than what was
- * booked. Collapses to the plain range when nothing has been revised. */
+/** The one-line plain-text form for the map popup and share text, which cannot
+ * strike text through: the current times, then the timetable when revised. */
 export function fmtPartTimeRangeText(part: PlanPart): string {
-  const revised = fmtPartRevisedTimeRange(part);
-  const scheduled = fmtPartTimeRange(part);
-  return revised ? `${revised} (scheduled ${scheduled})` : scheduled;
+  const scheduled = fmtPartScheduledRange(part);
+  const now = fmtPartTimeRange(part);
+  return scheduled ? `${now} (scheduled ${scheduled})` : now;
 }
 
 // --- internals --------------------------------------------------------------

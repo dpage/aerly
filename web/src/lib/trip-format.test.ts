@@ -9,7 +9,8 @@ import {
   fmtPartPlaces,
   flightStatusLabel,
   fmtPartDuration,
-  fmtPartRevisedTimeRange,
+  fmtPartScheduledRange,
+  fmtPartDateRange,
   fmtPartTimeRange,
   fmtPartTimeRangeText,
   fmtLocalDateTime,
@@ -25,6 +26,7 @@ import {
   tripSpan,
   typeHasEnd,
 } from './trip-format';
+import { block, partBlocks } from '../test/blocks';
 
 function trip(over: Partial<Trip> = {}): Trip {
   return {
@@ -41,7 +43,7 @@ function trip(over: Partial<Trip> = {}): Trip {
 }
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 1,
     plan_id: 1,
     type: 'flight',
@@ -53,8 +55,8 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
     end_label: 'LIS',
     status: 'planned',
     effective_at: '2026-10-12T09:00:00Z',
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function plan(parts: PlanPart[], over: Partial<Plan> = {}): Plan {
@@ -527,8 +529,19 @@ describe('fmtPartPlaces', () => {
 });
 
 describe('flightStatusLabel', () => {
-  const f = (over: Partial<PlanPart['flight']> = {}) =>
+  // delay is minutes past the timetable: the departure block then reads as an
+  // airline estimate, the way the server sends it.
+  const f = (over: Partial<PlanPart['flight']> = {}, delay = 0) =>
     part({
+      ...(delay
+        ? {
+            start: block('2026-08-20T15:05:00Z', 'UTC', {
+              at: new Date(Date.parse('2026-08-20T15:05:00Z') + delay * 60000).toISOString(),
+              kind: 'estimated',
+              delay_min: delay,
+            }),
+          }
+        : {}),
       starts_at: '2026-08-20T15:05:00Z',
       ends_at: '2026-08-20T17:15:00Z',
       flight: {
@@ -543,26 +556,24 @@ describe('flightStatusLabel', () => {
   it('reads Delayed when the airline has moved the departure later', () => {
     // Stored as Scheduled, because the aircraft is still on stand. True, and
     // useless to somebody two hours into a delay.
-    expect(flightStatusLabel(f({ estimated_out: '2026-08-20T17:00:00Z' }))).toEqual({
+    expect(flightStatusLabel(f({}, 115))).toEqual({
       label: 'Delayed',
       tone: 'warning',
     });
   });
 
   it('reads Delayed for a flight that got airborne late as well', () => {
-    expect(
-      flightStatusLabel(
-        f({ flight_status: 'Enroute', estimated_out: '2026-08-20T17:00:00Z' }),
-      ),
-    ).toEqual({ label: 'Delayed', tone: 'warning' });
+    expect(flightStatusLabel(f({ flight_status: 'Enroute' }, 115))).toEqual({
+      label: 'Delayed',
+      tone: 'warning',
+    });
   });
 
   it('lets a cancellation beat a delay, a journey not happening beating a late one', () => {
-    expect(
-      flightStatusLabel(
-        f({ flight_status: 'Cancelled', estimated_out: '2026-08-20T17:00:00Z' }),
-      ),
-    ).toEqual({ label: 'Cancelled', tone: 'error' });
+    expect(flightStatusLabel(f({ flight_status: 'Cancelled' }, 115))).toEqual({
+      label: 'Cancelled',
+      tone: 'error',
+    });
     expect(flightStatusLabel(f({ flight_status: 'Diverted' }))).toEqual({
       label: 'Diverted',
       tone: 'error',
@@ -570,13 +581,14 @@ describe('flightStatusLabel', () => {
   });
 
   it('lets an arrival beat a delay, since how late it ran is then history', () => {
-    expect(
-      flightStatusLabel(f({ flight_status: 'Arrived', estimated_out: '2026-08-20T17:00:00Z' })),
-    ).toEqual({ label: 'Arrived', tone: 'normal' });
+    expect(flightStatusLabel(f({ flight_status: 'Arrived' }, 115))).toEqual({
+      label: 'Arrived',
+      tone: 'normal',
+    });
   });
 
   it('does not call an early departure a delay', () => {
-    expect(flightStatusLabel(f({ estimated_out: '2026-08-20T14:40:00Z' }))).toEqual({
+    expect(flightStatusLabel(f({}, -25))).toEqual({
       label: 'Scheduled',
       tone: 'normal',
     });
@@ -595,75 +607,105 @@ describe('flightStatusLabel', () => {
   });
 });
 
-describe('fmtPartRevisedTimeRange', () => {
-  const flight = (over: Partial<PlanPart['flight']> = {}) =>
-    part({
-      starts_at: '2026-08-20T15:05:00Z',
-      ends_at: '2026-08-20T17:15:00Z',
+describe('block-based part times', () => {
+  const lhr = block('2026-10-18T09:00:00Z', 'Europe/London');
+  const jfk = block('2026-10-18T17:05:00Z', 'America/New_York');
+  const flight = (over: Partial<PlanPart>): PlanPart =>
+    ({
+      id: 1,
+      plan_id: 1,
+      type: 'flight',
+      seq: 0,
+      status: 'planned',
+      starts_at: '2026-10-18T09:00:00Z',
+      ends_at: '2026-10-18T17:05:00Z',
+      start_tz: 'Europe/London',
+      end_tz: 'America/New_York',
+      start_tz_source: 'confirmed',
+      end_tz_source: 'confirmed',
+      start_label: 'LHR',
+      end_label: 'JFK',
+      start: lhr,
+      end: jfk,
       flight: {
-        ident: 'OS967',
-        scheduled_out: '2026-08-20T15:05:00Z',
-        scheduled_in: '2026-08-20T17:15:00Z',
-        ...over,
-      } as PlanPart['flight'],
+        ident: 'XX100',
+        scheduled_out: '2026-10-18T09:00:00Z',
+        scheduled_in: '2026-10-18T17:05:00Z',
+      },
+      ...over,
+    }) as PlanPart;
+
+  it('reads the range and duration from the blocks', () => {
+    expect(fmtPartTimeRange(flight({}))).toBe('10:00 UTC+1 → 13:05 UTC-4');
+    expect(fmtPartDuration(flight({}))).toBe('8h 5m');
+    expect(fmtPartScheduledRange(flight({}))).toBeNull();
+  });
+
+  it('keeps the timetable beside a delayed estimate', () => {
+    const p = flight({
+      start: { ...lhr, at: '2026-10-18T09:40:00Z', kind: 'estimated', delay_min: 40 },
+      end: { ...jfk, at: '2026-10-18T17:45:00Z', kind: 'derived', delay_min: 40 },
     });
-
-  it('reports the revised range when the airline has moved both ends', () => {
-    expect(
-      fmtPartRevisedTimeRange(
-        flight({ estimated_out: '2026-08-20T17:00:00Z', estimated_in: '2026-08-20T19:00:00Z' }),
-      ),
-    ).toBe('17:00 UTC → 19:00 UTC');
-  });
-
-  it('reports a revised departure even when the arrival still stands', () => {
-    expect(fmtPartRevisedTimeRange(flight({ estimated_out: '2026-08-20T17:00:00Z' }))).toBe(
-      '17:00 UTC → 17:15 UTC',
+    expect(fmtPartTimeRange(p)).toBe('10:40 UTC+1 → ≈13:45 UTC-4');
+    expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
+    expect(fmtPartTimeRangeText(p)).toBe(
+      '10:40 UTC+1 → ≈13:45 UTC-4 (scheduled 10:00 UTC+1 → 13:05 UTC-4)',
     );
+    expect(flightStatusLabel(p)).toEqual({ label: 'Delayed', tone: 'warning' });
   });
 
-  it('prefers the observed time over the estimate, matching effective_at', () => {
-    expect(
-      fmtPartRevisedTimeRange(
-        flight({ estimated_out: '2026-08-20T17:00:00Z', actual_out: '2026-08-20T17:12:00Z' }),
-      ),
-    ).toBe('17:12 UTC → 17:15 UTC');
+  it('shows a floating timetable time with no zone label', () => {
+    const p = flight({
+      starts_at: '2026-10-18T10:00:00Z',
+      start_tz: '',
+      start_tz_source: 'floating',
+      flight: { ident: 'XX100', scheduled_out: '2026-10-18T10:00:00Z' },
+      start: {
+        ...lhr,
+        at: '2026-10-18T09:40:00Z',
+        tz_source: 'floating',
+        kind: 'estimated',
+        delay_min: 40,
+      },
+      ends_at: undefined,
+      end: undefined,
+    } as Partial<PlanPart>);
+    expect(fmtPartScheduledRange(p)).toBe('10:00');
   });
 
-  it('stays null for a flight running to its timetable', () => {
-    expect(
-      fmtPartRevisedTimeRange(
-        flight({ estimated_out: '2026-08-20T15:05:00Z', estimated_in: '2026-08-20T17:15:00Z' }),
-      ),
-    ).toBeNull();
+  it('revises only the arrival when the departure stands', () => {
+    const p = flight({
+      end: { ...jfk, at: '2026-10-18T17:45:00Z', kind: 'estimated', delay_min: 40 },
+    });
+    expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
   });
 
-  it('ignores a revision too small to read differently on the clock', () => {
-    // Forty seconds later is still 15:05 to a reader, so striking the timetable
-    // through would say a flight had moved when nothing visible had changed.
-    expect(fmtPartRevisedTimeRange(flight({ estimated_out: '2026-08-20T15:05:40Z' }))).toBeNull();
+  it('handles a revised part with no end', () => {
+    const p = flight({
+      ends_at: undefined,
+      end: undefined,
+      start: { ...lhr, at: '2026-10-18T09:40:00Z', kind: 'estimated', delay_min: 40 },
+    });
+    expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1');
   });
 
-  it('stays null for a flight with no live coverage, and for other types', () => {
-    expect(fmtPartRevisedTimeRange(flight())).toBeNull();
-    expect(fmtPartRevisedTimeRange(part({ type: 'hotel', flight: undefined }))).toBeNull();
+  it('does not call an early or on-time flight delayed', () => {
+    const early = flight({ start: { ...lhr, kind: 'estimated', delay_min: -5 } });
+    expect(flightStatusLabel(early)).toBeNull();
   });
 
-  it('handles a part with no end time', () => {
-    expect(
-      fmtPartRevisedTimeRange(
-        part({
-          starts_at: '2026-08-20T15:05:00Z',
-          ends_at: undefined,
-          flight: {
-            ident: 'OS967',
-            scheduled_out: '2026-08-20T15:05:00Z',
-            scheduled_in: '2026-08-20T15:05:00Z',
-            estimated_out: '2026-08-20T17:00:00Z',
-          } as PlanPart['flight'],
-        }),
-      ),
-    ).toBe('17:00 UTC');
+  it('gives the date range in each end’s zone', () => {
+    expect(fmtPartDateRange(flight({}))).toBe('Sun, 18 Oct 2026');
+    const overnight = flight({
+      start: block('2026-10-18T23:00:00Z', 'UTC'),
+      end: block('2026-10-19T07:00:00Z', 'Asia/Tokyo'),
+    });
+    expect(fmtPartDateRange(overnight)).toBe('Sun, 18 Oct 2026 → Mon, 19 Oct 2026');
+    expect(fmtPartDateRange(flight({ end: undefined }))).toBe('Sun, 18 Oct 2026');
+  });
+
+  it('has no duration for a single-place type', () => {
+    expect(fmtPartDuration(flight({ type: 'hotel' }))).toBeNull();
   });
 });
 
@@ -678,9 +720,9 @@ describe('fmtPartTimeRangeText', () => {
             ident: 'OS967',
             scheduled_out: '2026-08-20T15:05:00Z',
             scheduled_in: '2026-08-20T17:15:00Z',
-            estimated_out: '2026-08-20T17:00:00Z',
-            estimated_in: '2026-08-20T19:00:00Z',
           } as PlanPart['flight'],
+          start: block('2026-08-20T17:00:00Z', 'UTC', { kind: 'estimated', delay_min: 115 }),
+          end: block('2026-08-20T19:00:00Z', 'UTC', { kind: 'estimated', delay_min: 105 }),
         }),
       ),
     ).toBe('17:00 UTC → 19:00 UTC (scheduled 15:05 UTC → 17:15 UTC)');
@@ -729,11 +771,9 @@ describe('fmtPartDuration', () => {
         part({
           starts_at: '2026-08-20T15:05:00Z',
           ends_at: '2026-08-20T17:15:00Z',
-          flight: {
-            ident: 'OS967',
-            estimated_out: '2026-08-20T17:00:00Z',
-            estimated_in: '2026-08-20T19:00:00Z',
-          } as PlanPart['flight'],
+          flight: { ident: 'OS967' } as PlanPart['flight'],
+          start: block('2026-08-20T17:00:00Z', 'UTC', { kind: 'estimated', delay_min: 115 }),
+          end: block('2026-08-20T19:00:00Z', 'UTC', { kind: 'estimated', delay_min: 105 }),
         }),
       ),
     ).toBe('2h 0m');
@@ -766,7 +806,7 @@ describe('fmtPartTimeRange', () => {
       fmtPartTimeRange(
         part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, start_tz: '' }),
       ),
-    ).toBe('09:00 UTC');
+    ).toBe('09:00');
   });
   it('renders a range with each end in its own tz + abbreviation', () => {
     const out = fmtPartTimeRange(
@@ -777,9 +817,7 @@ describe('fmtPartTimeRange', () => {
         end_tz: 'America/New_York',
       }),
     );
-    // 11:00 BST (London summer) → 10:00 EDT (New York summer); the exact London
-    // abbreviation (BST vs GMT+1) depends on the runtime ICU, so match loosely.
-    expect(out).toMatch(/^11:00 \S+ → 10:00 EDT$/);
+    expect(out).toBe('11:00 UTC+1 → 10:00 UTC-4');
   });
 });
 

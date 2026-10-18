@@ -49,12 +49,12 @@ import {
   fmtPartPlaces,
   flightStatusLabel,
   fmtPartDuration,
-  fmtPartRevisedTimeRange,
+  fmtPartScheduledRange,
   fmtPartTimeRange,
-  fmtTimeOfDay,
   planTypeLabel,
 } from '../lib/trip-format';
 import type { BandEdge } from '../lib/trip-format';
+import { blockFor, fmtCompact } from '../lib/time';
 import { fmtGate } from '../lib/gate';
 import { formatCost } from '../lib/format';
 import { isUnlocated } from '../lib/geo';
@@ -491,8 +491,8 @@ function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: st
   const [expanded, setExpanded] = useState(false);
   const when = event.all_day
     ? 'All day'
-    : fmtTimeOfDay(event.starts_at, event.start_tz) +
-      (event.ends_at ? ` – ${fmtTimeOfDay(event.ends_at, event.start_tz)}` : '');
+    : fmtCompact(blockFor(event.starts_at, event.start_tz || 'UTC')) +
+      (event.ends_at ? ` – ${fmtCompact(blockFor(event.ends_at, event.start_tz || 'UTC'))}` : '');
   return (
     <Card
       variant="outlined"
@@ -614,10 +614,9 @@ function PartCard({
       ? part.flight.ident
       : plan.title || planTypeLabel(part.type);
 
-  // Non-null only when the flight is running to times that read differently
-  // from its timetable, which is what turns the line below into a departure
-  // board rather than a booking record.
-  const revisedWhen = fmtPartRevisedTimeRange(part);
+  // Non-null only when a block differs from the timetable, which is what turns
+  // the line below into a departure board rather than a booking record.
+  const scheduledWhen = fmtPartScheduledRange(part);
   // Total time of a transfer, shown after its range because the two ends can
   // sit in different time zones and the clock times alone don't say it.
   const duration = fmtPartDuration(part);
@@ -809,10 +808,10 @@ function PartCard({
 
           <Typography variant="caption" color="text.secondary">
             {edge === 'first' ? (
-              `${edgeLabel} · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
+              `${edgeLabel} · ${fmtCompact(part.start)}`
             ) : edge === 'last' ? (
-              `${edgeLabel} · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
-            ) : revisedWhen ? (
+              `${edgeLabel} · ${fmtCompact(part.end ?? part.start)}`
+            ) : scheduledWhen ? (
               // Departure-board treatment: the timetable stays visible but is
               // struck through, and the times the flight is actually running to
               // sit beside it in the warning colour. Both are announced to a
@@ -822,16 +821,16 @@ function PartCard({
                 <Box
                   component="span"
                   sx={{ textDecoration: 'line-through', opacity: 0.6 }}
-                  aria-label={`Scheduled ${fmtPartTimeRange(part)}`}
+                  aria-label={`Scheduled ${scheduledWhen}`}
                 >
-                  {fmtPartTimeRange(part)}
+                  {scheduledWhen}
                 </Box>{' '}
                 <Box
                   component="span"
                   sx={{ color: 'warning.main', fontWeight: 600 }}
-                  aria-label={`Now expected ${revisedWhen}`}
+                  aria-label={`Now expected ${fmtPartTimeRange(part)}`}
                 >
-                  {revisedWhen}
+                  {fmtPartTimeRange(part)}
                 </Box>
                 {duration && ` · ${duration}`}
               </>
