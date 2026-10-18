@@ -232,7 +232,9 @@ func RouteUpdateFromResolved(rf *providers.ResolvedFlight) store.FlightRouteUpda
 // providerZone is a resolved flight end's zone and source: the airport's zone,
 // confirmed, when the table or the provider's coordinates (zero means none)
 // name one; otherwise no zone and unknown, never floating, because the
-// provider's times are true instants.
+// provider's times are true instants. So an off-table airport with no provider
+// coordinates overwrites a stored zone with an empty one, source unknown, on a
+// re-resolve.
 func providerZone(code string, provLat, provLon float64) (tz, src *string) {
 	var lat, lon *float64
 	if provLat != 0 || provLon != 0 {

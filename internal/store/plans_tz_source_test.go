@@ -197,7 +197,11 @@ func TestUpdateFlightPartRouteTZSource(t *testing.T) {
 	parts, _ := s.PartsByPlan(ctx, plan.ID)
 	pid := parts[0].ID
 
+	// The update carries both instants, as a provider resolve does, so the
+	// sources are taken as sent (TestUpdateFlightPartRouteAnchorsFloating
+	// covers an update with no time for a floating end).
 	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
+		StartsAt: &out, EndsAt: &in,
 		StartTZ: strp("Europe/London"), EndTZ: strp(""), EndTZSource: strp("unknown"),
 	}); err != nil {
 		t.Fatalf("UpdateFlightPartRoute: %v", err)
@@ -226,5 +230,88 @@ func TestUpdateFlightPartRouteTZSource(t *testing.T) {
 	}
 	if err := s.UpdateFlightPartRoute(ctx, 999999, FlightRouteUpdate{StartTZ: strp("Europe/London")}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing part = %v, want ErrNotFound", err)
+	}
+}
+
+// TestUpdateFlightPartRouteAnchorsFloating: a route update that names a zone
+// but carries no time for a floating end (a provider resolve with no schedule)
+// anchors that end's wall-clock digits in the zone and confirms it. With no zone
+// the end stays floating whatever source was sent, and an end that is not
+// floating keeps its instant.
+func TestUpdateFlightPartRouteAnchorsFloating(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	out := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	in := out.Add(2 * time.Hour)
+	mk := func(ident string) int64 {
+		t.Helper()
+		plan, err := s.CreatePlan(ctx, CreatePlanPayload{
+			TripID: trip, Type: "flight", Title: ident,
+			Parts: []CreatePlanPartPayload{{
+				StartsAt: out, EndsAt: &in, StartLabel: "AAA", EndLabel: "BBB",
+				Flight: &FlightDetail{Ident: ident, ScheduledOut: out, ScheduledIn: in},
+			}},
+		}, owner)
+		if err != nil {
+			t.Fatalf("CreatePlan: %v", err)
+		}
+		parts, _ := s.PartsByPlan(ctx, plan.ID)
+		if parts[0].StartTZSource != "floating" || parts[0].EndTZSource != "floating" {
+			t.Fatalf("setup sources = %s/%s, want floating", parts[0].StartTZSource, parts[0].EndTZSource)
+		}
+		return parts[0].ID
+	}
+
+	// Zone found, no time: 09:00 in London in July is 08:00Z; 11:00 in Paris
+	// is 09:00Z.
+	pid := mk("XX110")
+	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
+		StartTZ: strp("Europe/London"), StartTZSource: strp("confirmed"),
+		EndTZ: strp("Europe/Paris"), EndTZSource: strp("confirmed"),
+	}); err != nil {
+		t.Fatalf("UpdateFlightPartRoute: %v", err)
+	}
+	got, _ := s.PlanPartByID(ctx, pid)
+	if !got.StartsAt.Equal(out.Add(-time.Hour)) || got.StartTZSource != "confirmed" {
+		t.Errorf("start = %v (%s), want %v confirmed", got.StartsAt, got.StartTZSource, out.Add(-time.Hour))
+	}
+	if got.EndsAt == nil || !got.EndsAt.Equal(out) || got.EndTZSource != "confirmed" {
+		t.Errorf("end = %v (%s), want %v confirmed", got.EndsAt, got.EndTZSource, out)
+	}
+
+	// Now neither end is floating: a further zone change keeps the instants.
+	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
+		StartTZ: strp("America/New_York"), EndTZ: strp("Asia/Tokyo"),
+	}); err != nil {
+		t.Fatalf("UpdateFlightPartRoute (not floating): %v", err)
+	}
+	got, _ = s.PlanPartByID(ctx, pid)
+	if !got.StartsAt.Equal(out.Add(-time.Hour)) || got.EndsAt == nil || !got.EndsAt.Equal(out) {
+		t.Errorf("non-floating ends moved: %v → %v", got.StartsAt, got.EndsAt)
+	}
+
+	// No zone, no time: the mapper's unknown is overridden, the end stays
+	// floating and its digits are kept.
+	pid = mk("XX111")
+	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
+		StartTZ: strp(""), StartTZSource: strp("unknown"),
+		EndTZ: strp(""), EndTZSource: strp("unknown"),
+	}); err != nil {
+		t.Fatalf("UpdateFlightPartRoute (no zone): %v", err)
+	}
+	got, _ = s.PlanPartByID(ctx, pid)
+	if got.StartTZSource != "floating" || got.EndTZSource != "floating" ||
+		!got.StartsAt.Equal(out) || got.EndsAt == nil || !got.EndsAt.Equal(in) {
+		t.Errorf("no-zone = %v (%s) → %v (%s), want floating and unchanged",
+			got.StartsAt, got.StartTZSource, got.EndsAt, got.EndTZSource)
+	}
+
+	// An invalid zone for a floating end is still refused.
+	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{StartTZ: strp("Nope/Nope")}); !errors.Is(err, ErrInvalidZone) {
+		t.Errorf("invalid zone on a floating end = %v, want ErrInvalidZone", err)
 	}
 }

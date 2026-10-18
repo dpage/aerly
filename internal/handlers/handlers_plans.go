@@ -1174,12 +1174,7 @@ func manualRouteUpdate(fd *store.FlightDetail, part *store.PlanPart, in flightEd
 			label := airports.Label(code, "")
 			up.OriginIATA, up.StartLabel = &code, &label
 			if tz, ok := airports.LookupTZ(code); ok {
-				src := string(timing.Confirmed)
-				up.StartTZ, up.StartTZSource = &tz, &src
-				if part.StartTZSource == string(timing.Floating) {
-					at, _ := timing.Anchor(part.StartsAt, tz)
-					up.StartsAt = &at
-				}
+				up.StartTZ, up.StartTZSource, up.StartsAt = confirmAirportZone(tz, part.StartTZSource, &part.StartsAt)
 			}
 			up.StartLat, up.StartLon, up.ClearStartCoords = flightcoord.AirportCoords(code, 0, 0)
 			changed = true
@@ -1190,18 +1185,30 @@ func manualRouteUpdate(fd *store.FlightDetail, part *store.PlanPart, in flightEd
 			label := airports.Label(code, "")
 			up.DestIATA, up.EndLabel = &code, &label
 			if tz, ok := airports.LookupTZ(code); ok {
-				src := string(timing.Confirmed)
-				up.EndTZ, up.EndTZSource = &tz, &src
-				if part.EndTZSource == string(timing.Floating) && part.EndsAt != nil {
-					at, _ := timing.Anchor(*part.EndsAt, tz)
-					up.EndsAt = &at
-				}
+				up.EndTZ, up.EndTZSource, up.EndsAt = confirmAirportZone(tz, part.EndTZSource, part.EndsAt)
 			}
 			up.EndLat, up.EndLon, up.ClearEndCoords = flightcoord.AirportCoords(code, 0, 0)
 			changed = true
 		}
 	}
 	return up, changed
+}
+
+// confirmAirportZone is one end's zone, source and new instant when a hand-typed
+// airport names zone tz. A floating end (curSrc) is anchored there, keeping the
+// digits it showed; any other end keeps its instant (nil). If a floating time
+// will not anchor, nothing is returned and the end is left as it was rather
+// than labelled confirmed.
+func confirmAirportZone(tz, curSrc string, cur *time.Time) (zone, src *string, at *time.Time) {
+	if curSrc == string(timing.Floating) && cur != nil {
+		a, ok := timing.Anchor(*cur, tz)
+		if !ok {
+			return nil, nil, nil
+		}
+		at = &a
+	}
+	c := string(timing.Confirmed)
+	return &tz, &c, at
 }
 
 func (a *API) dismissPlanPart(w http.ResponseWriter, r *http.Request) {

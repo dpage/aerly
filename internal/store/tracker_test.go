@@ -604,7 +604,7 @@ func TestRefreshFlightPartScheduleMovesPart(t *testing.T) {
 
 	frozen := mkFlightPart(t, s, owner, "XX101", at(10), at(12))
 	if _, err := s.pool.Exec(ctx, `
-		UPDATE plan_parts SET start_tz_source = 'floating' WHERE id = $1;`, frozen); err != nil {
+		UPDATE plan_parts SET start_tz_source = 'floating' WHERE id = $1`, frozen); err != nil {
 		t.Fatalf("seed floating: %v", err)
 	}
 	if _, err := s.pool.Exec(ctx,

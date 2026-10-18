@@ -415,6 +415,30 @@ func (e tzEdit) resolve(hasEnd bool) (*string, error) {
 	return &out, nil
 }
 
+// anchorFloating handles a new zone arriving without a new time for an end
+// whose current time is floating. A non-empty zone anchors the floating digits
+// there and confirms it, returning the instant to write; a zone that will not
+// anchor is invalid, and is left for resolve to refuse. An empty zone keeps
+// the end floating, whatever source the caller sent, since its digits are
+// still wall-clock time. Any other end is untouched and nil is returned.
+func (e *tzEdit) anchorFloating(cur time.Time) *time.Time {
+	if e.tz == nil || e.curSrc != string(timing.Floating) {
+		return nil
+	}
+	if *e.tz == "" {
+		f := string(timing.Floating)
+		e.src = &f
+		return nil
+	}
+	at, ok := timing.Anchor(cur, *e.tz)
+	if !ok {
+		return nil // an invalid zone: resolve refuses it as before
+	}
+	c := string(timing.Confirmed)
+	e.src = &c
+	return &at
+}
+
 // ----- Plan CRUD -----
 
 const planColumns = `id, trip_id, type, title, confirmation_ref, ticket_number, notes, source, cost_amount, cost_currency, supplier_name, contact_email, contact_phone, website, created_by, created_at, updated_at, share_all_friends`
@@ -1307,12 +1331,23 @@ func (s *Store) UpdateFlightPartRoute(ctx context.Context, partID int64, in Flig
 
 	start := tzEdit{tz: in.StartTZ, src: in.StartTZSource}
 	end := tzEdit{tz: in.EndTZ, src: in.EndTZSource}
+	var curStartsAt time.Time
 	var curEndsAt *time.Time
 	if err := tx.QueryRow(ctx, `
-		SELECT start_tz, start_tz_source, end_tz, end_tz_source, ends_at
+		SELECT start_tz, start_tz_source, end_tz, end_tz_source, starts_at, ends_at
 		FROM plan_parts WHERE id = $1 FOR UPDATE`, partID).Scan(
-		&start.curTZ, &start.curSrc, &end.curTZ, &end.curSrc, &curEndsAt); err != nil {
+		&start.curTZ, &start.curSrc, &end.curTZ, &end.curSrc, &curStartsAt, &curEndsAt); err != nil {
 		return err
+	}
+	// An end the update gives a zone but no time keeps its current instant,
+	// which for a floating end is wall-clock digits rather than a true instant
+	// (a provider resolve with no departure or arrival time, say).
+	startsAt, endsAt := in.StartsAt, in.EndsAt
+	if startsAt == nil {
+		startsAt = start.anchorFloating(curStartsAt)
+	}
+	if endsAt == nil && curEndsAt != nil {
+		endsAt = end.anchorFloating(*curEndsAt)
 	}
 	startSrc, err := start.resolve(true)
 	if err != nil {
@@ -1341,8 +1376,8 @@ func (s *Store) UpdateFlightPartRoute(ctx context.Context, partID int64, in Flig
 			end_tz_source   = COALESCE($16, end_tz_source),
 			updated_at  = NOW()
 		WHERE id = $1`,
-		partID, in.StartLabel, in.EndLabel, in.StartTZ, in.EndTZ, in.StartsAt,
-		in.EndsAt != nil, in.EndsAt,
+		partID, in.StartLabel, in.EndLabel, start.tz, end.tz, startsAt,
+		endsAt != nil, endsAt,
 		startOp, derefF(in.StartLat), derefF(in.StartLon),
 		endOp, derefF(in.EndLat), derefF(in.EndLon), startSrc, endSrc); err != nil {
 		return err

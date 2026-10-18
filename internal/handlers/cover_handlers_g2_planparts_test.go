@@ -208,6 +208,70 @@ func TestUpdatePlanPartFlightManualRouteAnchorsFloating(t *testing.T) {
 	}
 }
 
+// TestUpdatePlanPartFlightReresolveNoArrivalAnchorsFloating: a re-resolve whose
+// provider record has a departure but no arrival time writes the departure as
+// the instant it is, and anchors the floating arrival's wall-clock digits in the
+// destination's zone rather than relabelling them confirmed as they stand.
+func TestUpdatePlanPartFlightReresolveNoArrivalAnchorsFloating(t *testing.T) {
+	provOut := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	rf := &providers.ResolvedFlight{Ident: "XX201", OriginIATA: "LHR", DestIATA: "CDG", ScheduledOut: provOut}
+	e := setup(t, &fakeResolver{rf: rf}, nil)
+	owner := e.user(t, "g2flnoarr", false)
+	tid := newTrip(t, e, owner, "Trip")
+	out := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	in := out.Add(2 * time.Hour)
+	w := e.req(t, "POST", "/api/trips/"+itoa(tid)+"/plans", map[string]any{
+		"type": "flight", "title": "XX200",
+		"parts": []map[string]any{{
+			"type": "flight", "starts_at": out, "ends_at": in,
+			"flight": map[string]any{
+				"ident": "XX200", "scheduled_out": out, "scheduled_in": in,
+				"origin_iata": "ZZZ", "dest_iata": "QQQ",
+			},
+		}},
+	}, owner)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	partID := partIDOfPlan(t, e, int64(decodeBody[map[string]any](t, w)["id"].(float64)))
+
+	if w := e.req(t, "PATCH", "/api/plan-parts/"+itoa(partID), map[string]any{
+		"flight": map[string]any{"ident": "XX201"},
+	}, owner); w.Code != http.StatusOK {
+		t.Fatalf("re-resolve = %d; body=%s", w.Code, w.Body.String())
+	}
+	var start, end time.Time
+	var startSrc, endTZ, endSrc string
+	if err := e.api.Store.Pool().QueryRow(context.Background(), `
+		SELECT starts_at, start_tz_source, ends_at, end_tz, end_tz_source
+		FROM plan_parts WHERE id = $1`, partID).Scan(&start, &startSrc, &end, &endTZ, &endSrc); err != nil {
+		t.Fatalf("read part: %v", err)
+	}
+	if !start.Equal(provOut) || startSrc != "confirmed" {
+		t.Errorf("start = %v (%s), want the provider's %v, confirmed", start, startSrc, provOut)
+	}
+	// 11:00 wall-clock in Paris in July is 09:00Z.
+	if want := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC); !end.Equal(want) || endTZ != "Europe/Paris" || endSrc != "confirmed" {
+		t.Errorf("end = %v %q (%s), want %v Europe/Paris confirmed", end, endTZ, endSrc, want)
+	}
+}
+
+// TestConfirmAirportZone covers the helper's branches directly, including a
+// floating time that will not anchor (only possible with an invalid zone),
+// which must leave the end alone rather than label it confirmed.
+func TestConfirmAirportZone(t *testing.T) {
+	cur := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	if tz, src, at := confirmAirportZone("Nope/Nope", "floating", &cur); tz != nil || src != nil || at != nil {
+		t.Errorf("unanchorable = %v/%v/%v, want all nil", tz, src, at)
+	}
+	if tz, src, at := confirmAirportZone("Europe/London", "unknown", &cur); tz == nil || *tz != "Europe/London" || src == nil || *src != "confirmed" || at != nil {
+		t.Errorf("instant end = %v/%v/%v, want zone, confirmed, no new time", tz, src, at)
+	}
+	if _, _, at := confirmAirportZone("Europe/London", "floating", nil); at != nil {
+		t.Errorf("floating end with no time got %v", at)
+	}
+}
+
 // TestUpdatePlanPartFlightReresolveG2 covers applyFlightEdit's ident-change
 // re-resolve branch with a resolver configured (reresolveFlightPart success).
 func TestUpdatePlanPartFlightReresolveG2(t *testing.T) {
