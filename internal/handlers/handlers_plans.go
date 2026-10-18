@@ -937,7 +937,7 @@ func pinZones(cur *store.PlanPart, in updatePlanPartReq, pl *store.UpdatePlanPar
 	switch {
 	case endPinned(in):
 		lat, lon = in.EndLat, in.EndLon
-	case startPinned(in) && cur.EndLat == nil && in.EndLat == nil:
+	case startPinned(in) && cur.EndLat == nil && in.EndLat == nil && endFollowsStart(cur):
 		lat, lon = in.StartLat, in.StartLon
 	default:
 		return
@@ -949,6 +949,14 @@ func pinZones(cur *store.PlanPart, in updatePlanPartReq, pl *store.UpdatePlanPar
 			pl.EndsAt = &t
 		}
 	}
+}
+
+// endFollowsStart reports whether an end with no coordinates of its own takes
+// the start's new zone: only when it has no zone yet or shares the start's,
+// so an end with its own different zone (a transfer's destination) is kept.
+func endFollowsStart(cur *store.PlanPart) bool {
+	src := timing.Source(cur.EndTZSource)
+	return src == timing.Floating || src == timing.Unknown || cur.EndTZ == cur.StartTZ
 }
 
 // rezone returns the payload values for a zone found from the item's own

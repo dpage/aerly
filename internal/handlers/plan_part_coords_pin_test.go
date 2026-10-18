@@ -176,8 +176,41 @@ func TestPinZoneRules(t *testing.T) {
 			t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
 		}
 		got, _ := e.store.PlanPartByID(ctx, id)
-		if got.StartTZ != "Europe/London" || !got.StartsAt.Equal(checkin) {
-			t.Errorf("got %q %v, want Europe/London %v", got.StartTZ, got.StartsAt.UTC(), checkin)
+		if got.StartTZ != "Europe/London" || got.StartTZSource != "confirmed" || !got.StartsAt.Equal(checkin) {
+			t.Errorf("got %q/%q %v, want Europe/London/confirmed %v", got.StartTZ, got.StartTZSource, got.StartsAt.UTC(), checkin)
+		}
+	})
+
+	t.Run("an end with its own different zone is kept", func(t *testing.T) {
+		// A transfer from London to Paris with no end coordinates.
+		path, id := pinHotel(t, e, uid, store.CreatePlanPartPayload{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartTZ: "Europe/London", EndTZ: "Europe/Paris",
+		})
+		body := map[string]any{"start_lat": 51.5074, "start_lon": -0.1278, "start_coords_pinned": true}
+		if w := e.req(t, "PATCH", path, body, uid); w.Code != http.StatusOK {
+			t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
+		}
+		got, _ := e.store.PlanPartByID(ctx, id)
+		if got.EndTZ != "Europe/Paris" || got.EndTZSource != "confirmed" || got.EndsAt == nil || !got.EndsAt.Equal(checkout) {
+			t.Errorf("end = %q/%q %v, want Europe/Paris/confirmed %v untouched", got.EndTZ, got.EndTZSource, got.EndsAt, checkout)
+		}
+	})
+
+	t.Run("an end sharing the start's old zone follows it", func(t *testing.T) {
+		path, id := pinHotel(t, e, uid, store.CreatePlanPartPayload{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartTZ: "Europe/Madrid", EndTZ: "Europe/Madrid",
+		})
+		body := map[string]any{"start_lat": 51.5074, "start_lon": -0.1278, "start_coords_pinned": true}
+		if w := e.req(t, "PATCH", path, body, uid); w.Code != http.StatusOK {
+			t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
+		}
+		got, _ := e.store.PlanPartByID(ctx, id)
+		// 11:00 CEST (09:00Z) becomes 11:00 BST, 10:00Z.
+		want := time.Date(2026, 7, 3, 10, 0, 0, 0, time.UTC)
+		if got.EndTZ != "Europe/London" || got.EndTZSource != "confirmed" || got.EndsAt == nil || !got.EndsAt.Equal(want) {
+			t.Errorf("end = %q/%q %v, want Europe/London/confirmed %v", got.EndTZ, got.EndTZSource, got.EndsAt, want)
 		}
 	})
 
