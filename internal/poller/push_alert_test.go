@@ -61,7 +61,7 @@ func TestPushAlert_DeliveredWhenKindEnabled(t *testing.T) {
 
 	prev := f
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(45*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	if fp.count() != 1 {
 		t.Fatalf("expected 1 push, got %d", fp.count())
@@ -87,7 +87,7 @@ func TestPushAlert_SkippedWhenKindDisabled(t *testing.T) {
 
 	prev := f
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(45*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	if fp.count() != 0 {
 		t.Fatalf("expected no push when kind disabled, got %d", fp.count())
@@ -102,7 +102,7 @@ func TestPushAlert_SkippedBelowThreshold(t *testing.T) {
 	// 10-minute delay: below the 15-minute default threshold, so no alert fires
 	// at all — and therefore no push.
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(10*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	if fp.count() != 0 {
 		t.Fatalf("expected no push below threshold, got %d", fp.count())
@@ -127,7 +127,7 @@ func TestPushAlert_NoSenderIsNoOp(t *testing.T) {
 
 	prev := f
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(45*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID) // p.Push is nil
+	p.maybeAlert(ctx, prev, f.ID, true) // p.Push is nil
 
 	if got := drainAlerts(t, ch); len(got) != 1 {
 		t.Fatalf("expected in-app alert to still fire with no pusher, got %d", len(got))
@@ -151,7 +151,7 @@ func TestPushAlert_DisabledSenderIsNoOp(t *testing.T) {
 
 	prev := f
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(45*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	if fp.count() != 0 {
 		t.Fatalf("disabled sender should not be asked to send, got %d", fp.count())

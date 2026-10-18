@@ -50,6 +50,8 @@ describe('HelpContent', () => {
     expect(screen.getByText('Notify me of changes')).toBeInTheDocument();
     expect(screen.getByText('Push notifications')).toBeInTheDocument();
     expect(screen.getByText('Reminders')).toBeInTheDocument();
+    // A first gate is announced as assigned, not as a change.
+    expect(screen.getByText(/a gate being assigned or changed/)).toBeInTheDocument();
   });
 
   it('the explore page covers searching, results and adding to a trip', () => {

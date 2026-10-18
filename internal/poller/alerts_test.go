@@ -201,10 +201,17 @@ func TestChangeDetail(t *testing.T) {
 	}
 
 	// Arrival gate moved (origin unchanged) → arrival phrasing.
-	prev := alertState{}
+	prev := alertState{destGate: "C1"}
 	cur := alertState{destGate: "C3"}
 	if got := changeDetail("gate", prev, cur, noEff); got != "now arrives at gate C3" {
 		t.Errorf("dest-gate detail = %q", got)
+	}
+	// Nothing at either end matches the kind → the generic phrasing.
+	if got := changeDetail("gate", alertState{}, alertState{}, noEff); got != "gate changed" {
+		t.Errorf("unmatched gate detail = %q", got)
+	}
+	if got := changeDetail("gate_assigned", alertState{}, alertState{}, noEff); got != "gate assigned" {
+		t.Errorf("unmatched gate_assigned detail = %q", got)
 	}
 
 	// Arrival terminal moved (origin unchanged) → arrival phrasing.
@@ -255,14 +262,14 @@ func TestAlert_DedupeSigMatchSuppressesReAlert(t *testing.T) {
 
 	prev := f // no delay
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(45*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID) // alerts + stamps sig "delay:45"
+	p.maybeAlert(ctx, prev, f.ID, true) // alerts + stamps sig "delay:45"
 	if got := drainAlerts(t, ch); len(got) != 1 {
 		t.Fatalf("first delay: expected 1 alert, got %d", len(got))
 	}
 
 	// Replay with the same no-delay prev: changeKind is "delayed" again, but the
 	// stored signature already equals the current one → suppressed.
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("sig-match replay should be suppressed, got %d", len(got))
 	}
@@ -290,7 +297,7 @@ func TestAlert_LookupErrorsAreSwallowed(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // FlightPartByID errors → maybeAlert returns at the first guard
 
-	p.maybeAlert(ctx, f, f.ID) // must not panic
+	p.maybeAlert(ctx, f, f.ID, true) // must not panic
 
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("a cancelled context must not emit an alert, got %d", len(got))
@@ -447,7 +454,7 @@ func TestAlert_DelayBelowThresholdDoesNotAlert(t *testing.T) {
 	prev := f // no delay yet
 	// 10-minute delay: below the 15-minute default threshold.
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(10*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("expected no in-app alert below threshold, got %d", len(got))
@@ -477,7 +484,7 @@ func TestAlert_DelayAboveThresholdAlerts(t *testing.T) {
 
 	prev := f
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(45*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	got := drainAlerts(t, ch)
 	if len(got) != 1 {
@@ -519,7 +526,7 @@ func TestAlert_NoDelayAlertOnceDeparted(t *testing.T) {
 	// and the status re-derivation has the flight Enroute.
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(26*time.Minute))
 	setStatus(t, s, f.ID, "Enroute")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("expected no delay alert after departure, got %+v", got)
@@ -553,7 +560,7 @@ func TestAlert_CancellationAlwaysAlertsRegardlessOfThreshold(t *testing.T) {
 
 	prev := f
 	setStatus(t, s, f.ID, "Cancelled")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	got := drainAlerts(t, ch)
 	if len(got) != 1 || got[0].Kind != "cancelled" {
@@ -607,7 +614,7 @@ func TestAlert_ViewerWithoutOptInGetsNothing(t *testing.T) {
 
 	prev := f
 	setStatus(t, s, f.ID, "Cancelled")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("non-opted-in viewer got %d in-app alerts", len(got))
@@ -626,7 +633,7 @@ func TestAlert_ViewerWithoutOptInGetsNothing(t *testing.T) {
 		t.Fatalf("refetch: %v", err)
 	}
 	setStatus(t, s, f.ID, "Diverted")
-	p.maybeAlert(ctx, prev2, f.ID)
+	p.maybeAlert(ctx, prev2, f.ID, true)
 
 	got := drainAlerts(t, ch)
 	if len(got) != 1 || got[0].Kind != "diverted" {
@@ -658,7 +665,7 @@ func TestAlert_DedupeSuppressesRepeatOfSameChange(t *testing.T) {
 	// First tick: a 45-minute delay alerts.
 	prev := f
 	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(45*time.Minute))
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 	if got := drainAlerts(t, ch); len(got) != 1 {
 		t.Fatalf("first delay: expected 1 alert, got %d", len(got))
 	}
@@ -672,7 +679,7 @@ func TestAlert_DedupeSuppressesRepeatOfSameChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refetch: %v", err)
 	}
-	p.maybeAlert(ctx, prev2, f.ID)
+	p.maybeAlert(ctx, prev2, f.ID, true)
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("repeat delay: expected no alert, got %d", len(got))
 	}
@@ -683,7 +690,8 @@ func TestAlert_DedupeSuppressesRepeatOfSameChange(t *testing.T) {
 
 // TestAlert_TerminalOnlyAlertsOnRealChange: a terminal first being filled in
 // is not a change and stays silent, a known terminal moving to a different one
-// alerts once, and the same terminal on the next tick does not re-alert.
+// alerts once the next tick confirms it, and the same terminal on the tick
+// after that does not re-alert.
 func TestAlert_TerminalOnlyAlertsOnRealChange(t *testing.T) {
 	p, s, hub, cap := alertPoller(t)
 	ctx := context.Background()
@@ -713,7 +721,7 @@ func TestAlert_TerminalOnlyAlertsOnRealChange(t *testing.T) {
 	// no alert, in-app or email.
 	prev := f
 	setTerminal("5")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("first terminal: expected no alert, got %+v", got)
 	}
@@ -721,24 +729,35 @@ func TestAlert_TerminalOnlyAlertsOnRealChange(t *testing.T) {
 		t.Fatalf("first terminal: expected no email, got %d", cap.count())
 	}
 
-	// Second tick: terminal 5 → 3 is a real change → one terminal alert.
+	// Second tick: terminal 5 → 3 is a real change, but unconfirmed → silent.
 	prev, err = s.FlightPartByID(ctx, f.ID)
 	if err != nil {
 		t.Fatalf("refetch: %v", err)
 	}
 	setTerminal("3")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Fatalf("unconfirmed terminal: expected no alert, got %+v", got)
+	}
+
+	// Third tick: terminal 3 reported again → confirmed → one terminal alert,
+	// even though the stored pre-state already carries terminal 3.
+	prev, err = s.FlightPartByID(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("refetch: %v", err)
+	}
+	p.maybeAlert(ctx, prev, f.ID, true)
 	got := drainAlerts(t, ch)
 	if len(got) != 1 || got[0].Kind != "terminal" || !strings.Contains(got[0].Message, "now departs terminal 3") {
 		t.Fatalf("terminal move: expected 1 terminal alert, got %+v", got)
 	}
 
-	// Third tick: same terminal still present → no re-alert.
+	// Fourth tick: same terminal still present → no re-alert.
 	prev, err = s.FlightPartByID(ctx, f.ID)
 	if err != nil {
 		t.Fatalf("refetch: %v", err)
 	}
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("repeat terminal: expected no alert, got %d", len(got))
 	}
@@ -784,8 +803,8 @@ func TestTickAlertsOnGateAssignedInActiveWindow(t *testing.T) {
 	p.tick(ctx)
 
 	got := drainAlerts(t, ch)
-	if len(got) != 1 || got[0].Kind != "gate" {
-		t.Fatalf("expected 1 gate alert from the active-window resolve, got %+v", got)
+	if len(got) != 1 || got[0].Kind != "gate_assigned" {
+		t.Fatalf("expected 1 gate_assigned alert from the active-window resolve, got %+v", got)
 	}
 	if cap.count() != 1 {
 		t.Fatalf("expected 1 gate-change email, got %d", cap.count())
@@ -812,8 +831,8 @@ func TestTickAlertsOnGateAssignedAheadOfDeparture(t *testing.T) {
 	p.tick(ctx)
 
 	got := drainAlerts(t, ch)
-	if len(got) != 1 || got[0].Kind != "gate" {
-		t.Fatalf("expected 1 gate alert from the metadata pass, got %+v", got)
+	if len(got) != 1 || got[0].Kind != "gate_assigned" {
+		t.Fatalf("expected 1 gate_assigned alert from the metadata pass, got %+v", got)
 	}
 	if cap.count() != 1 {
 		t.Fatalf("expected 1 gate-change email, got %d", cap.count())
@@ -842,9 +861,15 @@ func TestAlert_GateChangeAlwaysAlertsRegardlessOfThreshold(t *testing.T) {
 	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
 	defer unsub()
 
-	prev := f // no gate yet
+	// A gate already on file, so the move below is a change, not a first
+	// assignment.
+	setOriginGate(t, s, f.ID, "B30")
+	prev, err := s.FlightPartByID(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("refetch: %v", err)
+	}
 	setOriginGate(t, s, f.ID, "B32")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	got := drainAlerts(t, ch)
 	if len(got) != 1 || got[0].Kind != "gate" {
@@ -884,7 +909,7 @@ func TestAlert_BeltChangeNotifies(t *testing.T) {
 
 	prev := f // no belt yet
 	setDestBelt(t, s, f.ID, "34")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	got := drainAlerts(t, ch)
 	if len(got) != 1 || got[0].Kind != "belt" {
@@ -902,7 +927,7 @@ func TestAlert_BeltChangeNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refetch: %v", err)
 	}
-	p.maybeAlert(ctx, prev2, f.ID)
+	p.maybeAlert(ctx, prev2, f.ID, true)
 	if extra := drainAlerts(t, ch); len(extra) != 0 {
 		t.Fatalf("same belt re-alerted: %+v", extra)
 	}
@@ -936,11 +961,11 @@ func TestAlert_GateBeforeBeltOnSameTick(t *testing.T) {
 	prev := f // neither gate nor belt yet
 	setOriginGate(t, s, f.ID, "B32")
 	setDestBelt(t, s, f.ID, "34")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	got := drainAlerts(t, ch)
-	if len(got) != 1 || got[0].Kind != "gate" {
-		t.Fatalf("expected a single gate alert (gate wins over belt), got %+v", got)
+	if len(got) != 1 || got[0].Kind != "gate_assigned" {
+		t.Fatalf("expected a single gate_assigned alert (gate wins over belt), got %+v", got)
 	}
 	if !strings.Contains(got[0].Message, "B32") {
 		t.Fatalf("gate alert missing gate detail: %q", got[0].Message)
@@ -969,13 +994,13 @@ func TestAlert_GateChangePersistsInboxRow(t *testing.T) {
 
 	prev := f // no gate yet
 	setOriginGate(t, s, f.ID, "B32")
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 
 	rows, err := s.ListFlightAlerts(ctx, owner, 50)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("ListFlightAlerts = %d, %v", len(rows), err)
 	}
-	if rows[0].Kind != "gate" || rows[0].PlanPartID != f.ID {
+	if rows[0].Kind != "gate_assigned" || rows[0].PlanPartID != f.ID {
 		t.Errorf("persisted alert wrong: %+v", rows[0])
 	}
 	if !strings.Contains(rows[0].Message, "B32") {
@@ -1024,8 +1049,19 @@ func TestAlertOnTerminalChange(t *testing.T) {
 	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: uid})
 	defer unsub()
 
+	// The first tick sees the change but holds it for confirmation.
 	p.tick(ctx)
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Fatalf("unconfirmed terminal: expected no alert, got %+v", got)
+	}
 
+	// The second tick reports terminal 3 again, which confirms it. Clear the
+	// cadence stamps so the metadata pass re-resolves straight away.
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET last_polled_at = NULL, last_resolved_at = NULL WHERE plan_part_id = $1`, f.ID); err != nil {
+		t.Fatalf("clear cadence stamps: %v", err)
+	}
+	p.tick(ctx)
 	got := drainAlerts(t, ch)
 	if len(got) != 1 || got[0].Kind != "terminal" {
 		t.Fatalf("expected 1 terminal alert, got %+v", got)
@@ -1056,9 +1092,9 @@ func TestAlert_SameGateDoesNotReAlert(t *testing.T) {
 	// First tick: gate assigned → alert.
 	prev := f
 	setOriginGate(t, s, f.ID, "B32")
-	p.maybeAlert(ctx, prev, f.ID)
-	if got := drainAlerts(t, ch); len(got) != 1 {
-		t.Fatalf("first gate: expected 1 alert, got %d", len(got))
+	p.maybeAlert(ctx, prev, f.ID, true)
+	if got := drainAlerts(t, ch); len(got) != 1 || got[0].Kind != "gate_assigned" {
+		t.Fatalf("first gate: expected 1 gate_assigned alert, got %+v", got)
 	}
 	if cap.count() != 1 {
 		t.Fatalf("first gate: expected 1 email, got %d", cap.count())
@@ -1070,7 +1106,7 @@ func TestAlert_SameGateDoesNotReAlert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refetch: %v", err)
 	}
-	p.maybeAlert(ctx, prev2, f.ID)
+	p.maybeAlert(ctx, prev2, f.ID, true)
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("same gate: expected no re-alert, got %d", len(got))
 	}
@@ -1084,7 +1120,7 @@ func TestAlert_SameGateDoesNotReAlert(t *testing.T) {
 		t.Fatalf("refetch: %v", err)
 	}
 	setOriginGate(t, s, f.ID, "B40")
-	p.maybeAlert(ctx, prev3, f.ID)
+	p.maybeAlert(ctx, prev3, f.ID, true)
 	if got := drainAlerts(t, ch); len(got) != 1 || got[0].Kind != "gate" {
 		t.Fatalf("new gate: expected 1 gate re-alert, got %+v", got)
 	}

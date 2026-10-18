@@ -52,6 +52,10 @@ type Poller struct {
 	// Feeds refreshes trip-scoped iCal feed subscriptions on its own cadence
 	// (feedInterval). nil disables the feed-refresh pass.
 	Feeds *feeds.Service
+
+	// terminals holds terminal changes awaiting confirmation by the next poll
+	// (see terminalTracker). The zero value is ready to use.
+	terminals terminalTracker
 }
 
 // feedInterval is how often the poller sweeps trip feeds for ones due a
@@ -249,6 +253,18 @@ func (p *Poller) tick(ctx context.Context) {
 		slog.Error("poller: list recently-arrived flight parts", "err", err)
 		return
 	}
+
+	// All three poll queries succeeded, so between them they list every part
+	// the alert step can still see: forget pending terminal changes for the
+	// rest. Any query failing returns above, and so skips this, rather than
+	// mistaking an unlisted part for one that has gone.
+	polled := make(map[int64]struct{}, len(flights)+len(meta)+len(landed))
+	for _, set := range [][]*store.Flight{flights, meta, landed} {
+		for _, f := range set {
+			polled[f.ID] = struct{}{}
+		}
+	}
+	p.terminals.prune(polled)
 	for _, f := range landed {
 		if ctx.Err() != nil {
 			return
@@ -293,7 +309,7 @@ func (p *Poller) refreshAfterArrival(ctx context.Context, f *store.Flight, now t
 	if err := p.Store.RefreshFlightPartStatus(ctx, f.ID); err != nil {
 		slog.Error("poller: refresh status (post-arrival)", "id", f.ID, "err", err)
 	}
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 	p.publishPartChange(ctx, f.ID)
 }
 
@@ -335,7 +351,7 @@ func (p *Poller) refreshMetadata(ctx context.Context, f *store.Flight, now time.
 	}
 	// A gate/cancellation/delay surfaced ahead of departure is worth an alert
 	// just like one found in the active window.
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, true)
 	p.publishPartChange(ctx, f.ID)
 }
 
@@ -357,9 +373,11 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 	// introduces this tick must be a real prev→cur delta for the alert step,
 	// otherwise the change is folded into prev and never alerted.
 	prev := f
+	reported := false // whether the provider re-reported the flight this tick
 	if p.Resolver != nil && !resolveThrottled(f, now) && (needsBackfill(f) || needsLateRefresh(f, now)) {
 		if fresh, err := p.resolveAndUpdate(ctx, f, now); err == nil && fresh != nil {
 			f = fresh
+			reported = true
 		}
 	}
 
@@ -389,7 +407,7 @@ func (p *Poller) refresh(ctx context.Context, f *store.Flight, now time.Time) {
 
 	// Flight-alert diff step (spec §9): detect a meaningful status/time change
 	// and fan out in-app + email alerts to the recipient set, deduped per part.
-	p.maybeAlert(ctx, prev, f.ID)
+	p.maybeAlert(ctx, prev, f.ID, reported)
 
 	p.publishPartChange(ctx, f.ID)
 }
