@@ -142,8 +142,10 @@ func effectiveTimes(f *store.Flight) (departs time.Time, arrives *time.Time) {
 		in := f.ScheduledIn
 		// Only the departure is delayed: carry the same delay to the
 		// timetable arrival rather than quoting a time the flight can't make.
-		if delay := departs.Sub(f.ScheduledOut); delay != 0 {
-			in = in.Add(delay)
+		// The delay is the off-block estimate's, never the wheels-off time's,
+		// which would add the taxi time on top (see revisedOut).
+		if eo := revisedOut(f); eo != nil {
+			in = in.Add(eo.Sub(f.ScheduledOut))
 		}
 		arrives = &in
 	}

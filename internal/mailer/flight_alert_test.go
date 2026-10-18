@@ -79,3 +79,72 @@ func TestBuildFlightAlertEmail_GateChange(t *testing.T) {
 		}
 	}
 }
+
+func TestFlightAlertDetails(t *testing.T) {
+	out := time.Date(2027, 3, 1, 10, 0, 0, 0, time.UTC)
+	in := out.Add(22 * time.Hour)
+	cases := []struct {
+		name string
+		in   FlightAlertInput
+		want string
+	}{
+		{
+			name: "route and both times, each on its own clock",
+			in: FlightAlertInput{
+				Origin: "London Heathrow (LHR)", Dest: "Sydney (SYD)",
+				DepartsAt: out, OriginTZ: "Europe/London",
+				ArrivesAt: &in, DestTZ: "Australia/Sydney",
+			},
+			want: "Flight from London Heathrow (LHR) to Sydney (SYD), departing Mon 1 Mar, 10:00 GMT, arriving Tue 2 Mar, 19:00 AEDT.",
+		},
+		{
+			name: "origin only, no arrival",
+			in:   FlightAlertInput{Origin: "LHR", DepartsAt: out},
+			want: "Flight from LHR, departing Mon 1 Mar, 10:00 UTC.",
+		},
+		{
+			name: "destination only",
+			in:   FlightAlertInput{Dest: "SYD"},
+			want: "Flight to SYD.",
+		},
+		{
+			name: "times without a route",
+			in:   FlightAlertInput{DepartsAt: out},
+			want: "Flight departing Mon 1 Mar, 10:00 UTC.",
+		},
+		{
+			name: "nothing known",
+			in:   FlightAlertInput{},
+			want: "",
+		},
+	}
+	for _, c := range cases {
+		if got := FlightAlertDetails(c.in); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestBuildFlightAlertEmail_TerminalChangeNamesTheFlight(t *testing.T) {
+	out := time.Date(2027, 3, 1, 10, 0, 0, 0, time.UTC)
+	msg := BuildFlightAlertEmail(FlightAlertInput{
+		FromAddr:  "a@x",
+		ToAddr:    "b@x",
+		PublicURL: "http://localhost:8080",
+		Ident:     "BA15",
+		Kind:      "terminal",
+		Detail:    "now arrives at terminal 1",
+		Origin:    "London Heathrow (LHR)",
+		Dest:      "Sydney (SYD)",
+		DepartsAt: out,
+		OriginTZ:  "Europe/London",
+	})
+	for _, want := range []string{
+		"Terminal change: BA15",
+		"Flight from London Heathrow (LHR) to Sydney (SYD), departing Mon 1 Mar, 10:00 GMT.",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("terminal-change email missing %q:\n%s", want, msg)
+		}
+	}
+}

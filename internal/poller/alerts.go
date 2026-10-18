@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/push"
@@ -313,7 +314,7 @@ func (p *Poller) dispatchAlert(
 			p.publishAlert(ctx, r.UserID, tp, cur.Ident, kind, msg)
 		}
 		if r.Email && r.EmailAddr != "" {
-			p.sendAlertEmail(ctx, r.EmailAddr, cur.Ident, kind, detail)
+			p.sendAlertEmail(ctx, r.EmailAddr, cur, kind, detail)
 		}
 		p.pushAlert(ctx, r.UserID, tp, cur.Ident, msg)
 	}
@@ -382,8 +383,11 @@ func ptrFlightAlertDTO(d api.FlightAlertDTO) *api.FlightAlertDTO { return &d }
 
 // sendAlertEmail dispatches the templated flight-change email. Best-effort:
 // failures are logged and never block the poll loop. Skipped when no sender or
-// MailFrom is configured (e.g. dev without a sendmail pipe).
-func (p *Poller) sendAlertEmail(ctx context.Context, to, ident, kind, detail string) {
+// MailFrom is configured (e.g. dev without a sendmail pipe). The email names the
+// route and times of f so a traveller with several flights booked can tell
+// which one changed (issue #144); each time is quoted on its own airport's
+// clock, as the delay detail already is.
+func (p *Poller) sendAlertEmail(ctx context.Context, to string, f *store.Flight, kind, detail string) {
 	if p.MailFromAddress == "" {
 		return
 	}
@@ -391,15 +395,22 @@ func (p *Poller) sendAlertEmail(ctx context.Context, to, ident, kind, detail str
 	if send == nil {
 		send = mailer.Send
 	}
+	departs, arrives := effectiveTimes(f)
 	msg := mailer.BuildFlightAlertEmail(mailer.FlightAlertInput{
 		FromAddr:  p.MailFromAddress,
 		ToAddr:    to,
 		PublicURL: p.PublicURL,
-		Ident:     ident,
+		Ident:     f.Ident,
 		Kind:      kind,
 		Detail:    detail,
+		Origin:    airports.Label(f.OriginIATA, ""),
+		Dest:      airports.Label(f.DestIATA, ""),
+		DepartsAt: departs,
+		OriginTZ:  airportZone(f.OriginIATA, f.OriginLat, f.OriginLon),
+		ArrivesAt: arrives,
+		DestTZ:    airportZone(f.DestIATA, f.DestLat, f.DestLon),
 	})
 	if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
-		slog.Error("alert: send email", "to", to, "ident", ident, "err", err)
+		slog.Error("alert: send email", "to", to, "ident", f.Ident, "err", err)
 	}
 }
