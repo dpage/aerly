@@ -1255,6 +1255,9 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 		EndCoordsPinned:   p.EndCoordsPinned,
 		Status:            p.Status,
 	}
+	if planType == "flight" {
+		anchorFlightPart(&out, p)
+	}
 	switch planType {
 	case "flight":
 		if p.Flight != nil {
@@ -1265,8 +1268,8 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 				Ident:        flightident.Normalise(p.Flight.Ident),
 				ICAO24:       p.Flight.ICAO24,
 				Callsign:     strPtrIfSet(p.Flight.Callsign),
-				ScheduledOut: defaultTime(p.Flight.ScheduledOut, p.StartsAt),
-				ScheduledIn:  defaultTime(p.Flight.ScheduledIn, endOr(p.EndsAt, p.StartsAt)),
+				ScheduledOut: defaultTime(p.Flight.ScheduledOut, out.StartsAt),
+				ScheduledIn:  defaultTime(p.Flight.ScheduledIn, endOr(out.EndsAt, out.StartsAt)),
 				EstimatedOut: p.Flight.EstimatedOut,
 				EstimatedIn:  p.Flight.EstimatedIn,
 				ActualOut:    p.Flight.ActualOut,
@@ -1277,8 +1280,8 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 			}
 		} else {
 			out.Flight = &store.FlightDetail{
-				ScheduledOut: p.StartsAt,
-				ScheduledIn:  endOr(p.EndsAt, p.StartsAt),
+				ScheduledOut: out.StartsAt,
+				ScheduledIn:  endOr(out.EndsAt, out.StartsAt),
 			}
 		}
 	case "hotel":
@@ -1370,6 +1373,53 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 		}
 	}
 	return out
+}
+
+// anchorFlightPart anchors a new flight part's floating times in the zones
+// of its own airports (timing.AirportZone: the IATA code, else the end's own
+// coordinates), confirming them, before the flight_details schedule is seeded
+// from them. The poller and alerts read scheduled_out/scheduled_in as true
+// instants, so they must not be given wall-clock digits. An end whose airport
+// zone is unknown stays floating; its digits still seed the schedule, since
+// those columns are NOT NULL and a zero time would read as long departed, and
+// the provider's resolve overwrites them with real instants.
+func anchorFlightPart(out *store.CreatePlanPartPayload, p planPartReq) {
+	var origin, dest string
+	if p.Flight != nil {
+		origin, dest = p.Flight.OriginIATA, p.Flight.DestIATA
+	}
+	if at, ok := anchorFlightEnd(out.StartsAt, out.StartTZ, out.StartTZSource, origin, p.StartLat, p.StartLon); ok {
+		out.StartsAt, out.StartTZ, out.StartTZSource = at.at, at.tz, string(timing.Confirmed)
+	}
+	if out.EndsAt == nil {
+		return
+	}
+	if at, ok := anchorFlightEnd(*out.EndsAt, out.EndTZ, out.EndTZSource, dest, p.EndLat, p.EndLon); ok {
+		out.EndsAt, out.EndTZ, out.EndTZSource = &at.at, at.tz, string(timing.Confirmed)
+	}
+}
+
+type anchoredEnd struct {
+	at time.Time
+	tz string
+}
+
+// anchorFlightEnd anchors one floating flight end (no zone, and a blank or
+// floating source) in its airport's zone; ok is false when the end is not
+// floating or no zone is found.
+func anchorFlightEnd(at time.Time, tz, src, iata string, lat, lon *float64) (anchoredEnd, bool) {
+	if tz != "" || (src != "" && src != string(timing.Floating)) {
+		return anchoredEnd{}, false
+	}
+	zone, ok := timing.AirportZone(iata, lat, lon)
+	if !ok {
+		return anchoredEnd{}, false
+	}
+	anchored, ok := timing.Anchor(at, zone)
+	if !ok {
+		return anchoredEnd{}, false
+	}
+	return anchoredEnd{at: anchored, tz: zone}, true
 }
 
 func strPtrIfSet(s string) *string {

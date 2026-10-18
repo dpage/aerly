@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -183,5 +184,72 @@ func TestUpdatePlanPartZoneOnlyAnchorsFloating(t *testing.T) {
 	}
 	if got["start_tz_source"] != "confirmed" || got["end_tz_source"] != "confirmed" {
 		t.Errorf("sources = %v / %v, want confirmed", got["start_tz_source"], got["end_tz_source"])
+	}
+}
+
+// A manually added flight's floating times are anchored in its airports'
+// zones before flight_details is seeded, so the poller never reads wall-clock
+// digits as instants; with no airport zone the part stays floating.
+func TestCreateFlightAnchorsFloatingSchedule(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "tzsrcflight", false)
+	trip := newTrip(t, e, owner, "Trip")
+	create := func(flight map[string]any) int64 {
+		t.Helper()
+		w := e.req(t, "POST", "/api/trips/"+itoa(trip)+"/plans", map[string]any{
+			"type": "flight", "title": "XX100", "parts": []map[string]any{{
+				"type":      "flight",
+				"starts_at": time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC), "start_tz_source": "floating",
+				"ends_at": time.Date(2026, 7, 1, 17, 0, 0, 0, time.UTC), "end_tz_source": "floating",
+				"flight": flight,
+			}},
+		}, owner)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create = %d: %s", w.Code, w.Body.String())
+		}
+		plan := decodeBody[map[string]any](t, w)
+		parts, _ := plan["parts"].([]any)
+		p, _ := parts[0].(map[string]any)
+		return int64(p["id"].(float64))
+	}
+	ctx := context.Background()
+
+	t.Run("airport zones anchor the part and the schedule", func(t *testing.T) {
+		id := create(map[string]any{"ident": "XX100", "origin_iata": "LHR", "dest_iata": "CDG"})
+		fd, err := e.store.FlightDetailFor(ctx, id)
+		if err != nil || fd == nil {
+			t.Fatalf("flight detail: %v", err)
+		}
+		// 15:00 BST is 14:00Z; 17:00 CEST is 15:00Z.
+		wantOut := time.Date(2026, 7, 1, 14, 0, 0, 0, time.UTC)
+		wantIn := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
+		if !fd.ScheduledOut.Equal(wantOut) || !fd.ScheduledIn.Equal(wantIn) {
+			t.Errorf("schedule = %v / %v, want %v / %v", fd.ScheduledOut.UTC(), fd.ScheduledIn.UTC(), wantOut, wantIn)
+		}
+		part, _ := e.store.PlanPartByID(ctx, id)
+		if part.StartTZ != "Europe/London" || part.StartTZSource != "confirmed" || !part.StartsAt.Equal(wantOut) {
+			t.Errorf("start = %q/%q %v", part.StartTZ, part.StartTZSource, part.StartsAt.UTC())
+		}
+		if part.EndTZ != "Europe/Paris" || part.EndTZSource != "confirmed" || part.EndsAt == nil || !part.EndsAt.Equal(wantIn) {
+			t.Errorf("end = %q/%q %v", part.EndTZ, part.EndTZSource, part.EndsAt)
+		}
+	})
+
+	t.Run("no airport zone leaves the part floating", func(t *testing.T) {
+		id := create(map[string]any{"ident": "XX100"})
+		part, _ := e.store.PlanPartByID(ctx, id)
+		if part.StartTZ != "" || part.StartTZSource != "floating" || part.EndTZSource != "floating" {
+			t.Errorf("sources = %q/%q, %q, want floating", part.StartTZ, part.StartTZSource, part.EndTZSource)
+		}
+	})
+}
+
+func TestAnchorFlightEndSkipsZonedEnds(t *testing.T) {
+	at := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
+	if _, ok := anchorFlightEnd(at, "Europe/Paris", "confirmed", "LHR", nil, nil); ok {
+		t.Error("a zoned end was re-anchored")
+	}
+	if _, ok := anchorFlightEnd(at, "", "unknown", "LHR", nil, nil); ok {
+		t.Error("an unknown end (a true instant) was re-anchored")
 	}
 }
