@@ -282,6 +282,14 @@ func TestUpdateFlightPartRouteAnchorsFloating(t *testing.T) {
 	if got.EndsAt == nil || !got.EndsAt.Equal(out) || got.EndTZSource != "confirmed" {
 		t.Errorf("end = %v (%s), want %v confirmed", got.EndsAt, got.EndTZSource, out)
 	}
+	// The schedule the poller reads moves with the anchored ends.
+	fd, err := s.FlightDetailFor(ctx, pid)
+	if err != nil {
+		t.Fatalf("FlightDetailFor: %v", err)
+	}
+	if !fd.ScheduledOut.Equal(out.Add(-time.Hour)) || !fd.ScheduledIn.Equal(out) {
+		t.Errorf("schedule = %v → %v, want %v → %v", fd.ScheduledOut, fd.ScheduledIn, out.Add(-time.Hour), out)
+	}
 
 	// Now neither end is floating: a further zone change keeps the instants.
 	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
@@ -308,6 +316,36 @@ func TestUpdateFlightPartRouteAnchorsFloating(t *testing.T) {
 		!got.StartsAt.Equal(out) || got.EndsAt == nil || !got.EndsAt.Equal(in) {
 		t.Errorf("no-zone = %v (%s) → %v (%s), want floating and unchanged",
 			got.StartsAt, got.StartTZSource, got.EndsAt, got.EndTZSource)
+	}
+
+	// A schedule the caller sends wins over the anchored instant.
+	pid = mk("XX112")
+	sent := time.Date(2026, 7, 1, 7, 30, 0, 0, time.UTC)
+	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
+		ScheduledOut: &sent, StartTZ: strp("Europe/London"), StartTZSource: strp("confirmed"),
+	}); err != nil {
+		t.Fatalf("UpdateFlightPartRoute (sent schedule): %v", err)
+	}
+	if fd, err := s.FlightDetailFor(ctx, pid); err != nil || !fd.ScheduledOut.Equal(sent) || !fd.ScheduledIn.Equal(in) {
+		t.Errorf("sent schedule = %+v (%v), want %v → %v", fd, err, sent, in)
+	}
+
+	// A departure-only schedule (scheduled_in equal to scheduled_out, no
+	// ends_at) keeps the two equal when the departure is anchored.
+	pid = mk("XX113")
+	if _, err := s.Pool().Exec(ctx, `UPDATE plan_parts SET ends_at = NULL, end_tz_source = 'unknown' WHERE id = $1`, pid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool().Exec(ctx, `UPDATE flight_details SET scheduled_in = scheduled_out WHERE plan_part_id = $1`, pid); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
+		StartTZ: strp("Europe/London"), StartTZSource: strp("confirmed"),
+	}); err != nil {
+		t.Fatalf("UpdateFlightPartRoute (departure only): %v", err)
+	}
+	if fd, err := s.FlightDetailFor(ctx, pid); err != nil || !fd.ScheduledOut.Equal(out.Add(-time.Hour)) || !fd.ScheduledIn.Equal(fd.ScheduledOut) {
+		t.Errorf("departure-only schedule = %+v (%v), want both %v", fd, err, out.Add(-time.Hour))
 	}
 
 	// An invalid zone for a floating end is still refused.

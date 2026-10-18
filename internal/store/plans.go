@@ -1392,6 +1392,33 @@ func (s *Store) UpdateFlightPartRoute(ctx context.Context, partID int64, in Flig
 		endOp, derefF(in.EndLat), derefF(in.EndLon), startSrc, endSrc); err != nil {
 		return err
 	}
+
+	// flight_details holds the same floating digits, and the poller reads
+	// scheduled_out/scheduled_in as true instants, so an anchored end carries
+	// its schedule field with it unless the caller sent one. Only a field that
+	// still holds the old digits moves. A departure-only schedule stores
+	// scheduled_in equal to scheduled_out, so it follows the departure.
+	var schedOut, schedIn *time.Time
+	if in.StartsAt == nil && in.ScheduledOut == nil {
+		schedOut = startsAt
+	}
+	if in.EndsAt == nil && in.ScheduledIn == nil {
+		schedIn = endsAt
+	}
+	if schedOut != nil || schedIn != nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE flight_details SET
+				scheduled_out = CASE WHEN $2::timestamptz IS NOT NULL AND scheduled_out = $3
+					THEN $2 ELSE scheduled_out END,
+				scheduled_in = CASE
+					WHEN $4::timestamptz IS NOT NULL AND scheduled_in = $5::timestamptz THEN $4
+					WHEN $2::timestamptz IS NOT NULL AND $5::timestamptz IS NULL AND scheduled_in = $3 THEN $2
+					ELSE scheduled_in END
+			WHERE plan_part_id = $1`,
+			partID, schedOut, curStartsAt, schedIn, curEndsAt); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 
