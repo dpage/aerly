@@ -510,6 +510,9 @@ export interface EventDetail {
   url: string;
 }
 
+/** How a part's time zone is known; see the time zone redesign. */
+export type TZSource = 'confirmed' | 'inferred' | 'unknown' | 'floating';
+
 export interface PlanPart {
   id: number;
   plan_id: number;
@@ -521,6 +524,9 @@ export interface PlanPart {
   start_tz: string;
   /** IANA timezone for `ends_at`. */
   end_tz: string;
+  /** How `start_tz` is known: confirmed, inferred, unknown or floating (no zone). */
+  start_tz_source: TZSource;
+  end_tz_source: TZSource;
   start_label: string;
   start_lat?: number;
   start_lon?: number;
@@ -774,6 +780,8 @@ export interface PlanPartInput {
   ends_at?: string;
   start_tz?: string;
   end_tz?: string;
+  start_tz_source?: TZSource;
+  end_tz_source?: TZSource;
   start_label?: string;
   start_lat?: number;
   start_lon?: number;
@@ -803,6 +811,8 @@ export interface UpdatePlanPartInput {
   ends_at?: string;
   start_tz?: string;
   end_tz?: string;
+  start_tz_source?: TZSource;
+  end_tz_source?: TZSource;
   start_label?: string;
   start_lat?: number;
   start_lon?: number;

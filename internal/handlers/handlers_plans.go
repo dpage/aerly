@@ -20,20 +20,22 @@ import (
 // Wave 1B: plans, parts, passengers, visibility, and move.
 
 type planPartReq struct {
-	Type         string     `json:"type"`
-	Seq          int        `json:"seq"`
-	StartsAt     time.Time  `json:"starts_at"`
-	EndsAt       *time.Time `json:"ends_at"`
-	StartTZ      string     `json:"start_tz"`
-	EndTZ        string     `json:"end_tz"`
-	StartLabel   string     `json:"start_label"`
-	StartLat     *float64   `json:"start_lat"`
-	StartLon     *float64   `json:"start_lon"`
-	StartAddress string     `json:"start_address"`
-	EndLabel     string     `json:"end_label"`
-	EndLat       *float64   `json:"end_lat"`
-	EndLon       *float64   `json:"end_lon"`
-	EndAddress   string     `json:"end_address"`
+	Type          string     `json:"type"`
+	Seq           int        `json:"seq"`
+	StartsAt      time.Time  `json:"starts_at"`
+	EndsAt        *time.Time `json:"ends_at"`
+	StartTZ       string     `json:"start_tz"`
+	EndTZ         string     `json:"end_tz"`
+	StartTZSource string     `json:"start_tz_source,omitempty"`
+	EndTZSource   string     `json:"end_tz_source,omitempty"`
+	StartLabel    string     `json:"start_label"`
+	StartLat      *float64   `json:"start_lat"`
+	StartLon      *float64   `json:"start_lon"`
+	StartAddress  string     `json:"start_address"`
+	EndLabel      string     `json:"end_label"`
+	EndLat        *float64   `json:"end_lat"`
+	EndLon        *float64   `json:"end_lon"`
+	EndAddress    string     `json:"end_address"`
 	// StartCoordsPinned/EndCoordsPinned: send true alongside start_lat/start_lon
 	// (or end_lat/end_lon) to pin the coordinates against the async geocoder.
 	StartCoordsPinned bool   `json:"start_coords_pinned,omitempty"`
@@ -177,19 +179,21 @@ type planVisibilityReq struct {
 }
 
 type updatePlanPartReq struct {
-	StartsAt     *time.Time `json:"starts_at,omitempty"`
-	EndsAt       *time.Time `json:"ends_at,omitempty"`
-	StartTZ      *string    `json:"start_tz,omitempty"`
-	EndTZ        *string    `json:"end_tz,omitempty"`
-	StartLabel   *string    `json:"start_label,omitempty"`
-	StartLat     *float64   `json:"start_lat,omitempty"`
-	StartLon     *float64   `json:"start_lon,omitempty"`
-	StartAddress *string    `json:"start_address,omitempty"`
-	EndLabel     *string    `json:"end_label,omitempty"`
-	EndLat       *float64   `json:"end_lat,omitempty"`
-	EndLon       *float64   `json:"end_lon,omitempty"`
-	EndAddress   *string    `json:"end_address,omitempty"`
-	Status       *string    `json:"status,omitempty"`
+	StartsAt      *time.Time `json:"starts_at,omitempty"`
+	EndsAt        *time.Time `json:"ends_at,omitempty"`
+	StartTZ       *string    `json:"start_tz,omitempty"`
+	EndTZ         *string    `json:"end_tz,omitempty"`
+	StartTZSource *string    `json:"start_tz_source,omitempty"`
+	EndTZSource   *string    `json:"end_tz_source,omitempty"`
+	StartLabel    *string    `json:"start_label,omitempty"`
+	StartLat      *float64   `json:"start_lat,omitempty"`
+	StartLon      *float64   `json:"start_lon,omitempty"`
+	StartAddress  *string    `json:"start_address,omitempty"`
+	EndLabel      *string    `json:"end_label,omitempty"`
+	EndLat        *float64   `json:"end_lat,omitempty"`
+	EndLon        *float64   `json:"end_lon,omitempty"`
+	EndAddress    *string    `json:"end_address,omitempty"`
+	Status        *string    `json:"status,omitempty"`
 
 	// Coords pin flags: a manual lat/lon override the geocoder must not touch.
 	// Setting one true (with explicit coords) opts that endpoint out of
@@ -351,6 +355,10 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		Parts:           parts,
 	}, me.ID)
 	if err != nil {
+		if errors.Is(err, store.ErrInvalidZone) {
+			writeError(w, http.StatusBadRequest, "Invalid time zone.")
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -779,6 +787,8 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		EndsAt:            in.EndsAt,
 		StartTZ:           in.StartTZ,
 		EndTZ:             in.EndTZ,
+		StartTZSource:     in.StartTZSource,
+		EndTZSource:       in.EndTZSource,
 		StartLabel:        in.StartLabel,
 		StartLat:          in.StartLat,
 		StartLon:          in.StartLon,
@@ -1061,7 +1071,8 @@ func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRo
 			label := airports.Label(code, "")
 			up.OriginIATA, up.StartLabel = &code, &label
 			if tz, ok := airports.LookupTZ(code); ok {
-				up.StartTZ = &tz
+				src := "confirmed"
+				up.StartTZ, up.StartTZSource = &tz, &src
 			}
 			up.StartLat, up.StartLon, up.ClearStartCoords = flightcoord.AirportCoords(code, 0, 0)
 			changed = true
@@ -1072,7 +1083,8 @@ func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRo
 			label := airports.Label(code, "")
 			up.DestIATA, up.EndLabel = &code, &label
 			if tz, ok := airports.LookupTZ(code); ok {
-				up.EndTZ = &tz
+				src := "confirmed"
+				up.EndTZ, up.EndTZSource = &tz, &src
 			}
 			up.EndLat, up.EndLon, up.ClearEndCoords = flightcoord.AirportCoords(code, 0, 0)
 			changed = true
@@ -1110,6 +1122,8 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 		EndsAt:            p.EndsAt,
 		StartTZ:           p.StartTZ,
 		EndTZ:             p.EndTZ,
+		StartTZSource:     p.StartTZSource,
+		EndTZSource:       p.EndTZSource,
 		StartLabel:        p.StartLabel,
 		StartLat:          p.StartLat,
 		StartLon:          p.StartLon,

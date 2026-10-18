@@ -320,6 +320,8 @@ func handleStoreErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "Not found.")
 	case errors.Is(err, store.ErrLastOwner):
 		writeError(w, http.StatusConflict, "Cannot remove the last owner of the trip.")
+	case errors.Is(err, store.ErrInvalidZone):
+		writeError(w, http.StatusBadRequest, "Invalid time zone.")
 	default:
 		// Never echo the raw store/SQL error to the client — it can expose
 		// schema, column and constraint names. Log it server-side and return
