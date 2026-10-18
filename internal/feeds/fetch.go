@@ -207,15 +207,16 @@ func mapEvents(in []importics.Event, calTZ, fallbackTZ string) []store.TripFeedE
 		// turns "all times in UTC" into the event's real local time.
 		// A TZID is the feed's own statement of the zone (confirmed); the
 		// calendar default and the user fallback are assumptions (inferred).
-		zone, source := e.Start.TZID, timing.Confirmed
-		if zone == "" {
+		// A name that cannot be loaded is skipped, so an unusable TZID falls
+		// through to the next candidate rather than being stored.
+		zone, source := "", timing.Unknown
+		switch {
+		case timing.ValidZone(e.Start.TZID):
+			zone, source = e.Start.TZID, timing.Confirmed
+		case timing.ValidZone(calTZ):
 			zone, source = calTZ, timing.Inferred
-		}
-		if zone == "" {
-			zone = fallbackTZ
-		}
-		if zone == "" {
-			source = timing.Unknown
+		case timing.ValidZone(fallbackTZ):
+			zone, source = fallbackTZ, timing.Inferred
 		}
 		start, ok := resolveInstant(e.Start, zone)
 		if !ok {

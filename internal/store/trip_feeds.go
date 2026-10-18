@@ -41,7 +41,7 @@ type TripFeedEvent struct {
 	EndsAt      *time.Time
 	StartTZ     string
 	// StartTZSource is a timing.Source name: confirmed or inferred when StartTZ
-	// is set, otherwise unknown. Empty is stored as unknown.
+	// is set, otherwise unknown. Empty is stored as inferred when StartTZ is set, else unknown.
 	StartTZSource string
 	AllDay        bool
 	// FeedName is the owning feed's display name. Populated only on the read
@@ -181,7 +181,11 @@ func (s *Store) ReplaceFeedEvents(ctx context.Context, feedID int64, events []Tr
 	for _, e := range events {
 		source := e.StartTZSource
 		if source == "" {
+			// A zone with no recorded source is a guess; no zone is unknown.
 			source = string(timing.Unknown)
+			if e.StartTZ != "" {
+				source = string(timing.Inferred)
+			}
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO trip_feed_events

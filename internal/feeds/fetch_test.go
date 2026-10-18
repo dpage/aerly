@@ -225,6 +225,45 @@ func TestMapEventsZoneSource(t *testing.T) {
 	}
 }
 
+func TestMapEventsUnloadableZones(t *testing.T) {
+	wall := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	floating := func(tzid string) []importics.Event {
+		return []importics.Event{{UID: "e", Summary: "Test Event",
+			Start: importics.DateTime{Time: wall, HasTime: true, Floating: true, TZID: tzid}}}
+	}
+	// Unloadable TZID, nothing else: no zone, and the wall clock stays as UTC.
+	out := mapEvents(floating("Pacific Time"), "", "")
+	if len(out) != 1 || out[0].StartTZ != "" || out[0].StartTZSource != string(timing.Unknown) {
+		t.Fatalf("invalid TZID alone: %+v", out)
+	}
+	if !out[0].StartsAt.Equal(wall) {
+		t.Errorf("StartsAt = %v, want %v", out[0].StartsAt, wall)
+	}
+	// Unloadable TZID with a valid calendar zone: the calendar zone is inferred
+	// and anchors the wall clock (09:00 Vancouver = 16:00Z in May).
+	out = mapEvents(floating("Pacific Time"), "America/Vancouver", "")
+	if out[0].StartTZ != "America/Vancouver" || out[0].StartTZSource != string(timing.Inferred) {
+		t.Errorf("invalid TZID with calTZ: %q/%q", out[0].StartTZ, out[0].StartTZSource)
+	}
+	if want := time.Date(2026, 5, 12, 16, 0, 0, 0, time.UTC); !out[0].StartsAt.Equal(want) {
+		t.Errorf("StartsAt = %v, want %v", out[0].StartsAt, want)
+	}
+	// Invalid calendar zone falls through to a valid user fallback; "Local" is refused.
+	out = mapEvents(floating(""), "Local", "Europe/London")
+	if out[0].StartTZ != "Europe/London" || out[0].StartTZSource != string(timing.Inferred) {
+		t.Errorf("invalid calTZ: %q/%q", out[0].StartTZ, out[0].StartTZSource)
+	}
+	if want := time.Date(2026, 5, 12, 8, 0, 0, 0, time.UTC); !out[0].StartsAt.Equal(want) {
+		t.Errorf("StartsAt = %v, want %v", out[0].StartsAt, want)
+	}
+	// A valid TZID on a floating value anchors in that zone (confirmed).
+	out = mapEvents(floating("Europe/Paris"), "America/Vancouver", "")
+	if out[0].StartTZSource != string(timing.Confirmed) ||
+		!out[0].StartsAt.Equal(time.Date(2026, 5, 12, 7, 0, 0, 0, time.UTC)) {
+		t.Errorf("valid TZID floating: %+v", out[0])
+	}
+}
+
 func TestLooksLikeICalendar(t *testing.T) {
 	cases := map[string]bool{
 		"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n":  true,

@@ -54,11 +54,12 @@ func TestTripFeedsCRUDAndEvents(t *testing.T) {
 	if err := s.ReplaceFeedEvents(ctx, f1.ID, []TripFeedEvent{
 		{UID: "x", Summary: "Keynote", Location: "Hall", StartsAt: start, EndsAt: &end, StartTZ: "UTC", StartTZSource: "confirmed"},
 		{UID: "y", Summary: "Plain", StartsAt: start.Add(time.Hour)},
+		{UID: "z", Summary: "Zoned", StartsAt: start.Add(2 * time.Hour), StartTZ: "Europe/London"},
 	}); err != nil {
 		t.Fatalf("ReplaceFeedEvents: %v", err)
 	}
 	events, err := s.TripFeedEventsForTrip(ctx, trip)
-	if err != nil || len(events) != 2 {
+	if err != nil || len(events) != 3 {
 		t.Fatalf("TripFeedEventsForTrip = %d, %v", len(events), err)
 	}
 	if events[0].Summary != "Keynote" || events[0].FeedName != "A2" {
@@ -66,6 +67,9 @@ func TestTripFeedsCRUDAndEvents(t *testing.T) {
 	}
 	if events[0].StartTZSource != "confirmed" {
 		t.Errorf("source = %q, want confirmed", events[0].StartTZSource)
+	}
+	if events[2].StartTZSource != "inferred" {
+		t.Errorf("zone with empty source stored as %q, want inferred", events[2].StartTZSource)
 	}
 	if events[1].StartTZSource != "unknown" {
 		t.Errorf("empty source stored as %q, want unknown", events[1].StartTZSource)
