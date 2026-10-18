@@ -1139,3 +1139,126 @@ func TestRefreshFlightPartArrivalClearsEstimate(t *testing.T) {
 		t.Errorf("an observed actual must survive a nil, got %v want %v", f.ActualIn, act)
 	}
 }
+
+// refreshStatus re-derives a part's status and returns it.
+func refreshStatus(t *testing.T, s *Store, part int64) string {
+	t.Helper()
+	if err := s.RefreshFlightPartStatus(ctx, part); err != nil {
+		t.Fatalf("RefreshFlightPartStatus: %v", err)
+	}
+	f, err := s.FlightPartByID(ctx, part)
+	if err != nil {
+		t.Fatalf("FlightPartByID: %v", err)
+	}
+	return f.Status
+}
+
+// TestRefreshStatusFollowsEffectiveArrival: the Arrived branches judge the
+// arrival timing.Effective reports, so a withdrawn arrival estimate on a
+// flight whose departure is still delayed falls back to the timetable moved by
+// that delay, not to the bare timetable, and an arrival estimate at or before
+// the departure is ignored.
+func TestRefreshStatusFollowsEffectiveArrival(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	t.Run("withdrawn arrival estimate with a delayed departure stays Enroute", func(t *testing.T) {
+		// Timetabled to land an hour ago, but left two hours late, so the
+		// derived arrival is an hour from now.
+		part := mkFlightPart(t, s, owner, "XX100", now.Add(-4*time.Hour), now.Add(-time.Hour))
+		estOut := now.Add(-2 * time.Hour)
+		if err := s.RefreshFlightPartDeparture(ctx, part, &estOut, nil); err != nil {
+			t.Fatalf("RefreshFlightPartDeparture: %v", err)
+		}
+		estIn := now.Add(time.Hour)
+		if err := s.RefreshFlightPartArrival(ctx, part, &estIn, nil); err != nil {
+			t.Fatalf("RefreshFlightPartArrival: %v", err)
+		}
+		// The provider withdraws the arrival estimate.
+		if err := s.RefreshFlightPartArrival(ctx, part, nil, nil); err != nil {
+			t.Fatalf("RefreshFlightPartArrival (withdraw): %v", err)
+		}
+		if got := refreshStatus(t, s, part); got != "Enroute" {
+			t.Errorf("status = %q, want Enroute until the derived arrival passes", got)
+		}
+	})
+
+	t.Run("the derived arrival passing gives Arrived", func(t *testing.T) {
+		part := mkFlightPart(t, s, owner, "XX101", now.Add(-5*time.Hour), now.Add(-3*time.Hour))
+		estOut := now.Add(-4 * time.Hour)
+		if err := s.RefreshFlightPartDeparture(ctx, part, &estOut, nil); err != nil {
+			t.Fatalf("RefreshFlightPartDeparture: %v", err)
+		}
+		if got := refreshStatus(t, s, part); got != "Arrived" {
+			t.Errorf("status = %q, want Arrived once the derived arrival has passed", got)
+		}
+	})
+
+	t.Run("a derived arrival is capped like a live one", func(t *testing.T) {
+		// A stale departure estimate seventy hours late puts the derived
+		// arrival in the future, far beyond arrivalSlipCap past the timetable.
+		part := mkFlightPart(t, s, owner, "XX102", now.Add(-60*time.Hour), now.Add(-58*time.Hour))
+		estOut := now.Add(10 * time.Hour)
+		if err := s.RefreshFlightPartDeparture(ctx, part, &estOut, nil); err != nil {
+			t.Fatalf("RefreshFlightPartDeparture: %v", err)
+		}
+		if got := refreshStatus(t, s, part); got != "Arrived" {
+			t.Errorf("status = %q, want Arrived past the slip cap", got)
+		}
+	})
+
+	t.Run("an arrival estimate before the departure is ignored", func(t *testing.T) {
+		part := mkFlightPart(t, s, owner, "XX103", now.Add(-time.Hour), now.Add(time.Hour))
+		estIn := now.Add(-2 * time.Hour)
+		if err := s.RefreshFlightPartArrival(ctx, part, &estIn, nil); err != nil {
+			t.Fatalf("RefreshFlightPartArrival: %v", err)
+		}
+		if got := refreshStatus(t, s, part); got != "Enroute" {
+			t.Errorf("status = %q, want Enroute on the timetabled arrival", got)
+		}
+	})
+
+	t.Run("an impossible estimate on a departure-only flight waits for the no-arrival cap", func(t *testing.T) {
+		dep := now.Add(-30 * time.Minute)
+		part := mkFlightPart(t, s, owner, "XX104", dep, dep)
+		estIn := dep.Add(-10 * time.Minute)
+		if err := s.RefreshFlightPartArrival(ctx, part, &estIn, nil); err != nil {
+			t.Fatalf("RefreshFlightPartArrival: %v", err)
+		}
+		if got := refreshStatus(t, s, part); got != "Enroute" {
+			t.Errorf("status = %q, want Enroute until noArrivalCap", got)
+		}
+	})
+}
+
+// TestRefreshStatusWithdrawnDepartureEstimate: once the provider withdraws an
+// off-block estimate it no longer claims a delay, so the flight is judged on
+// the timetable and is Enroute once its scheduled departure has passed, as
+// timing.Effective has it.
+func TestRefreshStatusWithdrawnDepartureEstimate(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+
+	part := mkFlightPart(t, s, owner, "XX100", now.Add(-time.Hour), now.Add(time.Hour))
+	estOut := now.Add(30 * time.Minute)
+	if err := s.RefreshFlightPartDeparture(ctx, part, &estOut, nil); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture: %v", err)
+	}
+	if got := refreshStatus(t, s, part); got != "Scheduled" {
+		t.Fatalf("precondition: status = %q, want Scheduled whilst held", got)
+	}
+	if err := s.RefreshFlightPartDeparture(ctx, part, nil, nil); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture (withdraw): %v", err)
+	}
+	if got := refreshStatus(t, s, part); got != "Enroute" {
+		t.Errorf("status = %q, want Enroute on the timetable once the estimate is withdrawn", got)
+	}
+}
