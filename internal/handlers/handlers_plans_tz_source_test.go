@@ -150,3 +150,38 @@ func TestIngestConfirmAcceptsTZSource(t *testing.T) {
 		t.Errorf("end_tz_source = %v, want unknown", got)
 	}
 }
+
+// A PATCH carrying only a zone for a floating part anchors the stored
+// wall-clock digits in that zone instead of relabelling them as an instant.
+func TestUpdatePlanPartZoneOnlyAnchorsFloating(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "tzsrcanchor", false)
+	trip := newTrip(t, e, owner, "Trip")
+
+	_, partID, w := createTZPlan(t, e, trip, owner, map[string]any{
+		"ends_at": time.Date(2026, 7, 1, 17, 0, 0, 0, time.UTC),
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", w.Code, w.Body.String())
+	}
+	w = e.req(t, "PATCH", fmt.Sprintf("/api/plan-parts/%d", partID),
+		map[string]any{"start_tz": "Europe/Paris", "end_tz": "Europe/Paris"}, owner)
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch = %d: %s", w.Code, w.Body.String())
+	}
+	got := decodeBody[map[string]any](t, w)
+	// 15:00 and 17:00 wall clock in Paris (CEST, UTC+2) are 13:00 and 15:00 UTC.
+	for field, want := range map[string]time.Time{
+		"starts_at": time.Date(2026, 7, 1, 13, 0, 0, 0, time.UTC),
+		"ends_at":   time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC),
+	} {
+		s, _ := got[field].(string)
+		at, err := time.Parse(time.RFC3339, s)
+		if err != nil || !at.Equal(want) {
+			t.Errorf("%s = %v, want %v", field, got[field], want)
+		}
+	}
+	if got["start_tz_source"] != "confirmed" || got["end_tz_source"] != "confirmed" {
+		t.Errorf("sources = %v / %v, want confirmed", got["start_tz_source"], got["end_tz_source"])
+	}
+}

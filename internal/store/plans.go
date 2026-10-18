@@ -1173,6 +1173,7 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 	start := tzEdit{tz: in.StartTZ, src: in.StartTZSource}
 	end := tzEdit{tz: in.EndTZ, src: in.EndTZSource}
 	hasEnd := in.EndsAt != nil
+	startsAt, endsAt := in.StartsAt, in.EndsAt
 	if start.set() || end.set() {
 		cur, err := s.PlanPartByID(ctx, id)
 		if err != nil {
@@ -1181,6 +1182,15 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 		start.curTZ, start.curSrc = cur.StartTZ, cur.StartTZSource
 		end.curTZ, end.curSrc = cur.EndTZ, cur.EndTZSource
 		hasEnd = hasEnd || cur.EndsAt != nil
+		// A zone with no new time on a floating end anchors the stored
+		// wall-clock digits there, as UpdateFlightPartRoute does, rather
+		// than relabelling them as a true instant.
+		if startsAt == nil {
+			startsAt = start.anchorFloating(cur.StartsAt)
+		}
+		if endsAt == nil && cur.EndsAt != nil {
+			endsAt = end.anchorFloating(*cur.EndsAt)
+		}
 	}
 	startSrc, err := start.resolve(true)
 	if err != nil {
@@ -1211,8 +1221,8 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 			end_tz_source       = COALESCE($23, end_tz_source),
 			updated_at  = NOW()
 		WHERE id = $1`,
-		id, in.StartsAt,
-		in.EndsAt != nil, in.EndsAt,
+		id, startsAt,
+		endsAt != nil, endsAt,
 		in.StartTZ, in.EndTZ, in.StartLabel,
 		in.StartLat != nil, in.StartLat,
 		in.StartLon != nil, in.StartLon,
