@@ -138,6 +138,49 @@ func TestG3BackfillPartTimezones(t *testing.T) {
 	}
 }
 
+// TestG3BackfillPartTimezonesResolvedFlight: a provider-resolved flight at an
+// airport missing from the table reaches the backfill with coordinates but no
+// zone. Its times are real UTC, so it gains the zone without being shifted.
+func TestG3BackfillPartTimezonesResolvedFlight(t *testing.T) {
+	e := setup(t, nil, nil)
+	ctx := context.Background()
+	uid := e.user(t, "g3bptzfl", false)
+	p := func(f float64) *float64 { return &f }
+	out := time.Date(2026, 6, 1, 18, 50, 0, 0, time.UTC)
+	in := out.Add(5 * time.Hour)
+	plan, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: mustTrip(t, e, ctx, uid), Type: "flight", Title: "XX100",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: out, EndsAt: &in,
+			StartLabel: "London", StartLat: p(51.5074), StartLon: p(-0.1278),
+			EndLabel: "New York", EndLat: p(40.7128), EndLon: p(-74.0060),
+			Flight: &store.FlightDetail{
+				Ident: "XX100", ScheduledOut: out, ScheduledIn: in, Resolved: true,
+			},
+		}},
+	}, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e.api.BackfillPartTimezones(ctx)
+
+	parts, _ := e.store.PartsByPlan(ctx, plan.ID)
+	if len(parts) != 1 {
+		t.Fatalf("want 1 part, got %d", len(parts))
+	}
+	got := parts[0]
+	if !got.FlightResolved {
+		t.Error("FlightResolved not loaded from flight_details")
+	}
+	if got.StartTZ != "Europe/London" || got.EndTZ != "America/New_York" {
+		t.Errorf("zones = %q/%q, want Europe/London/America/New_York", got.StartTZ, got.EndTZ)
+	}
+	if !got.StartsAt.Equal(out) || got.EndsAt == nil || !got.EndsAt.Equal(in) {
+		t.Errorf("instants shifted: start=%v end=%v, want %v/%v", got.StartsAt, got.EndsAt, out, in)
+	}
+}
+
 // TestG3BackfillPartTimezonesQueryErr covers the query-error branch (dropping
 // plan_parts makes PartsNeedingTZ fail).
 func TestG3BackfillPartTimezonesQueryErr(t *testing.T) {

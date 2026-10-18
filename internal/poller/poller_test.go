@@ -483,10 +483,12 @@ type fakeResolver struct {
 	rf    *providers.ResolvedFlight
 	err   error
 	calls int
+	date  time.Time // the date of the last call
 }
 
-func (f *fakeResolver) Resolve(_ context.Context, _ string, _ time.Time) (*providers.ResolvedFlight, error) {
+func (f *fakeResolver) Resolve(_ context.Context, _ string, date time.Time) (*providers.ResolvedFlight, error) {
 	f.calls++
+	f.date = date
 	if f.rf != nil {
 		c := *f.rf
 		return &c, nil
@@ -1495,6 +1497,29 @@ func TestResolveAndUpdate_BackfillWriteErrorPropagates(t *testing.T) {
 
 	if _, rerr := p.resolveAndUpdate(ctx, f, now); rerr == nil {
 		t.Fatal("a failed backfill write should propagate from resolveAndUpdate")
+	}
+}
+
+// The provider matches on the local departure date, so a flight leaving just
+// after local midnight must be asked for on its local date, not the UTC one.
+func TestResolveAndUpdate_AsksForLocalDepartureDate(t *testing.T) {
+	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
+	fr := &fakeResolver{err: providers.ErrFlightNotFound}
+	p.Resolver = fr
+	ctx := context.Background()
+	uid := seedUser(t, s)
+	// 23:30Z on 1 June is 00:30 BST on 2 June at Heathrow.
+	out := time.Date(2026, 6, 1, 23, 30, 0, 0, time.UTC)
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "RU3", ScheduledOut: out, ScheduledIn: out.Add(8 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, uid)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	_, _ = p.resolveAndUpdate(ctx, f, out)
+	if got := fr.date.Format("2006-01-02"); got != "2026-06-02" {
+		t.Errorf("resolver asked for %s, want the local date 2026-06-02", got)
 	}
 }
 

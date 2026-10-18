@@ -100,7 +100,7 @@ func (c *CachedResolver) Purge(now time.Time) int {
 }
 
 func cacheKey(ident string, date time.Time) string {
-	return ident + "|" + date.UTC().Format("2006-01-02")
+	return ident + "|" + date.Format("2006-01-02")
 }
 
 // Compile-time check that CachedResolver satisfies Resolver.

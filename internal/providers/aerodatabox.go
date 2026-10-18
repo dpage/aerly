@@ -84,7 +84,9 @@ func (a *AeroDataBox) Resolve(ctx context.Context, ident string, date time.Time)
 	if ident == "" {
 		return nil, fmt.Errorf("ident required")
 	}
-	d := date.UTC().Format("2006-01-02")
+	// The calendar date in date's own location: callers pass the departure in
+	// the origin airport's zone, matching dateLocalRole=Departure.
+	d := date.Format("2006-01-02")
 	// Skip dates the provider can't answer (±180 days). Every ident variant
 	// below would otherwise fire its own request, all 400ing, so one out-of-
 	// window flight burns several calls for nothing. It reads as not-found-yet;
@@ -238,6 +240,13 @@ func (a *AeroDataBox) doOne(ctx context.Context, ident, date string) (
 		return nil, http.StatusNoContent, retry, body, nil
 	}
 
+	flights = onLocalDate(flights, date)
+	if len(flights) == 0 {
+		// Every flight returned departs on another local date: the previous
+		// day's service whose delay ran past midnight, say. That is not the
+		// flight asked for, so it is not found rather than wrongly matched.
+		return nil, http.StatusNoContent, retry, body, nil
+	}
 	pick := flights[0]
 	for i := range flights {
 		if flights[i].CodeshareStatus == "IsOperator" {
@@ -246,6 +255,22 @@ func (a *AeroDataBox) doOne(ctx context.Context, ident, date string) (
 		}
 	}
 	return buildResolved(&pick, ident), resp.StatusCode, retry, body, nil
+}
+
+// onLocalDate keeps the flights whose scheduled local departure falls on date
+// (YYYY-MM-DD). dateLocalRole=Departure should already guarantee that, but the
+// provider has been seen answering with the previous day's flight, which then
+// fed that flight's live times and status into the wrong leg. A flight with no
+// readable scheduled local departure is kept, since it can't be ruled out.
+func onLocalDate(flights []adbFlight, date string) []adbFlight {
+	out := flights[:0:0]
+	for _, f := range flights {
+		st := f.Departure.ScheduledTime
+		if st == nil || len(st.Local) < len(date) || st.Local[:len(date)] == date {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // ResolveAirport looks a single airport up by IATA code via

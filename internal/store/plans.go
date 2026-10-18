@@ -63,11 +63,15 @@ type PlanPart struct {
 	// Coords pinned by the user (a manual override the geocoder must not touch).
 	StartCoordsPinned bool
 	EndCoordsPinned   bool
-	Status            string // planned|confirmed|cancelled
-	SupersedesID      *int64
-	DismissedAt       *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// FlightResolved is true for a flight part whose schedule came from the
+	// flight-data provider: its StartsAt/EndsAt are then real UTC instants,
+	// never floating local times awaiting a zone.
+	FlightResolved bool
+	Status         string // planned|confirmed|cancelled
+	SupersedesID   *int64
+	DismissedAt    *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // EffectiveAt returns the time the front end sorts/renders a part by:
@@ -918,7 +922,8 @@ const planPartColumns = `part.id, part.plan_id, pl.type, part.seq, part.starts_a
 	part.ends_at, part.start_tz, part.end_tz, part.start_label, part.start_lat,
 	part.start_lon, part.end_label, part.end_lat, part.end_lon, part.status,
 	part.supersedes_id, part.dismissed_at, part.created_at, part.updated_at,
-	part.start_address, part.end_address, part.start_coords_pinned, part.end_coords_pinned`
+	part.start_address, part.end_address, part.start_coords_pinned, part.end_coords_pinned,
+	COALESCE((SELECT fd.resolved FROM flight_details fd WHERE fd.plan_part_id = part.id), false)`
 
 func scanPart(row pgx.Row) (*PlanPart, error) {
 	var p PlanPart
@@ -926,7 +931,8 @@ func scanPart(row pgx.Row) (*PlanPart, error) {
 		&p.EndsAt, &p.StartTZ, &p.EndTZ, &p.StartLabel, &p.StartLat,
 		&p.StartLon, &p.EndLabel, &p.EndLat, &p.EndLon, &p.Status,
 		&p.SupersedesID, &p.DismissedAt, &p.CreatedAt, &p.UpdatedAt,
-		&p.StartAddress, &p.EndAddress, &p.StartCoordsPinned, &p.EndCoordsPinned)
+		&p.StartAddress, &p.EndAddress, &p.StartCoordsPinned, &p.EndCoordsPinned,
+		&p.FlightResolved)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

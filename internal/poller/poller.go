@@ -592,7 +592,10 @@ func beltIsCurrent(f *store.Flight, now time.Time) bool {
 // still bump last_resolved_at via an empty Refresh so the next tick
 // throttles instead of retrying immediately.
 func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time.Time) (*store.Flight, error) {
-	rf, err := p.Resolver.Resolve(ctx, f.Ident, f.ScheduledOut)
+	// The provider matches on the local departure date, so ask in the origin's
+	// zone; the UTC date is a day out for flights leaving near local midnight.
+	depart := inZone(f.ScheduledOut, airportZone(f.OriginIATA, f.OriginLat, f.OriginLon))
+	rf, err := p.Resolver.Resolve(ctx, f.Ident, depart)
 	if err != nil {
 		if !errors.Is(err, providers.ErrFlightNotFound) {
 			slog.Warn("poller: resolve failed",

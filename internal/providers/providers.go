@@ -180,7 +180,10 @@ type ResolvedFlight struct {
 // Resolver maps a flight number + departure date to a ResolvedFlight. The
 // concrete implementation is whatever airline-data provider the operator
 // has configured (AeroDataBox today; AviationStack / FlightStats / similar
-// could slot in here too).
+// could slot in here too). The date is the calendar date of the given time in
+// its own location, so pass the departure in the origin airport's zone: a
+// flight leaving at 01:00 local is on a different UTC date from the one it is
+// booked on.
 type Resolver interface {
 	Resolve(ctx context.Context, ident string, date time.Time) (*ResolvedFlight, error)
 }

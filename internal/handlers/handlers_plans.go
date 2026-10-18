@@ -1001,7 +1001,7 @@ func (a *API) applyFlightEdit(ctx context.Context, partID int64, in flightEditRe
 	if in.Ident != nil {
 		newIdent := normalizeIdent(*in.Ident)
 		if newIdent != "" && newIdent != fd.Ident {
-			return a.reresolveFlightPart(ctx, partID, newIdent, fd.ScheduledOut)
+			return a.reresolveFlightPart(ctx, partID, newIdent, localDeparture(fd))
 		}
 	}
 
@@ -1013,6 +1013,17 @@ func (a *API) applyFlightEdit(ctx context.Context, partID int64, in flightEditRe
 		}
 	}
 	return nil
+}
+
+// localDeparture is the flight's scheduled departure in its origin airport's
+// zone, the date the provider matches on; UTC when the airport isn't known.
+func localDeparture(fd *store.FlightDetail) time.Time {
+	if tz, ok := airports.LookupTZ(fd.OriginIATA); ok {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return fd.ScheduledOut.In(loc)
+		}
+	}
+	return fd.ScheduledOut.UTC()
 }
 
 // reresolveFlightPart re-resolves a flight against a new ident and writes the
