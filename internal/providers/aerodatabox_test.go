@@ -932,3 +932,57 @@ func TestAeroDataBoxSkipsOutsideWindow(t *testing.T) {
 		t.Fatal("in-window lookup should reach the server")
 	}
 }
+
+// The previous day's flight, delayed past midnight, can come back for a
+// request dated today. The leg must match the flight that departs on the
+// requested local date, never the first one in the list.
+func TestAeroDataBoxPrefersFlightOnRequestedLocalDate(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"number":"XX100","codeshareStatus":"IsOperator",
+			 "departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-18T20:00Z","local":"2026-05-18 21:00+01:00"}},
+			 "arrival":{"airport":{"iata":"JFK"},"scheduledTime":{"utc":"2026-05-19T04:00Z","local":"2026-05-19 00:00-04:00"}}},
+			{"number":"XX100","codeshareStatus":"IsOperator",
+			 "departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-19T20:00Z","local":"2026-05-19 21:00+01:00"}},
+			 "arrival":{"airport":{"iata":"JFK"},"scheduledTime":{"utc":"2026-05-20T04:00Z","local":"2026-05-20 00:00-04:00"}}}]`))
+	})
+	rf, err := a.Resolve(context.Background(), "XX100", time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if want := time.Date(2026, 5, 19, 20, 0, 0, 0, time.UTC); !rf.ScheduledOut.Equal(want) {
+		t.Errorf("ScheduledOut = %v, want %v (the 19th's flight)", rf.ScheduledOut, want)
+	}
+}
+
+// When only another day's flight comes back, it is not found rather than
+// matched to the wrong leg.
+func TestAeroDataBoxOtherLocalDateOnlyIsNotFound(t *testing.T) {
+	a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"number":"XX100","codeshareStatus":"IsOperator",
+			"departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-18T20:00Z","local":"2026-05-18 21:00+01:00"}},
+			"arrival":{"airport":{"iata":"JFK"},"scheduledTime":{"utc":"2026-05-19T04:00Z","local":"2026-05-19 00:00-04:00"}}}]`))
+	})
+	_, err := a.Resolve(context.Background(), "XX100", time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC))
+	if !errors.Is(err, ErrFlightNotFound) {
+		t.Errorf("err = %v, want ErrFlightNotFound", err)
+	}
+}
+
+// The request date is the calendar date in the given time's own location, so
+// a caller passing the local departure gets that day's flights.
+func TestAeroDataBoxRequestsDateInGivenLocation(t *testing.T) {
+	var path string
+	a := newADB(t, func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	})
+	loc := time.FixedZone("UTC+5", 5*3600)
+	// 20:30Z on the 18th is 01:30 on the 19th at UTC+5.
+	depart := time.Date(2026, 5, 18, 20, 30, 0, 0, time.UTC).In(loc)
+	a.Now = func() time.Time { return depart }
+	_, _ = a.Resolve(context.Background(), "XX100", depart)
+	if !strings.HasSuffix(path, "/2026-05-19") {
+		t.Errorf("requested %s, want the local date 2026-05-19", path)
+	}
+}

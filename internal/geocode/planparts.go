@@ -75,7 +75,7 @@ func PlanParts(ctx context.Context, st *store.Store, r *Resolver, planID int64) 
 
 		// Anchor floating local times (tz unknown) to the zone of their
 		// coordinates, shifting the instant so the displayed wall-clock is
-		// preserved. Flights already carry a tz, so they're untouched.
+		// preserved. A provider-resolved flight only gains the zone.
 		ResolvePartTZ(p, &payload, startLat, startLon, endLat, endLon)
 
 		if !payload.IsEmpty() {
@@ -366,6 +366,11 @@ func isAllDigits(s string) bool {
 // and rewrites the stored instant so the local wall-clock is unchanged. A hotel's
 // checkout (no end coordinates of its own) inherits the start tz. Does nothing for
 // parts that already have a tz, or that have no usable coordinate.
+//
+// A provider-resolved flight is the exception to the rewrite: its times are
+// already real UTC instants (the airport was merely missing from the table at
+// ingest), so it gains the zone but keeps its instant. Shifting it moved
+// flights by the zone's offset.
 func ResolvePartTZ(
 	p *store.PlanPart,
 	payload *store.UpdatePlanPartPayload,
@@ -386,7 +391,7 @@ func ResolvePartTZ(
 	if p.StartTZ == "" && primary != "" {
 		tz := primary
 		payload.StartTZ = &tz
-		if s, ok := reinterpretLocal(p.StartsAt, tz); ok {
+		if s, ok := reinterpretLocal(p.StartsAt, tz); ok && !p.FlightResolved {
 			payload.StartsAt = &s
 		}
 	}
@@ -400,7 +405,7 @@ func ResolvePartTZ(
 		}
 		if etz != "" {
 			payload.EndTZ = &etz
-			if e, ok := reinterpretLocal(*p.EndsAt, etz); ok {
+			if e, ok := reinterpretLocal(*p.EndsAt, etz); ok && !p.FlightResolved {
 				payload.EndsAt = &e
 			}
 		}

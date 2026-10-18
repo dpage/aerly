@@ -78,6 +78,23 @@ func TestResolvePartTZ(t *testing.T) {
 		}
 	})
 
+	t.Run("provider-resolved flight gains the zone but keeps its instant", func(t *testing.T) {
+		// Its times are already real UTC; shifting them by the zone offset is
+		// what moved flights at airports missing from the table.
+		p := &store.PlanPart{Type: "flight", FlightResolved: true, StartsAt: starts, EndsAt: &ends}
+		var pl store.UpdatePlanPartPayload
+		ResolvePartTZ(p, &pl, fptr(londonLat), fptr(londonLon), fptr(nyLat), fptr(nyLon))
+		if pl.StartTZ == nil || *pl.StartTZ != "Europe/London" {
+			t.Errorf("StartTZ = %v, want Europe/London", pl.StartTZ)
+		}
+		if pl.EndTZ == nil || *pl.EndTZ != "America/New_York" {
+			t.Errorf("EndTZ = %v, want America/New_York", pl.EndTZ)
+		}
+		if pl.StartsAt != nil || pl.EndsAt != nil {
+			t.Errorf("instants rewritten for a resolved flight: start=%v end=%v", pl.StartsAt, pl.EndsAt)
+		}
+	})
+
 	t.Run("existing tz left untouched", func(t *testing.T) {
 		p := &store.PlanPart{StartsAt: starts, EndsAt: &ends, StartTZ: "Europe/Paris", EndTZ: "Europe/Paris"}
 		var pl store.UpdatePlanPartPayload

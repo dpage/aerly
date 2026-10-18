@@ -61,6 +61,7 @@ var table = map[string]Entry{
 	"VCE": {45.5053, 12.3519, "Venice Marco Polo", "Europe/Rome", "Venice"},
 	"NAP": {40.8860, 14.2908, "Naples", "Europe/Rome", "Naples"},
 	"CTA": {37.4668, 15.0664, "Catania", "Europe/Rome", "Catania"},
+	"PMO": {38.1760, 13.0910, "Palermo", "Europe/Rome", "Palermo"},
 	"ATH": {37.9364, 23.9445, "Athens", "Europe/Athens", "Athens"},
 	"SKG": {40.5197, 22.9709, "Thessaloniki", "Europe/Athens", "Thessaloniki"},
 	"HER": {35.3397, 25.1803, "Heraklion", "Europe/Athens", "Heraklion"},
@@ -79,6 +80,7 @@ var table = map[string]Entry{
 	"PRG": {50.1008, 14.2600, "Prague", "Europe/Prague", "Prague"},
 	"BUD": {47.4369, 19.2556, "Budapest", "Europe/Budapest", "Budapest"},
 	"BTS": {48.1702, 17.2127, "Bratislava", "Europe/Bratislava", "Bratislava"},
+	"TAT": {49.0736, 20.2411, "Poprad-Tatry", "Europe/Bratislava", "Poprad"},
 	"OTP": {44.5711, 26.0850, "Bucharest Otopeni", "Europe/Bucharest", "Bucharest"},
 	"SOF": {42.6952, 23.4114, "Sofia", "Europe/Sofia", "Sofia"},
 	"BEG": {44.8184, 20.3091, "Belgrade", "Europe/Belgrade", "Belgrade"},
@@ -96,6 +98,7 @@ var table = map[string]Entry{
 	"KEF": {63.9850, -22.6056, "Reykjavík Keflavík", "Atlantic/Reykjavik", "Reykjavík"},
 	"IST": {41.2753, 28.7519, "Istanbul", "Europe/Istanbul", "Istanbul"},
 	"SAW": {40.8986, 29.3092, "Istanbul Sabiha Gökçen", "Europe/Istanbul", "Istanbul"},
+	"DLM": {36.7131, 28.7925, "Dalaman", "Europe/Istanbul", "Dalaman"},
 	"SVO": {55.9726, 37.4146, "Moscow Sheremetyevo", "Europe/Moscow", "Moscow"},
 	"DME": {55.4088, 37.9061, "Moscow Domodedovo", "Europe/Moscow", "Moscow"},
 	"LED": {59.8003, 30.2625, "St Petersburg", "Europe/Moscow", "St Petersburg"},
@@ -206,6 +209,7 @@ var table = map[string]Entry{
 	"SID": {16.7414, -22.9494, "Sal Amílcar Cabral", "Atlantic/Cape_Verde", "Sal"},
 
 	// Asia
+	"TAS": {41.2579, 69.2812, "Tashkent", "Asia/Tashkent", "Tashkent"},
 	"SIN": {1.3644, 103.9915, "Singapore Changi", "Asia/Singapore", "Singapore"},
 	"KUL": {2.7456, 101.7099, "Kuala Lumpur", "Asia/Kuala_Lumpur", "Kuala Lumpur"},
 	"BKK": {13.6900, 100.7501, "Bangkok Suvarnabhumi", "Asia/Bangkok", "Bangkok"},
