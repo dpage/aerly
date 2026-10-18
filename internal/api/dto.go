@@ -902,6 +902,16 @@ func ToTripMemberDTO(m *store.TripMember) TripMemberDTO {
 	return TripMemberDTO{UserID: m.UserID, Role: m.Role}
 }
 
+// airportFallbackSource is the zone source shown with an airport zone the
+// DTO supplies for a flight end that stored none: confirmed for a true instant
+// (an unknown or legacy blank source), but floating stays floating.
+func airportFallbackSource(stored string) string {
+	if stored == "floating" {
+		return stored
+	}
+	return "confirmed"
+}
+
 // ToPlanPartDTO renders a part with its type-specific detail. The detail is
 // passed in (already loaded by the store) as exactly one non-nil pointer; the
 // TZ-lookup convenience that lived in ToFlightDTO now happens here, filling
@@ -950,17 +960,19 @@ func ToPlanPartDTO(
 	}
 	switch {
 	case flight != nil:
-		// Fall back to airport TZ when the part didn't store one.
+		// Fall back to airport TZ when the part didn't store one. A floating
+		// time keeps its floating source: its digits are wall-clock time, not
+		// yet an instant in that zone, so it must not be labelled confirmed.
 		if startTZ == "" {
 			if tz, ok := airports.LookupTZ(flight.OriginIATA); ok {
 				startTZ = tz
-				startSrc = "confirmed"
+				startSrc = airportFallbackSource(startSrc)
 			}
 		}
 		if endTZ == "" {
 			if tz, ok := airports.LookupTZ(flight.DestIATA); ok {
 				endTZ = tz
-				endSrc = "confirmed"
+				endSrc = airportFallbackSource(endSrc)
 			}
 		}
 		dto.Flight = ToFlightDetailDTO(flight, latest, track)

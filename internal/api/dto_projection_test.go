@@ -177,3 +177,21 @@ func TestToFlightAlertDTO(t *testing.T) {
 		t.Error("unread alert should have nil read_at")
 	}
 }
+
+// A floating flight time shown with an airport zone keeps its floating
+// source, since its digits have not been anchored in that zone.
+func TestToPlanPartDTO_FlightTZFallbackKeepsFloating(t *testing.T) {
+	at := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	part := &store.PlanPart{
+		Type: "flight", StartsAt: at, EndsAt: &at,
+		StartTZSource: "floating", EndTZSource: "unknown",
+	}
+	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK"}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if dto.StartTZ != "Europe/London" || dto.StartTZSource != "floating" {
+		t.Errorf("start = %q/%q, want Europe/London/floating", dto.StartTZ, dto.StartTZSource)
+	}
+	if dto.EndTZ != "America/New_York" || dto.EndTZSource != "confirmed" {
+		t.Errorf("end = %q/%q, want America/New_York/confirmed", dto.EndTZ, dto.EndTZSource)
+	}
+}
