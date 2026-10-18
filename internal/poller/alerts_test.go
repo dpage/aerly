@@ -1,9 +1,11 @@
 package poller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -113,7 +115,7 @@ func drainAlerts(t *testing.T, ch <-chan sse.Event) []api.FlightAlertDTO {
 	}
 }
 
-// TestSnapshotAndSignature exercises the pure snapshot/effectiveOut/signature
+// TestSnapshotAndSignature exercises the pure snapshot/signature
 // helpers directly: the delay-clamp (negative effective-out → 0), the
 // estimated-out fallback when there's no actual time, and the belt/terminal
 // components of the dedupe signature.
@@ -140,11 +142,16 @@ func TestSnapshotAndSignature(t *testing.T) {
 	act := out.Add(40 * time.Minute)
 	est := out.Add(10 * time.Minute)
 	bothF := &store.Flight{Status: "Enroute", ScheduledOut: out, ActualOut: &act, EstimatedOut: &est}
-	if eff := revisedOut(bothF); eff == nil || !eff.Equal(est) {
-		t.Errorf("revisedOut should use estimated_out, got %v", eff)
+	if st := snapshot(bothF); !st.hasDelay || st.delayMin != 10 {
+		t.Errorf("delay from estimated_out = %+v, want 10", st)
 	}
-	if st := snapshot(bothF); st.delayMin != 10 {
-		t.Errorf("delay from estimated_out = %d, want 10", st.delayMin)
+
+	// The same with a deeper wheels-off: off-block 40 late, wheels-off 55
+	// late, is a 40-minute delay.
+	est40, act55 := out.Add(40*time.Minute), out.Add(55*time.Minute)
+	deepF := &store.Flight{Status: "Enroute", ScheduledOut: out, EstimatedOut: &est40, ActualOut: &act55}
+	if st := snapshot(deepF); !st.hasDelay || st.delayMin != 40 {
+		t.Errorf("off-block 40m, wheels-off 55m: delay = %+v, want 40", st)
 	}
 
 	// Wheels-off on its own reports no delay at all, rather than a phantom one
@@ -1179,5 +1186,49 @@ func TestResolveClearsWithdrawnEstimateWithoutAlerting(t *testing.T) {
 	}
 	if cap.count() != emails {
 		t.Errorf("clearing an estimate must not send email, got %d new", cap.count()-emails)
+	}
+}
+
+// TestResolveWarnsOnImpossibleArrivalEstimate: a provider arrival estimate at
+// or before the departure is logged as dropped after the resolve.
+func TestResolveWarnsOnImpossibleArrivalEstimate(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "XX100", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+
+	bad := f.ScheduledOut.Add(-30 * time.Minute).UTC().Truncate(time.Second)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", EstimatedIn: &bad,
+	}}
+	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !strings.Contains(buf.String(), "poller: dropped impossible arrival estimate") {
+		t.Errorf("no warning logged:\n%s", buf.String())
+	}
+
+	// A sensible estimate is not warned about.
+	buf.Reset()
+	good := f.ScheduledIn.Add(10 * time.Minute).UTC().Truncate(time.Second)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", EstimatedIn: &good,
+	}}
+	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if strings.Contains(buf.String(), "dropped impossible") {
+		t.Errorf("a sensible estimate was warned about:\n%s", buf.String())
 	}
 }

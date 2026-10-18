@@ -13,6 +13,7 @@ import (
 	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Flight-alert step (spec §9). The poller refresh path calls maybeAlert after
@@ -127,31 +128,13 @@ func snapshot(f *store.Flight) alertState {
 	}
 	st.terminalDV = f.Status == "Cancelled" || f.Status == "Diverted"
 	st.departed = f.ActualOut != nil || f.Status == "Enroute" || f.Status == "Arrived"
-	eff := revisedOut(f)
-	if eff != nil {
-		d := int(eff.Sub(f.ScheduledOut).Minutes())
-		if d < 0 {
-			d = 0
-		}
-		st.delayMin, st.hasDelay = d, true
+	// The delay is the off-block estimate's alone, never wheels-off's: that
+	// runs a taxi-time later, and counting it would fire a phantom "now
+	// delayed" alert to everyone watching just as the aircraft left.
+	if t := timing.Effective(f.Times()); t.Revised {
+		st.delayMin, st.hasDelay = max(0, int(t.Departure.Delay/time.Minute)), true
 	}
 	return st
-}
-
-// revisedOut is the departure time a delay is measured against: the airline's
-// revised off-block estimate, which is quoted on the same clock as the
-// timetabled departure it gets subtracted from. Nil when the provider has no
-// live departure coverage, so a flight known only from its timetable reports no
-// delay at all rather than a delay of zero.
-//
-// This deliberately does NOT fall back to actual_out the way
-// FlightDetail.EffectiveOut does. That column holds the observed wheels-off,
-// which runs a taxi-time later than the off-block time it would be compared
-// against, so preferring it would add a phantom ten-minute delay to almost
-// every flight at the moment it took off — and, worse, fire that as a
-// "now delayed" alert to everyone watching, just as the aircraft left.
-func revisedOut(f *store.Flight) *time.Time {
-	return f.EstimatedOut
 }
 
 // alertSignature is the per-part dedupe key for a state. Cancellation/diversion
@@ -271,10 +254,7 @@ func (p *Poller) evaluateAlert(partID int64, prev, cur *store.Flight, reported b
 // flight's effective departure (the revised off-block time the delay is
 // measured from, else the timetable), or past it.
 func inQuietPeriod(f *store.Flight, now time.Time) bool {
-	dep := f.ScheduledOut
-	if eff := revisedOut(f); eff != nil {
-		dep = *eff
-	}
+	dep := f.ScheduledOut.Add(timing.Effective(f.Times()).Departure.Delay)
 	return !now.Before(dep.Add(-terminalQuietPeriod))
 }
 
@@ -455,12 +435,13 @@ func terminalChanged(prev, cur string) bool {
 func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	switch kind {
 	case "delayed":
-		if eff := revisedOut(f); eff != nil {
+		if t := timing.Effective(f.Times()); t.Revised {
+			eff := f.ScheduledOut.Add(t.Departure.Delay)
 			// Quote the revised departure on the departure airport's clock,
 			// which is the one the traveller is reading (issue #117); UTC only
 			// where the airport's zone can't be resolved at all.
 			zone := airportZone(f.OriginIATA, f.OriginLat, f.OriginLon)
-			return "now departing " + inZone(*eff, zone).Format("15:04 MST")
+			return "now departing " + inZone(eff, zone).Format("15:04 MST")
 		}
 		return "now delayed"
 	case "diverted":
@@ -620,7 +601,7 @@ func (p *Poller) sendAlertEmail(ctx context.Context, to string, f *store.Flight,
 	if send == nil {
 		send = mailer.Send
 	}
-	departs, arrives := effectiveTimes(f)
+	t := timing.Effective(f.Times())
 	msg := mailer.BuildFlightAlertEmail(mailer.FlightAlertInput{
 		FromAddr:  p.MailFromAddress,
 		ToAddr:    to,
@@ -630,9 +611,9 @@ func (p *Poller) sendAlertEmail(ctx context.Context, to string, f *store.Flight,
 		Detail:    detail,
 		Origin:    airports.Label(f.OriginIATA, ""),
 		Dest:      airports.Label(f.DestIATA, ""),
-		DepartsAt: departs,
+		DepartsAt: t.Departure.At,
 		OriginTZ:  airportZone(f.OriginIATA, f.OriginLat, f.OriginLon),
-		ArrivesAt: arrives,
+		ArrivesAt: arrivalAt(t),
 		DestTZ:    airportZone(f.DestIATA, f.DestLat, f.DestLon),
 	})
 	if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {

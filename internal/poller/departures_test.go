@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/store"
 	"github.com/dpage/aerly/internal/weather"
 )
@@ -614,9 +615,10 @@ func TestPushDeparture_MarkFailureSkipsPush(t *testing.T) {
 	}
 }
 
-// TestEffectiveTimes: actual beats estimated beats the timetable, and an
-// arrival with nothing known at all is nil.
-func TestEffectiveTimes(t *testing.T) {
+// TestAlertEmailTimes: the alert email quotes the effective times from the
+// one rule: actual beats estimated beats the timetable moved by the off-block
+// delay beats the timetable, and an arrival with nothing known is left out.
+func TestAlertEmailTimes(t *testing.T) {
 	sched := depOut
 	est := sched.Add(20 * time.Minute)
 	act := sched.Add(25 * time.Minute)
@@ -624,37 +626,92 @@ func TestEffectiveTimes(t *testing.T) {
 	estIn := in.Add(15 * time.Minute)
 	actIn := in.Add(10 * time.Minute)
 	shiftedIn := in.Add(20 * time.Minute)
+	beforeOut := sched.Add(-time.Hour)
 
 	for _, c := range []struct {
-		name        string
-		f           store.Flight
-		wantDep     time.Time
-		wantArr     *time.Time
-		wantArrNone bool
+		name    string
+		f       store.Flight
+		wantDep time.Time
+		wantArr *time.Time
 	}{
-		{"timetable", store.Flight{ScheduledOut: sched, ScheduledIn: in}, sched, &in, false},
-		{"estimated", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in, EstimatedIn: &estIn}, est, &estIn, false},
+		{"timetable", store.Flight{ScheduledOut: sched, ScheduledIn: in}, sched, &in},
+		{"estimated", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in, EstimatedIn: &estIn}, est, &estIn},
 		{"actual", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ActualOut: &act,
-			ScheduledIn: in, EstimatedIn: &estIn, ActualIn: &actIn}, act, &actIn, false},
-		{"no arrival", store.Flight{ScheduledOut: sched}, sched, nil, true},
-		{"departure delay shifts timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in}, est, &shiftedIn, false},
+			ScheduledIn: in, EstimatedIn: &estIn, ActualIn: &actIn}, act, &actIn},
+		{"no arrival", store.Flight{ScheduledOut: sched}, sched, nil},
+		// A manually added flight stores scheduled_in == scheduled_out: there
+		// is no timetabled arrival, so none is quoted.
+		{"departure-only", store.Flight{ScheduledOut: sched, ScheduledIn: sched}, sched, nil},
+		{"departure delay shifts timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in}, est, &shiftedIn},
 		// Wheels-off runs a taxi-time behind the off-block estimate, so it
 		// shifts the timetable arrival by the estimate's delay, not its own.
-		{"wheels-off does not shift timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ActualOut: &act, ScheduledIn: in}, act, &shiftedIn, false},
-		{"wheels-off alone leaves timetable arrival", store.Flight{ScheduledOut: sched, ActualOut: &act, ScheduledIn: in}, act, &in, false},
+		{"wheels-off does not shift timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ActualOut: &act, ScheduledIn: in}, act, &shiftedIn},
+		{"wheels-off alone leaves timetable arrival", store.Flight{ScheduledOut: sched, ActualOut: &act, ScheduledIn: in}, act, &in},
+		// An arrival estimate before the departure is impossible and dropped.
+		{"impossible arrival estimate dropped", store.Flight{ScheduledOut: sched, ScheduledIn: in, EstimatedIn: &beforeOut}, sched, &in},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			dep, arr := effectiveTimes(&c.f)
-			if !dep.Equal(c.wantDep) {
-				t.Errorf("departs = %v, want %v", dep, c.wantDep)
+			cap := &captureMailer{}
+			p := &Poller{MailFromAddress: "alerts@aerly.test", SendAlertEmail: cap.send}
+			c.f.Ident = "XX100"
+			p.sendAlertEmail(context.Background(), "to@aerly.test", &c.f, "gate", "now departs gate A12")
+			if cap.count() != 1 {
+				t.Fatalf("want 1 email, got %d", cap.count())
 			}
-			switch {
-			case c.wantArrNone && arr != nil:
-				t.Errorf("arrives = %v, want nil", *arr)
-			case !c.wantArrNone && (arr == nil || !arr.Equal(*c.wantArr)):
-				t.Errorf("arrives = %v, want %v", arr, *c.wantArr)
+			want := mailer.FlightAlertDetails(mailer.FlightAlertInput{DepartsAt: c.wantDep, ArrivesAt: c.wantArr})
+			if !strings.Contains(cap.sent[0], want) {
+				t.Errorf("email lacks %q:\n%s", want, cap.sent[0])
+			}
+			if c.wantArr == nil && strings.Contains(cap.sent[0], "arriving") {
+				t.Errorf("email quotes an arrival it should not:\n%s", cap.sent[0])
 			}
 		})
+	}
+}
+
+// TestDepartureInput_EffectiveTimes: the summary input takes its delay from the
+// off-block estimate alone, so wheels-off a taxi-time after the timetable is
+// not headlined as a delay, and a departure-only flight has no arrival.
+func TestDepartureInput_EffectiveTimes(t *testing.T) {
+	p, s, _, _, owner, partID := departureSetup(t)
+	ctx := context.Background()
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET actual_out = $2 WHERE plan_part_id = $1`,
+		partID, depOut.Add(12*time.Minute)); err != nil {
+		t.Fatalf("set actual_out: %v", err)
+	}
+	due, err := s.DueDepartureSummaries(ctx, depOut.Add(-store.DepartureSummaryLead))
+	if err != nil || len(due) != 1 || due[0].UserID != owner {
+		t.Fatalf("due = %+v, %v", due, err)
+	}
+
+	in, ok := p.departureInput(ctx, due[0])
+	if !ok {
+		t.Fatal("departureInput failed")
+	}
+	if in.DepartureDelay != 0 || !in.DepartsAt.Equal(depOut.Add(12*time.Minute)) {
+		t.Errorf("delay = %v, departs = %v; want 0 and wheels-off", in.DepartureDelay, in.DepartsAt)
+	}
+	if h := mailer.DepartureSummaryHeadline(in); !strings.Contains(h, "is on time") {
+		t.Errorf("wheels-off without an estimate should be on time, got %q", h)
+	}
+	if in.ArrivesAt == nil {
+		t.Error("a timetabled arrival should be quoted")
+	}
+
+	// The off-block estimate is the delay, even when wheels-off is later.
+	setEstimatedOut(t, s, partID, depOut.Add(40*time.Minute))
+	if in, _ = p.departureInput(ctx, due[0]); in.DepartureDelay != 40*time.Minute {
+		t.Errorf("delay = %v, want 40m", in.DepartureDelay)
+	}
+
+	if _, err := s.Pool().Exec(ctx, `
+		UPDATE flight_details SET scheduled_in = scheduled_out, estimated_out = NULL, actual_out = NULL
+		WHERE plan_part_id = $1`, partID); err != nil {
+		t.Fatalf("make departure-only: %v", err)
+	}
+	if in, _ = p.departureInput(ctx, due[0]); in.ArrivesAt != nil {
+		t.Errorf("a departure-only flight should have no arrival, got %v", *in.ArrivesAt)
 	}
 }
 

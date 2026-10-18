@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 type Store struct {
@@ -61,6 +63,19 @@ type UserIdentity struct {
 	ProviderUserID string
 	CreatedAt      time.Time
 	LastUsedAt     *time.Time
+}
+
+// Times returns the flight's timetable and provider times, for
+// timing.Effective.
+func (f *Flight) Times() timing.FlightTimes {
+	return timing.FlightTimes{
+		ScheduledOut: f.ScheduledOut,
+		ScheduledIn:  f.ScheduledIn,
+		EstimatedOut: f.EstimatedOut,
+		EstimatedIn:  f.EstimatedIn,
+		ActualOut:    f.ActualOut,
+		ActualIn:     f.ActualIn,
+	}
 }
 
 type Flight struct {

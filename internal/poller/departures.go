@@ -11,6 +11,7 @@ import (
 	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 	"github.com/dpage/aerly/internal/weather"
 )
 
@@ -79,7 +80,8 @@ func (p *Poller) departureInput(ctx context.Context, d store.DueDepartureSummary
 		return mailer.DepartureSummaryInput{}, false
 	}
 
-	departs, arrives := effectiveTimes(f)
+	t := timing.Effective(f.Times())
+	departs, arrives := t.Departure.At, arrivalAt(t)
 
 	destLabel := f.DestIATA
 	if city, ok := airports.LookupCity(f.DestIATA); ok {
@@ -100,56 +102,35 @@ func (p *Poller) departureInput(ctx context.Context, d store.DueDepartureSummary
 	}
 
 	return mailer.DepartureSummaryInput{
-		FromAddr:      p.MailFromAddress,
-		ToAddr:        d.EmailAddr,
-		PublicURL:     p.PublicURL,
-		TripID:        d.TripID,
-		Ident:         f.Ident,
-		Route:         route,
-		DestLabel:     destLabel,
-		DestIATA:      f.DestIATA,
-		ScheduledOut:  f.ScheduledOut,
-		DepartsAt:     departs,
-		OriginTZ:      partZone(d.StartTZ, f.OriginIATA, f.OriginLat, f.OriginLon),
-		ArrivesAt:     arrives,
-		DestTZ:        destTZ,
-		Terminal:      f.OriginTerminal,
-		Gate:          f.OriginGate,
-		SupplierName:  plan.SupplierName,
-		ContactPhone:  plan.ContactPhone,
-		Forecast:      p.departureForecast(ctx, f, destTZ, landing),
-		ForecastPlace: destLabel,
+		FromAddr:       p.MailFromAddress,
+		ToAddr:         d.EmailAddr,
+		PublicURL:      p.PublicURL,
+		TripID:         d.TripID,
+		Ident:          f.Ident,
+		Route:          route,
+		DestLabel:      destLabel,
+		DestIATA:       f.DestIATA,
+		ScheduledOut:   f.ScheduledOut,
+		DepartsAt:      departs,
+		DepartureDelay: t.Departure.Delay,
+		OriginTZ:       partZone(d.StartTZ, f.OriginIATA, f.OriginLat, f.OriginLon),
+		ArrivesAt:      arrives,
+		DestTZ:         destTZ,
+		Terminal:       f.OriginTerminal,
+		Gate:           f.OriginGate,
+		SupplierName:   plan.SupplierName,
+		ContactPhone:   plan.ContactPhone,
+		Forecast:       p.departureForecast(ctx, f, destTZ, landing),
+		ForecastPlace:  destLabel,
 	}, true
 }
 
-// effectiveTimes returns the best departure and arrival times the provider
-// currently knows: actual, else estimated, else the timetable. arrives is nil
-// when nothing at all is known about the arrival.
-func effectiveTimes(f *store.Flight) (departs time.Time, arrives *time.Time) {
-	departs = f.ScheduledOut
-	switch {
-	case f.ActualOut != nil:
-		departs = *f.ActualOut
-	case f.EstimatedOut != nil:
-		departs = *f.EstimatedOut
+// arrivalAt is the effective arrival time, or nil when none is known.
+func arrivalAt(t timing.Times) *time.Time {
+	if t.Arrival == nil {
+		return nil
 	}
-	switch {
-	case f.ActualIn != nil:
-		arrives = f.ActualIn
-	case f.EstimatedIn != nil:
-		arrives = f.EstimatedIn
-	case !f.ScheduledIn.IsZero():
-		in := f.ScheduledIn
-		// Only the departure is delayed: carry the same delay to the
-		// timetable arrival rather than quoting a time the flight can't make.
-		// The delay is the off-block estimate's, never the wheels-off time's,
-		// which would add the taxi time on top (see revisedOut).
-		if eo := revisedOut(f); eo != nil {
-			in = in.Add(eo.Sub(f.ScheduledOut))
-		}
-		arrives = &in
-	}
-	return departs, arrives
+	return &t.Arrival.At
 }
 
 // departureForecast fetches the destination forecast for forecastDays days
