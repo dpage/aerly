@@ -820,9 +820,10 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 	// poller then spent every tick asking the provider about a day the flight
 	// never flew. Done before the flight edit below so a re-resolve triggered in
 	// the same request looks up the corrected date, and so provider data still
-	// wins where both apply.
+	// wins where both apply; the edit is passed in so floating times are
+	// anchored at the airports it is about to set, not the ones it replaces.
 	if part.Type == "flight" && (in.StartsAt != nil || in.EndsAt != nil) {
-		if err := a.syncFlightSchedule(r.Context(), id, part); err != nil {
+		if err := a.syncFlightSchedule(r.Context(), id, part, in.Flight); err != nil {
 			handleStoreErr(w, err)
 			return
 		}
@@ -1054,14 +1055,6 @@ func clampNonNegative(n *int) *int {
 	return n
 }
 
-// applyFlightEdit applies a flight part's route/identity edit. Changing the
-// ident re-resolves the flight (resolve-or-fallback, never reject): on success
-// the provider's route/schedule is adopted and the flight is marked resolved; on
-// failure the last-known route is kept and the flight is marked unresolved so the
-// poller retries and the user can correct the IATAs by hand. An IATA edit is
-// honoured only for an unresolved flight (otherwise a re-resolve would clobber
-// it), where it rewrites the route, regenerates the label, and recomputes (or
-// clears) the airport's coordinates/timezone.
 // syncFlightSchedule brings an unresolved flight's scheduled_out/scheduled_in
 // back in line with the part's own times after a schedule edit.
 //
@@ -1074,7 +1067,10 @@ func clampNonNegative(n *int) *int {
 // no arrival branch can ever terminate. A flight that had no arrival to begin
 // with keeps having none, which is the honest answer rather than an invented
 // one.
-func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.PlanPart) error {
+//
+// edit is the same request's route/identity edit, or nil; floating ends are
+// anchored in the zones of the airports it will leave the flight with.
+func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.PlanPart, edit *flightEditReq) error {
 	fd, err := a.Store.FlightDetailFor(ctx, partID)
 	if err != nil || fd == nil {
 		return err
@@ -1082,7 +1078,8 @@ func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.
 	if fd.Resolved {
 		return nil
 	}
-	if err := a.anchorFloatingFlightPart(ctx, partID, part, fd); err != nil {
+	origin, dest := routeAfterEdit(fd, part, edit)
+	if err := a.anchorFloatingFlightPart(ctx, partID, part, origin, dest); err != nil {
 		return err
 	}
 	out := part.StartsAt
@@ -1110,12 +1107,13 @@ func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.
 // place. An end with no airport zone stays floating and its digits carry
 // through as before. An arrival equal to the departure is the stored form of
 // "no arrival known" and keeps that shape by taking the departure's anchoring.
-func (a *API) anchorFloatingFlightPart(ctx context.Context, partID int64, part *store.PlanPart, fd *store.FlightDetail) error {
+// origin and dest are the airports to anchor at (see routeAfterEdit).
+func (a *API) anchorFloatingFlightPart(ctx context.Context, partID int64, part *store.PlanPart, origin, dest flightAirport) error {
 	var payload store.UpdatePlanPartPayload
 	changed := false
 	confirmed := string(timing.Confirmed)
 	noArrival := part.EndsAt != nil && part.EndsAt.Equal(part.StartsAt)
-	start, startOK := anchorFlightEnd(part.StartsAt, part.StartTZ, part.StartTZSource, fd.OriginIATA, part.StartLat, part.StartLon)
+	start, startOK := anchorFlightEnd(part.StartsAt, part.StartTZ, part.StartTZSource, origin.iata, origin.lat, origin.lon)
 	if startOK {
 		payload.StartsAt, payload.StartTZ, payload.StartTZSource = &start.at, &start.tz, &confirmed
 		changed = true
@@ -1128,7 +1126,7 @@ func (a *API) anchorFloatingFlightPart(ctx context.Context, partID int64, part *
 		if noArrival {
 			end, endOK = start, startOK
 		} else {
-			end, endOK = anchorFlightEnd(*part.EndsAt, part.EndTZ, part.EndTZSource, fd.DestIATA, part.EndLat, part.EndLon)
+			end, endOK = anchorFlightEnd(*part.EndsAt, part.EndTZ, part.EndTZSource, dest.iata, dest.lat, dest.lon)
 		}
 		if endOK {
 			payload.EndsAt, payload.EndTZ, payload.EndTZSource = &end.at, &end.tz, &confirmed
@@ -1146,8 +1144,16 @@ func (a *API) anchorFloatingFlightPart(ctx context.Context, partID int64, part *
 	return nil
 }
 
-// applyFlightEdit applies a flight route/identity edit. part is the part as just
-// saved by the caller, whose times and zone sources the manual-route path reads.
+// applyFlightEdit applies a flight part's route/identity edit. Changing the
+// ident re-resolves the flight (resolve-or-fallback, never reject): on success
+// the provider's route/schedule is adopted and the flight is marked resolved; on
+// failure the last-known route is kept and the flight is marked unresolved so the
+// poller retries and the user can correct the IATAs by hand. An IATA edit is
+// honoured only for an unresolved flight (otherwise a re-resolve would clobber
+// it), where it rewrites the route, regenerates the label, and recomputes (or
+// clears) the airport's coordinates/timezone.
+// part is the part as just saved by the caller, whose times and zone sources the
+// manual-route path reads.
 func (a *API) applyFlightEdit(ctx context.Context, partID int64, part *store.PlanPart, in flightEditReq) error {
 	fd, err := a.Store.FlightDetailFor(ctx, partID)
 	if err != nil {
@@ -1157,11 +1163,8 @@ func (a *API) applyFlightEdit(ctx context.Context, partID int64, part *store.Pla
 		return nil // not a flight part — nothing to do
 	}
 
-	if in.Ident != nil {
-		newIdent := normalizeIdent(*in.Ident)
-		if newIdent != "" && newIdent != fd.Ident {
-			return a.reresolveFlightPart(ctx, partID, newIdent, localDeparture(fd))
-		}
+	if newIdent, ok := changedIdent(fd, in); ok {
+		return a.reresolveFlightPart(ctx, partID, newIdent, localDeparture(fd))
 	}
 
 	// IATA edits are only meaningful on an unresolved flight; for a tracked
@@ -1172,6 +1175,48 @@ func (a *API) applyFlightEdit(ctx context.Context, partID int64, part *store.Pla
 		}
 	}
 	return nil
+}
+
+// changedIdent is the edit's normalised flight number when it names a new one,
+// which makes applyFlightEdit re-resolve the flight and ignore any IATA edit.
+func changedIdent(fd *store.FlightDetail, in flightEditReq) (string, bool) {
+	if in.Ident == nil {
+		return "", false
+	}
+	newIdent := normalizeIdent(*in.Ident)
+	return newIdent, newIdent != "" && newIdent != fd.Ident
+}
+
+// flightAirport is one end's airport for anchoring: its code and the
+// coordinates a zone falls back to when the code is not in the table.
+type flightAirport struct {
+	iata     string
+	lat, lon *float64
+}
+
+// routeAfterEdit is the origin and destination a flight will have once edit
+// (nil for none) has been applied by applyFlightEdit, which runs after the
+// schedule sync: a hand-typed IATA change on an unresolved flight replaces that
+// end's airport and coordinates (as manualRouteUpdate computes them), whilst a
+// new ident re-resolves and ignores the codes, so the current route stands
+// until the provider says otherwise.
+func routeAfterEdit(fd *store.FlightDetail, part *store.PlanPart, edit *flightEditReq) (origin, dest flightAirport) {
+	origin = flightAirport{fd.OriginIATA, part.StartLat, part.StartLon}
+	dest = flightAirport{fd.DestIATA, part.EndLat, part.EndLon}
+	if edit == nil || fd.Resolved {
+		return origin, dest
+	}
+	if _, ok := changedIdent(fd, *edit); ok {
+		return origin, dest
+	}
+	up, _ := manualRouteUpdate(fd, part, *edit)
+	if up.OriginIATA != nil {
+		origin = flightAirport{*up.OriginIATA, up.StartLat, up.StartLon}
+	}
+	if up.DestIATA != nil {
+		dest = flightAirport{*up.DestIATA, up.EndLat, up.EndLon}
+	}
+	return origin, dest
 }
 
 // localDeparture is the flight's scheduled departure in its origin airport's

@@ -340,6 +340,49 @@ func TestUpdateFlightAnchorsFloatingSchedule(t *testing.T) {
 		}
 	})
 
+	t.Run("a time and route edit anchors in the new airports' zones", func(t *testing.T) {
+		id := create("LHR", "CDG")
+		patch(id, map[string]any{
+			"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC),
+			"ends_at":   time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC),
+			"flight":    map[string]any{"origin_iata": "jfk", "dest_iata": "LAX"},
+		})
+		// 09:00 EDT is 13:00Z; 11:00 PDT is 18:00Z.
+		wantOut := time.Date(2026, 7, 2, 13, 0, 0, 0, time.UTC)
+		wantIn := time.Date(2026, 7, 2, 18, 0, 0, 0, time.UTC)
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		if fd.OriginIATA != "JFK" || fd.DestIATA != "LAX" {
+			t.Fatalf("route = %s-%s, want JFK-LAX", fd.OriginIATA, fd.DestIATA)
+		}
+		if !fd.ScheduledOut.Equal(wantOut) || !fd.ScheduledIn.Equal(wantIn) {
+			t.Errorf("schedule = %v / %v, want %v / %v", fd.ScheduledOut.UTC(), fd.ScheduledIn.UTC(), wantOut, wantIn)
+		}
+		part, _ := e.store.PlanPartByID(ctx, id)
+		if part.StartTZ != "America/New_York" || part.StartTZSource != "confirmed" || !part.StartsAt.Equal(wantOut) {
+			t.Errorf("start = %q/%q %v", part.StartTZ, part.StartTZSource, part.StartsAt.UTC())
+		}
+		if part.EndTZ != "America/Los_Angeles" || part.EndTZSource != "confirmed" || part.EndsAt == nil || !part.EndsAt.Equal(wantIn) {
+			t.Errorf("end = %q/%q %v", part.EndTZ, part.EndTZSource, part.EndsAt)
+		}
+	})
+
+	t.Run("a new ident keeps the old airports, as its re-resolve ignores the codes", func(t *testing.T) {
+		id := create("LHR", "CDG")
+		patch(id, map[string]any{
+			"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC),
+			"ends_at":   time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC),
+			"flight":    map[string]any{"ident": "XX101", "origin_iata": "JFK"},
+		})
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		if fd.OriginIATA != "LHR" {
+			t.Fatalf("origin = %s, want LHR kept", fd.OriginIATA)
+		}
+		// 09:00 BST is 08:00Z.
+		if want := time.Date(2026, 7, 2, 8, 0, 0, 0, time.UTC); !fd.ScheduledOut.Equal(want) {
+			t.Errorf("departure = %v, want %v", fd.ScheduledOut.UTC(), want)
+		}
+	})
+
 	t.Run("a confirmed flight is left untouched", func(t *testing.T) {
 		id := create("LHR", "CDG")
 		patch(id, map[string]any{"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)})
