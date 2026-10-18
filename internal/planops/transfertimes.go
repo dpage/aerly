@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/airports"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // transferArrivalBuffer is added to a flight's arrival to time an airport→hotel
@@ -94,7 +95,7 @@ func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 		// Airport → accommodation: time off the inbound flight's arrival.
 		if f, ok := findArrival(flights, startCode, transferDate); ok {
 			retimeStart(part, f.in.Add(transferArrivalBuffer))
-			part.StartTZ = f.inTZ
+			part.StartTZ, part.StartTZSource = f.inTZ, instantSource(f.inTZ)
 		}
 		return
 	}
@@ -105,7 +106,7 @@ func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 			lead = leadLongHaul
 		}
 		retimeStart(part, f.out.Add(-lead))
-		part.StartTZ = f.outTZ
+		part.StartTZ, part.StartTZSource = f.outTZ, instantSource(f.outTZ)
 	}
 }
 
@@ -120,6 +121,11 @@ func retimeStart(part *ProposedPart, newStart time.Time) {
 		delta := newStart.Sub(part.StartsAt)
 		newEnd := part.EndsAt.Add(delta)
 		part.EndsAt = &newEnd
+		// Shifted off a flight's instant, a floating end is now a true
+		// instant whose zone is not known.
+		if part.EndTZ == "" {
+			part.EndTZSource = string(timing.Unknown)
+		}
 	}
 	part.StartsAt = newStart
 }

@@ -25,6 +25,9 @@ func TestToPlanPartDTO_FlightTZFallbackAndEffectiveAt(t *testing.T) {
 	if dto.EndTZ != "America/New_York" {
 		t.Errorf("end_tz = %q, want America/New_York", dto.EndTZ)
 	}
+	if dto.StartTZSource != "confirmed" || dto.EndTZSource != "confirmed" {
+		t.Errorf("fallback sources = %q/%q, want confirmed/confirmed", dto.StartTZSource, dto.EndTZSource)
+	}
 	// effective_at uses the flight's effective departure (estimated over scheduled).
 	if !dto.EffectiveAt.Equal(est) {
 		t.Errorf("effective_at = %v, want %v (estimated out)", dto.EffectiveAt, est)
@@ -38,11 +41,15 @@ func TestToPlanPartDTO_StoredTZNotOverwritten(t *testing.T) {
 	part := &store.PlanPart{
 		Type: "flight", StartsAt: time.Now(),
 		StartTZ: "Asia/Tokyo", EndTZ: "Asia/Singapore",
+		StartTZSource: "inferred", EndTZSource: "unknown",
 	}
 	flight := &store.FlightDetail{Ident: "X", OriginIATA: "LHR", DestIATA: "JFK"}
 	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if dto.StartTZ != "Asia/Tokyo" || dto.EndTZ != "Asia/Singapore" {
 		t.Errorf("stored TZs overwritten: start=%q end=%q", dto.StartTZ, dto.EndTZ)
+	}
+	if dto.StartTZSource != "inferred" || dto.EndTZSource != "unknown" {
+		t.Errorf("stored sources overwritten: %q/%q", dto.StartTZSource, dto.EndTZSource)
 	}
 }
 
@@ -168,5 +175,23 @@ func TestToFlightAlertDTO(t *testing.T) {
 	}
 	if dto.ReadAt != nil {
 		t.Error("unread alert should have nil read_at")
+	}
+}
+
+// A floating flight time shown with an airport zone keeps its floating
+// source, since its digits have not been anchored in that zone.
+func TestToPlanPartDTO_FlightTZFallbackKeepsFloating(t *testing.T) {
+	at := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	part := &store.PlanPart{
+		Type: "flight", StartsAt: at, EndsAt: &at,
+		StartTZSource: "floating", EndTZSource: "unknown",
+	}
+	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK"}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if dto.StartTZ != "Europe/London" || dto.StartTZSource != "floating" {
+		t.Errorf("start = %q/%q, want Europe/London/floating", dto.StartTZ, dto.StartTZSource)
+	}
+	if dto.EndTZ != "America/New_York" || dto.EndTZSource != "confirmed" {
+		t.Errorf("end = %q/%q, want America/New_York/confirmed", dto.EndTZ, dto.EndTZSource)
 	}
 }

@@ -108,3 +108,16 @@ func TestPlanReplyItem_NonFlight(t *testing.T) {
 		t.Error("non-flight item should not carry a manual note")
 	}
 }
+
+// TestToConfirmInputCarriesZoneSources: what each proposed time means survives
+// into the confirm payload, so a floating LLM time is not stored as unknown.
+func TestToConfirmInputCarriesZoneSources(t *testing.T) {
+	end := time.Date(2026, 7, 3, 11, 0, 0, 0, time.UTC)
+	in := toConfirmInput(planops.ProposedPlan{Type: "hotel", Parts: []planops.ProposedPart{{
+		Type: "hotel", StartsAt: time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC), EndsAt: &end,
+		StartTZSource: "floating", EndTZSource: "unknown",
+	}}})
+	if p := in.Parts[0]; p.StartTZSource != "floating" || p.EndTZSource != "unknown" {
+		t.Errorf("sources = %q/%q, want floating/unknown", p.StartTZSource, p.EndTZSource)
+	}
+}

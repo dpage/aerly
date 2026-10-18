@@ -5,6 +5,7 @@ import {
   buildExternalDays,
   buildTimeline,
   classifyTrip,
+  floatingISO,
   fmtPartPlaces,
   flightStatusLabel,
   fmtPartDuration,
@@ -1029,5 +1030,12 @@ describe('branch edge cases', () => {
   it('zonedTimeToUtc: empty for a malformed date, defaults a blank time to 00:00', () => {
     expect(zonedTimeToUtc('', '09:00', 'UTC')).toBe('');
     expect(zonedTimeToUtc('2026-10-12', '', 'UTC')).toBe('2026-10-12T00:00:00.000Z');
+  });
+});
+
+describe('floatingISO', () => {
+  it("keeps a local Date's wall-clock digits whatever the runner's zone", () => {
+    expect(floatingISO(new Date(2026, 6, 1, 15, 0))).toBe('2026-07-01T15:00:00Z');
+    expect(floatingISO(new Date(2026, 0, 5, 9, 7, 42))).toBe('2026-01-05T09:07:00Z');
   });
 });

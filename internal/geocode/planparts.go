@@ -4,11 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/geotz"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // PlanParts fills any missing start/end coordinates on a plan's parts from their
@@ -73,9 +73,9 @@ func PlanParts(ctx context.Context, st *store.Store, r *Resolver, planID int64) 
 			}
 		}
 
-		// Anchor floating local times (tz unknown) to the zone of their
-		// coordinates, shifting the instant so the displayed wall-clock is
-		// preserved. A provider-resolved flight only gains the zone.
+		// Give zone-less ends the zone of their coordinates; a floating time
+		// is re-anchored so its wall-clock is kept, an unknown one keeps its
+		// instant.
 		ResolvePartTZ(p, &payload, startLat, startLon, endLat, endLon)
 
 		if !payload.IsEmpty() {
@@ -362,15 +362,13 @@ func isAllDigits(s string) bool {
 	return true
 }
 
-// ResolvePartTZ resolves a still-empty start/end tz from the part's coordinates
-// and rewrites the stored instant so the local wall-clock is unchanged. A hotel's
-// checkout (no end coordinates of its own) inherits the start tz. Does nothing for
-// parts that already have a tz, or that have no usable coordinate.
-//
-// A provider-resolved flight is the exception to the rewrite: its times are
-// already real UTC instants (the airport was merely missing from the table at
-// ingest), so it gains the zone but keeps its instant. Shifting it moved
-// flights by the zone's offset.
+// ResolvePartTZ gives a zone-less part end the zone of its coordinates. Only
+// an end whose source is floating or unknown is touched, and it becomes
+// confirmed (the zone comes from the item's own place). A floating end's UTC
+// digits are local wall-clock time, so its instant is re-anchored in the new
+// zone; an unknown end is already a true instant and keeps it. A hotel's
+// checkout (no end coordinates of its own) inherits the start's zone. Does
+// nothing for an end with no usable coordinate.
 func ResolvePartTZ(
 	p *store.PlanPart,
 	payload *store.UpdatePlanPartPayload,
@@ -388,15 +386,17 @@ func ResolvePartTZ(
 		}
 	}
 
-	if p.StartTZ == "" && primary != "" {
-		tz := primary
-		payload.StartTZ = &tz
-		if s, ok := reinterpretLocal(p.StartsAt, tz); ok && !p.FlightResolved {
-			payload.StartsAt = &s
+	if zoneless(p.StartTZSource) && primary != "" {
+		tz, src := primary, string(timing.Confirmed)
+		payload.StartTZ, payload.StartTZSource = &tz, &src
+		if p.StartTZSource == string(timing.Floating) {
+			if s, ok := timing.Anchor(p.StartsAt, tz); ok {
+				payload.StartsAt = &s
+			}
 		}
 	}
 
-	if p.EndTZ == "" && p.EndsAt != nil {
+	if zoneless(p.EndTZSource) && p.EndsAt != nil {
 		etz := primary
 		if endLat != nil && endLon != nil {
 			if tz, ok := geotz.Lookup(*endLat, *endLon); ok {
@@ -404,23 +404,18 @@ func ResolvePartTZ(
 			}
 		}
 		if etz != "" {
-			payload.EndTZ = &etz
-			if e, ok := reinterpretLocal(*p.EndsAt, etz); ok && !p.FlightResolved {
-				payload.EndsAt = &e
+			src := string(timing.Confirmed)
+			payload.EndTZ, payload.EndTZSource = &etz, &src
+			if p.EndTZSource == string(timing.Floating) {
+				if e, ok := timing.Anchor(*p.EndsAt, etz); ok {
+					payload.EndsAt = &e
+				}
 			}
 		}
 	}
 }
 
-// reinterpretLocal takes an instant whose UTC wall-clock digits are really a
-// floating *local* time (the ingest convention for tz-less parts) and returns
-// the instant those same digits denote in tzName. e.g. 16:00Z + "America/
-// New_York" → 20:00Z (16:00 EDT). Returns ok=false if the zone won't load.
-func reinterpretLocal(t time.Time, tzName string) (time.Time, bool) {
-	loc, err := time.LoadLocation(tzName)
-	if err != nil {
-		return t, false
-	}
-	u := t.UTC()
-	return time.Date(u.Year(), u.Month(), u.Day(), u.Hour(), u.Minute(), u.Second(), u.Nanosecond(), loc), true
+// zoneless reports whether a part end's source means it has no zone yet.
+func zoneless(src string) bool {
+	return src == string(timing.Floating) || src == string(timing.Unknown)
 }

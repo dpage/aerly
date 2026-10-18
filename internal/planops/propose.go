@@ -12,6 +12,7 @@ import (
 	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Deps bundles the collaborators Propose and Commit need. Resolver may be nil
@@ -27,16 +28,20 @@ type Deps struct {
 // the shape a store.CreatePlanPartPayload will take on commit, plus the place
 // labels and a resolved/typed satellite detail when one was enriched.
 type ProposedPart struct {
-	Type         string
-	StartsAt     time.Time
-	EndsAt       *time.Time
-	StartTZ      string
-	EndTZ        string
-	StartLabel   string
-	EndLabel     string
-	StartAddress string
-	EndAddress   string
-	Status       string
+	Type     string
+	StartsAt time.Time
+	EndsAt   *time.Time
+	StartTZ  string
+	EndTZ    string
+	// StartTZSource and EndTZSource record what each time means, as a
+	// timing.Source; empty leaves the store to derive it.
+	StartTZSource string
+	EndTZSource   string
+	StartLabel    string
+	EndLabel      string
+	StartAddress  string
+	EndAddress    string
+	Status        string
 
 	Flight      *store.FlightDetail
 	Hotel       *store.HotelDetail
@@ -276,6 +281,10 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 		if tz, ok := airports.LookupTZ(fd.DestIATA); ok {
 			out.EndTZ = tz
 		}
+		// A flight's times are instants (the provider's, or parsed in the
+		// airport's zone), so a missing zone is unknown, never floating.
+		out.StartTZSource = instantSource(out.StartTZ)
+		out.EndTZSource = instantSource(out.EndTZ)
 		// A flight's place line IS its route, so default the label to the
 		// friendly "Name (CODE)" (e.g. "Faro (FAO)") rather than the bare code.
 		if out.StartLabel == "" {
@@ -396,7 +405,24 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 			out.StartLabel = part.EventPerformer
 		}
 	}
+	if out.StartTZSource == "" {
+		// Every other type's times come from combineLocal: wall-clock readings
+		// whose UTC digits are local time, with no zone yet.
+		out.StartTZSource = string(timing.Floating)
+		if out.EndsAt != nil {
+			out.EndTZSource = string(timing.Floating)
+		}
+	}
 	return out, conf
+}
+
+// instantSource is the source for a true instant: confirmed in tz, or unknown
+// when there is no zone.
+func instantSource(tz string) string {
+	if tz == "" {
+		return string(timing.Unknown)
+	}
+	return string(timing.Confirmed)
 }
 
 // enrichFlight builds a FlightDetail for a flight part: it asks the resolver to

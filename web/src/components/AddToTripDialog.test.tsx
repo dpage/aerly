@@ -101,6 +101,23 @@ describe('AddToTripDialog - manual tab', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('sends picked times as floating wall-clock digits with an explicit source', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText(/Title/), 'Flight to Lisbon');
+    // The mock picker reads this as a browser-local Date, 15:00 and 18:30.
+    fireEvent.change(screen.getByLabelText('Departs'), { target: { value: '2026-07-01T15:00' } });
+    const end = screen.getByLabelText(/Arrives/i);
+    fireEvent.change(end, { target: { value: '2026-07-01T18:30' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+
+    const part = h.state.createPlan.mock.calls[0][1].parts[0];
+    expect(part.starts_at).toBe('2026-07-01T15:00:00Z');
+    expect(part.start_tz_source).toBe('floating');
+    expect(part.ends_at).toBe('2026-07-01T18:30:00Z');
+    expect(part.end_tz_source).toBe('floating');
+  });
+
   it('carries the ticket number and cost (with currency) into the CreatePlanInput', async () => {
     h.state.createPlan.mockResolvedValue(undefined);
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);

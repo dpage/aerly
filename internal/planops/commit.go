@@ -12,21 +12,25 @@ import (
 // ConfirmPartInput is one part of a confirmed/edited proposal sent back to
 // commit. It mirrors the FE PlanPartInput shape.
 type ConfirmPartInput struct {
-	Type         string
-	Seq          int
-	StartsAt     time.Time
-	EndsAt       *time.Time
-	StartTZ      string
-	EndTZ        string
-	StartLabel   string
-	StartLat     *float64
-	StartLon     *float64
-	StartAddress string
-	EndLabel     string
-	EndLat       *float64
-	EndLon       *float64
-	EndAddress   string
-	Status       string
+	Type     string
+	Seq      int
+	StartsAt time.Time
+	EndsAt   *time.Time
+	StartTZ  string
+	EndTZ    string
+	// StartTZSource and EndTZSource are optional; empty derives the source
+	// from whether the zone is set.
+	StartTZSource string
+	EndTZSource   string
+	StartLabel    string
+	StartLat      *float64
+	StartLon      *float64
+	StartAddress  string
+	EndLabel      string
+	EndLat        *float64
+	EndLon        *float64
+	EndAddress    string
+	Status        string
 
 	Flight      *store.FlightDetail
 	Hotel       *store.HotelDetail
@@ -135,29 +139,31 @@ func Commit(ctx context.Context, deps Deps, tripID, createdBy int64, plans []Con
 				seq = i
 			}
 			cp := store.CreatePlanPartPayload{
-				Seq:          seq,
-				StartsAt:     p.StartsAt,
-				EndsAt:       p.EndsAt,
-				StartTZ:      p.StartTZ,
-				EndTZ:        p.EndTZ,
-				StartLabel:   p.StartLabel,
-				StartLat:     p.StartLat,
-				StartLon:     p.StartLon,
-				StartAddress: p.StartAddress,
-				EndLabel:     p.EndLabel,
-				EndLat:       p.EndLat,
-				EndLon:       p.EndLon,
-				EndAddress:   p.EndAddress,
-				Status:       p.Status,
-				Flight:       p.Flight,
-				Hotel:        p.Hotel,
-				Train:        p.Train,
-				Ground:       p.Ground,
-				Dining:       p.Dining,
-				Excursion:    p.Excursion,
-				Meeting:      p.Meeting,
-				Event:        p.Event,
-				VehicleHire:  p.VehicleHire,
+				Seq:           seq,
+				StartsAt:      p.StartsAt,
+				EndsAt:        p.EndsAt,
+				StartTZ:       p.StartTZ,
+				EndTZ:         p.EndTZ,
+				StartTZSource: p.StartTZSource,
+				EndTZSource:   p.EndTZSource,
+				StartLabel:    p.StartLabel,
+				StartLat:      p.StartLat,
+				StartLon:      p.StartLon,
+				StartAddress:  p.StartAddress,
+				EndLabel:      p.EndLabel,
+				EndLat:        p.EndLat,
+				EndLon:        p.EndLon,
+				EndAddress:    p.EndAddress,
+				Status:        p.Status,
+				Flight:        p.Flight,
+				Hotel:         p.Hotel,
+				Train:         p.Train,
+				Ground:        p.Ground,
+				Dining:        p.Dining,
+				Excursion:     p.Excursion,
+				Meeting:       p.Meeting,
+				Event:         p.Event,
+				VehicleHire:   p.VehicleHire,
 			}
 			// Link the new part to the part it supersedes (rebooking). The
 			// supersession is a plan-level field in the contract; it applies to

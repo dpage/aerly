@@ -59,8 +59,10 @@ func seedPlan(t *testing.T, e *testEnv, trip, owner int64, title string) int64 {
 func seedPart(t *testing.T, e *testEnv, plan int64) {
 	t.Helper()
 	if _, err := e.pool.Exec(context.Background(),
-		`INSERT INTO plan_parts (plan_id, starts_at, ends_at, start_tz, end_tz, start_label)
-		 VALUES ($1, NOW(), NOW() + INTERVAL '2 hours', 'Europe/London', 'America/New_York', 'LHR')`,
+		`INSERT INTO plan_parts (plan_id, starts_at, ends_at, start_tz, end_tz, start_label,
+		     start_tz_source, end_tz_source)
+		 VALUES ($1, NOW(), NOW() + INTERVAL '2 hours', 'Europe/London', 'America/New_York', 'LHR',
+		     'confirmed', 'confirmed')`,
 		plan); err != nil {
 		t.Fatalf("seed part: %v", err)
 	}

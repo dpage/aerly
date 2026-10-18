@@ -564,22 +564,25 @@ type ExternalEventDTO struct {
 	StartsAt    time.Time  `json:"starts_at"`
 	EndsAt      *time.Time `json:"ends_at,omitempty"`
 	StartTZ     string     `json:"start_tz,omitempty"`
-	AllDay      bool       `json:"all_day"`
+	// StartTZSource is confirmed, inferred or unknown.
+	StartTZSource string `json:"start_tz_source"`
+	AllDay        bool   `json:"all_day"`
 }
 
 // ToExternalEventDTO projects a cached feed event into its DTO.
 func ToExternalEventDTO(e *store.TripFeedEvent) ExternalEventDTO {
 	return ExternalEventDTO{
-		ID:          e.ID,
-		FeedID:      e.FeedID,
-		FeedName:    e.FeedName,
-		Title:       e.Summary,
-		Location:    e.Location,
-		Description: e.Description,
-		StartsAt:    e.StartsAt,
-		EndsAt:      e.EndsAt,
-		StartTZ:     e.StartTZ,
-		AllDay:      e.AllDay,
+		ID:            e.ID,
+		FeedID:        e.FeedID,
+		FeedName:      e.FeedName,
+		Title:         e.Summary,
+		Location:      e.Location,
+		Description:   e.Description,
+		StartsAt:      e.StartsAt,
+		EndsAt:        e.EndsAt,
+		StartTZ:       e.StartTZ,
+		StartTZSource: e.StartTZSource,
+		AllDay:        e.AllDay,
 	}
 }
 
@@ -632,36 +635,38 @@ type PlanVisibilityDTO struct {
 // is populated, selected by Type. effective_at = COALESCE(actual, estimated,
 // scheduled) so the front end sorts every type uniformly.
 type PlanPartDTO struct {
-	ID           int64                 `json:"id"`
-	PlanID       int64                 `json:"plan_id"`
-	Type         string                `json:"type"`
-	Seq          int                   `json:"seq"`
-	StartsAt     time.Time             `json:"starts_at"`
-	EndsAt       *time.Time            `json:"ends_at,omitempty"`
-	StartTZ      string                `json:"start_tz"`
-	EndTZ        string                `json:"end_tz"`
-	StartLabel   string                `json:"start_label"`
-	StartLat     *float64              `json:"start_lat,omitempty"`
-	StartLon     *float64              `json:"start_lon,omitempty"`
-	StartAddress string                `json:"start_address"`
-	EndLabel     string                `json:"end_label"`
-	EndLat       *float64              `json:"end_lat,omitempty"`
-	EndLon       *float64              `json:"end_lon,omitempty"`
-	EndAddress   string                `json:"end_address"`
-	Status       string                `json:"status"`
-	EffectiveAt  time.Time             `json:"effective_at"`
-	SupersedesID *int64                `json:"supersedes_id,omitempty"`
-	DismissedAt  *time.Time            `json:"dismissed_at,omitempty"`
-	Flight       *FlightDetailDTO      `json:"flight,omitempty"`
-	Hotel        *HotelDetailDTO       `json:"hotel,omitempty"`
-	Train        *TrainDetailDTO       `json:"train,omitempty"`
-	Ground       *GroundDetailDTO      `json:"ground,omitempty"`
-	Dining       *DiningDetailDTO      `json:"dining,omitempty"`
-	Excursion    *ExcursionDetailDTO   `json:"excursion,omitempty"`
-	IceCream     *IceCreamDetailDTO    `json:"ice_cream,omitempty"`
-	Meeting      *MeetingDetailDTO     `json:"meeting,omitempty"`
-	Event        *EventDetailDTO       `json:"event,omitempty"`
-	VehicleHire  *VehicleHireDetailDTO `json:"vehicle_hire,omitempty"`
+	ID            int64                 `json:"id"`
+	PlanID        int64                 `json:"plan_id"`
+	Type          string                `json:"type"`
+	Seq           int                   `json:"seq"`
+	StartsAt      time.Time             `json:"starts_at"`
+	EndsAt        *time.Time            `json:"ends_at,omitempty"`
+	StartTZ       string                `json:"start_tz"`
+	EndTZ         string                `json:"end_tz"`
+	StartTZSource string                `json:"start_tz_source"`
+	EndTZSource   string                `json:"end_tz_source"`
+	StartLabel    string                `json:"start_label"`
+	StartLat      *float64              `json:"start_lat,omitempty"`
+	StartLon      *float64              `json:"start_lon,omitempty"`
+	StartAddress  string                `json:"start_address"`
+	EndLabel      string                `json:"end_label"`
+	EndLat        *float64              `json:"end_lat,omitempty"`
+	EndLon        *float64              `json:"end_lon,omitempty"`
+	EndAddress    string                `json:"end_address"`
+	Status        string                `json:"status"`
+	EffectiveAt   time.Time             `json:"effective_at"`
+	SupersedesID  *int64                `json:"supersedes_id,omitempty"`
+	DismissedAt   *time.Time            `json:"dismissed_at,omitempty"`
+	Flight        *FlightDetailDTO      `json:"flight,omitempty"`
+	Hotel         *HotelDetailDTO       `json:"hotel,omitempty"`
+	Train         *TrainDetailDTO       `json:"train,omitempty"`
+	Ground        *GroundDetailDTO      `json:"ground,omitempty"`
+	Dining        *DiningDetailDTO      `json:"dining,omitempty"`
+	Excursion     *ExcursionDetailDTO   `json:"excursion,omitempty"`
+	IceCream      *IceCreamDetailDTO    `json:"ice_cream,omitempty"`
+	Meeting       *MeetingDetailDTO     `json:"meeting,omitempty"`
+	Event         *EventDetailDTO       `json:"event,omitempty"`
+	VehicleHire   *VehicleHireDetailDTO `json:"vehicle_hire,omitempty"`
 	// Title is the owning plan's title (the user-facing name of the booking,
 	// e.g. an ice cream parlour's name), copied onto the part so the map marker
 	// and list can show it. '' when unknown (e.g. ingest preview parts).
@@ -897,6 +902,16 @@ func ToTripMemberDTO(m *store.TripMember) TripMemberDTO {
 	return TripMemberDTO{UserID: m.UserID, Role: m.Role}
 }
 
+// airportFallbackSource is the zone source shown with an airport zone the
+// DTO supplies for a flight end that stored none: confirmed for a true instant
+// (an unknown or legacy blank source), but floating stays floating.
+func airportFallbackSource(stored string) string {
+	if stored == "floating" {
+		return stored
+	}
+	return "confirmed"
+}
+
 // ToPlanPartDTO renders a part with its type-specific detail. The detail is
 // passed in (already loaded by the store) as exactly one non-nil pointer; the
 // TZ-lookup convenience that lived in ToFlightDTO now happens here, filling
@@ -920,6 +935,7 @@ func ToPlanPartDTO(
 	track []*store.Position,
 ) PlanPartDTO {
 	startTZ, endTZ := p.StartTZ, p.EndTZ
+	startSrc, endSrc := p.StartTZSource, p.EndTZSource
 	dto := PlanPartDTO{
 		ID:                p.ID,
 		PlanID:            p.PlanID,
@@ -944,15 +960,19 @@ func ToPlanPartDTO(
 	}
 	switch {
 	case flight != nil:
-		// Fall back to airport TZ when the part didn't store one.
+		// Fall back to airport TZ when the part didn't store one. A floating
+		// time keeps its floating source: its digits are wall-clock time, not
+		// yet an instant in that zone, so it must not be labelled confirmed.
 		if startTZ == "" {
 			if tz, ok := airports.LookupTZ(flight.OriginIATA); ok {
 				startTZ = tz
+				startSrc = airportFallbackSource(startSrc)
 			}
 		}
 		if endTZ == "" {
 			if tz, ok := airports.LookupTZ(flight.DestIATA); ok {
 				endTZ = tz
+				endSrc = airportFallbackSource(endSrc)
 			}
 		}
 		dto.Flight = ToFlightDetailDTO(flight, latest, track)
@@ -978,6 +998,8 @@ func ToPlanPartDTO(
 	}
 	dto.StartTZ = startTZ
 	dto.EndTZ = endTZ
+	dto.StartTZSource = startSrc
+	dto.EndTZSource = endSrc
 	return dto
 }
 

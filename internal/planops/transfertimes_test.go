@@ -185,3 +185,46 @@ func TestApplyTransferTimes_PlaceToPlaceIgnored(t *testing.T) {
 		t.Errorf("place→place transfer should be left alone, got %s", plans[1].Parts[0].StartsAt)
 	}
 }
+
+// TestApplyTransferTimes_RetimedSources: a retimed start is a true instant, so
+// it is confirmed in the flight's zone, or unknown when the flight has none; an
+// end moved by the same delta is no longer a wall-clock reading either.
+func TestApplyTransferTimes_RetimedSources(t *testing.T) {
+	arr := time.Date(2026, 1, 15, 17, 20, 0, 0, time.UTC)
+	dep := time.Date(2026, 1, 15, 14, 0, 0, 0, time.UTC)
+	withEnd := func() ProposedPlan {
+		p := transferPlan("Alicante Airport", "Test Hotel", "2026-01-15")
+		end := p.Parts[0].StartsAt.Add(time.Hour)
+		p.Parts[0].EndsAt = &end
+		p.Parts[0].StartTZSource, p.Parts[0].EndTZSource = "floating", "floating"
+		return p
+	}
+
+	plans := []ProposedPlan{flightPlan("LGW", "ALC", dep, arr, "Europe/London", "Europe/Madrid"), withEnd()}
+	applyTransferTimes(plans)
+	got := plans[1].Parts[0]
+	if got.StartTZ != "Europe/Madrid" || got.StartTZSource != "confirmed" {
+		t.Errorf("start = %q %q, want Europe/Madrid confirmed", got.StartTZ, got.StartTZSource)
+	}
+	if got.EndTZ != "" || got.EndTZSource != "unknown" {
+		t.Errorf("end = %q %q, want '' unknown", got.EndTZ, got.EndTZSource)
+	}
+
+	plans = []ProposedPlan{flightPlan("LGW", "ALC", dep, arr, "", ""), withEnd()}
+	applyTransferTimes(plans)
+	if got := plans[1].Parts[0]; got.StartTZ != "" || got.StartTZSource != "unknown" {
+		t.Errorf("zoneless flight: start = %q %q, want '' unknown", got.StartTZ, got.StartTZSource)
+	}
+
+	// Hotel to airport retimes off the departure, and an end with a zone of its
+	// own keeps its source.
+	out := withEnd()
+	out.Parts[0].StartLabel, out.Parts[0].EndLabel = "Test Hotel", "Gatwick Airport (LGW)"
+	out.Parts[0].EndTZ, out.Parts[0].EndTZSource = "Europe/London", "confirmed"
+	plans = []ProposedPlan{flightPlan("LGW", "ALC", time.Date(2026, 1, 15, 18, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 15, 21, 0, 0, 0, time.UTC), "Europe/London", "Europe/Madrid"), out}
+	applyTransferTimes(plans)
+	if got := plans[1].Parts[0]; got.StartTZSource != "confirmed" || got.EndTZSource != "confirmed" {
+		t.Errorf("hotel to airport sources = %q/%q, want confirmed/confirmed", got.StartTZSource, got.EndTZSource)
+	}
+}

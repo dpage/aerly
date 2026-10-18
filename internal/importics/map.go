@@ -212,6 +212,7 @@ func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
 			part.EndTZ = tz
 		}
 	}
+	settleFlightZones(&part, &e.Start, &e.End)
 
 	return planops.ConfirmPlanInput{
 		Type:      "flight",
@@ -259,6 +260,7 @@ func mapTransport(e Event, planType string, placeGeo map[string]LatLon) (planops
 		// endpoints are what let the map draw the crow-flight leg.
 		applyTransferGeo(&part, lookupPlace(placeGeo, from), e.Geo)
 	}
+	settleZones(&part, &e.Start, &e.End)
 
 	return planops.ConfirmPlanInput{
 		Type:      planType,
@@ -363,15 +365,18 @@ func mapHotels(events []Event) []planops.ConfirmPlanInput {
 				Phone:        phoneRe.FindString(anchor.Description),
 			},
 		}
+		var endDT *DateTime
 		if st.out != nil && !st.out.Start.Time.IsZero() {
 			end := st.out.Start.Time
 			part.EndsAt = &end
+			endDT = &st.out.Start
 		}
 		geo := anchor.Geo
 		if geo == nil && st.out != nil {
 			geo = st.out.Geo
 		}
 		applyGeoTZ(&part, geo)
+		settleZones(&part, &anchor.Start, endDT)
 		out = append(out, planops.ConfirmPlanInput{
 			Type:      "hotel",
 			Title:     name,

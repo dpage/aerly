@@ -243,3 +243,38 @@ func TestProposeDropsEmptyPlan(t *testing.T) {
 		t.Errorf("a part-less plan should be dropped, got %d proposals", len(props))
 	}
 }
+
+// TestProposePartZoneSources: the LLM path's dates and times are wall-clock
+// readings with no zone, so they are floating; a flight's times are instants,
+// confirmed when the airport table gives the zone and unknown otherwise.
+func TestProposePartZoneSources(t *testing.T) {
+	hotel, _ := proposePart(ctx, Deps{}, ExtractedPart{
+		Type: "hotel", StartDate: "2026-07-01", EndDate: "2026-07-03", HotelName: "Test Hotel",
+	})
+	if hotel.StartTZ != "" || hotel.StartTZSource != "floating" || hotel.EndTZSource != "floating" {
+		t.Errorf("hotel zone = %q, sources %q/%q, want '' floating/floating",
+			hotel.StartTZ, hotel.StartTZSource, hotel.EndTZSource)
+	}
+	dining, _ := proposePart(ctx, Deps{}, ExtractedPart{Type: "dining", StartDate: "2026-07-01"})
+	if dining.StartTZSource != "floating" || dining.EndTZSource != "" {
+		t.Errorf("dining sources = %q/%q, want floating and none for the missing end",
+			dining.StartTZSource, dining.EndTZSource)
+	}
+
+	flight, _ := proposePart(ctx, Deps{}, ExtractedPart{Type: "flight", Flight: FlightFields{
+		Ident: "XX100", Date: "2026-07-01", OriginIATA: "LHR", DestIATA: "CDG",
+		DepartTimeLocal: "09:00", ArriveTimeLocal: "11:30",
+	}})
+	if flight.StartTZ != "Europe/London" || flight.StartTZSource != "confirmed" ||
+		flight.EndTZ != "Europe/Paris" || flight.EndTZSource != "confirmed" {
+		t.Errorf("table flight = %q %q / %q %q, want both ends confirmed",
+			flight.StartTZ, flight.StartTZSource, flight.EndTZ, flight.EndTZSource)
+	}
+	offTable, _ := proposePart(ctx, Deps{}, ExtractedPart{Type: "flight", Flight: FlightFields{
+		Ident: "XX100", Date: "2026-07-01", OriginIATA: "AAA", DestIATA: "BBB", DepartTimeLocal: "09:00",
+	}})
+	if offTable.StartTZ != "" || offTable.StartTZSource != "unknown" || offTable.EndTZSource != "unknown" {
+		t.Errorf("off-table flight = %q %q/%q, want '' unknown/unknown",
+			offTable.StartTZ, offTable.StartTZSource, offTable.EndTZSource)
+	}
+}

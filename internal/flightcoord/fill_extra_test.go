@@ -67,9 +67,11 @@ func TestRouteUpdateFromResolved(t *testing.T) {
 	if up.ScheduledIn == nil || up.EndsAt == nil || !up.EndsAt.Equal(in) {
 		t.Errorf("EndsAt should mirror ScheduledIn")
 	}
-	// LHR and JFK are in the embedded table, so timezones resolve.
-	if up.StartTZ == nil || up.EndTZ == nil {
-		t.Errorf("expected timezones for table airports, got start=%v end=%v", up.StartTZ, up.EndTZ)
+	// LHR and JFK are in the embedded table, so timezones resolve, confirmed.
+	if deref(up.StartTZ) != "Europe/London" || deref(up.StartTZSource) != "confirmed" ||
+		deref(up.EndTZ) != "America/New_York" || deref(up.EndTZSource) != "confirmed" {
+		t.Errorf("table zones = %s/%s, %s/%s", deref(up.StartTZ), deref(up.StartTZSource),
+			deref(up.EndTZ), deref(up.EndTZSource))
 	}
 	// No provider coords, but table-known: coords filled, not cleared.
 	if up.StartLat == nil || up.ClearStartCoords {
@@ -90,12 +92,29 @@ func TestRouteUpdateFromResolvedZeroScheduleAndBlankAirframe(t *testing.T) {
 	if up.ICAO24 != nil || up.Callsign != nil || up.AircraftType != nil {
 		t.Error("blank airframe strings should map to nil pointers")
 	}
-	// Off-table codes with no provider coords: timezones absent, coords cleared.
-	if up.StartTZ != nil || up.EndTZ != nil {
-		t.Error("off-table codes should have no timezone")
+	// Off-table codes with no provider coords: no zone, and the provider's
+	// times are true instants, so the source is unknown rather than floating.
+	if deref(up.StartTZ) != "" || deref(up.StartTZSource) != "unknown" ||
+		deref(up.EndTZ) != "" || deref(up.EndTZSource) != "unknown" {
+		t.Errorf("off-table zones = %s/%s, %s/%s; want empty/unknown both ends",
+			deref(up.StartTZ), deref(up.StartTZSource), deref(up.EndTZ), deref(up.EndTZSource))
 	}
 	if !up.ClearStartCoords || !up.ClearEndCoords {
 		t.Error("off-table codes with no coords should signal a clear")
+	}
+}
+
+// An off-table destination with provider coordinates in Paris takes the zone
+// under those coordinates, confirmed, since they are the airport's own.
+func TestRouteUpdateFromResolvedOffTableProviderCoords(t *testing.T) {
+	rf := &providers.ResolvedFlight{
+		OriginIATA: "LHR", DestIATA: "ZZZ", DestLat: 48.8566, DestLon: 2.3522,
+		ScheduledOut: time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
+		ScheduledIn:  time.Date(2026, 7, 1, 11, 0, 0, 0, time.UTC),
+	}
+	up := RouteUpdateFromResolved(rf)
+	if deref(up.EndTZ) != "Europe/Paris" || deref(up.EndTZSource) != "confirmed" {
+		t.Errorf("end zone = %s/%s, want Europe/Paris/confirmed", deref(up.EndTZ), deref(up.EndTZSource))
 	}
 }
 

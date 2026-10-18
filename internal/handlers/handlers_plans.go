@@ -15,25 +15,28 @@ import (
 	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Wave 1B: plans, parts, passengers, visibility, and move.
 
 type planPartReq struct {
-	Type         string     `json:"type"`
-	Seq          int        `json:"seq"`
-	StartsAt     time.Time  `json:"starts_at"`
-	EndsAt       *time.Time `json:"ends_at"`
-	StartTZ      string     `json:"start_tz"`
-	EndTZ        string     `json:"end_tz"`
-	StartLabel   string     `json:"start_label"`
-	StartLat     *float64   `json:"start_lat"`
-	StartLon     *float64   `json:"start_lon"`
-	StartAddress string     `json:"start_address"`
-	EndLabel     string     `json:"end_label"`
-	EndLat       *float64   `json:"end_lat"`
-	EndLon       *float64   `json:"end_lon"`
-	EndAddress   string     `json:"end_address"`
+	Type          string     `json:"type"`
+	Seq           int        `json:"seq"`
+	StartsAt      time.Time  `json:"starts_at"`
+	EndsAt        *time.Time `json:"ends_at"`
+	StartTZ       string     `json:"start_tz"`
+	EndTZ         string     `json:"end_tz"`
+	StartTZSource string     `json:"start_tz_source,omitempty"`
+	EndTZSource   string     `json:"end_tz_source,omitempty"`
+	StartLabel    string     `json:"start_label"`
+	StartLat      *float64   `json:"start_lat"`
+	StartLon      *float64   `json:"start_lon"`
+	StartAddress  string     `json:"start_address"`
+	EndLabel      string     `json:"end_label"`
+	EndLat        *float64   `json:"end_lat"`
+	EndLon        *float64   `json:"end_lon"`
+	EndAddress    string     `json:"end_address"`
 	// StartCoordsPinned/EndCoordsPinned: send true alongside start_lat/start_lon
 	// (or end_lat/end_lon) to pin the coordinates against the async geocoder.
 	StartCoordsPinned bool   `json:"start_coords_pinned,omitempty"`
@@ -177,19 +180,21 @@ type planVisibilityReq struct {
 }
 
 type updatePlanPartReq struct {
-	StartsAt     *time.Time `json:"starts_at,omitempty"`
-	EndsAt       *time.Time `json:"ends_at,omitempty"`
-	StartTZ      *string    `json:"start_tz,omitempty"`
-	EndTZ        *string    `json:"end_tz,omitempty"`
-	StartLabel   *string    `json:"start_label,omitempty"`
-	StartLat     *float64   `json:"start_lat,omitempty"`
-	StartLon     *float64   `json:"start_lon,omitempty"`
-	StartAddress *string    `json:"start_address,omitempty"`
-	EndLabel     *string    `json:"end_label,omitempty"`
-	EndLat       *float64   `json:"end_lat,omitempty"`
-	EndLon       *float64   `json:"end_lon,omitempty"`
-	EndAddress   *string    `json:"end_address,omitempty"`
-	Status       *string    `json:"status,omitempty"`
+	StartsAt      *time.Time `json:"starts_at,omitempty"`
+	EndsAt        *time.Time `json:"ends_at,omitempty"`
+	StartTZ       *string    `json:"start_tz,omitempty"`
+	EndTZ         *string    `json:"end_tz,omitempty"`
+	StartTZSource *string    `json:"start_tz_source,omitempty"`
+	EndTZSource   *string    `json:"end_tz_source,omitempty"`
+	StartLabel    *string    `json:"start_label,omitempty"`
+	StartLat      *float64   `json:"start_lat,omitempty"`
+	StartLon      *float64   `json:"start_lon,omitempty"`
+	StartAddress  *string    `json:"start_address,omitempty"`
+	EndLabel      *string    `json:"end_label,omitempty"`
+	EndLat        *float64   `json:"end_lat,omitempty"`
+	EndLon        *float64   `json:"end_lon,omitempty"`
+	EndAddress    *string    `json:"end_address,omitempty"`
+	Status        *string    `json:"status,omitempty"`
 
 	// Coords pin flags: a manual lat/lon override the geocoder must not touch.
 	// Setting one true (with explicit coords) opts that endpoint out of
@@ -351,6 +356,10 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		Parts:           parts,
 	}, me.ID)
 	if err != nil {
+		if errors.Is(err, store.ErrInvalidZone) {
+			writeError(w, http.StatusBadRequest, "Invalid time zone.")
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -774,11 +783,13 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	part, err := a.Store.UpdatePlanPart(r.Context(), id, store.UpdatePlanPartPayload{
+	payload := store.UpdatePlanPartPayload{
 		StartsAt:          in.StartsAt,
 		EndsAt:            in.EndsAt,
 		StartTZ:           in.StartTZ,
 		EndTZ:             in.EndTZ,
+		StartTZSource:     in.StartTZSource,
+		EndTZSource:       in.EndTZSource,
 		StartLabel:        in.StartLabel,
 		StartLat:          in.StartLat,
 		StartLon:          in.StartLon,
@@ -790,7 +801,15 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		Status:            in.Status,
 		StartCoordsPinned: in.StartCoordsPinned,
 		EndCoordsPinned:   in.EndCoordsPinned,
-	})
+	}
+	// Pinning a location moves the part to that place's zone, keeping the
+	// wall-clock times it showed (a hotel saved in the wrong zone).
+	if pinsNewPlace(in) {
+		if cur, cerr := a.Store.PlanPartByID(r.Context(), id); cerr == nil {
+			pinZones(cur, in, &payload)
+		}
+	}
+	part, err := a.Store.UpdatePlanPart(r.Context(), id, payload)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
@@ -812,7 +831,7 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 	// a re-resolve's regenerated labels win over any label sent in the same
 	// request. Reload the part afterwards so the DTO reflects the new route.
 	if in.Flight != nil {
-		if err := a.applyFlightEdit(r.Context(), id, *in.Flight); err != nil {
+		if err := a.applyFlightEdit(r.Context(), id, part, *in.Flight); err != nil {
 			handleStoreErr(w, err)
 			return
 		}
@@ -876,6 +895,97 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		a.publishPlanUpdated(r.Context(), tripID, planID)
 	}
 	writeJSON(w, http.StatusOK, dto)
+}
+
+// startPinned and endPinned report whether the request pins new coordinates
+// for that end.
+func startPinned(in updatePlanPartReq) bool {
+	return in.StartCoordsPinned != nil && *in.StartCoordsPinned && in.StartLat != nil && in.StartLon != nil
+}
+
+func endPinned(in updatePlanPartReq) bool {
+	return in.EndCoordsPinned != nil && *in.EndCoordsPinned && in.EndLat != nil && in.EndLon != nil
+}
+
+// pinsNewPlace reports whether the request pins coordinates for either end,
+// so the pin path needs the current part.
+func pinsNewPlace(in updatePlanPartReq) bool {
+	return startPinned(in) || endPinned(in)
+}
+
+// pinZones re-derives the zone of each end whose coordinates the request pins,
+// unless the request sets that end's zone or source itself. The zone is
+// confirmed (the item's own place) even when it matches the current one, so
+// pinning upgrades an inferred zone. A changed zone moves the end's time so its
+// wall-clock reading is kept, unless the request also sets that time or the
+// end is unknown (already a true instant, so it keeps the instant). An end
+// with no coordinates of its own (a hotel's checkout) follows the start, as
+// in geocode.ResolvePartTZ.
+func pinZones(cur *store.PlanPart, in updatePlanPartReq, pl *store.UpdatePlanPartPayload) {
+	if startPinned(in) && in.StartTZ == nil && in.StartTZSource == nil {
+		if tz, _ := timing.Infer(timing.Hints{Lat: in.StartLat, Lon: in.StartLon}); tz != "" {
+			pl.StartTZ, pl.StartTZSource = rezone(tz)
+			if in.StartsAt == nil && tz != cur.StartTZ && cur.StartTZSource != string(timing.Unknown) {
+				t := keepWallClock(cur.StartsAt, cur.StartTZ, tz)
+				pl.StartsAt = &t
+			}
+		}
+	}
+	if cur.EndsAt == nil || in.EndTZ != nil || in.EndTZSource != nil {
+		return
+	}
+	var lat, lon *float64
+	switch {
+	case endPinned(in):
+		lat, lon = in.EndLat, in.EndLon
+	case startPinned(in) && cur.EndLat == nil && in.EndLat == nil && endFollowsStart(cur):
+		lat, lon = in.StartLat, in.StartLon
+	default:
+		return
+	}
+	if tz, _ := timing.Infer(timing.Hints{Lat: lat, Lon: lon}); tz != "" {
+		pl.EndTZ, pl.EndTZSource = rezone(tz)
+		if in.EndsAt == nil && tz != cur.EndTZ && cur.EndTZSource != string(timing.Unknown) {
+			t := keepWallClock(*cur.EndsAt, cur.EndTZ, tz)
+			pl.EndsAt = &t
+		}
+	}
+}
+
+// endFollowsStart reports whether an end with no coordinates of its own takes
+// the start's new zone: only when it has no zone yet or shares the start's,
+// so an end with its own different zone (a transfer's destination) is kept.
+func endFollowsStart(cur *store.PlanPart) bool {
+	src := timing.Source(cur.EndTZSource)
+	return src == timing.Floating || src == timing.Unknown || cur.EndTZ == cur.StartTZ
+}
+
+// rezone returns the payload values for a zone found from the item's own
+// coordinates.
+func rezone(tz string) (*string, *string) {
+	src := string(timing.Confirmed)
+	return &tz, &src
+}
+
+// keepWallClock returns the instant in newTZ that reads the same wall-clock
+// time as t does in oldTZ (UTC when oldTZ is empty). A time that newTZ skips
+// for a daylight-saving change falls back to timing.Anchor's normalised
+// instant, since the part must land somewhere.
+func keepWallClock(t time.Time, oldTZ, newTZ string) time.Time {
+	loc := time.UTC
+	if oldTZ != "" {
+		if l, err := time.LoadLocation(oldTZ); err == nil {
+			loc = l
+		}
+	}
+	lt := t.In(loc)
+	sub := time.Duration(lt.Second())*time.Second + time.Duration(lt.Nanosecond())
+	if at, err := timing.LocalInstant(lt.Year(), lt.Month(), lt.Day(), lt.Hour(), lt.Minute(), newTZ); err == nil {
+		return at.Add(sub)
+	}
+	digits := time.Date(lt.Year(), lt.Month(), lt.Day(), lt.Hour(), lt.Minute(), lt.Second(), lt.Nanosecond(), time.UTC)
+	at, _ := timing.Anchor(digits, newTZ)
+	return at
 }
 
 // applyPartDetailEdit dispatches a per-type detail edit to the matching store
@@ -986,10 +1096,12 @@ func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.
 	if out.Equal(fd.ScheduledOut) && in.Equal(fd.ScheduledIn) {
 		return nil
 	}
-	return a.Store.RefreshFlightPartSchedule(ctx, partID, out, in)
+	return a.Store.SyncFlightDetailSchedule(ctx, partID, out, in)
 }
 
-func (a *API) applyFlightEdit(ctx context.Context, partID int64, in flightEditReq) error {
+// applyFlightEdit applies a flight route/identity edit. part is the part as just
+// saved by the caller, whose times and zone sources the manual-route path reads.
+func (a *API) applyFlightEdit(ctx context.Context, partID int64, part *store.PlanPart, in flightEditReq) error {
 	fd, err := a.Store.FlightDetailFor(ctx, partID)
 	if err != nil {
 		return err
@@ -1008,7 +1120,7 @@ func (a *API) applyFlightEdit(ctx context.Context, partID int64, in flightEditRe
 	// IATA edits are only meaningful on an unresolved flight; for a tracked
 	// flight the route is provider-owned and editing it would be clobbered.
 	if !fd.Resolved {
-		if up, changed := manualRouteUpdate(fd, in); changed {
+		if up, changed := manualRouteUpdate(fd, part, in); changed {
 			return a.Store.UpdateFlightPartRoute(ctx, partID, up)
 		}
 	}
@@ -1050,10 +1162,12 @@ func normalizeIdent(s string) string {
 // manualRouteUpdate builds the FlightRouteUpdate for a hand-typed IATA edit on
 // an unresolved flight: it rewrites the changed leg's code, friendly label and
 // timezone, and recomputes coordinates from the embedded table (clearing them
-// when the new airport is off-table, so a stale pin doesn't linger). The
-// resolved flag is left untouched (stays false). Returns whether anything
-// changed.
-func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRouteUpdate, bool) {
+// when the new airport is off-table, so a stale pin doesn't linger). A zone the
+// table names is confirmed, and an end that was floating (its digits are
+// wall-clock time) is anchored in that zone, keeping the digits it showed. Any
+// other end keeps its instant. The resolved flag is left untouched (stays
+// false). Returns whether anything changed.
+func manualRouteUpdate(fd *store.FlightDetail, part *store.PlanPart, in flightEditReq) (store.FlightRouteUpdate, bool) {
 	var up store.FlightRouteUpdate
 	changed := false
 	if in.OriginIATA != nil {
@@ -1061,7 +1175,7 @@ func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRo
 			label := airports.Label(code, "")
 			up.OriginIATA, up.StartLabel = &code, &label
 			if tz, ok := airports.LookupTZ(code); ok {
-				up.StartTZ = &tz
+				up.StartTZ, up.StartTZSource, up.StartsAt = confirmAirportZone(tz, part.StartTZSource, &part.StartsAt)
 			}
 			up.StartLat, up.StartLon, up.ClearStartCoords = flightcoord.AirportCoords(code, 0, 0)
 			changed = true
@@ -1072,13 +1186,30 @@ func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRo
 			label := airports.Label(code, "")
 			up.DestIATA, up.EndLabel = &code, &label
 			if tz, ok := airports.LookupTZ(code); ok {
-				up.EndTZ = &tz
+				up.EndTZ, up.EndTZSource, up.EndsAt = confirmAirportZone(tz, part.EndTZSource, part.EndsAt)
 			}
 			up.EndLat, up.EndLon, up.ClearEndCoords = flightcoord.AirportCoords(code, 0, 0)
 			changed = true
 		}
 	}
 	return up, changed
+}
+
+// confirmAirportZone is one end's zone, source and new instant when a hand-typed
+// airport names zone tz. A floating end (curSrc) is anchored there, keeping the
+// digits it showed; any other end keeps its instant (nil). If a floating time
+// will not anchor, nothing is returned and the end is left as it was rather
+// than labelled confirmed.
+func confirmAirportZone(tz, curSrc string, cur *time.Time) (zone, src *string, at *time.Time) {
+	if curSrc == string(timing.Floating) && cur != nil {
+		a, ok := timing.Anchor(*cur, tz)
+		if !ok {
+			return nil, nil, nil
+		}
+		at = &a
+	}
+	c := string(timing.Confirmed)
+	return &tz, &c, at
 }
 
 func (a *API) dismissPlanPart(w http.ResponseWriter, r *http.Request) {
@@ -1110,6 +1241,8 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 		EndsAt:            p.EndsAt,
 		StartTZ:           p.StartTZ,
 		EndTZ:             p.EndTZ,
+		StartTZSource:     p.StartTZSource,
+		EndTZSource:       p.EndTZSource,
 		StartLabel:        p.StartLabel,
 		StartLat:          p.StartLat,
 		StartLon:          p.StartLon,
@@ -1122,6 +1255,9 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 		EndCoordsPinned:   p.EndCoordsPinned,
 		Status:            p.Status,
 	}
+	if planType == "flight" {
+		anchorFlightPart(&out, p)
+	}
 	switch planType {
 	case "flight":
 		if p.Flight != nil {
@@ -1132,8 +1268,8 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 				Ident:        flightident.Normalise(p.Flight.Ident),
 				ICAO24:       p.Flight.ICAO24,
 				Callsign:     strPtrIfSet(p.Flight.Callsign),
-				ScheduledOut: defaultTime(p.Flight.ScheduledOut, p.StartsAt),
-				ScheduledIn:  defaultTime(p.Flight.ScheduledIn, endOr(p.EndsAt, p.StartsAt)),
+				ScheduledOut: defaultTime(p.Flight.ScheduledOut, out.StartsAt),
+				ScheduledIn:  defaultTime(p.Flight.ScheduledIn, endOr(out.EndsAt, out.StartsAt)),
 				EstimatedOut: p.Flight.EstimatedOut,
 				EstimatedIn:  p.Flight.EstimatedIn,
 				ActualOut:    p.Flight.ActualOut,
@@ -1144,8 +1280,8 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 			}
 		} else {
 			out.Flight = &store.FlightDetail{
-				ScheduledOut: p.StartsAt,
-				ScheduledIn:  endOr(p.EndsAt, p.StartsAt),
+				ScheduledOut: out.StartsAt,
+				ScheduledIn:  endOr(out.EndsAt, out.StartsAt),
 			}
 		}
 	case "hotel":
@@ -1237,6 +1373,53 @@ func toCreatePartPayload(planType string, p planPartReq) store.CreatePlanPartPay
 		}
 	}
 	return out
+}
+
+// anchorFlightPart anchors a new flight part's floating times in the zones
+// of its own airports (timing.AirportZone: the IATA code, else the end's own
+// coordinates), confirming them, before the flight_details schedule is seeded
+// from them. The poller and alerts read scheduled_out/scheduled_in as true
+// instants, so they must not be given wall-clock digits. An end whose airport
+// zone is unknown stays floating; its digits still seed the schedule, since
+// those columns are NOT NULL and a zero time would read as long departed, and
+// the provider's resolve overwrites them with real instants.
+func anchorFlightPart(out *store.CreatePlanPartPayload, p planPartReq) {
+	var origin, dest string
+	if p.Flight != nil {
+		origin, dest = p.Flight.OriginIATA, p.Flight.DestIATA
+	}
+	if at, ok := anchorFlightEnd(out.StartsAt, out.StartTZ, out.StartTZSource, origin, p.StartLat, p.StartLon); ok {
+		out.StartsAt, out.StartTZ, out.StartTZSource = at.at, at.tz, string(timing.Confirmed)
+	}
+	if out.EndsAt == nil {
+		return
+	}
+	if at, ok := anchorFlightEnd(*out.EndsAt, out.EndTZ, out.EndTZSource, dest, p.EndLat, p.EndLon); ok {
+		out.EndsAt, out.EndTZ, out.EndTZSource = &at.at, at.tz, string(timing.Confirmed)
+	}
+}
+
+type anchoredEnd struct {
+	at time.Time
+	tz string
+}
+
+// anchorFlightEnd anchors one floating flight end (no zone, and a blank or
+// floating source) in its airport's zone; ok is false when the end is not
+// floating or no zone is found.
+func anchorFlightEnd(at time.Time, tz, src, iata string, lat, lon *float64) (anchoredEnd, bool) {
+	if tz != "" || (src != "" && src != string(timing.Floating)) {
+		return anchoredEnd{}, false
+	}
+	zone, ok := timing.AirportZone(iata, lat, lon)
+	if !ok {
+		return anchoredEnd{}, false
+	}
+	anchored, ok := timing.Anchor(at, zone)
+	if !ok {
+		return anchoredEnd{}, false
+	}
+	return anchoredEnd{at: anchored, tz: zone}, true
 }
 
 func strPtrIfSet(s string) *string {
