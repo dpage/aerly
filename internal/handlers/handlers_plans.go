@@ -15,6 +15,7 @@ import (
 	"github.com/dpage/aerly/internal/flightident"
 	"github.com/dpage/aerly/internal/planops"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Wave 1B: plans, parts, passengers, visibility, and move.
@@ -782,7 +783,7 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	part, err := a.Store.UpdatePlanPart(r.Context(), id, store.UpdatePlanPartPayload{
+	payload := store.UpdatePlanPartPayload{
 		StartsAt:          in.StartsAt,
 		EndsAt:            in.EndsAt,
 		StartTZ:           in.StartTZ,
@@ -800,7 +801,15 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		Status:            in.Status,
 		StartCoordsPinned: in.StartCoordsPinned,
 		EndCoordsPinned:   in.EndCoordsPinned,
-	})
+	}
+	// Pinning a location moves the part to that place's zone, keeping the
+	// wall-clock times it showed (a hotel saved in the wrong zone).
+	if pinsNewPlace(in) {
+		if cur, cerr := a.Store.PlanPartByID(r.Context(), id); cerr == nil {
+			pinZones(cur, in, &payload)
+		}
+	}
+	part, err := a.Store.UpdatePlanPart(r.Context(), id, payload)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
@@ -886,6 +895,87 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 		a.publishPlanUpdated(r.Context(), tripID, planID)
 	}
 	writeJSON(w, http.StatusOK, dto)
+}
+
+// startPinned and endPinned report whether the request pins new coordinates
+// for that end.
+func startPinned(in updatePlanPartReq) bool {
+	return in.StartCoordsPinned != nil && *in.StartCoordsPinned && in.StartLat != nil && in.StartLon != nil
+}
+
+func endPinned(in updatePlanPartReq) bool {
+	return in.EndCoordsPinned != nil && *in.EndCoordsPinned && in.EndLat != nil && in.EndLon != nil
+}
+
+// pinsNewPlace reports whether the request pins coordinates for either end,
+// so the pin path needs the current part.
+func pinsNewPlace(in updatePlanPartReq) bool {
+	return startPinned(in) || endPinned(in)
+}
+
+// pinZones re-derives the zone of each end whose coordinates the request pins,
+// unless the request sets that end's zone or source itself. A new zone is
+// confirmed (the item's own place), and the end's time is moved so its
+// wall-clock reading is kept, unless the request also sets that time. An end
+// with no coordinates of its own (a hotel's checkout) follows the start, as
+// in geocode.ResolvePartTZ.
+func pinZones(cur *store.PlanPart, in updatePlanPartReq, pl *store.UpdatePlanPartPayload) {
+	if startPinned(in) && in.StartTZ == nil && in.StartTZSource == nil {
+		if tz, _ := timing.Infer(timing.Hints{Lat: in.StartLat, Lon: in.StartLon}); tz != "" && tz != cur.StartTZ {
+			pl.StartTZ, pl.StartTZSource = rezone(tz)
+			if in.StartsAt == nil {
+				t := keepWallClock(cur.StartsAt, cur.StartTZ, tz)
+				pl.StartsAt = &t
+			}
+		}
+	}
+	if cur.EndsAt == nil || in.EndTZ != nil || in.EndTZSource != nil {
+		return
+	}
+	var lat, lon *float64
+	switch {
+	case endPinned(in):
+		lat, lon = in.EndLat, in.EndLon
+	case startPinned(in) && cur.EndLat == nil && in.EndLat == nil:
+		lat, lon = in.StartLat, in.StartLon
+	default:
+		return
+	}
+	if tz, _ := timing.Infer(timing.Hints{Lat: lat, Lon: lon}); tz != "" && tz != cur.EndTZ {
+		pl.EndTZ, pl.EndTZSource = rezone(tz)
+		if in.EndsAt == nil {
+			t := keepWallClock(*cur.EndsAt, cur.EndTZ, tz)
+			pl.EndsAt = &t
+		}
+	}
+}
+
+// rezone returns the payload values for a zone found from the item's own
+// coordinates.
+func rezone(tz string) (*string, *string) {
+	src := string(timing.Confirmed)
+	return &tz, &src
+}
+
+// keepWallClock returns the instant in newTZ that reads the same wall-clock
+// time as t does in oldTZ (UTC when oldTZ is empty). A time that newTZ skips
+// for a daylight-saving change falls back to timing.Anchor's normalised
+// instant, since the part must land somewhere.
+func keepWallClock(t time.Time, oldTZ, newTZ string) time.Time {
+	loc := time.UTC
+	if oldTZ != "" {
+		if l, err := time.LoadLocation(oldTZ); err == nil {
+			loc = l
+		}
+	}
+	lt := t.In(loc)
+	sub := time.Duration(lt.Second())*time.Second + time.Duration(lt.Nanosecond())
+	if at, err := timing.LocalInstant(lt.Year(), lt.Month(), lt.Day(), lt.Hour(), lt.Minute(), newTZ); err == nil {
+		return at.Add(sub)
+	}
+	digits := time.Date(lt.Year(), lt.Month(), lt.Day(), lt.Hour(), lt.Minute(), lt.Second(), lt.Nanosecond(), time.UTC)
+	at, _ := timing.Anchor(digits, newTZ)
+	return at
 }
 
 // applyPartDetailEdit dispatches a per-type detail edit to the matching store

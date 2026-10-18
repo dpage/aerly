@@ -311,6 +311,14 @@ func TestG1PartsNeedingTZ(t *testing.T) {
 		plan, now).Scan(&partID); err != nil {
 		t.Fatalf("insert part needing tz: %v", err)
 	}
+	// A confirmed zone is settled, so it is not a candidate.
+	var settledID int64
+	if err := s.pool.QueryRow(ctx, `
+		INSERT INTO plan_parts (plan_id, starts_at, start_lat, start_lon, start_tz, start_tz_source, status)
+		VALUES ($1, $2, 48.85, 2.35, 'Europe/Paris', 'confirmed', 'confirmed') RETURNING id`,
+		plan, now).Scan(&settledID); err != nil {
+		t.Fatalf("insert settled part: %v", err)
+	}
 	parts, err := s.PartsNeedingTZ(ctx)
 	if err != nil {
 		t.Fatalf("PartsNeedingTZ: %v", err)
@@ -319,6 +327,9 @@ func TestG1PartsNeedingTZ(t *testing.T) {
 	for _, p := range parts {
 		if p.ID == partID {
 			found = true
+		}
+		if p.ID == settledID {
+			t.Errorf("confirmed part %d returned as needing tz", settledID)
 		}
 	}
 	if !found {

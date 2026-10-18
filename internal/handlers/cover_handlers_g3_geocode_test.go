@@ -108,6 +108,8 @@ func TestG3BackfillPartTimezones(t *testing.T) {
 		TripID: mustTrip(t, e, ctx, uid), Type: "ground", Title: "Cab",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: at, EndsAt: &end,
+			// Floating: the UTC digits are London wall-clock time.
+			StartTZSource: "floating", EndTZSource: "floating",
 			StartLabel: "London", StartLat: p(51.5074), StartLon: p(-0.1278),
 			EndLabel: "London", EndLat: p(51.5074), EndLon: p(-0.1278),
 		}},
@@ -133,14 +135,19 @@ func TestG3BackfillPartTimezones(t *testing.T) {
 	e.api.BackfillPartTimezones(ctx)
 
 	parts, _ := e.store.PartsByPlan(ctx, plan.ID)
-	if len(parts) != 1 || parts[0].StartTZ == "" {
+	if len(parts) != 1 || parts[0].StartTZ != "Europe/London" || parts[0].StartTZSource != "confirmed" {
 		t.Fatalf("tz not anchored by backfill: %+v", parts[0])
+	}
+	// 09:00 London (BST, UTC+1) is 08:00Z: the floating digits were kept.
+	if want := at.Add(-time.Hour); !parts[0].StartsAt.Equal(want) {
+		t.Errorf("StartsAt = %v, want %v", parts[0].StartsAt.UTC(), want)
 	}
 }
 
 // TestG3BackfillPartTimezonesResolvedFlight: a provider-resolved flight at an
 // airport missing from the table reaches the backfill with coordinates but no
-// zone. Its times are real UTC, so it gains the zone without being shifted.
+// zone. Its times are real UTC (source unknown), so it gains the zone without
+// being shifted.
 func TestG3BackfillPartTimezonesResolvedFlight(t *testing.T) {
 	e := setup(t, nil, nil)
 	ctx := context.Background()
@@ -152,6 +159,8 @@ func TestG3BackfillPartTimezonesResolvedFlight(t *testing.T) {
 		TripID: mustTrip(t, e, ctx, uid), Type: "flight", Title: "XX100",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: out, EndsAt: &in,
+			// Provider times are true instants whose zone is not yet known.
+			StartTZSource: "unknown", EndTZSource: "unknown",
 			StartLabel: "London", StartLat: p(51.5074), StartLon: p(-0.1278),
 			EndLabel: "New York", EndLat: p(40.7128), EndLon: p(-74.0060),
 			Flight: &store.FlightDetail{
@@ -175,6 +184,9 @@ func TestG3BackfillPartTimezonesResolvedFlight(t *testing.T) {
 	}
 	if got.StartTZ != "Europe/London" || got.EndTZ != "America/New_York" {
 		t.Errorf("zones = %q/%q, want Europe/London/America/New_York", got.StartTZ, got.EndTZ)
+	}
+	if got.StartTZSource != "confirmed" || got.EndTZSource != "confirmed" {
+		t.Errorf("sources = %q/%q, want confirmed", got.StartTZSource, got.EndTZSource)
 	}
 	if !got.StartsAt.Equal(out) || got.EndsAt == nil || !got.EndsAt.Equal(in) {
 		t.Errorf("instants shifted: start=%v end=%v, want %v/%v", got.StartsAt, got.EndsAt, out, in)

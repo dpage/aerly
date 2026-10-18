@@ -1055,17 +1055,17 @@ func (s *Store) PartsByPlan(ctx context.Context, planID int64) ([]*PlanPart, err
 	return out, rows.Err()
 }
 
-// PartsNeedingTZ returns non-dismissed parts that have a coordinate but a
-// still-empty start or end timezone — the candidates for one-off tz anchoring
-// of historical rows ingested before coordinate-based tz resolution existed.
+// PartsNeedingTZ returns non-dismissed parts that have a coordinate but an end
+// whose zone source is still floating or unknown: the candidates for anchoring
+// rows ingested before coordinate-based tz resolution existed.
 func (s *Store) PartsNeedingTZ(ctx context.Context) ([]*PlanPart, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+planPartColumns+`
 		FROM plan_parts part
 		JOIN plans pl ON pl.id = part.plan_id
 		WHERE part.dismissed_at IS NULL
-		  AND ((part.start_tz = '' AND part.start_lat IS NOT NULL)
-		    OR (part.end_tz = '' AND part.ends_at IS NOT NULL
+		  AND ((part.start_tz_source IN ('floating','unknown') AND part.start_lat IS NOT NULL)
+		    OR (part.end_tz_source IN ('floating','unknown') AND part.ends_at IS NOT NULL
 		        AND (part.end_lat IS NOT NULL OR part.start_lat IS NOT NULL)))
 		ORDER BY part.id`)
 	if err != nil {
