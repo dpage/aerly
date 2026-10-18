@@ -181,6 +181,30 @@ func TestApplyZoneFixes(t *testing.T) {
 		}
 	})
 
+	t.Run("bumps updated_at so calendar feeds notice the move", func(t *testing.T) {
+		_, h3, f3, _ := seedZoneTrip(t, s)
+		old := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		if _, err := s.Pool().Exec(ctx,
+			`UPDATE plan_parts SET updated_at = $1 WHERE id = ANY($2)`, old, []int64{h3, f3}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ApplyZoneFixes(ctx, []ZoneFix{
+			{PartID: h3, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1},
+			{PartID: f3, End: "end", TZ: "Europe/Paris", Source: "inferred", At: at2},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []int64{h3, f3} {
+			var upd time.Time
+			if err := s.Pool().QueryRow(ctx, `SELECT updated_at FROM plan_parts WHERE id = $1`, id).Scan(&upd); err != nil {
+				t.Fatal(err)
+			}
+			if !upd.After(old) {
+				t.Errorf("part %d updated_at = %v, want bumped", id, upd)
+			}
+		}
+	})
+
 	t.Run("a validation error applies nothing", func(t *testing.T) {
 		pool2 := testsupport.NewPool(t)
 		s2 := New(pool2)

@@ -123,10 +123,10 @@ func (s *Store) ApplyZoneFixes(ctx context.Context, fixes []ZoneFix) (int, error
 		var q string
 		switch f.End {
 		case "start":
-			q = `UPDATE plan_parts SET start_tz = $1, start_tz_source = $2, starts_at = $3
+			q = `UPDATE plan_parts SET start_tz = $1, start_tz_source = $2, starts_at = $3, updated_at = NOW()
 			     WHERE id = $4 AND start_tz_source = 'floating'`
 		case "end":
-			q = `UPDATE plan_parts SET end_tz = $1, end_tz_source = $2, ends_at = $3
+			q = `UPDATE plan_parts SET end_tz = $1, end_tz_source = $2, ends_at = $3, updated_at = NOW()
 			     WHERE id = $4 AND end_tz_source = 'floating'`
 		default:
 			return 0, fmt.Errorf("zone fix for part %d: unknown end %q", f.PartID, f.End)
