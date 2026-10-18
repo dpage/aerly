@@ -193,6 +193,45 @@ func TestPinZoneRules(t *testing.T) {
 		}
 	})
 
+	t.Run("unknown ends gain the zone and keep their instants", func(t *testing.T) {
+		path, id := pinHotel(t, e, uid, store.CreatePlanPartPayload{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartTZSource: "unknown", EndTZSource: "unknown",
+		})
+		body := map[string]any{"start_lat": 41.3, "start_lon": 69.24, "start_coords_pinned": true}
+		if w := e.req(t, "PATCH", path, body, uid); w.Code != http.StatusOK {
+			t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
+		}
+		got, _ := e.store.PlanPartByID(ctx, id)
+		if got.StartTZ != "Asia/Tashkent" || got.StartTZSource != "confirmed" || !got.StartsAt.Equal(checkin) {
+			t.Errorf("start = %q/%q %v, want Asia/Tashkent/confirmed %v", got.StartTZ, got.StartTZSource, got.StartsAt.UTC(), checkin)
+		}
+		if got.EndTZ != "Asia/Tashkent" || got.EndTZSource != "confirmed" || got.EndsAt == nil || !got.EndsAt.Equal(checkout) {
+			t.Errorf("end = %q/%q %v, want Asia/Tashkent/confirmed %v", got.EndTZ, got.EndTZSource, got.EndsAt, checkout)
+		}
+	})
+
+	t.Run("floating ends keep their wall-clock digits", func(t *testing.T) {
+		path, id := pinHotel(t, e, uid, store.CreatePlanPartPayload{
+			StartsAt: checkin, EndsAt: &checkout,
+			StartTZSource: "floating", EndTZSource: "floating",
+		})
+		body := map[string]any{"start_lat": 41.3, "start_lon": 69.24, "start_coords_pinned": true}
+		if w := e.req(t, "PATCH", path, body, uid); w.Code != http.StatusOK {
+			t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
+		}
+		got, _ := e.store.PlanPartByID(ctx, id)
+		// 12:00 and 09:00 read as Tashkent wall-clock (UTC+5) are 07:00Z and 04:00Z.
+		wantIn := time.Date(2026, 7, 1, 7, 0, 0, 0, time.UTC)
+		wantOut := time.Date(2026, 7, 3, 4, 0, 0, 0, time.UTC)
+		if got.StartTZ != "Asia/Tashkent" || !got.StartsAt.Equal(wantIn) {
+			t.Errorf("start = %q %v, want Asia/Tashkent %v", got.StartTZ, got.StartsAt.UTC(), wantIn)
+		}
+		if got.EndTZ != "Asia/Tashkent" || got.EndsAt == nil || !got.EndsAt.Equal(wantOut) {
+			t.Errorf("end = %q %v, want Asia/Tashkent %v", got.EndTZ, got.EndsAt, wantOut)
+		}
+	})
+
 	t.Run("pinned end coords derive the end zone", func(t *testing.T) {
 		path, id := pinHotel(t, e, uid, madrid)
 		body := map[string]any{"end_lat": 41.3, "end_lon": 69.24, "end_coords_pinned": true}

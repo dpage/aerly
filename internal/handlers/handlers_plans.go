@@ -916,14 +916,15 @@ func pinsNewPlace(in updatePlanPartReq) bool {
 // pinZones re-derives the zone of each end whose coordinates the request pins,
 // unless the request sets that end's zone or source itself. A new zone is
 // confirmed (the item's own place), and the end's time is moved so its
-// wall-clock reading is kept, unless the request also sets that time. An end
+// wall-clock reading is kept, unless the request also sets that time or the
+// end is unknown (already a true instant, so it keeps the instant). An end
 // with no coordinates of its own (a hotel's checkout) follows the start, as
 // in geocode.ResolvePartTZ.
 func pinZones(cur *store.PlanPart, in updatePlanPartReq, pl *store.UpdatePlanPartPayload) {
 	if startPinned(in) && in.StartTZ == nil && in.StartTZSource == nil {
 		if tz, _ := timing.Infer(timing.Hints{Lat: in.StartLat, Lon: in.StartLon}); tz != "" && tz != cur.StartTZ {
 			pl.StartTZ, pl.StartTZSource = rezone(tz)
-			if in.StartsAt == nil {
+			if in.StartsAt == nil && cur.StartTZSource != string(timing.Unknown) {
 				t := keepWallClock(cur.StartsAt, cur.StartTZ, tz)
 				pl.StartsAt = &t
 			}
@@ -943,7 +944,7 @@ func pinZones(cur *store.PlanPart, in updatePlanPartReq, pl *store.UpdatePlanPar
 	}
 	if tz, _ := timing.Infer(timing.Hints{Lat: lat, Lon: lon}); tz != "" && tz != cur.EndTZ {
 		pl.EndTZ, pl.EndTZSource = rezone(tz)
-		if in.EndsAt == nil {
+		if in.EndsAt == nil && cur.EndTZSource != string(timing.Unknown) {
 			t := keepWallClock(*cur.EndsAt, cur.EndTZ, tz)
 			pl.EndsAt = &t
 		}
