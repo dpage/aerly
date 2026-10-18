@@ -270,10 +270,10 @@ func TestDuration(t *testing.T) {
 	in := out.Add(2 * time.Hour)
 
 	tests := []struct {
-		name      string
-		times     Times
-		wantDur   time.Duration
-		wantOk    bool
+		name    string
+		times   Times
+		wantDur time.Duration
+		wantOk  bool
 	}{
 		{
 			name: "with arrival",

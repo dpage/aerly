@@ -45,9 +45,9 @@ func TestPlaceName(t *testing.T) {
 			wantStr: "",
 		},
 		{
-			name:   "Europe/London with LHR",
-			tz:     "Europe/London",
-			iata:   "LHR",
+			name:    "Europe/London with LHR",
+			tz:      "Europe/London",
+			iata:    "LHR",
 			wantStr: "", // Will check using airports.LookupCity
 			wantCheck: func(got string) bool {
 				city, ok := airports.LookupCity("LHR")
