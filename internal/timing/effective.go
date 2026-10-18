@@ -77,7 +77,8 @@ func Effective(f FlightTimes) Times {
 		return at.Sub(f.ScheduledIn)
 	}
 	estIn := f.EstimatedIn
-	if estIn != nil && !estIn.After(t.Departure.At) {
+	// Once the flight has landed the estimate is moot, so it is not reported.
+	if f.ActualIn == nil && estIn != nil && !estIn.After(t.Departure.At) {
 		estIn = nil
 		t.DroppedEstimatedIn = true
 	}

@@ -28,6 +28,19 @@ func TestEffective(t *testing.T) {
 			},
 		},
 		{
+			name: "landed with a stale estimate before the departure",
+			f: FlightTimes{
+				ScheduledOut: out,
+				ScheduledIn:  in,
+				EstimatedIn:  ptrTime(out.Add(-time.Minute)),
+				ActualIn:     ptrTime(in),
+			},
+			want: Times{
+				Departure: End{At: out, Kind: Scheduled},
+				Arrival:   &End{At: in, Kind: Actual},
+			},
+		},
+		{
 			name: "off-block estimate out+40m",
 			f: FlightTimes{
 				ScheduledOut: out,
