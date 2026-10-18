@@ -387,6 +387,7 @@ func TestG1TrackerQueryErrorBranches(t *testing.T) {
 		{"RefreshFlightPartTerminal", func() error { return s.RefreshFlightPartTerminal(cc, 1, "a", "b") }},
 		{"RefreshFlightPartBelt", func() error { return s.RefreshFlightPartBelt(cc, 1, "a") }},
 		{"RefreshFlightPartSchedule", func() error { return s.RefreshFlightPartSchedule(cc, 1, now, now) }},
+		{"SyncFlightDetailSchedule", func() error { return s.SyncFlightDetailSchedule(cc, 1, now, now) }},
 		{"RefreshFlightPartStatus", func() error { return s.RefreshFlightPartStatus(cc, 1) }},
 		{"ConvergenceParts", func() error { _, e := s.ConvergenceParts(cc, 1, now, now, ""); return e }},
 		{"ConvergencePartsAll", func() error { _, e := s.ConvergencePartsAll(cc, 1, now, now, ""); return e }},

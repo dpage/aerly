@@ -22,6 +22,7 @@ import (
 	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Throttle is the minimum gap between resolver attempts for one flight row,
@@ -221,15 +222,27 @@ func RouteUpdateFromResolved(rf *providers.ResolvedFlight) store.FlightRouteUpda
 		si := rf.ScheduledIn
 		up.ScheduledIn, up.EndsAt = &si, &si
 	}
-	if tz, ok := airports.LookupTZ(origin); ok {
-		up.StartTZ = &tz
-	}
-	if tz, ok := airports.LookupTZ(dest); ok {
-		up.EndTZ = &tz
-	}
+	up.StartTZ, up.StartTZSource = providerZone(origin, rf.OriginLat, rf.OriginLon)
+	up.EndTZ, up.EndTZSource = providerZone(dest, rf.DestLat, rf.DestLon)
 	up.StartLat, up.StartLon, up.ClearStartCoords = AirportCoords(origin, rf.OriginLat, rf.OriginLon)
 	up.EndLat, up.EndLon, up.ClearEndCoords = AirportCoords(dest, rf.DestLat, rf.DestLon)
 	return up
+}
+
+// providerZone is a resolved flight end's zone and source: the airport's zone,
+// confirmed, when the table or the provider's coordinates (zero means none)
+// name one; otherwise no zone and unknown, never floating, because the
+// provider's times are true instants.
+func providerZone(code string, provLat, provLon float64) (tz, src *string) {
+	var lat, lon *float64
+	if provLat != 0 || provLon != 0 {
+		lat, lon = &provLat, &provLon
+	}
+	zone, s := "", string(timing.Unknown)
+	if found, ok := timing.AirportZone(code, lat, lon); ok {
+		zone, s = found, string(timing.Confirmed)
+	}
+	return &zone, &s
 }
 
 // AirportCoords picks an airport's coordinates: the provider's value when

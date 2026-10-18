@@ -831,7 +831,7 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 	// a re-resolve's regenerated labels win over any label sent in the same
 	// request. Reload the part afterwards so the DTO reflects the new route.
 	if in.Flight != nil {
-		if err := a.applyFlightEdit(r.Context(), id, *in.Flight); err != nil {
+		if err := a.applyFlightEdit(r.Context(), id, part, *in.Flight); err != nil {
 			handleStoreErr(w, err)
 			return
 		}
@@ -1095,10 +1095,12 @@ func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.
 	if out.Equal(fd.ScheduledOut) && in.Equal(fd.ScheduledIn) {
 		return nil
 	}
-	return a.Store.RefreshFlightPartSchedule(ctx, partID, out, in)
+	return a.Store.SyncFlightDetailSchedule(ctx, partID, out, in)
 }
 
-func (a *API) applyFlightEdit(ctx context.Context, partID int64, in flightEditReq) error {
+// applyFlightEdit applies a flight route/identity edit. part is the part as just
+// saved by the caller, whose times and zone sources the manual-route path reads.
+func (a *API) applyFlightEdit(ctx context.Context, partID int64, part *store.PlanPart, in flightEditReq) error {
 	fd, err := a.Store.FlightDetailFor(ctx, partID)
 	if err != nil {
 		return err
@@ -1117,7 +1119,7 @@ func (a *API) applyFlightEdit(ctx context.Context, partID int64, in flightEditRe
 	// IATA edits are only meaningful on an unresolved flight; for a tracked
 	// flight the route is provider-owned and editing it would be clobbered.
 	if !fd.Resolved {
-		if up, changed := manualRouteUpdate(fd, in); changed {
+		if up, changed := manualRouteUpdate(fd, part, in); changed {
 			return a.Store.UpdateFlightPartRoute(ctx, partID, up)
 		}
 	}
@@ -1159,10 +1161,12 @@ func normalizeIdent(s string) string {
 // manualRouteUpdate builds the FlightRouteUpdate for a hand-typed IATA edit on
 // an unresolved flight: it rewrites the changed leg's code, friendly label and
 // timezone, and recomputes coordinates from the embedded table (clearing them
-// when the new airport is off-table, so a stale pin doesn't linger). The
-// resolved flag is left untouched (stays false). Returns whether anything
-// changed.
-func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRouteUpdate, bool) {
+// when the new airport is off-table, so a stale pin doesn't linger). A zone the
+// table names is confirmed, and an end that was floating (its digits are
+// wall-clock time) is anchored in that zone, keeping the digits it showed. Any
+// other end keeps its instant. The resolved flag is left untouched (stays
+// false). Returns whether anything changed.
+func manualRouteUpdate(fd *store.FlightDetail, part *store.PlanPart, in flightEditReq) (store.FlightRouteUpdate, bool) {
 	var up store.FlightRouteUpdate
 	changed := false
 	if in.OriginIATA != nil {
@@ -1170,8 +1174,12 @@ func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRo
 			label := airports.Label(code, "")
 			up.OriginIATA, up.StartLabel = &code, &label
 			if tz, ok := airports.LookupTZ(code); ok {
-				src := "confirmed"
+				src := string(timing.Confirmed)
 				up.StartTZ, up.StartTZSource = &tz, &src
+				if part.StartTZSource == string(timing.Floating) {
+					at, _ := timing.Anchor(part.StartsAt, tz)
+					up.StartsAt = &at
+				}
 			}
 			up.StartLat, up.StartLon, up.ClearStartCoords = flightcoord.AirportCoords(code, 0, 0)
 			changed = true
@@ -1182,8 +1190,12 @@ func manualRouteUpdate(fd *store.FlightDetail, in flightEditReq) (store.FlightRo
 			label := airports.Label(code, "")
 			up.DestIATA, up.EndLabel = &code, &label
 			if tz, ok := airports.LookupTZ(code); ok {
-				src := "confirmed"
+				src := string(timing.Confirmed)
 				up.EndTZ, up.EndTZSource = &tz, &src
+				if part.EndTZSource == string(timing.Floating) && part.EndsAt != nil {
+					at, _ := timing.Anchor(*part.EndsAt, tz)
+					up.EndsAt = &at
+				}
 			}
 			up.EndLat, up.EndLon, up.ClearEndCoords = flightcoord.AirportCoords(code, 0, 0)
 			changed = true

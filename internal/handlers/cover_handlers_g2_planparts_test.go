@@ -138,6 +138,76 @@ func TestUpdatePlanPartFlightManualRouteG2(t *testing.T) {
 	}
 }
 
+// TestUpdatePlanPartFlightManualRouteAnchorsFloating: a flight typed with an
+// off-table origin keeps its time as floating wall-clock digits. Correcting the
+// origin to LHR confirms Europe/London and anchors those digits there, so 09:00
+// in July becomes 08:00Z. The destination stays off-table, so the end, also
+// floating, is left exactly as it was until it too is corrected.
+func TestUpdatePlanPartFlightManualRouteAnchorsFloating(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "g2flfloat", false)
+	tid := newTrip(t, e, owner, "Trip")
+	out := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	in := out.Add(2 * time.Hour)
+	w := e.req(t, "POST", "/api/trips/"+itoa(tid)+"/plans", map[string]any{
+		"type": "flight", "title": "XX100",
+		"parts": []map[string]any{{
+			"type": "flight", "starts_at": out, "ends_at": in,
+			"flight": map[string]any{
+				"ident": "XX100", "scheduled_out": out, "scheduled_in": in,
+				"origin_iata": "ZZZ", "dest_iata": "QQQ",
+			},
+		}},
+	}, owner)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	partID := partIDOfPlan(t, e, int64(decodeBody[map[string]any](t, w)["id"].(float64)))
+
+	read := func() (tz, src, endSrc string, start, end time.Time) {
+		t.Helper()
+		if err := e.api.Store.Pool().QueryRow(context.Background(), `
+			SELECT start_tz, start_tz_source, end_tz_source, starts_at, ends_at
+			FROM plan_parts WHERE id = $1`, partID).Scan(&tz, &src, &endSrc, &start, &end); err != nil {
+			t.Fatalf("read part: %v", err)
+		}
+		return
+	}
+	if tz, src, endSrc, _, _ := read(); tz != "" || src != "floating" || endSrc != "floating" {
+		t.Fatalf("setup zones = %q/%s, end %s; want floating both ends", tz, src, endSrc)
+	}
+
+	if w := e.req(t, "PATCH", "/api/plan-parts/"+itoa(partID), map[string]any{
+		"flight": map[string]any{"origin_iata": "LHR"},
+	}, owner); w.Code != http.StatusOK {
+		t.Fatalf("manual route edit = %d; body=%s", w.Code, w.Body.String())
+	}
+	tz, src, endSrc, start, end := read()
+	if tz != "Europe/London" || src != "confirmed" {
+		t.Errorf("start zone = %q/%s, want Europe/London/confirmed", tz, src)
+	}
+	if want := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC); !start.Equal(want) {
+		t.Errorf("starts_at = %v, want %v", start, want)
+	}
+	if endSrc != "floating" || !end.Equal(in) {
+		t.Errorf("end = %v (%s), want untouched %v (floating)", end, endSrc, in)
+	}
+
+	// Then the destination: 11:00 in Paris in July is 09:00Z.
+	if w := e.req(t, "PATCH", "/api/plan-parts/"+itoa(partID), map[string]any{
+		"flight": map[string]any{"dest_iata": "CDG"},
+	}, owner); w.Code != http.StatusOK {
+		t.Fatalf("manual dest edit = %d; body=%s", w.Code, w.Body.String())
+	}
+	_, _, endSrc, start2, end := read()
+	if want := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC); endSrc != "confirmed" || !end.Equal(want) {
+		t.Errorf("end = %v (%s), want %v (confirmed)", end, endSrc, want)
+	}
+	if !start2.Equal(start) {
+		t.Errorf("confirmed start moved again: %v, want %v", start2, start)
+	}
+}
+
 // TestUpdatePlanPartFlightReresolveG2 covers applyFlightEdit's ident-change
 // re-resolve branch with a resolver configured (reresolveFlightPart success).
 func TestUpdatePlanPartFlightReresolveG2(t *testing.T) {

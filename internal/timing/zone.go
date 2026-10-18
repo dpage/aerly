@@ -129,3 +129,20 @@ func Infer(h Hints) (string, Source) {
 	}
 	return "", Unknown
 }
+
+// AirportZone is the zone a flight end's clocks run on: the embedded airport
+// table first, since it is authoritative for the codes it names, then the
+// airport's own coordinates (a provider fix), which catch off-table airports.
+// Both count as the item's own place, so a hit is Confirmed. Unlike Infer it
+// tries the code before the coordinates, and it never borrows a neighbour's.
+func AirportZone(iata string, lat, lon *float64) (string, bool) {
+	if tz, ok := airports.LookupTZ(iata); ok {
+		return tz, true
+	}
+	if lat != nil && lon != nil {
+		if tz, ok := geotz.Lookup(*lat, *lon); ok && ValidZone(tz) {
+			return tz, true
+		}
+	}
+	return "", false
+}

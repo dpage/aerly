@@ -512,18 +512,58 @@ func (s *Store) RefreshFlightPartArrival(ctx context.Context, partID int64, esti
 }
 
 // RefreshFlightPartSchedule overwrites the scheduled departure/arrival from the
-// resolver whilst the flight is still unconfirmed (resolved = false). An
-// unconfirmed schedule is provisional — extracted from an email, or hand-typed —
-// and the provider is authoritative, so we correct it (including a complete
-// schedule that turned out to differ from the published one). Once a flight is
+// resolver whilst the flight is still unconfirmed (resolved = false), and moves
+// the part's own starts_at/ends_at with it in the same transaction. An
+// unconfirmed schedule is provisional (extracted from an email, or hand-typed)
+// and the provider is authoritative, so we correct it, including a complete
+// schedule that turned out to differ from the published one. Once a flight is
 // provider-confirmed (resolved = true) its schedule is frozen as the delay
-// baseline and left untouched; live changes then flow through estimated/actual.
-// Two callers, with different guarantees. The poller passes a provider schedule
-// and guards on ScheduledIn.After(ScheduledOut) first, so it never writes a
-// degenerate one. The plan-part edit path passes the traveller's own times,
-// where an arrival equal to the departure is a legitimate "no arrival known"
-// and must be stored as given rather than invented.
+// baseline and neither table is touched; live changes then flow through
+// estimated/actual.
+//
+// The provider's times are true instants, so a zoneless end that was floating
+// (its digits read as wall-clock time) becomes unknown, whilst an end with a
+// zone keeps its source. The poller is the only caller, and guards on
+// ScheduledIn.After(ScheduledOut) first, so it never writes a degenerate
+// schedule. The plan-part edit path uses SyncFlightDetailSchedule instead.
 func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out, in time.Time) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // best-effort rollback on early return
+	tag, err := tx.Exec(ctx, `
+		UPDATE flight_details SET scheduled_out = $2, scheduled_in = $3
+		WHERE plan_part_id = $1 AND resolved = false`, partID, out, in)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE plan_parts SET
+			starts_at = $2,
+			ends_at   = $3,
+			start_tz_source = CASE WHEN start_tz = '' THEN 'unknown' ELSE start_tz_source END,
+			end_tz_source   = CASE WHEN end_tz = '' THEN 'unknown' ELSE end_tz_source END,
+			updated_at = NOW()
+		WHERE id = $1`, partID, out, in); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// SyncFlightDetailSchedule copies a traveller's edited times into an
+// unconfirmed flight's scheduled_out/scheduled_in (resolved = false; a
+// provider-confirmed schedule is the delay baseline and is left alone). It
+// writes flight_details only and must not touch plan_parts: the times come
+// from the part the traveller has just saved, which may be floating wall-clock
+// digits rather than provider instants, so rewriting the part (or turning its
+// floating ends unknown, as RefreshFlightPartSchedule does) would change what
+// the traveller typed. An arrival equal to the departure is a legitimate "no
+// arrival known" and is stored as given.
+func (s *Store) SyncFlightDetailSchedule(ctx context.Context, partID int64, out, in time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET scheduled_out = $2, scheduled_in = $3
 		WHERE plan_part_id = $1 AND resolved = false`, partID, out, in)

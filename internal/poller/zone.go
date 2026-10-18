@@ -3,8 +3,7 @@ package poller
 import (
 	"time"
 
-	"github.com/dpage/aerly/internal/airports"
-	"github.com/dpage/aerly/internal/geotz"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Timezone resolution for the notifications the poller sends (issue #117).
@@ -23,15 +22,8 @@ import (
 // doesn't name. It returns "" when neither resolves, leaving the caller to fall
 // back to UTC rather than invent a zone.
 func airportZone(iata string, lat, lon *float64) string {
-	if tz, ok := airports.LookupTZ(iata); ok {
-		return tz
-	}
-	if lat != nil && lon != nil {
-		if tz, ok := geotz.Lookup(*lat, *lon); ok {
-			return tz
-		}
-	}
-	return ""
+	tz, _ := timing.AirportZone(iata, lat, lon)
+	return tz
 }
 
 // partZone picks the zone a notification about a plan part should be written

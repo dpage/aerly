@@ -88,3 +88,27 @@ func TestInfer(t *testing.T) {
 		}
 	}
 }
+
+func TestAirportZone(t *testing.T) {
+	paris := [2]*float64{fp(48.8566), fp(2.3522)}
+	cases := []struct {
+		name     string
+		iata     string
+		lat, lon *float64
+		tz       string
+		ok       bool
+	}{
+		// The airport table wins over the coordinates for a flight end.
+		{"table first", "jfk", paris[0], paris[1], "America/New_York", true},
+		{"coords for an off-table code", "ZZZ", paris[0], paris[1], "Europe/Paris", true},
+		{"half a coordinate is no coordinate", "ZZZ", paris[0], nil, "", false},
+		{"neither", "ZZZ", nil, nil, "", false},
+		{"empty code, no coords", "", nil, nil, "", false},
+	}
+	for _, c := range cases {
+		tz, ok := AirportZone(c.iata, c.lat, c.lon)
+		if tz != c.tz || ok != c.ok {
+			t.Errorf("%s: got (%q,%v), want (%q,%v)", c.name, tz, ok, c.tz, c.ok)
+		}
+	}
+}

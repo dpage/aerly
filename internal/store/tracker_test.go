@@ -562,6 +562,110 @@ func TestRefreshFlightPartSchedule(t *testing.T) {
 	}
 }
 
+// partTimes reads a part's instants and zone sources straight from plan_parts.
+func partTimes(t *testing.T, s *Store, id int64) (start, end time.Time, startSrc, endSrc string) {
+	t.Helper()
+	if err := s.pool.QueryRow(ctx, `
+		SELECT starts_at, ends_at, start_tz_source, end_tz_source FROM plan_parts WHERE id = $1`,
+		id).Scan(&start, &end, &startSrc, &endSrc); err != nil {
+		t.Fatalf("read part %d: %v", id, err)
+	}
+	return start, end, startSrc, endSrc
+}
+
+// TestRefreshFlightPartScheduleMovesPart: the provider's schedule is a pair of
+// true instants, so an unresolved flight's plan_parts times move with it, a
+// floating zoneless end becomes unknown and a confirmed zone is kept. A
+// resolved flight is left alone in both tables.
+func TestRefreshFlightPartScheduleMovesPart(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	at := func(h int) time.Time { return time.Date(2026, 7, 1, h, 0, 0, 0, time.UTC) }
+
+	part := mkFlightPart(t, s, owner, "XX100", at(10), at(12))
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE plan_parts SET start_tz_source = 'floating',
+			end_tz = 'Europe/Paris', end_tz_source = 'confirmed' WHERE id = $1`, part); err != nil {
+		t.Fatalf("seed sources: %v", err)
+	}
+	if err := s.RefreshFlightPartSchedule(ctx, part, at(8), at(10)); err != nil {
+		t.Fatalf("RefreshFlightPartSchedule: %v", err)
+	}
+	start, end, startSrc, endSrc := partTimes(t, s, part)
+	if !start.Equal(at(8)) || !end.Equal(at(10)) {
+		t.Errorf("plan_parts = %v → %v, want %v → %v", start, end, at(8), at(10))
+	}
+	if startSrc != "unknown" || endSrc != "confirmed" {
+		t.Errorf("sources = %s/%s, want unknown/confirmed", startSrc, endSrc)
+	}
+
+	frozen := mkFlightPart(t, s, owner, "XX101", at(10), at(12))
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE plan_parts SET start_tz_source = 'floating' WHERE id = $1;`, frozen); err != nil {
+		t.Fatalf("seed floating: %v", err)
+	}
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE flight_details SET resolved = true WHERE plan_part_id = $1`, frozen); err != nil {
+		t.Fatalf("mark resolved: %v", err)
+	}
+	if err := s.RefreshFlightPartSchedule(ctx, frozen, at(8), at(10)); err != nil {
+		t.Fatalf("RefreshFlightPartSchedule (frozen): %v", err)
+	}
+	start, end, startSrc, _ = partTimes(t, s, frozen)
+	if !start.Equal(at(10)) || !end.Equal(at(12)) || startSrc != "floating" {
+		t.Errorf("resolved part changed: %v → %v (%s)", start, end, startSrc)
+	}
+	ff, _ := s.FlightPartByID(ctx, frozen)
+	if !ff.ScheduledOut.Equal(at(10)) || !ff.ScheduledIn.Equal(at(12)) {
+		t.Errorf("resolved schedule changed: %v → %v", ff.ScheduledOut, ff.ScheduledIn)
+	}
+}
+
+// TestSyncFlightDetailSchedule: the edit path's sync writes flight_details only
+// (guarded on resolved = false), never plan_parts, whose times and sources the
+// traveller has just saved.
+func TestSyncFlightDetailSchedule(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	at := func(h int) time.Time { return time.Date(2026, 7, 1, h, 0, 0, 0, time.UTC) }
+
+	part := mkFlightPart(t, s, owner, "XX102", at(10), at(12))
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE plan_parts SET start_tz_source = 'floating' WHERE id = $1`, part); err != nil {
+		t.Fatalf("seed floating: %v", err)
+	}
+	if err := s.SyncFlightDetailSchedule(ctx, part, at(8), at(9)); err != nil {
+		t.Fatalf("SyncFlightDetailSchedule: %v", err)
+	}
+	pf, _ := s.FlightPartByID(ctx, part)
+	if !pf.ScheduledOut.Equal(at(8)) || !pf.ScheduledIn.Equal(at(9)) {
+		t.Errorf("schedule = %v → %v, want %v → %v", pf.ScheduledOut, pf.ScheduledIn, at(8), at(9))
+	}
+	start, end, startSrc, _ := partTimes(t, s, part)
+	if !start.Equal(at(10)) || !end.Equal(at(12)) || startSrc != "floating" {
+		t.Errorf("plan_parts touched: %v → %v (%s)", start, end, startSrc)
+	}
+
+	frozen := mkFlightPart(t, s, owner, "XX103", at(10), at(12))
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE flight_details SET resolved = true WHERE plan_part_id = $1`, frozen); err != nil {
+		t.Fatalf("mark resolved: %v", err)
+	}
+	if err := s.SyncFlightDetailSchedule(ctx, frozen, at(8), at(9)); err != nil {
+		t.Fatalf("SyncFlightDetailSchedule (frozen): %v", err)
+	}
+	ff, _ := s.FlightPartByID(ctx, frozen)
+	if !ff.ScheduledOut.Equal(at(10)) {
+		t.Errorf("resolved schedule changed: %v", ff.ScheduledOut)
+	}
+}
+
 // TestFlightPartWriteHelpers exercises the part-keyed status / airframe /
 // backfill writers — the mechanical counterparts the poller now calls.
 func TestFlightPartWriteHelpers(t *testing.T) {
