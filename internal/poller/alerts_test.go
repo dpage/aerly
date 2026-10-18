@@ -1232,3 +1232,92 @@ func TestResolveWarnsOnImpossibleArrivalEstimate(t *testing.T) {
 		t.Errorf("a sensible estimate was warned about:\n%s", buf.String())
 	}
 }
+
+// TestAlert_FlappingEstimateAlertsOnce: a provider that withdraws its
+// departure estimate and later restores the same one has not changed the
+// delay, so the delay is announced once, whether or not another alert was
+// stamped whilst the estimate was missing. A restored estimate with a
+// different delay is a change, and alerts.
+func TestAlert_FlappingEstimateAlertsOnce(t *testing.T) {
+	cases := []struct {
+		name        string
+		gateWhilst  bool
+		restoredMin int
+		wantDelays  int
+	}{
+		{"restored without an intervening alert", false, 40, 1},
+		{"restored after a gate alert", true, 40, 1},
+		{"restored with a deeper delay after a gate alert", true, 70, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, s, hub, _ := alertPoller(t)
+			ctx := context.Background()
+			owner := seedUser(t, s)
+			now := time.Now()
+			f, err := mkPart(ctx, s, partSeed{
+				Ident: "XX100", ScheduledOut: now.Add(2 * time.Hour), ScheduledIn: now.Add(4 * time.Hour),
+				OriginIATA: "LHR", DestIATA: "JFK",
+			}, owner)
+			if err != nil {
+				t.Fatalf("mkPart: %v", err)
+			}
+			ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+			defer unsub()
+			delays := 0
+			poll := func(change func()) {
+				t.Helper()
+				prev, err := s.FlightPartByID(ctx, f.ID)
+				if err != nil {
+					t.Fatalf("refetch: %v", err)
+				}
+				change()
+				p.maybeAlert(ctx, prev, f.ID, true)
+				for _, a := range drainAlerts(t, ch) {
+					if a.Kind == "delayed" {
+						delays++
+					}
+				}
+			}
+
+			poll(func() { setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(40*time.Minute)) })
+			poll(func() {
+				if err := s.RefreshFlightPartDeparture(ctx, f.ID, nil, nil); err != nil {
+					t.Fatalf("withdraw estimate: %v", err)
+				}
+				if tc.gateWhilst {
+					setOriginGate(t, s, f.ID, "A1")
+				}
+			})
+			poll(func() {
+				setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(time.Duration(tc.restoredMin)*time.Minute))
+			})
+			if delays != tc.wantDelays {
+				t.Errorf("delay alerts = %d, want %d", delays, tc.wantDelays)
+			}
+		})
+	}
+}
+
+// TestSignatureCarryingDelay pins the carry rule: a state with no published
+// delay takes the last alerted delay from the stored signature, and a state
+// with a delay, or a cancellation, ignores it.
+func TestSignatureCarryingDelay(t *testing.T) {
+	cases := []struct {
+		name string
+		st   alertState
+		last string
+		want string
+	}{
+		{"no delay carries the last one", alertState{originGate: "A1"}, "delay:40", "delay:40|ogate:A1"},
+		{"no delay and nothing to carry", alertState{originGate: "A1"}, "ogate:B2", "ogate:A1"},
+		{"a malformed delay is not carried", alertState{originGate: "A1"}, "delay:x|ogate:A1", "ogate:A1"},
+		{"a published delay wins", alertState{hasDelay: true, delayMin: 70}, "delay:40", "delay:70"},
+		{"a cancellation keys on status", alertState{status: "Cancelled", terminalDV: true}, "delay:40", "status:Cancelled"},
+	}
+	for _, tc := range cases {
+		if got := signatureCarryingDelay(tc.st, tc.last); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

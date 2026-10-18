@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -169,6 +170,26 @@ func alertSignature(st alertState) string {
 	return strings.Join(parts, "|")
 }
 
+// signatureCarryingDelay is alertSignature(st), except that a state with no
+// published delay (and no cancellation or diversion, which key on status
+// instead) carries forward the delay in last, the signature last stamped. A
+// provider withdrawing its estimate has not cancelled the delay it announced,
+// and without the carry an alert stamped whilst the estimate was missing (a
+// gate, say) would drop the delay from the signature, so the same estimate
+// restored later would be announced a second time.
+func signatureCarryingDelay(st alertState, last string) string {
+	if !st.hasDelay && !st.terminalDV {
+		for _, part := range strings.Split(last, "|") {
+			if v, found := strings.CutPrefix(part, "delay:"); found {
+				if n, err := strconv.Atoi(v); err == nil {
+					st.hasDelay, st.delayMin = true, n
+				}
+			}
+		}
+	}
+	return alertSignature(st)
+}
+
 // maybeAlert is invoked by refresh after the part's flight_details have been
 // refreshed. prev is the part's pre-refresh carrier; partID identifies the
 // part; reported says whether this poll carried a fresh report from the
@@ -191,11 +212,13 @@ func (p *Poller) maybeAlert(ctx context.Context, prev *store.Flight, partID int6
 
 	// Dedupe: don't re-send a change whose signature matches the last one we
 	// alerted on for this part.
-	sig := alertSignature(sigSt)
-	if last, ok, serr := p.Store.FlightPartAlertSig(ctx, partID); serr == nil && ok && last == sig {
-		return
-	} else if serr != nil {
+	last, ok, serr := p.Store.FlightPartAlertSig(ctx, partID)
+	if serr != nil {
 		slog.Error("alert: read dedupe sig", "id", partID, "err", serr)
+		return
+	}
+	sig := signatureCarryingDelay(sigSt, last)
+	if ok && last == sig {
 		return
 	}
 
