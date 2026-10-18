@@ -159,10 +159,13 @@ func TestApplyZoneFixes(t *testing.T) {
 			`UPDATE plan_parts SET end_tz = 'Europe/Paris', end_tz_source = 'confirmed' WHERE id = $1`, hotel); err != nil {
 			t.Fatal(err)
 		}
+		_, _, hs := read(hotel, "start")
+		_, _, he := read(hotel, "end")
+		_, _, fe := read(flight, "end")
 		n, err := s.ApplyZoneFixes(ctx, []ZoneFix{
-			{PartID: hotel, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1},
-			{PartID: hotel, End: "end", TZ: "Europe/London", Source: "confirmed", At: at2},
-			{PartID: flight, End: "end", TZ: "Europe/Paris", Source: "", At: at2},
+			{PartID: hotel, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1, Old: hs},
+			{PartID: hotel, End: "end", TZ: "Europe/London", Source: "confirmed", At: at2, Old: he},
+			{PartID: flight, End: "end", TZ: "Europe/Paris", Source: "", At: at2, Old: fe},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -181,16 +184,40 @@ func TestApplyZoneFixes(t *testing.T) {
 		}
 	})
 
+	t.Run("skips an end whose time changed since planning", func(t *testing.T) {
+		_, h4, _, _ := seedZoneTrip(t, s)
+		_, _, planned := read(h4, "start")
+		edited := planned.Add(90 * time.Minute)
+		if _, err := s.Pool().Exec(ctx,
+			`UPDATE plan_parts SET starts_at = $1 WHERE id = $2`, edited, h4); err != nil {
+			t.Fatal(err)
+		}
+		n, err := s.ApplyZoneFixes(ctx, []ZoneFix{
+			{PartID: h4, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1, Old: planned},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("written = %d, want 0", n)
+		}
+		if _, src, at := read(h4, "start"); src != "floating" || !at.Equal(edited) {
+			t.Errorf("edited start overwritten: %q %v", src, at)
+		}
+	})
+
 	t.Run("bumps updated_at so calendar feeds notice the move", func(t *testing.T) {
 		_, h3, f3, _ := seedZoneTrip(t, s)
+		_, _, h3s := read(h3, "start")
+		_, _, f3e := read(f3, "end")
 		old := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		if _, err := s.Pool().Exec(ctx,
 			`UPDATE plan_parts SET updated_at = $1 WHERE id = ANY($2)`, old, []int64{h3, f3}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.ApplyZoneFixes(ctx, []ZoneFix{
-			{PartID: h3, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1},
-			{PartID: f3, End: "end", TZ: "Europe/Paris", Source: "inferred", At: at2},
+			{PartID: h3, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1, Old: h3s},
+			{PartID: f3, End: "end", TZ: "Europe/Paris", Source: "inferred", At: at2, Old: f3e},
 		}); err != nil {
 			t.Fatal(err)
 		}

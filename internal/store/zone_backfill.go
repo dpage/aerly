@@ -107,11 +107,13 @@ type ZoneFix struct {
 	TZ     string
 	Source string
 	At     time.Time
+	Old    time.Time // the end's instant when the fix was planned
 }
 
 // ApplyZoneFixes writes the fixes in one transaction. The update only matches
-// an end that is still floating, so a re-run, or an edit that landed since the
-// fixes were planned, is left alone. A fix that fails validation aborts all.
+// an end that is still floating and still holds the instant it was planned
+// from, so a re-run, or an edit that landed since the fixes were planned (a
+// changed zone or a changed time), is left alone. A fix that fails validation aborts all.
 // It returns the number of rows actually written.
 func (s *Store) ApplyZoneFixes(ctx context.Context, fixes []ZoneFix) (int, error) {
 	type resolved struct {
@@ -124,10 +126,10 @@ func (s *Store) ApplyZoneFixes(ctx context.Context, fixes []ZoneFix) (int, error
 		switch f.End {
 		case "start":
 			q = `UPDATE plan_parts SET start_tz = $1, start_tz_source = $2, starts_at = $3, updated_at = NOW()
-			     WHERE id = $4 AND start_tz_source = 'floating'`
+			     WHERE id = $4 AND start_tz_source = 'floating' AND starts_at = $5`
 		case "end":
 			q = `UPDATE plan_parts SET end_tz = $1, end_tz_source = $2, ends_at = $3, updated_at = NOW()
-			     WHERE id = $4 AND end_tz_source = 'floating'`
+			     WHERE id = $4 AND end_tz_source = 'floating' AND ends_at = $5`
 		default:
 			return 0, fmt.Errorf("zone fix for part %d: unknown end %q", f.PartID, f.End)
 		}
@@ -145,7 +147,7 @@ func (s *Store) ApplyZoneFixes(ctx context.Context, fixes []ZoneFix) (int, error
 	defer func() { _ = tx.Rollback(ctx) }()
 	written := 0
 	for _, w := range work {
-		tag, err := tx.Exec(ctx, w.sql, w.f.TZ, w.f.Source, w.f.At, w.f.PartID)
+		tag, err := tx.Exec(ctx, w.sql, w.f.TZ, w.f.Source, w.f.At, w.f.PartID, w.f.Old)
 		if err != nil {
 			return 0, err
 		}

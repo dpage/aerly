@@ -32,7 +32,7 @@ func TestPlanCoordsConfirmed(t *testing.T) {
 	if f.TZ != "Europe/London" || f.Source != "confirmed" || !f.At.Equal(at.Add(-time.Hour)) {
 		t.Errorf("fix = %+v", f)
 	}
-	if rep.Confirmed != 1 || len(rep.Old) != 1 || !rep.Old[0].Equal(at) {
+	if rep.Confirmed != 1 || !f.Old.Equal(at) {
 		t.Errorf("report = %+v", rep)
 	}
 }

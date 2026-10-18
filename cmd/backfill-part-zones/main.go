@@ -115,9 +115,9 @@ func process(ctx context.Context, s zoneStore, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	for i, f := range fixes {
+	for _, f := range fixes {
 		slog.Info("backfill: fix", "part", f.PartID, "end", f.End, "zone", f.TZ,
-			"source", f.Source, "old", rep.Old[i].Format(time.RFC3339),
+			"source", f.Source, "old", f.Old.Format(time.RFC3339),
 			"new", f.At.Format(time.RFC3339))
 	}
 	for _, f := range rep.LeftFloating {
@@ -135,11 +135,9 @@ func process(ctx context.Context, s zoneStore, dryRun bool) error {
 	return nil
 }
 
-// report totals the outcomes of a plan. Old holds each fix's instant before
-// the change, in the same order as the fixes.
+// report totals the outcomes of a plan.
 type report struct {
 	Confirmed, Inferred, Floating int
-	Old                           []time.Time
 	LeftFloating                  []store.FloatingEnd // part ids and ends only are logged
 }
 
@@ -175,8 +173,7 @@ func plan(ends []store.FloatingEnd, trip func(int64) ([]store.ZonedEnd, error)) 
 		} else {
 			rep.Inferred++
 		}
-		fixes = append(fixes, store.ZoneFix{PartID: e.PartID, End: e.End, TZ: tz, Source: string(src), At: at})
-		rep.Old = append(rep.Old, e.At)
+		fixes = append(fixes, store.ZoneFix{PartID: e.PartID, End: e.End, TZ: tz, Source: string(src), At: at, Old: e.At})
 		// Only an end's own evidence joins the trip's zoned ends: a pass-2
 		// guess must not feed another, or the result depends on the order.
 		if src == timing.Confirmed {
