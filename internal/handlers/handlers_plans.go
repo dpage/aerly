@@ -1082,6 +1082,9 @@ func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.
 	if fd.Resolved {
 		return nil
 	}
+	if err := a.anchorFloatingFlightPart(ctx, partID, part, fd); err != nil {
+		return err
+	}
 	out := part.StartsAt
 	in := out.Add(fd.ScheduledIn.Sub(fd.ScheduledOut))
 	// An arrival equal to the departure is the stored form of "no arrival
@@ -1097,6 +1100,45 @@ func (a *API) syncFlightSchedule(ctx context.Context, partID int64, part *store.
 		return nil
 	}
 	return a.Store.SyncFlightDetailSchedule(ctx, partID, out, in)
+}
+
+// anchorFloatingFlightPart anchors an unresolved flight part's floating ends in
+// their airports' zones (the same rule as anchorFlightPart on create) and
+// writes the result back to the part, so the part row and flight_details stay
+// two views of the same instants: the poller and alerts read scheduled_out and
+// scheduled_in as true instants, never wall-clock digits. part is updated in
+// place. An end with no airport zone stays floating and its digits carry
+// through as before. An arrival equal to the departure is the stored form of
+// "no arrival known" and keeps that shape by taking the departure's anchoring.
+func (a *API) anchorFloatingFlightPart(ctx context.Context, partID int64, part *store.PlanPart, fd *store.FlightDetail) error {
+	var payload store.UpdatePlanPartPayload
+	changed := false
+	confirmed := string(timing.Confirmed)
+	noArrival := part.EndsAt != nil && part.EndsAt.Equal(part.StartsAt)
+	start, startOK := anchorFlightEnd(part.StartsAt, part.StartTZ, part.StartTZSource, fd.OriginIATA, part.StartLat, part.StartLon)
+	if startOK {
+		payload.StartsAt, payload.StartTZ, payload.StartTZSource = &start.at, &start.tz, &confirmed
+		changed = true
+	}
+	if part.EndsAt != nil {
+		end, endOK := anchorFlightEnd(*part.EndsAt, part.EndTZ, part.EndTZSource, fd.DestIATA, part.EndLat, part.EndLon)
+		if noArrival && startOK {
+			end, endOK = start, true
+		}
+		if endOK {
+			payload.EndsAt, payload.EndTZ, payload.EndTZSource = &end.at, &end.tz, &confirmed
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	updated, err := a.Store.UpdatePlanPart(ctx, partID, payload)
+	if err != nil {
+		return err
+	}
+	*part = *updated
+	return nil
 }
 
 // applyFlightEdit applies a flight route/identity edit. part is the part as just

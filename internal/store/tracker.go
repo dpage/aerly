@@ -553,11 +553,12 @@ func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out
 // SyncFlightDetailSchedule copies a traveller's edited times into an
 // unconfirmed flight's scheduled_out/scheduled_in (resolved = false; a
 // provider-confirmed schedule is the delay baseline and is left alone). It
-// writes flight_details only and must not touch plan_parts: the times come
-// from the part the traveller has just saved, which may be floating wall-clock
-// digits rather than provider instants, so rewriting the part (or turning its
-// floating ends unknown, as RefreshFlightPartSchedule does) would change what
-// the traveller typed. An arrival equal to the departure is a legitimate "no
+// writes flight_details only and must not touch plan_parts, nor turn its
+// floating ends unknown as RefreshFlightPartSchedule does. It copies the times
+// it is given as they stand, so a caller holding floating wall-clock digits
+// must anchor them in the airport's zone first (syncFlightSchedule does, where
+// an airport zone exists); an end with no known zone has its digits copied, as
+// the column is NOT NULL. An arrival equal to the departure is a legitimate "no
 // arrival known" and is stored as given.
 func (s *Store) SyncFlightDetailSchedule(ctx context.Context, partID int64, out, in time.Time) error {
 	_, err := s.pool.Exec(ctx, `
