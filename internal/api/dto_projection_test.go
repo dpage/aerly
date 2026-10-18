@@ -225,7 +225,7 @@ func TestPlanPartTimeBlocks_FlightWithLateDeparture(t *testing.T) {
 		arr.Place != jfk || arr.Kind != "derived" || arr.DelayMin != 40 {
 		t.Errorf("arrival block = %+v", arr)
 	}
-	if dto.Start != dep || dto.End == nil || *dto.End != *arr {
+	if !sameBlock(dto.Start, dep) || dto.End == nil || !sameBlock(*dto.End, *arr) {
 		t.Errorf("part start/end %+v / %+v differ from flight blocks", dto.Start, dto.End)
 	}
 	if !dto.EffectiveAt.Equal(est) {
@@ -254,13 +254,34 @@ func TestPlanPartTimeBlocks_DepartureOnlyFlightOmitsArrival(t *testing.T) {
 	}
 }
 
-func TestPlanPartTimeBlocks_FloatingFlightEndKeepsFallbackZone(t *testing.T) {
+// sameBlock compares blocks, using Equal for the instant.
+func sameBlock(a, b TimeBlockDTO) bool {
+	return a.At.Equal(b.At) && a.TZ == b.TZ && a.TZSource == b.TZSource &&
+		a.Place == b.Place && a.Kind == b.Kind && a.DelayMin == b.DelayMin
+}
+
+func TestPlanPartTimeBlocks_FloatingFlightEndHasNoZone(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	part := &store.PlanPart{Type: "flight", StartsAt: out, StartTZSource: "floating"}
 	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", ScheduledOut: out}
 	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	if dto.Start.TZ != "Europe/London" || dto.Start.TZSource != "floating" || dto.Start.Place == "" {
-		t.Errorf("start = %+v, want airport zone kept with floating source", dto.Start)
+	if dto.Start.TZ != "" || dto.Start.Place != "" || dto.Start.TZSource != "floating" {
+		t.Errorf("start = %+v, want no zone or place and floating source", dto.Start)
+	}
+	// The part-level raw fields keep their airport fallback.
+	if dto.StartTZ != "Europe/London" || dto.StartTZSource != "floating" {
+		t.Errorf("raw start zone = %q/%q", dto.StartTZ, dto.StartTZSource)
+	}
+}
+
+func TestPlanPartTimeBlocks_FlightEndWithBlankZoneUsesAirport(t *testing.T) {
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	part := &store.PlanPart{Type: "flight", StartsAt: out}
+	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", ScheduledOut: out}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	lhr, _ := airports.LookupCity("LHR")
+	if dto.Start.TZ != "Europe/London" || dto.Start.TZSource != "confirmed" || dto.Start.Place != lhr {
+		t.Errorf("start = %+v, want airport zone, confirmed, %q", dto.Start, lhr)
 	}
 }
 
@@ -274,7 +295,7 @@ func TestPlanPartTimeBlocks_Hotel(t *testing.T) {
 	}
 	dto := ToPlanPartDTO(part, nil, &store.HotelDetail{PropertyName: "Test Hotel"}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	want := TimeBlockDTO{At: in, TZ: "Europe/Paris", TZSource: "confirmed", Place: "Paris", Kind: "scheduled"}
-	if dto.Start != want {
+	if !sameBlock(dto.Start, want) {
 		t.Errorf("start = %+v, want %+v", dto.Start, want)
 	}
 	if dto.End == nil || !dto.End.At.Equal(outT) || dto.End.TZSource != "inferred" ||

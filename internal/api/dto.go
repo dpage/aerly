@@ -25,8 +25,14 @@ type TimeBlockDTO struct {
 
 // newTimeBlock builds a block. The place is named only when there is a zone to
 // quote it in: a floating or unknown zone leaves it empty, because the client
-// shows "needs a time zone" there and a city would contradict that.
+// shows "needs a time zone" there and a city would contradict that. A floating
+// end is never given a zone either, whatever the caller supplied: its instant
+// is wall-clock digits written as UTC, so a zone beside it would label the
+// wrong moment. The source stays "floating".
 func newTimeBlock(end timing.End, tz, src, iata string) TimeBlockDTO {
+	if src == "floating" {
+		tz = ""
+	}
 	place := ""
 	if tz != "" {
 		place = timing.PlaceName(tz, iata)
@@ -663,8 +669,9 @@ type PlanVisibilityDTO struct {
 }
 
 // PlanPartDTO is one timeline entry. Exactly one of the typed detail pointers
-// is populated, selected by Type. effective_at = COALESCE(actual, estimated,
-// scheduled) so the front end sorts every type uniformly.
+// is populated, selected by Type. effective_at is the part's effective start
+// (the flight's effective departure, else StartsAt) so the front end sorts
+// every type uniformly.
 type PlanPartDTO struct {
 	ID            int64      `json:"id"`
 	PlanID        int64      `json:"plan_id"`
@@ -675,21 +682,21 @@ type PlanPartDTO struct {
 	StartTZ       string     `json:"start_tz"`
 	EndTZ         string     `json:"end_tz"`
 	StartTZSource string     `json:"start_tz_source"`
+	EndTZSource   string     `json:"end_tz_source"`
+	StartLabel    string     `json:"start_label"`
+	StartLat      *float64   `json:"start_lat,omitempty"`
+	StartLon      *float64   `json:"start_lon,omitempty"`
+	StartAddress  string     `json:"start_address"`
+	EndLabel      string     `json:"end_label"`
+	EndLat        *float64   `json:"end_lat,omitempty"`
+	EndLon        *float64   `json:"end_lon,omitempty"`
+	EndAddress    string     `json:"end_address"`
+	Status        string     `json:"status"`
+	EffectiveAt   time.Time  `json:"effective_at"`
 	// Start and End are the effective time blocks for each end of the part;
 	// End is nil when the part has no end time.
 	Start        TimeBlockDTO          `json:"start"`
 	End          *TimeBlockDTO         `json:"end,omitempty"`
-	EndTZSource  string                `json:"end_tz_source"`
-	StartLabel   string                `json:"start_label"`
-	StartLat     *float64              `json:"start_lat,omitempty"`
-	StartLon     *float64              `json:"start_lon,omitempty"`
-	StartAddress string                `json:"start_address"`
-	EndLabel     string                `json:"end_label"`
-	EndLat       *float64              `json:"end_lat,omitempty"`
-	EndLon       *float64              `json:"end_lon,omitempty"`
-	EndAddress   string                `json:"end_address"`
-	Status       string                `json:"status"`
-	EffectiveAt  time.Time             `json:"effective_at"`
 	SupersedesID *int64                `json:"supersedes_id,omitempty"`
 	DismissedAt  *time.Time            `json:"dismissed_at,omitempty"`
 	Flight       *FlightDetailDTO      `json:"flight,omitempty"`
@@ -956,8 +963,8 @@ func airportFallbackSource(stored string) string {
 // TZ-lookup convenience that lived in ToFlightDTO now happens here, filling
 // start_tz/end_tz from the airports table when the part left them blank.
 //
-// effective_at = COALESCE(actual, estimated, scheduled): for flight parts it
-// uses the detail's effective departure; for every other type it is StartsAt.
+// effective_at: for flight parts it is the effective departure from the timing
+// package; for every other type it is StartsAt.
 func ToPlanPartDTO(
 	p *store.PlanPart,
 	flight *store.FlightDetail,
