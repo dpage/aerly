@@ -277,6 +277,7 @@ func (p *Poller) evaluateAlert(partID int64, prev, cur *store.Flight, reported b
 // flight's effective departure (the revised off-block time the delay is
 // measured from, else the timetable), or past it.
 func inQuietPeriod(f *store.Flight, now time.Time) bool {
+	// Not Departure.At: that becomes wheels-off once observed, a taxi later than the off-block time this window runs from.
 	dep := f.ScheduledOut.Add(timing.Effective(f.Times()).Departure.Delay)
 	return !now.Before(dep.Add(-terminalQuietPeriod))
 }
