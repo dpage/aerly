@@ -159,6 +159,27 @@ describe('AddToTripDialog - confirm step field coverage', () => {
     expect(plans[0].confirmation_ref).toBeUndefined();
   });
 
+  it('passes each part time zone source through to the confirm payload', async () => {
+    h.state.ingest.mockImplementation(async () => {
+      h.state.ingestProposals = [
+        proposal({
+          parts: [
+            part({ start_tz: '', end_tz: '', start_tz_source: 'floating', end_tz_source: 'unknown' }),
+          ],
+        }),
+      ];
+    });
+    h.state.confirmIngest.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Paste text' }));
+    await userEvent.type(screen.getByLabelText('Confirmation text'), 'tz');
+    await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+    const sent = h.state.confirmIngest.mock.calls[0][1][0].parts[0];
+    expect(sent.start_tz_source).toBe('floating');
+    expect(sent.end_tz_source).toBe('unknown');
+  });
+
   it('renders a multi-part proposal label and an invalid date verbatim', async () => {
     // parts.length > 1 → "· N parts"; a non-parseable starts_at falls back to
     // the raw string (fmtIso NaN guard).

@@ -220,7 +220,6 @@ func mapKayakFlight(e Event) (planops.ConfirmPlanInput, bool) {
 		DestIATA:     dest,
 		ScheduledOut: out,
 		ScheduledIn:  in,
-		FlightStatus: kayakFlightStatus(in),
 	}
 
 	part := planops.ConfirmPartInput{
@@ -245,6 +244,8 @@ func mapKayakFlight(e Event) (planops.ConfirmPlanInput, bool) {
 	if tz, ok := airports.LookupTZ(dest); ok {
 		part.EndTZ = tz
 	}
+	settleFlightZones(&part, &e.Start, &e.End)
+	fd.FlightStatus = kayakFlightStatus(fd.ScheduledIn)
 
 	return planops.ConfirmPlanInput{
 		Type:            "flight",
@@ -290,6 +291,7 @@ func mapKayakTransport(e Event, planType string) (planops.ConfirmPlanInput, bool
 	} else {
 		part.Ground = &store.GroundDetail{Provider: provider}
 	}
+	settleZones(&part, &e.Start, &e.End)
 
 	return planops.ConfirmPlanInput{
 		Type:            planType,
@@ -423,14 +425,17 @@ func mapKayakCar(e Event, dropoff *Event) planops.ConfirmPlanInput {
 	}
 	// Only fall back to the pickup's own DTEND when nothing paired with it: that
 	// instant is the end of the collection appointment, not the return.
+	endDT := &e.End
 	switch {
 	case dropoff != nil && !dropoff.Start.Time.IsZero():
 		end := dropoff.Start.Time
 		part.EndsAt = &end
+		endDT = &dropoff.Start
 	case !e.End.Time.IsZero():
 		end := e.End.Time
 		part.EndsAt = &end
 	}
+	settleZones(&part, &e.Start, endDT)
 
 	return planops.ConfirmPlanInput{
 		Type:            "vehicle_hire",
@@ -482,6 +487,7 @@ func mapKayakSimple(e Event, planType string) (planops.ConfirmPlanInput, bool) {
 		part.Excursion = &store.ExcursionDetail{}
 	}
 	applyGeoTZ(&part, e.Geo)
+	settleZones(&part, &e.Start, &e.End)
 
 	return planops.ConfirmPlanInput{
 		Type:            planType,
@@ -533,15 +539,18 @@ func mapKayakHotels(events []Event) []planops.ConfirmPlanInput {
 				Phone:        kayakField(kayakPhoneFieldRe, anchor.Description),
 			},
 		}
+		var endDT *DateTime
 		if st.out != nil && !st.out.Start.Time.IsZero() {
 			end := st.out.Start.Time
 			part.EndsAt = &end
+			endDT = &st.out.Start
 		}
 		geo := anchor.Geo
 		if geo == nil && st.out != nil {
 			geo = st.out.Geo
 		}
 		applyGeoTZ(&part, geo)
+		settleZones(&part, &anchor.Start, endDT)
 		out = append(out, planops.ConfirmPlanInput{
 			Type:            "hotel",
 			Title:           name,

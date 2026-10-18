@@ -1100,6 +1100,8 @@ function toDraft(p: ProposedPlan): DraftPlan {
       ends_at: part.ends_at,
       start_tz: part.start_tz || undefined,
       end_tz: part.end_tz || undefined,
+      start_tz_source: part.start_tz_source || undefined,
+      end_tz_source: part.end_tz_source || undefined,
       start_label: part.start_label || undefined,
       start_lat: part.start_lat,
       start_lon: part.start_lon,
