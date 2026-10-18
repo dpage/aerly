@@ -26,11 +26,13 @@ type TimeBlockDTO struct {
 // newTimeBlock builds a block. The place is named only when there is a zone to
 // quote it in: a floating or unknown zone leaves it empty, because the client
 // shows "needs a time zone" there and a city would contradict that. A floating
-// end is never given a zone either, whatever the caller supplied: its instant
-// is wall-clock digits written as UTC, so a zone beside it would label the
-// wrong moment. The source stays "floating".
+// end's timetable times are never given a zone either, whatever the caller
+// supplied: a scheduled time is wall-clock digits written as UTC, and a derived
+// one is those digits moved by the delay, so a zone beside either would label
+// the wrong moment. A provider estimate or actual is a true instant whatever
+// the timetable beside it, so it keeps the zone. The source stays "floating".
 func newTimeBlock(end timing.End, tz, src, iata string) TimeBlockDTO {
-	if src == "floating" {
+	if src == "floating" && (end.Kind == timing.Scheduled || end.Kind == timing.Derived) {
 		tz = ""
 	}
 	place := ""

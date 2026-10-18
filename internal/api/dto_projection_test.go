@@ -274,6 +274,36 @@ func TestPlanPartTimeBlocks_FloatingFlightEndHasNoZone(t *testing.T) {
 	}
 }
 
+// Only a floating end's timetable-based times (scheduled, and derived from
+// the timetable) are wall-clock digits; a provider estimate or actual on the
+// same part is a true instant, so it keeps the airport's zone and place.
+func TestPlanPartTimeBlocks_FloatingFlightProviderTimesKeepZone(t *testing.T) {
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := out.Add(7 * time.Hour)
+	estOut := out.Add(time.Hour)
+	actIn := in.Add(30 * time.Minute)
+	part := &store.PlanPart{Type: "flight", StartsAt: out, EndsAt: &in, StartTZSource: "floating", EndTZSource: "floating"}
+	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK",
+		ScheduledOut: out, ScheduledIn: in, EstimatedOut: &estOut, ActualIn: &actIn}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	lhr, _ := airports.LookupCity("LHR")
+	jfk, _ := airports.LookupCity("JFK")
+	if dto.Start.Kind != "estimated" || dto.Start.TZ != "Europe/London" || dto.Start.Place != lhr {
+		t.Errorf("start = %+v, want the estimate quoted at %s", dto.Start, lhr)
+	}
+	if dto.End == nil || dto.End.Kind != "actual" || dto.End.TZ != "America/New_York" || dto.End.Place != jfk {
+		t.Errorf("end = %+v, want the actual quoted at %s", dto.End, jfk)
+	}
+
+	// The same part with only a departure estimate derives its arrival from
+	// the timetable, so that end is digits again and gets no zone.
+	flight.ActualIn = nil
+	dto = ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if dto.End == nil || dto.End.Kind != "derived" || dto.End.TZ != "" || dto.End.Place != "" {
+		t.Errorf("derived end = %+v, want no zone or place", dto.End)
+	}
+}
+
 func TestPlanPartTimeBlocks_FlightEndWithBlankZoneUsesAirport(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	part := &store.PlanPart{Type: "flight", StartsAt: out}
