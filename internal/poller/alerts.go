@@ -179,15 +179,23 @@ func alertSignature(st alertState) string {
 // restored later would be announced a second time.
 func signatureCarryingDelay(st alertState, last string) string {
 	if !st.hasDelay && !st.terminalDV {
-		for _, part := range strings.Split(last, "|") {
-			if v, found := strings.CutPrefix(part, "delay:"); found {
-				if n, err := strconv.Atoi(v); err == nil {
-					st.hasDelay, st.delayMin = true, n
-				}
-			}
+		if n, ok := signatureDelay(last); ok {
+			st.hasDelay, st.delayMin = true, n
 		}
 	}
 	return alertSignature(st)
+}
+
+// signatureDelay returns the delay recorded in signature sig, if it has one.
+func signatureDelay(sig string) (int, bool) {
+	for _, part := range strings.Split(sig, "|") {
+		if v, found := strings.CutPrefix(part, "delay:"); found {
+			if n, err := strconv.Atoi(v); err == nil {
+				return n, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // maybeAlert is invoked by refresh after the part's flight_details have been
@@ -219,6 +227,12 @@ func (p *Poller) maybeAlert(ctx context.Context, prev *store.Flight, partID int6
 	}
 	sig := signatureCarryingDelay(sigSt, last)
 	if ok && last == sig {
+		return
+	}
+	// changeKind measures a delay against the previous poll, which after a
+	// withdrawn estimate has none, so a restored delay always looks deeper. It
+	// is news only when deeper than the delay last announced.
+	if n, found := signatureDelay(last); ok && found && kind == "delayed" && sigSt.delayMin <= n {
 		return
 	}
 

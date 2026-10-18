@@ -1237,7 +1237,7 @@ func TestResolveWarnsOnImpossibleArrivalEstimate(t *testing.T) {
 // departure estimate and later restores the same one has not changed the
 // delay, so the delay is announced once, whether or not another alert was
 // stamped whilst the estimate was missing. A restored estimate with a
-// different delay is a change, and alerts.
+// deeper delay alerts; a shallower one does not, as without the withdrawal.
 func TestAlert_FlappingEstimateAlertsOnce(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -1248,6 +1248,8 @@ func TestAlert_FlappingEstimateAlertsOnce(t *testing.T) {
 		{"restored without an intervening alert", false, 40, 1},
 		{"restored after a gate alert", true, 40, 1},
 		{"restored with a deeper delay after a gate alert", true, 70, 2},
+		{"restored with a shallower delay", false, 20, 1},
+		{"restored with a shallower delay after a gate alert", true, 20, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
