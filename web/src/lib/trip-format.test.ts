@@ -10,6 +10,8 @@ import {
   flightStatusLabel,
   fmtPartDuration,
   fmtPartScheduledRange,
+  startBlockOf,
+  endBlockOf,
   fmtPartDateRange,
   fmtPartTimeRange,
   fmtPartTimeRangeText,
@@ -704,6 +706,32 @@ describe('block-based part times', () => {
     expect(fmtPartDateRange(flight({ end: undefined }))).toBe('Sun, 18 Oct 2026');
   });
 
+  it('shows only the start of a revised part with no scheduled end', () => {
+    const p = flight({
+      ends_at: undefined,
+      end: jfk,
+      flight: { ident: 'XX100', scheduled_out: '2026-10-18T09:00:00Z' },
+      start: { ...lhr, at: '2026-10-18T09:40:00Z', kind: 'estimated', delay_min: 40 },
+    } as Partial<PlanPart>);
+    expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1');
+  });
+
+  it('reads a part with no blocks from its starts_at and zones', () => {
+    const p = flight({ start: undefined, end: undefined } as unknown as Partial<PlanPart>);
+    expect(startBlockOf(p).at).toBe('2026-10-18T09:00:00Z');
+    expect(fmtPartTimeRange(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
+    expect(fmtPartTimeRangeText(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
+    expect(fmtPartDateRange(p)).toBe('Sun, 18 Oct 2026');
+    expect(fmtPartDuration(p)).toBe('8h 5m');
+    expect(flightStatusLabel(p)).toBeNull();
+    const noEnd = flight({
+      start: undefined,
+      end: undefined,
+      ends_at: undefined,
+    } as unknown as Partial<PlanPart>);
+    expect(endBlockOf(noEnd)).toBeUndefined();
+  });
+
   it('has no duration for a single-place type', () => {
     expect(fmtPartDuration(flight({ type: 'hotel' }))).toBeNull();
   });
@@ -801,7 +829,7 @@ describe('fmtPartTimeRange', () => {
     );
   });
 
-  it('falls back to a UTC suffix when the tz is unknown', () => {
+  it('shows the time with no zone label when the tz is unknown', () => {
     expect(
       fmtPartTimeRange(
         part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, start_tz: '' }),

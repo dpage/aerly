@@ -51,6 +51,8 @@ import {
   fmtPartDuration,
   fmtPartScheduledRange,
   fmtPartTimeRange,
+  startBlockOf,
+  endBlockOf,
   planTypeLabel,
 } from '../lib/trip-format';
 import type { BandEdge } from '../lib/trip-format';
@@ -808,9 +810,9 @@ function PartCard({
 
           <Typography variant="caption" color="text.secondary">
             {edge === 'first' ? (
-              `${edgeLabel} · ${fmtCompact(part.start)}`
+              `${edgeLabel} · ${fmtCompact(startBlockOf(part))}`
             ) : edge === 'last' ? (
-              `${edgeLabel} · ${fmtCompact(part.end ?? part.start)}`
+              `${edgeLabel} · ${fmtCompact(endBlockOf(part) ?? startBlockOf(part))}`
             ) : scheduledWhen ? (
               // Departure-board treatment: the timetable stays visible but is
               // struck through, and the times the flight is actually running to

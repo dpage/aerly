@@ -2,7 +2,7 @@
 // PRD §6.1/§6.2). Pure functions, unit-tested in trip-format.test.ts.
 
 import type { ExternalEvent, Plan, PlanPart, PlanType, TimeBlock, Trip } from '../api/types';
-import { durationMin, fmtCompact, fmtDayHeading, fmtDuration, isRevised } from './time';
+import { blockFor, durationMin, fmtCompact, fmtDayHeading, fmtDuration, isRevised } from './time';
 
 /** Which home-screen group a trip falls under. */
 export type TripBucket = 'upcoming' | 'now' | 'past';
@@ -388,11 +388,25 @@ function tzOffsetMs(tz: string, utcMs: number): number {
   return asUTC - utcMs;
 }
 
+/** A part's start block: the server's, or for a response that predates blocks
+ * (a stale cache, the mock API) a scheduled one built from starts_at/start_tz
+ * the way the server would, with a blank zone giving no label. */
+export function startBlockOf(part: PlanPart): TimeBlock {
+  return part.start ?? blockFor(part.starts_at, part.start_tz || '');
+}
+
+/** A part's end block, as startBlockOf; absent when the part has no end. */
+export function endBlockOf(part: PlanPart): TimeBlock | undefined {
+  if (part.end) return part.end;
+  return part.ends_at ? blockFor(part.ends_at, part.end_tz || part.start_tz || '') : undefined;
+}
+
 /** A part's current times: "14:00 UTC+5", or "14:00 UTC+5 → ≈18:05 UTC+1" with
  * an end. Each end reads in its own zone, from the server's blocks. */
 export function fmtPartTimeRange(part: PlanPart): string {
-  const start = fmtCompact(part.start);
-  return part.end ? `${start} → ${fmtCompact(part.end)}` : start;
+  const start = fmtCompact(startBlockOf(part));
+  const end = endBlockOf(part);
+  return end ? `${start} → ${fmtCompact(end)}` : start;
 }
 
 // The timetable time behind a revised block, in the same zone. A floating
@@ -405,20 +419,23 @@ function timetableBlock(b: TimeBlock, at: string): TimeBlock {
 /** The timetable range, when either end is running to a reported or worked-out
  * time at least a minute away from it; null when the part is on schedule. */
 export function fmtPartScheduledRange(part: PlanPart): string | null {
-  if (!isRevised(part.start) && !isRevised(part.end)) return null;
+  const sb = startBlockOf(part);
+  const eb = endBlockOf(part);
+  if (!isRevised(sb) && !isRevised(eb)) return null;
   const f = part.flight;
-  const start = fmtCompact(timetableBlock(part.start, f?.scheduled_out ?? part.starts_at));
-  if (!part.end) return start;
-  const endAt = f?.scheduled_in ?? part.ends_at ?? part.starts_at;
-  return `${start} → ${fmtCompact(timetableBlock(part.end, endAt))}`;
+  const start = fmtCompact(timetableBlock(sb, f?.scheduled_out ?? part.starts_at));
+  const endAt = f?.scheduled_in ?? part.ends_at;
+  if (!eb || !endAt) return start;
+  return `${start} → ${fmtCompact(timetableBlock(eb, endAt))}`;
 }
 
 /** A part's local date(s) for the share text, e.g. "Sun, 18 Oct 2026", or a
  * range when it ends on a different local day. */
 export function fmtPartDateRange(part: PlanPart): string {
-  const start = fmtDayHeading(part.start);
-  if (!part.end) return start;
-  const end = fmtDayHeading(part.end);
+  const start = fmtDayHeading(startBlockOf(part));
+  const eb = endBlockOf(part);
+  if (!eb) return start;
+  const end = fmtDayHeading(eb);
   return end === start ? start : `${start} → ${end}`;
 }
 
@@ -426,7 +443,7 @@ export function fmtPartDateRange(part: PlanPart): string {
  * for a single-place type, a part with no end, or an end not after the start. */
 export function fmtPartDuration(part: PlanPart): string | null {
   if (!isTransferType(part.type)) return null;
-  const mins = durationMin(part.start, part.end);
+  const mins = durationMin(startBlockOf(part), endBlockOf(part));
   return mins == null ? null : fmtDuration(mins);
 }
 
@@ -459,8 +476,8 @@ export function flightStatusLabel(part: PlanPart): FlightStatusLabel | null {
   const status = part.flight.flight_status?.trim() ?? '';
   if (status === 'Cancelled' || status === 'Diverted') return { label: status, tone: 'error' };
   // A departure the airline has reported or estimated later than the timetable.
-  const late =
-    (part.start.kind === 'estimated' || part.start.kind === 'actual') && part.start.delay_min > 0;
+  const sb = startBlockOf(part);
+  const late = (sb.kind === 'estimated' || sb.kind === 'actual') && sb.delay_min > 0;
   if (status !== 'Arrived' && late) return { label: 'Delayed', tone: 'warning' };
   return status ? { label: status, tone: 'normal' } : null;
 }

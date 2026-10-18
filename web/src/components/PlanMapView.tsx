@@ -42,6 +42,8 @@ import { personColor } from '../lib/person-color';
 import {
   fmtPartPlaces,
   fmtPartTimeRangeText,
+  startBlockOf,
+  endBlockOf,
   isTransferType,
   planTypeLabel,
 } from '../lib/trip-format';
@@ -844,7 +846,7 @@ function endpoints(p: PlanPart): Endpoint[] {
           lon: p.start_lon,
           label: startLabel,
           address: startAddress,
-          when: p.start,
+          when: startBlockOf(p),
         }
       : null;
   const end: Endpoint | null =
@@ -855,7 +857,7 @@ function endpoints(p: PlanPart): Endpoint[] {
           lon: p.end_lon,
           label: endLabel,
           address: endAddress,
-          when: p.end ?? p.start,
+          when: endBlockOf(p) ?? startBlockOf(p),
         }
       : null;
   return [start, end].filter((e): e is Endpoint => e != null);

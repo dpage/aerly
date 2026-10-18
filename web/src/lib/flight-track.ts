@@ -1,5 +1,6 @@
 import type { PlanPart, Position } from '../api/types';
 import { initialBearing } from './great-circle';
+import { endBlockOf, startBlockOf } from './trip-format';
 
 /** Pure flight position/track/window helpers shared by the map view: where a
  * plane icon belongs (live or scrubbed back in time), when it's visible, and
@@ -29,10 +30,10 @@ export function parseMs(iso?: string | null): number | null {
 /** A part's departure / arrival epoch ms from its server blocks, which already
  * carry the actual, estimated, derived or scheduled time; null when unknown. */
 function blockStartMs(p: PlanPart): number | null {
-  return parseMs(p.start?.at);
+  return parseMs(startBlockOf(p).at);
 }
 function blockEndMs(p: PlanPart): number | null {
-  return parseMs(p.end?.at);
+  return parseMs(endBlockOf(p)?.at);
 }
 
 /** The live plane placement (latest reported fix). Landed: park at the
