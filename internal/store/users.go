@@ -21,6 +21,9 @@ var (
 	ErrAlreadyVerified = errors.New("address already verified")
 	ErrNotVerified     = errors.New("address not verified")
 	ErrUsernameTaken   = errors.New("username already registered")
+	// ErrInvalidZone is returned when a part's time zone is not a loadable IANA
+	// name, or its zone source is unrecognised or contradicts the zone.
+	ErrInvalidZone = errors.New("invalid time zone")
 	// ErrLastOwner is returned when removing a trip member would leave the trip
 	// with no owner, locking out non-superuser management of it.
 	ErrLastOwner = errors.New("cannot remove the last owner of the trip")

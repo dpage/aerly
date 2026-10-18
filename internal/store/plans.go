@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Plan is a booking: the unit of sharing, privacy, passengers, and
@@ -44,22 +46,27 @@ type Plan struct {
 // end place, a status, and an optional supersession link. Type-specific data
 // hangs off the matching *Detail satellite keyed on the part id.
 type PlanPart struct {
-	ID           int64
-	PlanID       int64
-	Type         string // mirror of the owning plan's type, for convenience
-	Seq          int
-	StartsAt     time.Time
-	EndsAt       *time.Time
-	StartTZ      string
-	EndTZ        string
-	StartLabel   string
-	StartLat     *float64
-	StartLon     *float64
-	StartAddress string
-	EndLabel     string
-	EndLat       *float64
-	EndLon       *float64
-	EndAddress   string
+	ID       int64
+	PlanID   int64
+	Type     string // mirror of the owning plan's type, for convenience
+	Seq      int
+	StartsAt time.Time
+	EndsAt   *time.Time
+	StartTZ  string
+	EndTZ    string
+	// Where each end's zone came from. A non-empty zone is always confirmed or
+	// inferred; an empty one unknown (a true instant) or floating (the UTC
+	// digits are local wall-clock time).
+	StartTZSource string // timing.Source: confirmed | inferred | unknown | floating
+	EndTZSource   string // timing.Source: confirmed | inferred | unknown | floating
+	StartLabel    string
+	StartLat      *float64
+	StartLon      *float64
+	StartAddress  string
+	EndLabel      string
+	EndLat        *float64
+	EndLon        *float64
+	EndAddress    string
 	// Coords pinned by the user (a manual override the geocoder must not touch).
 	StartCoordsPinned bool
 	EndCoordsPinned   bool
@@ -255,19 +262,24 @@ type CreatePlanPayload struct {
 // CreatePlanPartPayload is one part to insert under a plan, with at most one
 // populated detail matching the plan's type.
 type CreatePlanPartPayload struct {
-	Seq          int
-	StartsAt     time.Time
-	EndsAt       *time.Time
-	StartTZ      string
-	EndTZ        string
-	StartLabel   string
-	StartLat     *float64
-	StartLon     *float64
-	StartAddress string
-	EndLabel     string
-	EndLat       *float64
-	EndLon       *float64
-	EndAddress   string
+	Seq      int
+	StartsAt time.Time
+	EndsAt   *time.Time
+	StartTZ  string
+	EndTZ    string
+	// Zone sources (timing.Source values). Empty derives one via ResolveSource:
+	// confirmed for a zone, floating for none, and unknown for an end with no
+	// time at all.
+	StartTZSource string
+	EndTZSource   string
+	StartLabel    string
+	StartLat      *float64
+	StartLon      *float64
+	StartAddress  string
+	EndLabel      string
+	EndLat        *float64
+	EndLon        *float64
+	EndAddress    string
 	// Coords pinned by the caller (a manual override the async geocoder must
 	// not touch), mirroring PlanPart's StartCoordsPinned/EndCoordsPinned.
 	StartCoordsPinned bool
@@ -307,19 +319,23 @@ type UpdatePlanPayload struct {
 // UpdatePlanPartPayload carries the optionally-set fields of a part edit
 // (time/place/status).
 type UpdatePlanPartPayload struct {
-	StartsAt     *time.Time
-	EndsAt       *time.Time
-	StartTZ      *string
-	EndTZ        *string
-	StartLabel   *string
-	StartLat     *float64
-	StartLon     *float64
-	StartAddress *string
-	EndLabel     *string
-	EndLat       *float64
-	EndLon       *float64
-	EndAddress   *string
-	Status       *string
+	StartsAt *time.Time
+	EndsAt   *time.Time
+	StartTZ  *string
+	EndTZ    *string
+	// Zone sources: nil keeps the current source, unless the matching zone is
+	// set, in which case ResolveSource derives one for the new zone.
+	StartTZSource *string
+	EndTZSource   *string
+	StartLabel    *string
+	StartLat      *float64
+	StartLon      *float64
+	StartAddress  *string
+	EndLabel      *string
+	EndLat        *float64
+	EndLon        *float64
+	EndAddress    *string
+	Status        *string
 	// Pin flags: nil leaves them unchanged, mirroring the COALESCE idiom.
 	StartCoordsPinned *bool
 	EndCoordsPinned   *bool
@@ -331,7 +347,72 @@ func (p UpdatePlanPartPayload) IsEmpty() bool {
 	return p.StartsAt == nil && p.EndsAt == nil && p.StartTZ == nil && p.EndTZ == nil &&
 		p.StartLabel == nil && p.StartLat == nil && p.StartLon == nil && p.StartAddress == nil &&
 		p.EndLabel == nil && p.EndLat == nil && p.EndLon == nil && p.EndAddress == nil &&
-		p.Status == nil && p.StartCoordsPinned == nil && p.EndCoordsPinned == nil
+		p.Status == nil && p.StartCoordsPinned == nil && p.EndCoordsPinned == nil &&
+		p.StartTZSource == nil && p.EndTZSource == nil
+}
+
+// ResolveSource validates a zone and its source and fills a missing source:
+// a zone with no source is the caller's explicit choice (confirmed); no zone
+// and no source keeps the legacy meaning of ” (floating).
+func ResolveSource(tz, src string) (string, error) {
+	if tz != "" && !timing.ValidZone(tz) {
+		return "", ErrInvalidZone
+	}
+	if src == "" {
+		if tz != "" {
+			return string(timing.Confirmed), nil
+		}
+		return string(timing.Floating), nil
+	}
+	s := timing.Source(src)
+	if !s.Valid() {
+		return "", ErrInvalidZone
+	}
+	if (tz == "") != (s == timing.Unknown || s == timing.Floating) {
+		return "", ErrInvalidZone
+	}
+	return src, nil
+}
+
+// resolveEndSource is ResolveSource for a part's end: an end with no time, no
+// zone and no source is unknown rather than floating, since there is no
+// wall-clock time for the digits to mean.
+func resolveEndSource(hasEnd bool, tz, src string) (string, error) {
+	if !hasEnd && tz == "" && src == "" {
+		return string(timing.Unknown), nil
+	}
+	return ResolveSource(tz, src)
+}
+
+// tzEdit is one end's zone state for a partial update: the current zone and
+// source, and the payload's optional new values.
+type tzEdit struct {
+	curTZ, curSrc string
+	tz, src       *string
+}
+
+// set reports whether the payload touches this end's zone at all.
+func (e tzEdit) set() bool { return e.tz != nil || e.src != nil }
+
+// resolve returns the source to write, or nil to leave the column alone. A new
+// zone with no source derives a fresh one rather than inheriting the old. For
+// the start pass hasEnd=true, so it resolves exactly as ResolveSource does.
+func (e tzEdit) resolve(hasEnd bool) (*string, error) {
+	if !e.set() {
+		return nil, nil
+	}
+	tz, src := e.curTZ, e.curSrc
+	if e.tz != nil {
+		tz, src = *e.tz, ""
+	}
+	if e.src != nil {
+		src = *e.src
+	}
+	out, err := resolveEndSource(hasEnd, tz, src)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // ----- Plan CRUD -----
@@ -426,18 +507,26 @@ func insertPartTx(ctx context.Context, tx pgx.Tx, planID int64, planType string,
 	if status == "" {
 		status = "planned"
 	}
+	startSrc, err := ResolveSource(in.StartTZ, in.StartTZSource)
+	if err != nil {
+		return err
+	}
+	endSrc, err := resolveEndSource(in.EndsAt != nil, in.EndTZ, in.EndTZSource)
+	if err != nil {
+		return err
+	}
 	var partID int64
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO plan_parts (plan_id, seq, starts_at, ends_at, start_tz, end_tz,
 			start_label, start_lat, start_lon, end_label, end_lat, end_lon,
 			status, supersedes_id, start_address, end_address,
-			start_coords_pinned, end_coords_pinned)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+			start_coords_pinned, end_coords_pinned, start_tz_source, end_tz_source)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		RETURNING id`,
 		planID, in.Seq, in.StartsAt, in.EndsAt, in.StartTZ, in.EndTZ,
 		in.StartLabel, in.StartLat, in.StartLon, in.EndLabel, in.EndLat, in.EndLon,
 		status, in.SupersedesID, in.StartAddress, in.EndAddress,
-		in.StartCoordsPinned, in.EndCoordsPinned).Scan(&partID); err != nil {
+		in.StartCoordsPinned, in.EndCoordsPinned, startSrc, endSrc).Scan(&partID); err != nil {
 		return err
 	}
 	return insertDetailTx(ctx, tx, partID, planType, in)
@@ -923,7 +1012,8 @@ const planPartColumns = `part.id, part.plan_id, pl.type, part.seq, part.starts_a
 	part.start_lon, part.end_label, part.end_lat, part.end_lon, part.status,
 	part.supersedes_id, part.dismissed_at, part.created_at, part.updated_at,
 	part.start_address, part.end_address, part.start_coords_pinned, part.end_coords_pinned,
-	COALESCE((SELECT fd.resolved FROM flight_details fd WHERE fd.plan_part_id = part.id), false)`
+	COALESCE((SELECT fd.resolved FROM flight_details fd WHERE fd.plan_part_id = part.id), false),
+	part.start_tz_source, part.end_tz_source`
 
 func scanPart(row pgx.Row) (*PlanPart, error) {
 	var p PlanPart
@@ -932,7 +1022,7 @@ func scanPart(row pgx.Row) (*PlanPart, error) {
 		&p.StartLon, &p.EndLabel, &p.EndLat, &p.EndLon, &p.Status,
 		&p.SupersedesID, &p.DismissedAt, &p.CreatedAt, &p.UpdatedAt,
 		&p.StartAddress, &p.EndAddress, &p.StartCoordsPinned, &p.EndCoordsPinned,
-		&p.FlightResolved)
+		&p.FlightResolved, &p.StartTZSource, &p.EndTZSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1053,7 +1143,29 @@ func (s *Store) PlanIDForPart(ctx context.Context, partID int64) (planID, tripID
 }
 
 // UpdatePlanPart applies the supplied fields to a part (time/place/status).
+// Zone sources are validated against the resulting zones (ErrInvalidZone); the
+// current part is only read when the edit touches a zone or its source.
 func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartPayload) (*PlanPart, error) {
+	start := tzEdit{tz: in.StartTZ, src: in.StartTZSource}
+	end := tzEdit{tz: in.EndTZ, src: in.EndTZSource}
+	hasEnd := in.EndsAt != nil
+	if start.set() || end.set() {
+		cur, err := s.PlanPartByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		start.curTZ, start.curSrc = cur.StartTZ, cur.StartTZSource
+		end.curTZ, end.curSrc = cur.EndTZ, cur.EndTZSource
+		hasEnd = hasEnd || cur.EndsAt != nil
+	}
+	startSrc, err := start.resolve(true)
+	if err != nil {
+		return nil, err
+	}
+	endSrc, err := end.resolve(hasEnd)
+	if err != nil {
+		return nil, err
+	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE plan_parts SET
 			starts_at   = COALESCE($2, starts_at),
@@ -1071,6 +1183,8 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 			end_address   = COALESCE($19, end_address),
 			start_coords_pinned = COALESCE($20, start_coords_pinned),
 			end_coords_pinned   = COALESCE($21, end_coords_pinned),
+			start_tz_source     = COALESCE($22, start_tz_source),
+			end_tz_source       = COALESCE($23, end_tz_source),
 			updated_at  = NOW()
 		WHERE id = $1`,
 		id, in.StartsAt,
@@ -1082,7 +1196,7 @@ func (s *Store) UpdatePlanPart(ctx context.Context, id int64, in UpdatePlanPartP
 		in.EndLat != nil, in.EndLat,
 		in.EndLon != nil, in.EndLon,
 		in.Status, in.StartAddress, in.EndAddress,
-		in.StartCoordsPinned, in.EndCoordsPinned)
+		in.StartCoordsPinned, in.EndCoordsPinned, startSrc, endSrc)
 	if err != nil {
 		return nil, err
 	}
@@ -1122,6 +1236,9 @@ type FlightRouteUpdate struct {
 	EndTZ      *string
 	StartsAt   *time.Time
 	EndsAt     *time.Time
+	// Zone sources, resolved as UpdatePlanPartPayload's are.
+	StartTZSource *string
+	EndTZSource   *string
 
 	// Coordinates: set when both lat+lon are non-nil; ClearStartCoords /
 	// ClearEndCoords force the columns to NULL (a manual off-table edit whose
@@ -1188,6 +1305,24 @@ func (s *Store) UpdateFlightPartRoute(ctx context.Context, partID int64, in Flig
 		return ErrNotFound
 	}
 
+	start := tzEdit{tz: in.StartTZ, src: in.StartTZSource}
+	end := tzEdit{tz: in.EndTZ, src: in.EndTZSource}
+	var curEndsAt *time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT start_tz, start_tz_source, end_tz, end_tz_source, ends_at
+		FROM plan_parts WHERE id = $1 FOR UPDATE`, partID).Scan(
+		&start.curTZ, &start.curSrc, &end.curTZ, &end.curSrc, &curEndsAt); err != nil {
+		return err
+	}
+	startSrc, err := start.resolve(true)
+	if err != nil {
+		return err
+	}
+	endSrc, err := end.resolve(in.EndsAt != nil || curEndsAt != nil)
+	if err != nil {
+		return err
+	}
+
 	startOp := coordOp(in.StartLat, in.StartLon, in.ClearStartCoords)
 	endOp := coordOp(in.EndLat, in.EndLon, in.ClearEndCoords)
 	if _, err := tx.Exec(ctx, `
@@ -1202,12 +1337,14 @@ func (s *Store) UpdateFlightPartRoute(ctx context.Context, partID int64, in Flig
 			start_lon   = CASE $9::int WHEN 1 THEN $11 WHEN 2 THEN NULL ELSE start_lon END,
 			end_lat     = CASE $12::int WHEN 1 THEN $13 WHEN 2 THEN NULL ELSE end_lat END,
 			end_lon     = CASE $12::int WHEN 1 THEN $14 WHEN 2 THEN NULL ELSE end_lon END,
+			start_tz_source = COALESCE($15, start_tz_source),
+			end_tz_source   = COALESCE($16, end_tz_source),
 			updated_at  = NOW()
 		WHERE id = $1`,
 		partID, in.StartLabel, in.EndLabel, in.StartTZ, in.EndTZ, in.StartsAt,
 		in.EndsAt != nil, in.EndsAt,
 		startOp, derefF(in.StartLat), derefF(in.StartLon),
-		endOp, derefF(in.EndLat), derefF(in.EndLon)); err != nil {
+		endOp, derefF(in.EndLat), derefF(in.EndLon), startSrc, endSrc); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -2079,7 +2216,8 @@ func (s *Store) ListVisiblePlanParts(ctx context.Context, viewerID int64, opts L
 		part.end_label, part.end_lat, part.end_lon,
 		part.status, part.supersedes_id, part.dismissed_at,
 		part.created_at, part.updated_at,
-		part.start_address, part.end_address
+		part.start_address, part.end_address,
+		part.start_tz_source, part.end_tz_source
 		FROM plan_parts part
 		JOIN plans pl ON pl.id = part.plan_id
 		JOIN trips t ON t.id = pl.trip_id`
@@ -2101,7 +2239,8 @@ func (s *Store) ListVisiblePlanParts(ctx context.Context, viewerID int64, opts L
 			&p.EndLabel, &p.EndLat, &p.EndLon,
 			&p.Status, &p.SupersedesID, &p.DismissedAt,
 			&p.CreatedAt, &p.UpdatedAt,
-			&p.StartAddress, &p.EndAddress); err != nil {
+			&p.StartAddress, &p.EndAddress,
+			&p.StartTZSource, &p.EndTZSource); err != nil {
 			return nil, err
 		}
 		out = append(out, &p)

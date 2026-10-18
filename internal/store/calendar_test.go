@@ -24,11 +24,20 @@ func mkTypedPlan(t *testing.T, s *Store, tripID, createdBy int64, typ, title, co
 // mkPart inserts a fully-specified plan_part and returns its id.
 func mkPart(t *testing.T, s *Store, planID int64, startsAt time.Time, endsAt *time.Time, startTZ, endTZ, startLabel string) int64 {
 	t.Helper()
+	startSrc, err := ResolveSource(startTZ, "")
+	if err != nil {
+		t.Fatalf("start source: %v", err)
+	}
+	endSrc, err := resolveEndSource(endsAt != nil, endTZ, "")
+	if err != nil {
+		t.Fatalf("end source: %v", err)
+	}
 	var id int64
 	if err := s.pool.QueryRow(ctx,
-		`INSERT INTO plan_parts (plan_id, starts_at, ends_at, start_tz, end_tz, start_label)
-		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-		planID, startsAt, endsAt, startTZ, endTZ, startLabel,
+		`INSERT INTO plan_parts (plan_id, starts_at, ends_at, start_tz, end_tz, start_label,
+		     start_tz_source, end_tz_source)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+		planID, startsAt, endsAt, startTZ, endTZ, startLabel, startSrc, endSrc,
 	).Scan(&id); err != nil {
 		t.Fatalf("insert part: %v", err)
 	}
