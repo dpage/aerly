@@ -16,7 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 
-import type { Plan, PlanPart, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
+import type { Plan, PlanPart, TZSource, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import PlanAttachments from './PlanAttachments';
 import TimezoneSelect from './TimezoneSelect';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
@@ -261,6 +261,25 @@ function hasEnd(part: PlanPart): boolean {
   return typeHasEnd(part.type) || part.ends_at != null;
 }
 
+/** The source to send with a zone being written. A blank zone is floating (the
+ * digits are wall-clock time, as zonedTimeToUtc(..., 'UTC') makes them). A zone
+ * the user changed is their own choice, so confirmed. A zone left as it was
+ * keeps the part's existing source, so a guessed (inferred) zone is not
+ * silently upgraded to confirmed; where there is none to keep (an end whose
+ * form zone was borrowed from the start, or an older part with no source) it
+ * is inferred in the first case and left to the server default in the second. */
+function zoneSource(
+  tz: string,
+  edited: boolean,
+  origTz: string,
+  origSource?: TZSource,
+): TZSource | undefined {
+  if (tz === '') return 'floating';
+  if (edited) return 'confirmed';
+  if (tz !== origTz) return 'inferred';
+  return origSource === 'confirmed' || origSource === 'inferred' ? origSource : undefined;
+}
+
 /** Diff a part's form against its initial snapshot into an update payload, or
  * null when nothing changed. Time fields are only sent when the local
  * date/time/tz actually changed, so an untouched part keeps its exact instant
@@ -273,7 +292,11 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
   if (s.address !== si.address) patch.start_address = s.address.trim();
   if (s.date !== si.date || s.time !== si.time || s.tz !== si.tz) {
     if (s.date && s.time) patch.starts_at = zonedTimeToUtc(s.date, s.time, s.tz);
-    if (s.tz !== si.tz || patch.starts_at) patch.start_tz = s.tz;
+    if (s.tz !== si.tz || patch.starts_at) {
+      patch.start_tz = s.tz;
+      const src = zoneSource(s.tz, s.tz !== si.tz, part.start_tz ?? '', part.start_tz_source);
+      if (src) patch.start_tz_source = src;
+    }
   }
   // A changed coordinate override: a valid "lat, lng" pins the location (the
   // geocoder won't touch it); clearing it unpins, reverting to the address.
@@ -296,7 +319,11 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
     if (e.address !== ei.address) patch.end_address = e.address.trim();
     if (e.date !== ei.date || e.time !== ei.time || e.tz !== ei.tz) {
       if (e.date && e.time) patch.ends_at = zonedTimeToUtc(e.date, e.time, e.tz);
-      if (e.tz !== ei.tz || patch.ends_at) patch.end_tz = e.tz;
+      if (e.tz !== ei.tz || patch.ends_at) {
+        patch.end_tz = e.tz;
+        const src = zoneSource(e.tz, e.tz !== ei.tz, part.end_tz ?? '', part.end_tz_source);
+        if (src) patch.end_tz_source = src;
+      }
     }
     if (e.coords !== ei.coords) {
       const c = coordsFromText(e.coords);

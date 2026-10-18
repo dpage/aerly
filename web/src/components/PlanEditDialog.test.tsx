@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { Plan } from '../api/types';
@@ -336,5 +336,92 @@ describe('PlanEditDialog', () => {
     await userEvent.type(title, 'BA999');
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('save boom'));
+  });
+
+  describe('time zone sources in the patch', () => {
+    async function save() {
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
+      return h.updatePlanPart.mock.calls[0][1];
+    }
+
+    it('sends confirmed when the user changes the zone', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [part({ start_tz_source: 'inferred' })] }));
+      const zone = screen.getAllByRole('combobox', { name: /timezone/i })[0];
+      await userEvent.clear(zone);
+      await userEvent.type(zone, 'Europe/Paris');
+      const patch = await save();
+      expect(patch.start_tz).toBe('Europe/Paris');
+      expect(patch.start_tz_source).toBe('confirmed');
+    });
+
+    it('sends floating with a blank zone when the time changes', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [part({ start_tz: '', start_tz_source: 'unknown' })] }));
+      fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
+        target: { value: '2026-10-12T12:00' },
+      });
+      const patch = await save();
+      expect(patch.starts_at).toBe('2026-10-12T12:00:00.000Z');
+      expect(patch.start_tz).toBe('');
+      expect(patch.start_tz_source).toBe('floating');
+    });
+
+    it('sends floating for a cleared end zone and never a source for a blank one besides that', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [part({ end_tz: 'America/New_York', end_tz_source: 'confirmed' })] }));
+      await userEvent.clear(screen.getAllByRole('combobox', { name: /timezone/i })[1]);
+      const patch = await save();
+      expect(patch.end_tz).toBe('');
+      expect(patch.end_tz_source).toBe('floating');
+    });
+
+    it('keeps an inferred source when only the time changes', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(
+        plan({
+          parts: [
+            part({
+              start_tz_source: 'inferred',
+              end_tz_source: 'inferred',
+            }),
+          ],
+        }),
+      );
+      fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
+        target: { value: '2026-10-12T12:00' },
+      });
+      fireEvent.change(screen.getAllByLabelText('Date & time')[1], {
+        target: { value: '2026-10-12T20:00' },
+      });
+      const patch = await save();
+      expect(patch.start_tz).toBe('Europe/London');
+      expect(patch.start_tz_source).toBe('inferred');
+      expect(patch.end_tz).toBe('America/New_York');
+      expect(patch.end_tz_source).toBe('inferred');
+    });
+
+    it('omits the source when an older part has none and the zone is unchanged', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [part()] }));
+      fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
+        target: { value: '2026-10-12T12:00' },
+      });
+      const patch = await save();
+      expect(patch.start_tz).toBe('Europe/London');
+      expect(patch).not.toHaveProperty('start_tz_source');
+    });
+
+    it('sends inferred for an end whose zone is only borrowed from the start', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [part({ end_tz: '', end_tz_source: 'unknown' })] }));
+      fireEvent.change(screen.getAllByLabelText('Date & time')[1], {
+        target: { value: '2026-10-12T20:00' },
+      });
+      const patch = await save();
+      expect(patch.end_tz).toBe('Europe/London');
+      expect(patch.end_tz_source).toBe('inferred');
+    });
   });
 });

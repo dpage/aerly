@@ -30,6 +30,7 @@ import { useStore } from '../state/store';
 import {
   ACCOMMODATION_KINDS,
   bandEdgeLabels,
+  floatingISO,
   fmtPartPlaces,
   PLAN_TYPES,
   planTypeLabel,
@@ -343,8 +344,13 @@ function ManualTab({ disabled, onCreate, prefill, tripStartsOn }: ManualTabProps
     if (!canSubmit || startsAt == null) return;
     const part: PlanPartInput = {
       type,
-      starts_at: startsAt.toISOString(),
-      ends_at: endsAt ? endsAt.toISOString() : undefined,
+      // The picker gives browser-local wall-clock time that the user means as
+      // local time at the place, so send the digits as floating and let the
+      // geocoder anchor them in the place's zone.
+      starts_at: floatingISO(startsAt),
+      start_tz_source: 'floating',
+      ends_at: endsAt ? floatingISO(endsAt) : undefined,
+      end_tz_source: endsAt ? 'floating' : undefined,
       start_label: startLabel.trim() || undefined,
       end_label: endLabel.trim() || undefined,
       start_address: startAddress.trim() || undefined,

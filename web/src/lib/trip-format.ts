@@ -350,6 +350,14 @@ export function zonedTimeToUtc(date: string, time: string, tz?: string): string 
   return new Date(guess - tzOffsetMs(tz || 'UTC', guess)).toISOString();
 }
 
+/** A Date's local wall-clock digits (in the browser's zone) as a floating
+ * timestamp, "YYYY-MM-DDTHH:mm:00Z": the Z is a lie by design, as the server
+ * reads the digits as local time at the place and re-anchors them. */
+export function floatingISO(d: Date): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getFullYear(), 4)}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00Z`;
+}
+
 /** The offset (ms) of tz at the given UTC instant: how far the zone's local
  * wall-clock is ahead of UTC. Used to invert a local time back to an instant. */
 function tzOffsetMs(tz: string, utcMs: number): number {
