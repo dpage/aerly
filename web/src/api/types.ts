@@ -319,6 +319,10 @@ export interface Trip {
    * dates when starts_on/ends_on aren't set. */
   effective_start?: string;
   effective_end?: string;
+  /** The instants the trip runs between, in its first and last items' zones
+   * (list payload only). Preferred over the date fields for Upcoming/Now/Past. */
+  span_start?: string;
+  span_end?: string;
   created_by?: number;
   /** The viewer's role on this trip. */
   my_role: TripRole;

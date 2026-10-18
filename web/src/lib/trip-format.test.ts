@@ -1208,3 +1208,49 @@ describe('neighbourZone', () => {
     expect(neighbourZone(old, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Rome');
   });
 });
+
+describe('zone-aware days and spans', () => {
+  it('uses the server span when present', () => {
+    const trip = {
+      starts_on: '2026-10-18', ends_on: '2026-10-25',
+      span_start: '2026-10-17T19:00:00Z', span_end: '2026-10-26T04:00:00Z',
+    } as Trip;
+    expect(tripSpan(trip)).toEqual({
+      start: Date.parse('2026-10-17T19:00:00Z'),
+      end: Date.parse('2026-10-26T04:00:00Z'),
+    });
+    // 20:00 in New York on the last day is still during the trip.
+    expect(classifyTrip(tripSpan(trip), Date.parse('2026-10-26T00:00:00Z'))).toBe('now');
+  });
+
+  it('falls back to UTC dates without a server span', () => {
+    expect(tripSpan({ starts_on: '2026-10-18' } as Trip).start).toBe(Date.parse('2026-10-18T00:00:00Z'));
+  });
+
+  it("groups the timeline by each block's own zone", () => {
+    const late = {
+      id: 1, plan_id: 1, type: 'dining', seq: 0, status: 'planned',
+      starts_at: '2026-10-18T20:00:00Z', effective_at: '2026-10-18T20:00:00Z', start_tz: 'Asia/Tashkent',
+      start: block('2026-10-18T20:00:00Z', 'Asia/Tashkent'),
+    } as PlanPart;
+    const days = buildTimeline([{ id: 1, parts: [late] } as Plan]);
+    expect(days[0].dayKey).toBe('2026-10-19');
+    expect(days[0].label).toBe('Mon, 19 Oct 2026');
+  });
+
+  it('keys external events in their own zone, UTC for all-day', () => {
+    const ev = (o: Partial<ExternalEvent>) => ({ starts_at: '2026-10-18T20:00:00Z', ...o }) as ExternalEvent;
+    expect(buildExternalDays([ev({ start_tz: 'Asia/Tashkent' })])[0].dayKey).toBe('2026-10-19');
+    expect(buildExternalDays([ev({ start_tz: 'Asia/Tashkent', all_day: true })])[0].dayKey).toBe('2026-10-18');
+  });
+
+  it('flags a part outside the trip dates in its own zone', () => {
+    const part = {
+      id: 1, plan_id: 1, type: 'dining', seq: 0, status: 'planned',
+      starts_at: '2026-10-18T20:00:00Z', start: block('2026-10-18T20:00:00Z', 'Asia/Tashkent'),
+    } as PlanPart;
+    const plans = [{ id: 1, parts: [part] } as Plan];
+    expect(plansOutsideTripDates({ starts_on: '2026-10-18', ends_on: '2026-10-18' } as Trip, plans)).toBe(true);
+    expect(plansOutsideTripDates({ starts_on: '2026-10-19', ends_on: '2026-10-19' } as Trip, plans)).toBe(false);
+  });
+});

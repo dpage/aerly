@@ -12,6 +12,7 @@ import type {
 } from '../api/types';
 import {
   blockFor,
+  dayKey,
   durationMin,
   fmtCompact,
   fmtDayHeading,
@@ -42,17 +43,22 @@ export function tripSpan(trip: Trip, plans?: Plan[]): TripSpan {
   for (const plan of plans ?? []) {
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
-      const s = parseInstant(part.effective_at ?? part.starts_at);
+      const s = parseInstant(startBlockOf(part).at);
       if (s != null) instants.push(s);
-      const e = parseInstant(part.ends_at);
+      const e = parseInstant(endBlockOf(part)?.at);
       if (e != null) instants.push(e);
     }
   }
   if (instants.length > 0) {
     return { start: Math.min(...instants), end: Math.max(...instants) };
   }
-  // No parts in this payload: prefer the explicit dates, then the span the
-  // server inferred from the trip's parts (the list payload carries no parts).
+  // The server's span is in the first and last items' own zones, so a trip
+  // ending in New York is still current through that evening.
+  const ss = parseInstant(trip.span_start);
+  const se = parseInstant(trip.span_end);
+  if (ss != null || se != null) return { start: ss, end: se };
+  // Dateless payloads and the detail payload: prefer the explicit dates, then
+  // the span the server inferred from the trip's parts, read as UTC dates.
   // A date-only end is the *last day* of the trip, through which it's still
   // ongoing — so extend it to the end of that day. Without this a trip ending
   // today reads as "past" the moment UTC midnight rolls over, mis-filing a
@@ -104,9 +110,9 @@ export function plansOutsideTripDates(trip: Trip, plans: Plan[]): boolean {
   for (const plan of plans) {
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
-      const startDay = localDayKey(part.effective_at ?? part.starts_at, part.start_tz);
+      const startDay = dayKey(startBlockOf(part));
       if (trip.starts_on && startDay < trip.starts_on) return true;
-      const endDay = localDayKey(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz);
+      const endDay = dayKey(endBlockOf(part) ?? startBlockOf(part));
       if (trip.ends_on && endDay > trip.ends_on) return true;
     }
   }
@@ -153,14 +159,14 @@ export interface TimelineDay {
  *   part's `start_tz` so a red-eye lands on its departure day's header and the
  *   header reads in the local time of where it happens. */
 export function buildTimeline(plans: Plan[]): TimelineDay[] {
-  // Each entry carries the instant + iso/tz used to place and sort it, so a
+  // Each entry carries the instant to sort by and the block that places it on
+  // a day (in that block's own zone), so a
   // banded booking (a multi-night stay, a multi-day hire) can contribute two
   // entries: one on the day it opens and one on the day it closes.
   interface Entry {
     tp: TimelinePart;
     instant: number;
-    iso: string;
-    tz?: string;
+    block: TimeBlock;
   }
   const flat: Entry[] = [];
   for (const plan of plans) {
@@ -172,20 +178,17 @@ export function buildTimeline(plans: Plan[]): TimelineDay[] {
           // Sort by the smart opening time (effective_at: after the inbound
           // flight's arrival) so the booking doesn't jump ahead of the flight
           // that gets you there, matching the map's ordering. Keep the day
-          // bucket on the booked opening date (iso = starts_at).
+          // bucket on the booked opening (part.start, which is starts_at).
           instant: instantOf(part),
-          iso: part.starts_at,
-          tz: part.start_tz,
+          block: startBlockOf(part),
         });
         flat.push({
           tp: { part, plan, edge: 'last' },
           instant: parseInstant(part.ends_at) ?? 0,
-          iso: part.ends_at,
-          tz: part.end_tz || part.start_tz,
+          block: endBlockOf(part) ?? startBlockOf(part),
         });
       } else {
-        const iso = part.effective_at ?? part.starts_at;
-        flat.push({ tp: { part, plan }, instant: instantOf(part), iso, tz: part.start_tz });
+        flat.push({ tp: { part, plan }, instant: instantOf(part), block: startBlockOf(part) });
       }
     }
   }
@@ -193,10 +196,10 @@ export function buildTimeline(plans: Plan[]): TimelineDay[] {
 
   const days = new Map<string, TimelineDay>();
   for (const e of flat) {
-    const key = localDayKey(e.iso, e.tz);
+    const key = dayKey(e.block);
     let day = days.get(key);
     if (!day) {
-      day = { dayKey: key, label: fmtDayHeader(e.iso, e.tz), parts: [] };
+      day = { dayKey: key, label: fmtDayHeading(e.block), parts: [] };
       days.set(key, day);
     }
     day.parts.push(e.tp);
@@ -219,11 +222,12 @@ export function buildExternalDays(events: ExternalEvent[]): ExternalDay[] {
   const sorted = [...events].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const days = new Map<string, ExternalDay>();
   for (const e of sorted) {
-    const tz = e.all_day ? 'UTC' : e.start_tz || undefined;
-    const key = localDayKey(e.starts_at, tz);
+    const tz = e.all_day ? 'UTC' : e.start_tz || '';
+    const b = blockFor(e.starts_at, tz);
+    const key = dayKey(b);
     let day = days.get(key);
     if (!day) {
-      day = { dayKey: key, label: fmtDayHeader(e.starts_at, tz), events: [] };
+      day = { dayKey: key, label: fmtDayHeading(b), events: [] };
       days.set(key, day);
     }
     day.events.push(e);
@@ -275,9 +279,8 @@ export function bandEdgeLabels(type: PlanType): [string, string] | null {
  * in between. */
 export function isBandedPart(part: PlanPart): boolean {
   if (!BANDED[part.type] || !part.ends_at) return false;
-  const startDay = localDayKey(part.starts_at, part.start_tz);
-  const endDay = localDayKey(part.ends_at, part.end_tz || part.start_tz);
-  return endDay > startDay;
+  const sb = startBlockOf(part);
+  return dayKey(endBlockOf(part) ?? sb) > dayKey(sb);
 }
 
 /** The length of a banded booking in whole days, for its span chip: the nights
@@ -530,26 +533,6 @@ function parseDateOnly(dateOnly?: string): number | null {
 function parseDateOnlyEnd(dateOnly?: string): number | null {
   const t = parseDateOnly(dateOnly);
   return t == null ? null : t + 24 * 60 * 60 * 1000;
-}
-
-/** A sortable YYYY-MM-DD key for an instant in the given tz. Uses en-CA which
- * formats as ISO-8601 dates, so string comparison orders chronologically. */
-function localDayKey(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-CA', { timeZone: tz || 'UTC' });
-}
-
-function fmtDayHeader(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: tz || 'UTC',
-  });
 }
 
 const TRANSFER_TYPES = new Set<PlanType>(['flight', 'train', 'ground']);

@@ -1,5 +1,6 @@
 import type { PlanPart, Position } from '../api/types';
 import { initialBearing } from './great-circle';
+import { blockFor, fmtFull, viewerZone } from './time';
 import { endBlockOf, startBlockOf } from './trip-format';
 
 /** Pure flight position/track/window helpers shared by the map view: where a
@@ -243,20 +244,12 @@ function clipTrackCoords(track: Position[], until: number | null): [number, numb
   return coords;
 }
 
-/** The scrubbed instant in the viewer's local time, e.g. "Mon 12 Oct, 11:30".
- * The map can span many timezones, so local (browser) time is the one frame
+/** The scrubbed instant in the viewer's zone, e.g. "Sun 18 Oct, 10:00 UTC+1".
+ * The map can span many timezones, so the viewer's zone is the one frame
  * everything shares. */
-export function fmtScrubTime(ms: number): string {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+export function fmtScrubTime(ms: number, tz: string = viewerZone()): string {
+  if (Number.isNaN(ms)) return '';
+  return fmtFull(blockFor(new Date(ms).toISOString(), tz));
 }
 
 function emptyFC(): GeoJSON.FeatureCollection {
