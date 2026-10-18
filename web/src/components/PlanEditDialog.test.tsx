@@ -363,7 +363,8 @@ describe('PlanEditDialog', () => {
         target: { value: '2026-10-12T12:00' },
       });
       const patch = await save();
-      expect(patch.starts_at).toBe('2026-10-12T12:00:00.000Z');
+      expect(patch.start_local).toBe('2026-10-12T12:00');
+      expect(patch.starts_at).toBeUndefined();
       expect(patch.start_tz).toBe('');
       expect(patch.start_tz_source).toBe('floating');
     });
@@ -402,15 +403,31 @@ describe('PlanEditDialog', () => {
       expect(patch.end_tz_source).toBe('inferred');
     });
 
-    it('omits the source when an older part has none and the zone is unchanged', async () => {
+    it('sends the zone and a source with the digits even when the part has no source', async () => {
       h.updatePlanPart.mockResolvedValue(part());
       render_(plan({ parts: [part()] }));
       fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
         target: { value: '2026-10-12T12:00' },
       });
       const patch = await save();
+      expect(patch.start_local).toBe('2026-10-12T12:00');
       expect(patch.start_tz).toBe('Europe/London');
-      expect(patch).not.toHaveProperty('start_tz_source');
+      expect(patch.start_tz_source).toBe('inferred');
+    });
+
+    it('never sends start_local or end_local without their zone and source', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [part({ start_tz_source: 'confirmed', end_tz_source: 'confirmed' })] }));
+      const whens = screen.getAllByLabelText('Date & time');
+      fireEvent.change(whens[0], { target: { value: '2026-10-12T12:00' } });
+      fireEvent.change(whens[1], { target: { value: '2026-10-12T21:00' } });
+      const patch = await save();
+      expect(patch.start_local).toBe('2026-10-12T12:00');
+      expect(patch.start_tz).toBe('Europe/London');
+      expect(patch.start_tz_source).toBe('confirmed');
+      expect(patch.end_local).toBe('2026-10-12T21:00');
+      expect(patch.end_tz).toBe('America/New_York');
+      expect(patch.end_tz_source).toBe('confirmed');
     });
 
     it('sends inferred for an end whose zone is only borrowed from the start', async () => {
@@ -422,6 +439,22 @@ describe('PlanEditDialog', () => {
       const patch = await save();
       expect(patch.end_tz).toBe('Europe/London');
       expect(patch.end_tz_source).toBe('inferred');
+    });
+    it('reports a time the zone skips and keeps the dialog open', async () => {
+      h.updatePlanPart.mockRejectedValue(
+        new Error("That time doesn't exist in Europe/London (clocks go forward)."),
+      );
+      render_(plan({ parts: [part()] }));
+      fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
+        target: { value: '2026-03-29T01:30' },
+      });
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() =>
+        expect(h.setError).toHaveBeenCalledWith(
+          "That time doesn't exist in Europe/London (clocks go forward).",
+        ),
+      );
+      expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument();
     });
   });
 });

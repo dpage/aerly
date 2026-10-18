@@ -664,3 +664,25 @@ export function countPartsNeedingZone(plans: Plan[]): number {
   }
   return n;
 }
+
+/** The zone a new item at `atMs` most likely sits in: where the traveller is
+ * after the latest live part at or before it (its end's zone, else its
+ * start's), else the zone of the first part after it. Blank zones are skipped;
+ * '' when nothing is left. The caller sends a zone found this way as inferred. */
+export function neighbourZone(plans: Plan[], atMs: number): string {
+  if (Number.isNaN(atMs)) return '';
+  let before: { at: number; tz: string } | null = null;
+  let after: { at: number; tz: string } | null = null;
+  for (const plan of plans) {
+    for (const part of plan.parts) {
+      if (part.dismissed_at) continue;
+      const sb = startBlockOf(part);
+      const at = Date.parse(sb.at);
+      if (Number.isNaN(at)) continue;
+      const tz = endBlockOf(part)?.tz || sb.tz;
+      if (at <= atMs && tz && (!before || at > before.at)) before = { at, tz };
+      if (at > atMs && sb.tz && (!after || at < after.at)) after = { at, tz: sb.tz };
+    }
+  }
+  return before?.tz ?? after?.tz ?? '';
+}

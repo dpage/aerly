@@ -30,21 +30,25 @@ import { useStore } from '../state/store';
 import {
   ACCOMMODATION_KINDS,
   bandEdgeLabels,
-  floatingISO,
   fmtPartPlaces,
+  neighbourZone,
   PLAN_TYPES,
   planTypeLabel,
   typeHasEnd,
 } from '../lib/trip-format';
+import { localDigits } from '../lib/time';
 import PlanTypeIcon from './PlanTypeIcon';
+import TimezoneSelect from './TimezoneSelect';
 import type {
   ConfirmPlanInput,
   CreatePlanInput,
   FlightDetail,
   HotelDetail,
+  Plan,
   PlanPartInput,
   PlanType,
   ProposedPlan,
+  TZSource,
 } from '../api/types';
 
 interface AddToTripDialogProps {
@@ -99,6 +103,9 @@ export default function AddToTripDialog({
   const tripStartsOn = useStore((s) =>
     s.currentTrip?.id === tripId ? s.currentTrip.starts_on : undefined,
   );
+
+  // The trip's plans, for pre-filling a new plan's zone from its neighbours.
+  const tripPlans = useStore((s) => (s.currentTrip?.id === tripId ? s.currentTrip.plans : undefined));
 
   const [tab, setTab] = useState<CaptureTab>('manual');
   const [busy, setBusy] = useState(false);
@@ -205,6 +212,7 @@ export default function AddToTripDialog({
                 onCreate={handleManualCreate}
                 prefill={prefill}
                 tripStartsOn={tripStartsOn}
+                tripPlans={tripPlans}
               />
             )}
             {tab === 'paste' && (
@@ -248,9 +256,18 @@ interface ManualTabProps {
   prefill?: PlanPrefill;
   /** The trip's YYYY-MM-DD start, when set — the default start for a new plan. */
   tripStartsOn?: string;
+  /** The trip's plans, for pre-filling a new plan's zone. */
+  tripPlans?: Plan[];
 }
 
-function ManualTab({ disabled, onCreate, prefill, tripStartsOn }: ManualTabProps) {
+/** The zone and source to send for one end of a new plan: a picked zone is
+ * confirmed, a pre-filled one inferred, and none at all floating. */
+function zoneAndSource(picked: string | null, guess: string): { tz: string; src: TZSource } {
+  if (picked !== null) return { tz: picked, src: picked ? 'confirmed' : 'floating' };
+  return guess ? { tz: guess, src: 'inferred' } : { tz: '', src: 'floating' };
+}
+
+function ManualTab({ disabled, onCreate, prefill, tripStartsOn, tripPlans }: ManualTabProps) {
   const tripStart = useMemo(() => (tripStartsOn ? parseISO(tripStartsOn) : null), [tripStartsOn]);
   const [type, setType] = useState<PlanType>(prefill?.type ?? 'flight');
   const [title, setTitle] = useState(prefill?.title ?? '');
@@ -274,6 +291,18 @@ function ManualTab({ disabled, onCreate, prefill, tripStartsOn }: ManualTabProps
   const [startLon, setStartLon] = useState<number | undefined>(prefill?.startLon);
   const [startsAt, setStartsAt] = useState<Date | null>(() => defaultStart(tripStart));
   const [endsAt, setEndsAt] = useState<Date | null>(null);
+  // A zone the user typed or picked; null while they have not touched it, when
+  // the neighbouring part's zone is shown instead and sent as a guess.
+  const [startTzPicked, setStartTzPicked] = useState<string | null>(null);
+  const [endTzPicked, setEndTzPicked] = useState<string | null>(null);
+  const startTzGuess = useMemo(
+    () => neighbourZone(tripPlans ?? [], startsAt?.getTime() ?? Number.NaN),
+    [tripPlans, startsAt],
+  );
+  const endTzGuess = useMemo(
+    () => neighbourZone(tripPlans ?? [], endsAt?.getTime() ?? Number.NaN),
+    [tripPlans, endsAt],
+  );
 
   // Re-seed if a fresh prefill arrives while the tab is already mounted (the
   // dialog stays mounted between opens; a POI tapped a second time supplies a
@@ -340,17 +369,25 @@ function ManualTab({ disabled, onCreate, prefill, tripStartsOn }: ManualTabProps
 
   const canSubmit = title.trim() !== '' && startsAt !== null && !disabled;
 
+  const isFlight = type === 'flight';
+
   const submit = () => {
     if (!canSubmit || startsAt == null) return;
+    // A flight's zones come from its airports once the ident resolves, so its
+    // times go as wall-clock digits with no zone.
+    const floating = { tz: '', src: 'floating' as TZSource };
+    const start = isFlight ? floating : zoneAndSource(startTzPicked, startTzGuess);
+    const end = isFlight ? floating : zoneAndSource(endTzPicked, endTzGuess);
     const part: PlanPartInput = {
       type,
-      // The picker gives browser-local wall-clock time that the user means as
-      // local time at the place, so send the digits as floating and let the
-      // geocoder anchor them in the place's zone.
-      starts_at: floatingISO(startsAt),
-      start_tz_source: 'floating',
-      ends_at: endsAt ? floatingISO(endsAt) : undefined,
-      end_tz_source: endsAt ? 'floating' : undefined,
+      // The picker gives browser-local digits, which the server reads as wall
+      // clock time in the zone sent alongside.
+      start_local: localDigits(startsAt),
+      start_tz: start.tz,
+      start_tz_source: start.src,
+      end_local: endsAt ? localDigits(endsAt) : undefined,
+      end_tz: endsAt ? end.tz : undefined,
+      end_tz_source: endsAt ? end.src : undefined,
       start_label: startLabel.trim() || undefined,
       end_label: endLabel.trim() || undefined,
       start_address: startAddress.trim() || undefined,
@@ -439,7 +476,6 @@ function ManualTab({ disabled, onCreate, prefill, tripStartsOn }: ManualTabProps
     onCreate(input);
   };
 
-  const isFlight = type === 'flight';
   // An ice cream stop isn't a booking: no ticket or supplier, and its
   // "confirmation" is just the name a table was held under.
   const isIceCream = type === 'ice_cream';
@@ -527,22 +563,42 @@ function ManualTab({ disabled, onCreate, prefill, tripStartsOn }: ManualTabProps
       </Stack>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-        <DateTimePicker
-          label={startTimeLabel(type)}
-          value={startsAt}
-          onChange={setStartsAt}
-          ampm={false}
-          sx={{ flexGrow: 1 }}
-        />
-        {showEnd && (
+        <Stack spacing={1} sx={{ flexGrow: 1 }}>
           <DateTimePicker
-            label={endTimeLabel(type)}
-            value={endsAt}
-            onChange={setEndsAt}
+            label={startTimeLabel(type)}
+            value={startsAt}
+            onChange={setStartsAt}
             ampm={false}
-            referenceDate={startsAt ?? undefined}
-            sx={{ flexGrow: 1 }}
           />
+          {!isFlight && (
+            <TimezoneSelect
+              label="Time zone"
+              value={startTzPicked ?? startTzGuess}
+              onChange={setStartTzPicked}
+              placeholder="Not known"
+              helperText={startTzPicked === null && startTzGuess ? 'Guessed from the trip' : undefined}
+            />
+          )}
+        </Stack>
+        {showEnd && (
+          <Stack spacing={1} sx={{ flexGrow: 1 }}>
+            <DateTimePicker
+              label={endTimeLabel(type)}
+              value={endsAt}
+              onChange={setEndsAt}
+              ampm={false}
+              referenceDate={startsAt ?? undefined}
+            />
+            {!isFlight && (
+              <TimezoneSelect
+                label="Time zone"
+                value={endTzPicked ?? endTzGuess}
+                onChange={setEndTzPicked}
+                placeholder="Not known"
+                helperText={endTzPicked === null && endTzGuess ? 'Guessed from the trip' : undefined}
+              />
+            )}
+          </Stack>
         )}
       </Stack>
 

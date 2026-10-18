@@ -262,7 +262,7 @@ function hasEnd(part: PlanPart): boolean {
 }
 
 /** The source to send with a zone being written. A blank zone is floating (the
- * digits are wall-clock time, as zonedTimeToUtc(..., 'UTC') makes them). A zone
+ * digits are wall-clock time). A zone
  * the user changed is their own choice, so confirmed. A zone left as it was
  * keeps the part's existing source, so a guessed (inferred) zone is not
  * silently upgraded to confirmed; where there is none to keep (an end whose
@@ -280,6 +280,33 @@ function zoneSource(
   return origSource === 'confirmed' || origSource === 'inferred' ? origSource : undefined;
 }
 
+/** The wall-clock time and zone fields to send for one end of a part, or {}
+ * when its date, time and zone are all unchanged. The digits go as `*_local`
+ * and the server resolves them in the zone, refusing a time the zone skips for
+ * a clock change. The zone and its source always travel with the digits (the
+ * server keeps the wall-clock time only when it knows the zone; a blank zone
+ * is how floating is expressed). */
+function timePatch(
+  which: 'start' | 'end',
+  f: EndForm,
+  init: EndForm,
+  origTz: string,
+  origSource?: TZSource,
+): UpdatePlanPartInput {
+  if (f.date === init.date && f.time === init.time && f.tz === init.tz) return {};
+  const local = f.date && f.time ? `${f.date}T${f.time}` : undefined;
+  if (f.tz === init.tz && !local) return {};
+  const src = zoneSource(f.tz, f.tz !== init.tz, origTz, origSource);
+  // With digits being sent a source is mandatory, so an unchanged zone with
+  // no recorded source is a guess made on the part's behalf: inferred.
+  const source = src ?? (local ? (origSource ?? 'inferred') : undefined);
+  return {
+    [`${which}_local`]: local,
+    [`${which}_tz`]: f.tz,
+    ...(source ? { [`${which}_tz_source`]: source } : {}),
+  };
+}
+
 /** Diff a part's form against its initial snapshot into an update payload, or
  * null when nothing changed. Time fields are only sent when the local
  * date/time/tz actually changed, so an untouched part keeps its exact instant
@@ -290,14 +317,7 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
   const si = init.start;
   if (s.label !== si.label) patch.start_label = s.label.trim();
   if (s.address !== si.address) patch.start_address = s.address.trim();
-  if (s.date !== si.date || s.time !== si.time || s.tz !== si.tz) {
-    if (s.date && s.time) patch.starts_at = zonedTimeToUtc(s.date, s.time, s.tz);
-    if (s.tz !== si.tz || patch.starts_at) {
-      patch.start_tz = s.tz;
-      const src = zoneSource(s.tz, s.tz !== si.tz, part.start_tz ?? '', part.start_tz_source);
-      if (src) patch.start_tz_source = src;
-    }
-  }
+  Object.assign(patch, timePatch('start', s, si, part.start_tz ?? '', part.start_tz_source));
   // A changed coordinate override: a valid "lat, lng" pins the location (the
   // geocoder won't touch it); clearing it unpins, reverting to the address.
   // Invalid input is left for handleSave to reject before we get here.
@@ -317,14 +337,7 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
     const ei = init.end;
     if (e.label !== ei.label) patch.end_label = e.label.trim();
     if (e.address !== ei.address) patch.end_address = e.address.trim();
-    if (e.date !== ei.date || e.time !== ei.time || e.tz !== ei.tz) {
-      if (e.date && e.time) patch.ends_at = zonedTimeToUtc(e.date, e.time, e.tz);
-      if (e.tz !== ei.tz || patch.ends_at) {
-        patch.end_tz = e.tz;
-        const src = zoneSource(e.tz, e.tz !== ei.tz, part.end_tz ?? '', part.end_tz_source);
-        if (src) patch.end_tz_source = src;
-      }
-    }
+    Object.assign(patch, timePatch('end', e, ei, part.end_tz ?? '', part.end_tz_source));
     if (e.coords !== ei.coords) {
       const c = coordsFromText(e.coords);
       if (c) {
@@ -1627,8 +1640,8 @@ function EndFields({
       <TimezoneSelect
         value={form.tz}
         onChange={(tz) => onChange('tz', tz)}
-        placeholder="UTC"
-        helperText="IANA name, e.g. Europe/London. Blank = UTC."
+        placeholder="Not known"
+        helperText="IANA name, e.g. Europe/London. Leave blank if you don't know it."
       />
     </Stack>
   );

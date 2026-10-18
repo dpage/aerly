@@ -45,6 +45,7 @@ vi.mock('../state/store', () => ({
   useStore: (sel: (s: typeof h.state) => unknown) => sel(h.state),
 }));
 
+import { block } from '../test/blocks';
 import AddToTripDialog from './AddToTripDialog';
 
 beforeEach(() => {
@@ -101,20 +102,77 @@ describe('AddToTripDialog - manual tab', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('sends picked times as floating wall-clock digits with an explicit source', async () => {
+  it('sends a flight as wall-clock digits with no zone and its ident', async () => {
     h.state.createPlan.mockResolvedValue(undefined);
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
-    await userEvent.type(screen.getByLabelText(/Title/), 'Flight to Lisbon');
-    // The mock picker reads this as a browser-local Date, 15:00 and 18:30.
+    await userEvent.type(screen.getByLabelText(/Title/), 'XX100');
     fireEvent.change(screen.getByLabelText('Departs'), { target: { value: '2026-07-01T15:00' } });
-    const end = screen.getByLabelText(/Arrives/i);
-    fireEvent.change(end, { target: { value: '2026-07-01T18:30' } });
+    fireEvent.change(screen.getByLabelText('Arrives'), { target: { value: '2026-07-01T18:30' } });
+    expect(screen.queryByRole('combobox', { name: 'Time zone' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
 
     const part = h.state.createPlan.mock.calls[0][1].parts[0];
-    expect(part.starts_at).toBe('2026-07-01T15:00:00Z');
+    expect(part.starts_at).toBeUndefined();
+    expect(part.start_local).toBe('2026-07-01T15:00');
+    expect(part.start_tz).toBe('');
     expect(part.start_tz_source).toBe('floating');
-    expect(part.ends_at).toBe('2026-07-01T18:30:00Z');
+    expect(part.end_local).toBe('2026-07-01T18:30');
+    expect(part.end_tz).toBe('');
+    expect(part.end_tz_source).toBe('floating');
+  });
+
+  it('pre-fills the zone from a neighbouring part as a guess', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    h.state.currentTrip = {
+      id: 1,
+      name: 'Test Trip',
+      my_role: 'owner',
+      members: [],
+      tags: [],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      plans: [
+        {
+          parts: [
+            {
+              id: 9,
+              starts_at: '2026-06-30T09:00:00Z',
+              start: block('2026-06-30T09:00:00Z', 'Asia/Tashkent'),
+            },
+          ],
+        },
+      ],
+    } as never;
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: /dining/i }));
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Test Bistro');
+    fireEvent.change(screen.getByLabelText('Time'), { target: { value: '2026-07-01T19:00' } });
+    expect(screen.getByRole('combobox', { name: 'Time zone' })).toHaveValue('Asia/Tashkent');
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+    const part = h.state.createPlan.mock.calls[0][1].parts[0];
+    expect(part.start_local).toBe('2026-07-01T19:00');
+    expect(part.start_tz).toBe('Asia/Tashkent');
+    expect(part.start_tz_source).toBe('inferred');
+  });
+
+  it('sends a picked zone as confirmed, and a cleared one as floating', async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: /accommodation/i }));
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Test Hotel');
+    fireEvent.change(screen.getByLabelText('Check-out'), { target: { value: '2026-07-03T10:00' } });
+    const zones = screen.getAllByRole('combobox', { name: 'Time zone' });
+    await userEvent.type(zones[0], 'Europe/Lisbon');
+    await userEvent.type(zones[1], 'Europe/Lisbon');
+    await userEvent.clear(zones[1]);
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+    const part = h.state.createPlan.mock.calls[0][1].parts[0];
+    expect(part.start_tz).toBe('Europe/Lisbon');
+    expect(part.start_tz_source).toBe('confirmed');
+    expect(part.end_local).toBe('2026-07-03T10:00');
+    expect(part.end_tz).toBe('');
     expect(part.end_tz_source).toBe('floating');
   });
 

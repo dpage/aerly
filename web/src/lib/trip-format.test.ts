@@ -29,6 +29,7 @@ import {
   typeHasEnd,
   zoneConfirmPatch,
   countPartsNeedingZone,
+  neighbourZone,
 } from './trip-format';
 import { block, partBlocks } from '../test/blocks';
 
@@ -1172,5 +1173,38 @@ describe('zone confirm and count', () => {
       { parts: [hotel({})] },
     ] as Plan[];
     expect(countPartsNeedingZone(plans)).toBe(2);
+  });
+});
+
+describe('neighbourZone', () => {
+  const mk = (id: number, at: string, tz: string, endTz?: string, endAt?: string): PlanPart =>
+    ({
+      id, plan_id: id, type: 'hotel', seq: 0, status: 'planned', starts_at: at,
+      start: block(at, tz), end: endAt ? block(endAt, endTz ?? tz) : undefined,
+    }) as PlanPart;
+  const plans = [
+    { parts: [mk(1, '2026-10-18T04:00:00Z', 'Europe/London', 'Asia/Tashkent', '2026-10-18T12:00:00Z')] },
+    { parts: [mk(2, '2026-10-25T04:00:00Z', '')] },
+  ] as Plan[];
+
+  it('takes the zone you are in after the latest earlier part', () => {
+    expect(neighbourZone(plans, Date.parse('2026-10-19T09:00:00Z'))).toBe('Asia/Tashkent');
+  });
+  it('falls forward to the first later part with a zone', () => {
+    expect(neighbourZone(plans, Date.parse('2026-10-01T09:00:00Z'))).toBe('Europe/London');
+  });
+  it('is blank with nothing to borrow from', () => {
+    expect(neighbourZone([], Date.parse('2026-10-19T09:00:00Z'))).toBe('');
+    expect(neighbourZone(plans, Number.NaN)).toBe('');
+  });
+  it('skips dismissed parts and parts without a usable time', () => {
+    const dismissed = { ...mk(3, '2026-10-19T00:00:00Z', 'Asia/Tokyo'), dismissed_at: '2026-10-19T01:00:00Z' };
+    const bad = mk(4, 'not a time', 'Asia/Seoul');
+    const withEnd = [{ parts: [dismissed, bad, mk(5, '2026-10-17T00:00:00Z', 'Europe/Paris')] }] as Plan[];
+    expect(neighbourZone(withEnd, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Paris');
+  });
+  it('reads a part that predates blocks through its starts_at and start_tz', () => {
+    const old = [{ parts: [{ id: 6, plan_id: 6, type: 'hotel', seq: 0, status: 'planned', starts_at: '2026-10-17T00:00:00Z', start_tz: 'Europe/Rome' }] }] as Plan[];
+    expect(neighbourZone(old, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Rome');
   });
 });
