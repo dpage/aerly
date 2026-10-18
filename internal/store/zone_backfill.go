@@ -18,8 +18,10 @@ type FloatingEnd struct {
 }
 
 // FloatingEnds returns every non-dismissed part end with source 'floating'
-// (an end only when it has a time). The coordinates are the end's own, and the
-// end falls back to the start's as ResolvePartTZ does.
+// (an end only when it has a time). The coordinates are the end's own; an end
+// missing either coordinate falls back to the start's as ResolvePartTZ does,
+// except that an end with a destination airport code does not, since the
+// start's coordinates would be the origin's and the code names the right zone.
 func (s *Store) FloatingEnds(ctx context.Context) ([]FloatingEnd, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT part.id, pl.trip_id, 'start', part.starts_at, pl.type,
@@ -31,8 +33,12 @@ func (s *Store) FloatingEnds(ctx context.Context) ([]FloatingEnd, error) {
 		UNION ALL
 		SELECT part.id, pl.trip_id, 'end', part.ends_at, pl.type,
 		       COALESCE(fd.dest_iata, ''),
-		       COALESCE(part.end_lat, part.start_lat),
-		       CASE WHEN part.end_lat IS NOT NULL THEN part.end_lon ELSE part.start_lon END
+		       CASE WHEN part.end_lat IS NOT NULL AND part.end_lon IS NOT NULL THEN part.end_lat
+		            WHEN COALESCE(fd.dest_iata, '') <> '' THEN NULL
+		            ELSE part.start_lat END,
+		       CASE WHEN part.end_lat IS NOT NULL AND part.end_lon IS NOT NULL THEN part.end_lon
+		            WHEN COALESCE(fd.dest_iata, '') <> '' THEN NULL
+		            ELSE part.start_lon END
 		FROM plan_parts part
 		JOIN plans pl ON pl.id = part.plan_id
 		LEFT JOIN flight_details fd ON fd.plan_part_id = part.id
@@ -106,7 +112,8 @@ type ZoneFix struct {
 // ApplyZoneFixes writes the fixes in one transaction. The update only matches
 // an end that is still floating, so a re-run, or an edit that landed since the
 // fixes were planned, is left alone. A fix that fails validation aborts all.
-func (s *Store) ApplyZoneFixes(ctx context.Context, fixes []ZoneFix) error {
+// It returns the number of rows actually written.
+func (s *Store) ApplyZoneFixes(ctx context.Context, fixes []ZoneFix) (int, error) {
 	type resolved struct {
 		sql string
 		f   ZoneFix
@@ -122,24 +129,30 @@ func (s *Store) ApplyZoneFixes(ctx context.Context, fixes []ZoneFix) error {
 			q = `UPDATE plan_parts SET end_tz = $1, end_tz_source = $2, ends_at = $3
 			     WHERE id = $4 AND end_tz_source = 'floating'`
 		default:
-			return fmt.Errorf("zone fix for part %d: unknown end %q", f.PartID, f.End)
+			return 0, fmt.Errorf("zone fix for part %d: unknown end %q", f.PartID, f.End)
 		}
 		src, err := ResolveSource(f.TZ, f.Source)
 		if err != nil {
-			return fmt.Errorf("zone fix for part %d %s: %w", f.PartID, f.End, err)
+			return 0, fmt.Errorf("zone fix for part %d %s: %w", f.PartID, f.End, err)
 		}
 		f.Source = src
 		work = append(work, resolved{q, f})
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	written := 0
 	for _, w := range work {
-		if _, err := tx.Exec(ctx, w.sql, w.f.TZ, w.f.Source, w.f.At, w.f.PartID); err != nil {
-			return err
+		tag, err := tx.Exec(ctx, w.sql, w.f.TZ, w.f.Source, w.f.At, w.f.PartID)
+		if err != nil {
+			return 0, err
 		}
+		written += int(tag.RowsAffected())
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return written, nil
 }

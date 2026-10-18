@@ -159,13 +159,16 @@ func TestApplyZoneFixes(t *testing.T) {
 			`UPDATE plan_parts SET end_tz = 'Europe/Paris', end_tz_source = 'confirmed' WHERE id = $1`, hotel); err != nil {
 			t.Fatal(err)
 		}
-		err := s.ApplyZoneFixes(ctx, []ZoneFix{
+		n, err := s.ApplyZoneFixes(ctx, []ZoneFix{
 			{PartID: hotel, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1},
 			{PartID: hotel, End: "end", TZ: "Europe/London", Source: "confirmed", At: at2},
 			{PartID: flight, End: "end", TZ: "Europe/Paris", Source: "", At: at2},
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if n != 2 { // the hotel end's fix is skipped by the guard
+			t.Errorf("written = %d, want 2", n)
 		}
 		if tz, src, at := read(hotel, "start"); tz != "Europe/London" || src != "confirmed" || !at.Equal(at1) {
 			t.Errorf("hotel start = %q %q %v", tz, src, at)
@@ -182,7 +185,7 @@ func TestApplyZoneFixes(t *testing.T) {
 		pool2 := testsupport.NewPool(t)
 		s2 := New(pool2)
 		_, h2, f2, _ := seedZoneTrip(t, s2)
-		err := s2.ApplyZoneFixes(ctx, []ZoneFix{
+		_, err := s2.ApplyZoneFixes(ctx, []ZoneFix{
 			{PartID: h2, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1},
 			{PartID: f2, End: "end", TZ: "Mars/Olympus", Source: "confirmed", At: at2},
 		})
@@ -199,7 +202,7 @@ func TestApplyZoneFixes(t *testing.T) {
 	})
 
 	t.Run("unknown end", func(t *testing.T) {
-		if err := s.ApplyZoneFixes(ctx, []ZoneFix{{PartID: 1, End: "middle"}}); err == nil {
+		if _, err := s.ApplyZoneFixes(ctx, []ZoneFix{{PartID: 1, End: "middle"}}); err == nil {
 			t.Fatal("want error")
 		}
 	})
@@ -207,7 +210,7 @@ func TestApplyZoneFixes(t *testing.T) {
 	t.Run("database error rolls back", func(t *testing.T) {
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
-		if err := s.ApplyZoneFixes(cctx, []ZoneFix{{PartID: 1, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1}}); err == nil {
+		if _, err := s.ApplyZoneFixes(cctx, []ZoneFix{{PartID: 1, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1}}); err == nil {
 			t.Fatal("want error on cancelled context")
 		}
 	})
@@ -226,5 +229,51 @@ func TestZoneBackfillQueriesFailOnCancelledContext(t *testing.T) {
 	}
 	if _, err := s.TripZonedEnds(ctx, 1); err == nil {
 		t.Error("TripZonedEnds: want error")
+	}
+}
+
+// TestFloatingEndsCoordinateFallback covers the end's coordinates: a half-set
+// pair falls back to the start's, and a flight end with a destination code
+// never borrows the origin's coordinates.
+func TestFloatingEndsCoordinateFallback(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	if pool == nil {
+		return
+	}
+	s := New(pool)
+	ctx := context.Background()
+	tripID, hotel, flight, _ := seedZoneTrip(t, s)
+	// Half-set end coordinates on the hotel: lat only.
+	if _, err := s.Pool().Exec(ctx, `UPDATE plan_parts SET end_lat = 48.85, end_lon = NULL WHERE id = $1`, hotel); err != nil {
+		t.Fatal(err)
+	}
+	// Give the flight origin coordinates; its end must still not use them.
+	if _, err := s.Pool().Exec(ctx, `UPDATE plan_parts SET start_lat = 51.47, start_lon = -0.45 WHERE id = $1`, flight); err != nil {
+		t.Fatal(err)
+	}
+	ends, err := s.FloatingEnds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawHotel, sawFlight bool
+	for _, e := range ends {
+		if e.TripID != tripID || e.End != "end" {
+			continue
+		}
+		switch e.PartID {
+		case hotel:
+			sawHotel = true
+			if e.Lat == nil || *e.Lat != 51.5 || e.Lon == nil || *e.Lon != -0.12 {
+				t.Errorf("hotel end coordinates = %v,%v, want the start's", e.Lat, e.Lon)
+			}
+		case flight:
+			sawFlight = true
+			if e.Lat != nil || e.Lon != nil || e.IATA != "CDG" {
+				t.Errorf("flight end = %+v, want no coordinates and CDG", e)
+			}
+		}
+	}
+	if !sawHotel || !sawFlight {
+		t.Fatalf("missing ends: hotel=%v flight=%v", sawHotel, sawFlight)
 	}
 }

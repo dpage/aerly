@@ -73,7 +73,7 @@ func run() error {
 type zoneStore interface {
 	FloatingEnds(context.Context) ([]store.FloatingEnd, error)
 	TripZonedEnds(context.Context, int64) ([]store.ZonedEnd, error)
-	ApplyZoneFixes(context.Context, []store.ZoneFix) error
+	ApplyZoneFixes(context.Context, []store.ZoneFix) (int, error)
 }
 
 // process plans the fixes and, unless dryRun, applies them.
@@ -95,10 +95,15 @@ func process(ctx context.Context, s zoneStore, dryRun bool) error {
 			"source", f.Source, "old", rep.Old[i].Format(time.RFC3339),
 			"new", f.At.Format(time.RFC3339))
 	}
+	for _, f := range rep.LeftFloating {
+		slog.Info("backfill: left floating", "part", f.PartID, "end", f.End)
+	}
 	if !dryRun {
-		if err := s.ApplyZoneFixes(ctx, fixes); err != nil {
+		written, err := s.ApplyZoneFixes(ctx, fixes)
+		if err != nil {
 			return err
 		}
+		slog.Info("backfill: applied", "written", written, "skipped by guard", len(fixes)-written)
 	}
 	slog.Info("backfill: done", "confirmed", rep.Confirmed, "inferred", rep.Inferred,
 		"left floating", rep.Floating, "dry_run", dryRun)
@@ -110,32 +115,33 @@ func process(ctx context.Context, s zoneStore, dryRun bool) error {
 type report struct {
 	Confirmed, Inferred, Floating int
 	Old                           []time.Time
+	LeftFloating                  []store.FloatingEnd // part ids and ends only are logged
 }
 
-// plan decides a fix for every floating end it can. It is pure apart from the
-// trip callback, which supplies a trip's already-zoned ends (called once per
-// trip).
+// plan decides a fix for every floating end it can, in two passes. The first
+// uses only each end's own evidence (coordinates or airport, so confirmed);
+// those zones then join the trip's zoned ends, and the second pass infers the
+// rest from the enlarged set, so one run settles the lot. It is pure apart from
+// the trip callback, which supplies a trip's already-zoned ends (called once
+// per trip).
 func plan(ends []store.FloatingEnd, trip func(int64) ([]store.ZonedEnd, error)) ([]store.ZoneFix, report, error) {
 	var fixes []store.ZoneFix
 	var rep report
-	cache := map[int64][]store.ZonedEnd{}
+	zonedByTrip := map[int64][]store.ZonedEnd{}
 	for _, e := range ends {
-		zoned, ok := cache[e.TripID]
-		if !ok {
-			var err error
-			if zoned, err = trip(e.TripID); err != nil {
-				return nil, report{}, err
-			}
-			cache[e.TripID] = zoned
+		if _, ok := zonedByTrip[e.TripID]; ok {
+			continue
 		}
-		tz, src := timing.Infer(timing.Hints{
-			Lat: e.Lat, Lon: e.Lon, IATA: e.IATA,
-			NeighbourTZ: nearest(zoned, e.At), TripTZ: dominant(zoned),
-		})
+		z, err := trip(e.TripID)
+		if err != nil {
+			return nil, report{}, err
+		}
+		zonedByTrip[e.TripID] = z
+	}
+	emit := func(e store.FloatingEnd, tz string, src timing.Source) bool {
 		at, ok := timing.Anchor(e.At, tz)
 		if tz == "" || !ok {
-			rep.Floating++
-			continue
+			return false
 		}
 		if src == timing.Confirmed {
 			rep.Confirmed++
@@ -144,6 +150,24 @@ func plan(ends []store.FloatingEnd, trip func(int64) ([]store.ZonedEnd, error)) 
 		}
 		fixes = append(fixes, store.ZoneFix{PartID: e.PartID, End: e.End, TZ: tz, Source: string(src), At: at})
 		rep.Old = append(rep.Old, e.At)
+		zonedByTrip[e.TripID] = append(zonedByTrip[e.TripID], store.ZonedEnd{At: at, TZ: tz})
+		return true
+	}
+
+	var rest []store.FloatingEnd
+	for _, e := range ends {
+		tz, src := timing.Infer(timing.Hints{Lat: e.Lat, Lon: e.Lon, IATA: e.IATA})
+		if src != timing.Confirmed || !emit(e, tz, src) {
+			rest = append(rest, e)
+		}
+	}
+	for _, e := range rest {
+		zoned := zonedByTrip[e.TripID]
+		tz, src := timing.Infer(timing.Hints{NeighbourTZ: nearest(zoned, e.At), TripTZ: dominant(zoned)})
+		if !emit(e, tz, src) {
+			rep.Floating++
+			rep.LeftFloating = append(rep.LeftFloating, e)
+		}
 	}
 	return fixes, rep, nil
 }

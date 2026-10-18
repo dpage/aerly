@@ -89,9 +89,10 @@ func TestDominantByDwell(t *testing.T) {
 	}
 }
 
-func TestPlanTripTZWhenNeighbourless(t *testing.T) {
-	// Only a zone-less trip dwell exists via the dominant path: the neighbour
-	// and the trip agree, so the result is still inferred.
+func TestPlanBorrowsFromNeighbour(t *testing.T) {
+	// The only zoned end in the trip is the neighbour, and it is also the
+	// dominant zone: the zone is borrowed, so the result is inferred. (The
+	// trip fallback in Infer is reached only if the neighbour's zone is invalid.)
 	zoned := []store.ZonedEnd{{At: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), TZ: "Europe/Paris", Dwell: time.Hour}}
 	fixes, _, _ := plan([]store.FloatingEnd{
 		{PartID: 4, TripID: 9, End: "end", At: time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)},
@@ -101,12 +102,40 @@ func TestPlanTripTZWhenNeighbourless(t *testing.T) {
 	}
 }
 
+// TestPlanSettlesInOneRun: a coordinate-less end borrows from a neighbour
+// confirmed earlier in the same run, and a second plan over the resulting
+// state finds nothing left to fix.
+func TestPlanSettlesInOneRun(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2026, 7, day, 12, 0, 0, 0, time.UTC) }
+	ends := []store.FloatingEnd{
+		{PartID: 1, TripID: 1, End: "start", At: d(1), Lat: fp(48.85), Lon: fp(2.35)},
+		{PartID: 2, TripID: 1, End: "start", At: d(2)}, // no evidence of its own
+	}
+	fixes, rep, err := plan(ends, noTrip)
+	if err != nil || len(fixes) != 2 || rep.Confirmed != 1 || rep.Inferred != 1 || rep.Floating != 0 {
+		t.Fatalf("fixes=%+v rep=%+v err=%v", fixes, rep, err)
+	}
+	for _, f := range fixes {
+		if f.TZ != "Europe/Paris" {
+			t.Errorf("fix = %+v", f)
+		}
+	}
+	// Second run: nothing is floating any more.
+	again, rep2, _ := plan(nil, noTrip)
+	if len(again) != 0 || rep2.Floating != 0 {
+		t.Errorf("second plan = %+v %+v", again, rep2)
+	}
+}
+
 func TestPlanNothingLeftFloating(t *testing.T) {
 	fixes, rep, err := plan([]store.FloatingEnd{
 		{PartID: 5, TripID: 1, End: "start", At: time.Now()},
 	}, noTrip)
 	if err != nil || len(fixes) != 0 || rep.Floating != 1 {
 		t.Fatalf("fixes=%v rep=%+v err=%v", fixes, rep, err)
+	}
+	if len(rep.LeftFloating) != 1 || rep.LeftFloating[0].PartID != 5 || rep.LeftFloating[0].End != "start" {
+		t.Errorf("left floating = %+v", rep.LeftFloating)
 	}
 }
 
@@ -189,37 +218,55 @@ func TestRunDryRunThenApply(t *testing.T) {
 	withEnv(t, map[string]string{
 		"DATABASE_URL": dbURL, "SESSION_KEY": "0123456789abcdef0123456789abcdef", "DEV_AUTH_BYPASS": "1",
 	})
-	state := func() (string, string, time.Time) {
+	type snapshot struct {
+		startTZ, startSrc, endTZ, endSrc string
+		startsAt, endsAt                 time.Time
+	}
+	state := func() snapshot {
 		p, err := db.Open(ctx, dbURL)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer p.Close()
-		var tz, src string
-		var at time.Time
+		var x snapshot
 		if err := p.QueryRow(ctx,
-			`SELECT start_tz, start_tz_source, starts_at FROM plan_parts WHERE id = $1`, partID).Scan(&tz, &src, &at); err != nil {
+			`SELECT start_tz, start_tz_source, starts_at, end_tz, end_tz_source, ends_at
+			 FROM plan_parts WHERE id = $1`, partID).Scan(&x.startTZ, &x.startSrc, &x.startsAt,
+			&x.endTZ, &x.endSrc, &x.endsAt); err != nil {
 			t.Fatal(err)
 		}
-		return tz, src, at
+		return x
 	}
+	before := state()
 
 	resetFlags(t, nil) // default is a dry run
 	if err := run(); err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
-	if tz, src, _ := state(); tz != "" || src != "floating" {
-		t.Fatalf("dry run changed the row: %q %q", tz, src)
+	if after := state(); after != before {
+		t.Fatalf("dry run changed the row: %+v -> %+v", before, after)
 	}
 
 	resetFlags(t, []string{"-n=false"})
 	if err := run(); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	tz, src, at := state()
+	got := state()
 	want := time.Date(2026, 7, 1, 14, 0, 0, 0, time.UTC) // 15:00 London summer time
-	if tz != "Europe/London" || src != "confirmed" || !at.Equal(want) {
-		t.Fatalf("after apply: %q %q %v", tz, src, at)
+	if got.startTZ != "Europe/London" || got.startSrc != "confirmed" || !got.startsAt.Equal(want) {
+		t.Fatalf("after apply: %+v", got)
+	}
+	// The end has no coordinates of its own, so it uses the start's.
+	if got.endTZ != "Europe/London" || got.endSrc != "confirmed" {
+		t.Fatalf("end after apply: %+v", got)
+	}
+	// A second apply is a fixed point.
+	resetFlags(t, []string{"-n=false"})
+	if err := run(); err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if again := state(); again != got {
+		t.Fatalf("second run changed the row: %+v -> %+v", got, again)
 	}
 }
 
@@ -268,9 +315,9 @@ func (f *fakeStore) FloatingEnds(context.Context) ([]store.FloatingEnd, error) {
 func (f *fakeStore) TripZonedEnds(context.Context, int64) ([]store.ZonedEnd, error) {
 	return nil, f.tripErr
 }
-func (f *fakeStore) ApplyZoneFixes(_ context.Context, fx []store.ZoneFix) error {
+func (f *fakeStore) ApplyZoneFixes(_ context.Context, fx []store.ZoneFix) (int, error) {
 	f.applied += len(fx)
-	return f.applyErr
+	return len(fx), f.applyErr
 }
 
 func TestProcessErrors(t *testing.T) {
