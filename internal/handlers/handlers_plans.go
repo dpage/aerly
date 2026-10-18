@@ -1121,9 +1121,14 @@ func (a *API) anchorFloatingFlightPart(ctx context.Context, partID int64, part *
 		changed = true
 	}
 	if part.EndsAt != nil {
-		end, endOK := anchorFlightEnd(*part.EndsAt, part.EndTZ, part.EndTZSource, fd.DestIATA, part.EndLat, part.EndLon)
-		if noArrival && startOK {
-			end, endOK = start, true
+		// A departure-only flight never anchors its end on its own: a
+		// different zone would pull the arrival away from the departure.
+		var end anchoredEnd
+		endOK := false
+		if noArrival {
+			end, endOK = start, startOK
+		} else {
+			end, endOK = anchorFlightEnd(*part.EndsAt, part.EndTZ, part.EndTZSource, fd.DestIATA, part.EndLat, part.EndLon)
 		}
 		if endOK {
 			payload.EndsAt, payload.EndTZ, payload.EndTZSource = &end.at, &end.tz, &confirmed

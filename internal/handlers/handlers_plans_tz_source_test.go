@@ -326,6 +326,37 @@ func TestUpdateFlightAnchorsFloatingSchedule(t *testing.T) {
 		}
 	})
 
+	t.Run("a departure-only flight with an unzoned origin stays departure-only", func(t *testing.T) {
+		id := create("", "CDG")
+		d := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+		patch(id, map[string]any{"starts_at": d, "ends_at": d})
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		if !fd.ScheduledOut.Equal(d) || !fd.ScheduledIn.Equal(d) {
+			t.Errorf("schedule = %v / %v, want both %v", fd.ScheduledOut.UTC(), fd.ScheduledIn.UTC(), d)
+		}
+		part, _ := e.store.PlanPartByID(ctx, id)
+		if part.EndsAt == nil || !part.EndsAt.Equal(part.StartsAt) || part.EndTZSource != "floating" {
+			t.Errorf("part = %v / %v (%q), want departure-only, floating", part.StartsAt, part.EndsAt, part.EndTZSource)
+		}
+	})
+
+	t.Run("a confirmed flight is left untouched", func(t *testing.T) {
+		id := create("LHR", "CDG")
+		patch(id, map[string]any{"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)})
+		before, _ := e.store.PlanPartByID(ctx, id)
+		fdBefore, _ := e.store.FlightDetailFor(ctx, id)
+		patch(id, map[string]any{"start_label": "Heathrow"})
+		patch(id, map[string]any{"starts_at": before.StartsAt})
+		after, _ := e.store.PlanPartByID(ctx, id)
+		fdAfter, _ := e.store.FlightDetailFor(ctx, id)
+		if !after.StartsAt.Equal(before.StartsAt) || after.StartTZ != before.StartTZ || after.StartTZSource != "confirmed" {
+			t.Errorf("part changed: %v %q -> %v %q", before.StartsAt, before.StartTZ, after.StartsAt, after.StartTZ)
+		}
+		if !fdAfter.ScheduledOut.Equal(fdBefore.ScheduledOut) || !fdAfter.ScheduledIn.Equal(fdBefore.ScheduledIn) {
+			t.Errorf("schedule changed: %v -> %v", fdBefore.ScheduledOut, fdAfter.ScheduledOut)
+		}
+	})
+
 	t.Run("an airport with no known zone keeps the digits", func(t *testing.T) {
 		id := create("", "")
 		patch(id, map[string]any{"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC),
