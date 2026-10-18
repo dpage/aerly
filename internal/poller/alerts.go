@@ -31,8 +31,9 @@ import (
 // dest_gate changes to a NEW non-empty value we always-alert (like
 // cancellation; not threshold-gated). The gate is folded into the dedupe
 // signature so the same gate isn't re-alerted on the next tick. Terminal
-// (origin_terminal/dest_terminal) works exactly the same way: a change to a new
-// non-empty terminal always-alerts and is folded into the dedupe signature.
+// (origin_terminal/dest_terminal) works the same way, except that only a known
+// terminal moving to a different one alerts: the first terminal to appear is
+// the provider filling the field in, not a reassignment.
 //
 // Baggage belt (migration 0027) works almost exactly like gate:
 // dest_baggage_belt is the arrival carousel, persisted overwrite-when-non-empty
@@ -212,11 +213,13 @@ func changeKind(prev, cur alertState) string {
 	if gateChanged(prev.destBelt, cur.destBelt) {
 		return "belt"
 	}
-	// Terminal change: a departure or arrival terminal that became a NEW
-	// non-empty value. Always-alert like gate/belt — a terminal reassignment can
-	// mean a different building and more time needed. Same new-non-empty rule
-	// (gateChanged), folded into the dedupe signature.
-	if gateChanged(prev.originTerminal, cur.originTerminal) || gateChanged(prev.destTerminal, cur.destTerminal) {
+	// Terminal change: a known departure or arrival terminal that moved to a
+	// different one. Always-alert like gate/belt — a terminal reassignment can
+	// mean a different building and more time needed. Unlike a gate, a
+	// terminal first appearing is not news: the provider fills it in when it
+	// first resolves the flight, and announcing that as a "terminal change"
+	// read as a reassignment that never happened.
+	if terminalChanged(prev.originTerminal, cur.originTerminal) || terminalChanged(prev.destTerminal, cur.destTerminal) {
 		return "terminal"
 	}
 	// Delay: a (deeper) departure delay. We treat any increase in the measured
@@ -239,6 +242,13 @@ func changeKind(prev, cur alertState) string {
 // An unchanged gate, or a gate that disappeared (cur == ""), is not a change.
 func gateChanged(prev, cur string) bool {
 	return cur != "" && cur != prev
+}
+
+// terminalChanged reports whether a known terminal moved to a different known
+// one. A terminal first being filled in (prev == "") or disappearing (cur ==
+// "") is not a change.
+func terminalChanged(prev, cur string) bool {
+	return prev != "" && gateChanged(prev, cur)
 }
 
 // changeDetail builds the human phrase appended to the headline. For a delay it
@@ -268,10 +278,10 @@ func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	case "belt":
 		return "bags on belt " + cur.destBelt
 	case "terminal":
-		if gateChanged(prev.originTerminal, cur.originTerminal) {
+		if terminalChanged(prev.originTerminal, cur.originTerminal) {
 			return "now departs terminal " + cur.originTerminal
 		}
-		if gateChanged(prev.destTerminal, cur.destTerminal) {
+		if terminalChanged(prev.destTerminal, cur.destTerminal) {
 			return "now arrives at terminal " + cur.destTerminal
 		}
 		return "terminal changed"

@@ -208,8 +208,9 @@ func TestChangeDetail(t *testing.T) {
 	}
 
 	// Arrival terminal moved (origin unchanged) → arrival phrasing.
-	curT := alertState{destTerminal: "4"}
-	if got := changeDetail("terminal", prev, curT, noEff); got != "now arrives at terminal 4" {
+	prevT := alertState{originTerminal: "5", destTerminal: "2"}
+	curT := alertState{originTerminal: "5", destTerminal: "4"}
+	if got := changeDetail("terminal", prevT, curT, noEff); got != "now arrives at terminal 4" {
 		t.Errorf("dest-terminal detail = %q", got)
 	}
 }
@@ -680,11 +681,11 @@ func TestAlert_DedupeSuppressesRepeatOfSameChange(t *testing.T) {
 	}
 }
 
-// TestAlert_SameTerminalDoesNotReAlert mirrors the gate/belt dedupe coverage: a
-// terminal assignment alerts once, and the same terminal on the next tick does
-// not re-alert.
-func TestAlert_SameTerminalDoesNotReAlert(t *testing.T) {
-	p, s, hub, _ := alertPoller(t)
+// TestAlert_TerminalOnlyAlertsOnRealChange: a terminal first being filled in
+// is not a change and stays silent, a known terminal moving to a different one
+// alerts once, and the same terminal on the next tick does not re-alert.
+func TestAlert_TerminalOnlyAlertsOnRealChange(t *testing.T) {
+	p, s, hub, cap := alertPoller(t)
 	ctx := context.Background()
 	owner := seedUser(t, s)
 	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
@@ -701,23 +702,43 @@ func TestAlert_SameTerminalDoesNotReAlert(t *testing.T) {
 	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
 	defer unsub()
 
-	// First tick: a departure terminal is assigned → one terminal alert.
-	prev := f
-	if _, err := s.Pool().Exec(ctx,
-		`UPDATE flight_details SET origin_terminal = '5' WHERE plan_part_id = $1`, f.ID); err != nil {
-		t.Fatalf("set terminal: %v", err)
+	setTerminal := func(term string) {
+		t.Helper()
+		if _, err := s.Pool().Exec(ctx,
+			`UPDATE flight_details SET origin_terminal = $2 WHERE plan_part_id = $1`, f.ID, term); err != nil {
+			t.Fatalf("set terminal: %v", err)
+		}
 	}
+	// First tick: the departure terminal is filled in for the first time →
+	// no alert, in-app or email.
+	prev := f
+	setTerminal("5")
 	p.maybeAlert(ctx, prev, f.ID)
-	if got := drainAlerts(t, ch); len(got) != 1 || got[0].Kind != "terminal" {
-		t.Fatalf("first terminal: expected 1 terminal alert, got %+v", got)
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Fatalf("first terminal: expected no alert, got %+v", got)
+	}
+	if cap.count() != 0 {
+		t.Fatalf("first terminal: expected no email, got %d", cap.count())
 	}
 
-	// Second tick: same terminal still present → no re-alert.
-	prev2, err := s.FlightPartByID(ctx, f.ID)
+	// Second tick: terminal 5 → 3 is a real change → one terminal alert.
+	prev, err = s.FlightPartByID(ctx, f.ID)
 	if err != nil {
 		t.Fatalf("refetch: %v", err)
 	}
-	p.maybeAlert(ctx, prev2, f.ID)
+	setTerminal("3")
+	p.maybeAlert(ctx, prev, f.ID)
+	got := drainAlerts(t, ch)
+	if len(got) != 1 || got[0].Kind != "terminal" || !strings.Contains(got[0].Message, "now departs terminal 3") {
+		t.Fatalf("terminal move: expected 1 terminal alert, got %+v", got)
+	}
+
+	// Third tick: same terminal still present → no re-alert.
+	prev, err = s.FlightPartByID(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("refetch: %v", err)
+	}
+	p.maybeAlert(ctx, prev, f.ID)
 	if got := drainAlerts(t, ch); len(got) != 0 {
 		t.Fatalf("repeat terminal: expected no alert, got %d", len(got))
 	}
