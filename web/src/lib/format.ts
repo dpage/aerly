@@ -15,34 +15,6 @@ export function userInitial(u: User): string {
   return userName(u).charAt(0).toUpperCase();
 }
 
-// fmtDateTime renders an ISO timestamp in airport-local time. tz is the IANA
-// zone of the relevant airport (origin for departures, destination for
-// arrivals); when it's missing or empty we fall back to UTC and add a "UTC"
-// suffix so the user knows which clock they're looking at. hour12:false keeps
-// the output deterministic across runtime locales (and matches the 24-hour
-// convention airlines and schedule sources actually use).
-export function fmtDateTime(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  // Guard malformed input (matches the trip-format helpers) so we render an
-  // empty string rather than the literal "Invalid Date".
-  if (Number.isNaN(d.getTime())) return '';
-  const base = d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz || 'UTC',
-  });
-  return tz ? base : `${base} UTC`;
-}
-
-// fmtUTC renders the same instant in UTC for the secondary line beneath an
-// airport-local time. Always includes the "UTC" suffix.
-export function fmtUTC(iso: string): string {
-  return fmtDateTime(iso, undefined);
-}
-
 // formatCost renders a booking total (issue #22). With a valid ISO 4217 code
 // it uses the locale's currency formatting (e.g. "£250.00"); with a missing or
 // unrecognised code it falls back to the bare amount plus whatever code we have

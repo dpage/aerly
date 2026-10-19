@@ -77,6 +77,32 @@ function iso(offset: number, h = 10, m = 0) {
   d.setUTCHours(h, m, 0, 0);
   return d.toISOString();
 }
+// The server sends a start and end block with every part (internal/api/dto.go
+// newTimeBlock); build them from the part's own fields so the dev UI reads the
+// same shape. A flight uses its timetable times, as an unrevised flight does.
+function withBlocks<T extends Record<string, unknown>>(part: T): T {
+  const f = part.flight as { scheduled_out?: string; scheduled_in?: string } | undefined;
+  const mk = (at: string, tz: string) => ({
+    at,
+    tz,
+    tz_source: tz ? 'confirmed' : 'floating',
+    place: tz ? (tz.split('/').pop() ?? '').replace(/_/g, ' ') : '',
+    kind: 'scheduled',
+    delay_min: 0,
+  });
+  const startTz = (part.start_tz as string) ?? '';
+  const endTz = ((part.end_tz as string) || startTz) ?? '';
+  const startAt = f?.scheduled_out ?? (part.starts_at as string);
+  const endAt = f?.scheduled_in ?? (part.ends_at as string | undefined);
+  return {
+    ...part,
+    start_tz_source: startTz ? 'confirmed' : 'floating',
+    end_tz_source: endAt ? (endTz ? 'confirmed' : 'floating') : 'unknown',
+    start: mk(startAt, startTz),
+    ...(endAt ? { end: mk(endAt, endTz) } : {}),
+  };
+}
+
 function ymd(offset: number) {
   const d = new Date(now);
   d.setUTCDate(d.getUTCDate() + offset);
@@ -107,7 +133,7 @@ const CONF_TRIP = {
   updated_at: now.toISOString(),
 };
 
-const CONF_PLANS = [
+const CONF_PLANS_RAW = [
   {
     id: 101,
     trip_id: CONF_TRIP_ID,
@@ -245,6 +271,8 @@ const CONF_PLANS = [
     updated_at: now.toISOString(),
   },
 ];
+
+const CONF_PLANS = CONF_PLANS_RAW.map((p) => ({ ...p, parts: p.parts.map(withBlocks) }));
 
 MOCK_TRIPS.unshift(CONF_TRIP as unknown as (typeof MOCK_TRIPS)[0]);
 

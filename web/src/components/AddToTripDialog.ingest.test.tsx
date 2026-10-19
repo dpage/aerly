@@ -182,7 +182,7 @@ describe('AddToTripDialog - confirm step field coverage', () => {
 
   it('renders a multi-part proposal label and an invalid date verbatim', async () => {
     // parts.length > 1 → "· N parts"; a non-parseable starts_at falls back to
-    // the raw string (fmtIso NaN guard).
+    // the raw string (partDatePreview falls back to it).
     h.state.ingest.mockImplementation(async () => {
       h.state.ingestProposals = [
         proposal({
@@ -199,6 +199,19 @@ describe('AddToTripDialog - confirm step field coverage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
     expect(screen.getByText(/· 2 parts/)).toBeInTheDocument();
     expect(screen.getByText(/not-a-date/)).toBeInTheDocument();
+  });
+
+  it('previews a part in its own zone with the full form', async () => {
+    h.state.ingest.mockImplementation(async () => {
+      h.state.ingestProposals = [
+        proposal({ parts: [part({ starts_at: '2026-10-12T15:00:00Z', ends_at: undefined })] }),
+      ];
+    });
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Paste text' }));
+    await userEvent.type(screen.getByLabelText('Confirmation text'), 'full');
+    await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
+    expect(screen.getByText(/ · Mon 12 Oct, 15:00 UTC$/)).toBeInTheDocument();
   });
 
   it('renders a hotel proposal with an unparseable check-in date verbatim', async () => {
@@ -328,8 +341,8 @@ describe('AddToTripDialog - upload tab', () => {
     await userEvent.type(screen.getByLabelText('Confirmation text'), 'mixed');
     await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
 
-    // Hotel part renders check-in/check-out date strings (fmtIsoDate); the
-    // flight part renders a date-time (fmtIso).
+    // Hotel part renders check-in/check-out days; the flight part
+    // renders its start in full.
     expect(screen.getByText(/Check in/)).toBeInTheDocument();
     expect(screen.getByText(/Check out/)).toBeInTheDocument();
     // Two proposals → "Add 2 plans".

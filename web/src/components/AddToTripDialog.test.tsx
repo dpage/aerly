@@ -629,8 +629,8 @@ describe('AddToTripDialog - confirm step date preview', () => {
       ],
     } as ProposedPlan);
 
-    expect(screen.getByText(/Pickup 9 Sept/)).toBeInTheDocument();
-    expect(screen.getByText(/Return 11 Sept/)).toBeInTheDocument();
+    expect(screen.getByText(/Pickup Wed 9 Sept/)).toBeInTheDocument();
+    expect(screen.getByText(/Return Fri 11 Sept/)).toBeInTheDocument();
     expect(screen.queryByText(/Check in/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Check out/)).not.toBeInTheDocument();
   });
@@ -668,7 +668,7 @@ describe('AddToTripDialog - confirm step date preview', () => {
       ],
     } as ProposedPlan);
 
-    expect(screen.getByText(/Check in 12 Oct/)).toBeInTheDocument();
-    expect(screen.getByText(/Check out 15 Oct/)).toBeInTheDocument();
+    expect(screen.getByText(/Check in Mon 12 Oct/)).toBeInTheDocument();
+    expect(screen.getByText(/Check out Thu 15 Oct/)).toBeInTheDocument();
   });
 });

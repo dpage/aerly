@@ -294,55 +294,6 @@ export function bandSpanDays(part: PlanPart): number {
   return Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
 }
 
-/** A time-of-day in the given tz, e.g. "14:30". 24-hour for determinism, same
- * convention as `fmtDateTime`. */
-export function fmtTimeOfDay(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const base = d.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz || 'UTC',
-  });
-  // Always carry the local tz abbreviation so every plan reads consistently in
-  // local time (PRD §6.2) — falling back to "UTC" when the zone is unknown.
-  return `${base} ${tzAbbrev(iso, tz)}`;
-}
-
-/** The local timezone abbreviation for an instant in a tz, e.g. "BST", "EDT",
- * "UTC". Falls back to "UTC" when the tz is unknown (the instant is stored UTC
- * and the digits are the wall-clock the booking stated). */
-export function tzAbbrev(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz || 'UTC',
-    timeZoneName: 'short',
-  }).formatToParts(d);
-  return parts.find((p) => p.type === 'timeZoneName')?.value ?? 'UTC';
-}
-
-/** A full local date + time + tz abbreviation for a marker tooltip, e.g.
- * "Sun 25 Oct, 16:00 BST". Empty for an unparseable instant. */
-export function fmtLocalDateTime(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const date = d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    timeZone: tz || 'UTC',
-  });
-  const time = d.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz || 'UTC',
-  });
-  return `${date}, ${time} ${tzAbbrev(iso, tz)}`;
-}
-
 /** Split an instant into its local date ("YYYY-MM-DD") + time ("HH:MM") in the
  * given tz, for date/time form inputs. Empty strings for an unparseable iso. */
 export function splitLocal(iso: string, tz?: string): { date: string; time: string } {
@@ -368,14 +319,6 @@ export function zonedTimeToUtc(date: string, time: string, tz?: string): string 
   if (!y || !mo || !d) return '';
   const guess = Date.UTC(y, mo - 1, d, h || 0, mi || 0);
   return new Date(guess - tzOffsetMs(tz || 'UTC', guess)).toISOString();
-}
-
-/** A Date's local wall-clock digits (in the browser's zone) as a floating
- * timestamp, "YYYY-MM-DDTHH:mm:00Z": the Z is a lie by design, as the server
- * reads the digits as local time at the place and re-anchors them. */
-export function floatingISO(d: Date): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `${p(d.getFullYear(), 4)}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00Z`;
 }
 
 /** The offset (ms) of tz at the given UTC instant: how far the zone's local

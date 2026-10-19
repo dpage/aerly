@@ -196,6 +196,28 @@ describe('TripTimeline', () => {
     expect(screen.getByTestId('part-card-1')).toBeInTheDocument();
   });
 
+  it('renders the scheduled time for a part with no time blocks (a cached pre-deploy response)', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            starts_at: '2026-10-12T09:30:00Z',
+            ends_at: '2026-10-12T11:45:00Z',
+            start: undefined,
+            end: undefined,
+          }),
+        ],
+        { id: 1, title: 'Flight out' },
+      ),
+    ]);
+    expect(() => renderTimeline()).not.toThrow();
+    const card = screen.getByTestId('part-card-1');
+    expect(card).toHaveTextContent('09:30');
+    expect(card).toHaveTextContent('11:45');
+  });
+
   it('drops dismissed parts', () => {
     state.currentTrip = tripWith([plan([part({ id: 1, dismissed_at: '2026-09-01T00:00:00Z' })])]);
     renderTimeline();

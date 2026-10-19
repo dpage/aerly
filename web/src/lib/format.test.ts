@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { fmtAgo, fmtDateTime, fmtRelative, fmtUTC, formatBytes, formatCost } from './format';
+import { fmtAgo, fmtRelative, formatBytes, formatCost } from './format';
 
 describe('formatCost', () => {
   it('returns null when there is no amount', () => {
@@ -22,27 +22,6 @@ describe('formatCost', () => {
 
   it('shows a zero amount (distinct from unknown)', () => {
     expect(formatCost(0, 'GBP')).toBe('£0.00');
-  });
-});
-
-describe('fmtDateTime', () => {
-  it('renders an airport-local time when tz is provided', () => {
-    // 10:00Z in BST (Europe/London, July) = 11:00.
-    expect(fmtDateTime('2024-07-01T10:00:00Z', 'Europe/London')).toMatch(/11:00/);
-  });
-
-  it('falls back to UTC with an explicit suffix when tz is missing', () => {
-    expect(fmtDateTime('2024-07-01T10:00:00Z')).toMatch(/10:00 UTC$/);
-  });
-
-  it('treats an empty tz string as missing', () => {
-    expect(fmtDateTime('2024-07-01T10:00:00Z', '')).toMatch(/10:00 UTC$/);
-  });
-});
-
-describe('fmtUTC', () => {
-  it('always renders in UTC with the suffix', () => {
-    expect(fmtUTC('2024-01-15T23:45:00Z')).toMatch(/23:45 UTC$/);
   });
 });
 

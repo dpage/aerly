@@ -36,7 +36,7 @@ import {
   planTypeLabel,
   typeHasEnd,
 } from '../lib/trip-format';
-import { localDigits } from '../lib/time';
+import { blockFor, fmtDate, fmtFull, localDigits } from '../lib/time';
 import PlanTypeIcon from './PlanTypeIcon';
 import TimezoneSelect from './TimezoneSelect';
 import type {
@@ -1457,45 +1457,32 @@ function parseAmount(v: string): number | undefined {
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
-function fmtIso(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  // Render in the part's zone (airport-local), falling back to UTC with a
-  // suffix — matching how times display elsewhere, rather than the reviewer's
-  // browser-local zone which could be hours off from the confirmed result.
-  const base = d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz || 'UTC',
-  });
-  return tz ? base : `${base} UTC`;
-}
-
-// Date only (no time) — used for hotel check-in/out, which are days not instants.
-function fmtIsoDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-/** The trailing date suffix for a part in the confirmation preview. A banded
- * type (hotel, vehicle_hire) shows its own opening/closing wording and dates
- * (bandEdgeLabels — "Check in"/"Check out" for a stay, "Pickup"/"Return" for a
- * hire), matching how the timeline itself labels those two tiles, so a hire's
- * return date isn't silently dropped and doesn't get hotel wording it doesn't
- * own. Every other type shows a single instant. */
-function partDatePreview(part: { type: PlanType; starts_at: string; ends_at?: string; start_tz?: string }): string {
+/** The trailing date suffix for a part in the confirmation preview, read in the
+ * part's own zone as everywhere else. A banded type (hotel, vehicle_hire)
+ * shows its opening and closing wording and days (bandEdgeLabels), so a hire's
+ * return isn't dropped; every other type shows its start in full. An
+ * unparseable instant is shown as the raw string. */
+function partDatePreview(part: {
+  type: PlanType;
+  starts_at: string;
+  ends_at?: string;
+  start_tz?: string;
+  end_tz?: string;
+  start_tz_source?: TZSource;
+  end_tz_source?: TZSource;
+}): string {
+  const start = blockFor(part.starts_at, part.start_tz ?? '', part.start_tz_source);
   const labels = bandEdgeLabels(part.type);
   if (labels) {
     const [openLabel, closeLabel] = labels;
-    return ` · ${openLabel} ${fmtIsoDate(part.starts_at)}${
-      part.ends_at ? ` · ${closeLabel} ${fmtIsoDate(part.ends_at)}` : ''
+    const end = part.ends_at
+      ? blockFor(part.ends_at, part.end_tz || part.start_tz || '', part.end_tz_source)
+      : null;
+    return ` · ${openLabel} ${fmtDate(start) || part.starts_at}${
+      end ? ` · ${closeLabel} ${fmtDate(end) || part.ends_at}` : ''
     }`;
   }
-  return ` · ${fmtIso(part.starts_at, part.start_tz)}`;
+  return ` · ${fmtFull(start) || part.starts_at}`;
 }
 
 function placeholderFor(type: PlanType): string {

@@ -5,7 +5,6 @@ import {
   buildExternalDays,
   buildTimeline,
   classifyTrip,
-  floatingISO,
   fmtPartPlaces,
   flightStatusLabel,
   fmtPartDuration,
@@ -15,11 +14,9 @@ import {
   fmtPartDateRange,
   fmtPartTimeRange,
   fmtPartTimeRangeText,
-  fmtLocalDateTime,
   fmtTripDates,
   plansOutsideTripDates,
   splitLocal,
-  tzAbbrev,
   zonedTimeToUtc,
   bandEdgeLabels,
   bandSpanDays,
@@ -807,7 +804,7 @@ describe('fmtPartDuration', () => {
           end: block('2026-08-20T19:00:00Z', 'UTC', { kind: 'estimated', delay_min: 105 }),
         }),
       ),
-    ).toBe('2h 0m');
+    ).toBe('2h');
   });
 
   it('is null with no end, and for single-place types', () => {
@@ -849,22 +846,6 @@ describe('fmtPartTimeRange', () => {
       }),
     );
     expect(out).toBe('11:00 UTC+1 → 10:00 UTC-4');
-  });
-});
-
-describe('tzAbbrev', () => {
-  it('returns a real abbreviation for a known zone', () => {
-    expect(tzAbbrev('2026-07-01T14:00:00Z', 'America/New_York')).toBe('EDT');
-  });
-  it('falls back to UTC when the zone is unknown', () => {
-    expect(tzAbbrev('2026-07-01T14:00:00Z', '')).toBe('UTC');
-  });
-});
-
-describe('fmtLocalDateTime', () => {
-  it('renders date + local time + tz abbreviation', () => {
-    // 14:00Z → 10:00 EDT on the same day.
-    expect(fmtLocalDateTime('2026-07-01T14:00:00Z', 'America/New_York')).toMatch(/Jul.*10:00 EDT$/);
   });
 });
 
@@ -1089,23 +1070,14 @@ describe('branch edge cases', () => {
     expect(days[0].label).toBe('not-a-date');
   });
 
-  it('fmtTimeOfDay / tzAbbrev / fmtLocalDateTime / splitLocal: empty for unparseable iso', () => {
+  it('splitLocal: empty for unparseable iso', () => {
     expect(fmtPartTimeRange(part({ starts_at: 'not-a-date', ends_at: undefined }))).toBe('');
-    expect(tzAbbrev('not-a-date', 'UTC')).toBe('');
-    expect(fmtLocalDateTime('not-a-date', 'UTC')).toBe('');
     expect(splitLocal('not-a-date', 'UTC')).toEqual({ date: '', time: '' });
   });
 
   it('zonedTimeToUtc: empty for a malformed date, defaults a blank time to 00:00', () => {
     expect(zonedTimeToUtc('', '09:00', 'UTC')).toBe('');
     expect(zonedTimeToUtc('2026-10-12', '', 'UTC')).toBe('2026-10-12T00:00:00.000Z');
-  });
-});
-
-describe('floatingISO', () => {
-  it("keeps a local Date's wall-clock digits whatever the runner's zone", () => {
-    expect(floatingISO(new Date(2026, 6, 1, 15, 0))).toBe('2026-07-01T15:00:00Z');
-    expect(floatingISO(new Date(2026, 0, 5, 9, 7, 42))).toBe('2026-01-05T09:07:00Z');
   });
 });
 

@@ -39,6 +39,22 @@ describe('offsetLabel', () => {
   it('is empty for an unparseable instant', () => {
     expect(offsetLabel('not a time', 'UTC')).toBe('');
   });
+  it('gives negative and 45-minute offsets', () => {
+    expect(offsetLabel('2026-01-15T12:00:00Z', 'America/St_Johns')).toBe('UTC-3:30');
+    expect(offsetLabel('2026-01-15T12:00:00Z', 'Asia/Kathmandu')).toBe('UTC+5:45');
+    expect(fmtFull(block('2026-01-15T12:00:00Z', 'Asia/Kathmandu'))).toBe('Thu 15 Jan, 17:45 UTC+5:45');
+  });
+  it('falls back to UTC for an invalid zone rather than throwing', () => {
+    expect(offsetLabel('2026-10-18T09:00:00Z', 'Not/AZone')).toBe('UTC');
+    const bad = block('2026-10-18T09:00:00Z', 'Not/AZone');
+    expect(fmtTime(bad)).toBe('09:00');
+    expect(fmtDate(bad)).toBe('Sun 18 Oct');
+    expect(fmtFull(bad)).toBe('Sun 18 Oct, 09:00 UTC');
+    expect(fmtCompact(bad)).toBe('09:00 UTC');
+    expect(dayKey(bad)).toBe('2026-10-18');
+    expect(fmtDayHeading(bad)).toBe('Sun, 18 Oct 2026');
+    expect(fmtViewer(TAS, 'Not/AZone')).toBe('Sun 18 Oct, 09:00 (UTC)');
+  });
 });
 
 describe('fmtFull and fmtCompact', () => {
@@ -137,6 +153,8 @@ describe('durations', () => {
     expect(durationMin(lhr, jfk)).toBe(485);
     expect(fmtDuration(485)).toBe('8h 5m');
     expect(fmtDuration(45)).toBe('45m');
+    expect(fmtDuration(90)).toBe('1h 30m');
+    expect(fmtDuration(120)).toBe('2h');
   });
   it('is null with no end, a bad instant, or an end not after the start', () => {
     const s = block('2026-10-18T09:00:00Z');

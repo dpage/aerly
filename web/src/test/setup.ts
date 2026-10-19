@@ -8,7 +8,7 @@ import { afterEach, beforeEach } from 'vitest';
 // "Oct 12, 2026" and reddened CI). Production still uses the user's locale:
 // the app calls toLocale*(undefined, …) on purpose, and only the *default*
 // (undefined locale) is overridden here — explicit locales (e.g. 'en-US' in
-// tzAbbrev, 'en-CA' for sort keys) are left untouched.
+// lib/time.ts, 'en-CA' for sort keys) are left untouched.
 const TEST_LOCALE = 'en-GB';
 for (const method of ['toLocaleDateString', 'toLocaleTimeString', 'toLocaleString'] as const) {
   const original = Date.prototype[method];

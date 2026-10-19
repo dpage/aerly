@@ -25,12 +25,30 @@ function instant(at: string | Date): Date | null {
 
 // A blank zone is a floating or unknown time: its UTC digits are what we show.
 function zoneOf(b: TimeBlock): string {
-  return b.tz || 'UTC';
+  return safeZone(b.tz);
+}
+
+// An unrecognised zone string must never throw out of a render, so it reads as
+// UTC, the same as a blank one.
+const zoneOk = new Map<string, boolean>();
+function safeZone(tz: string | undefined): string {
+  if (!tz) return 'UTC';
+  let ok = zoneOk.get(tz);
+  if (ok === undefined) {
+    try {
+      new Intl.DateTimeFormat(LOCALE, { timeZone: tz });
+      ok = true;
+    } catch {
+      ok = false;
+    }
+    zoneOk.set(tz, ok);
+  }
+  return ok ? tz : 'UTC';
 }
 
 function dateIn(d: Date, tz: string): string {
   return new Intl.DateTimeFormat(LOCALE, {
-    timeZone: tz,
+    timeZone: safeZone(tz),
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -39,7 +57,7 @@ function dateIn(d: Date, tz: string): string {
 
 function clockIn(d: Date, tz: string): string {
   return new Intl.DateTimeFormat(LOCALE, {
-    timeZone: tz,
+    timeZone: safeZone(tz),
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
@@ -52,7 +70,7 @@ export function offsetLabel(at: string | Date, tz: string): string {
   const d = instant(at);
   if (!d) return '';
   const name =
-    new Intl.DateTimeFormat(LOCALE, { timeZone: tz || 'UTC', timeZoneName: 'shortOffset' })
+    new Intl.DateTimeFormat(LOCALE, { timeZone: safeZone(tz), timeZoneName: 'shortOffset' })
       .formatToParts(d)
       .find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
   // en-GB spells zero as "GMT+0" on current ICU and "GMT" on older builds.
@@ -167,11 +185,12 @@ export function durationMin(start: TimeBlock, end?: TimeBlock): number | null {
   return mins > 0 ? mins : null;
 }
 
-/** "8h 5m", or "45m" under an hour. */
+/** "8h 5m", "2h" on the hour, or "45m" under an hour. */
 export function fmtDuration(mins: number): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  return h ? `${h}h ${m}m` : `${m}m`;
+  if (!h) return `${m}m`;
+  return m ? `${h}h ${m}m` : `${h}h`;
 }
 
 /** A Date's browser-local wall-clock digits as "YYYY-MM-DDTHH:MM", the form
