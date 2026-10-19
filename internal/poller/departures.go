@@ -111,7 +111,7 @@ func (p *Poller) departureInput(ctx context.Context, d store.DueDepartureSummary
 		DestLabel:      destLabel,
 		DestIATA:       f.DestIATA,
 		ScheduledOut:   f.ScheduledOut,
-		Departs:        instantBlock(departs, t.Departure.Kind, startZone(d.StartTZ, d.StartTZSource, f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
+		Departs:        instantBlock(departs, t.Departure.Kind, departureZone(t.Departure.Kind, d.StartTZ, d.StartTZSource, f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
 		DepartureDelay: t.Departure.Delay,
 		Arrives:        arrivalBlock(t, dest, f.DestIATA),
 		HomeTZ:         d.HomeTZ,

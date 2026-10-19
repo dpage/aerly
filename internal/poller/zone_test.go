@@ -112,3 +112,23 @@ func TestInstantBlockCarriesSource(t *testing.T) {
 		t.Errorf("blank source = %+v", b)
 	}
 }
+
+// A floating start's scheduled time is wall-clock digits, but an estimate or
+// actual is a true instant and is labelled in the airport's zone.
+func TestDepartureZone_FloatingByKind(t *testing.T) {
+	if got := departureZone(timing.Scheduled, "", "floating", "LHR", nil, nil); got != (endZone{Source: timing.Floating}) {
+		t.Errorf("scheduled = %+v", got)
+	}
+	want := endZone{TZ: "Europe/London", Source: timing.Confirmed}
+	for _, k := range []timing.Kind{timing.Estimated, timing.Actual, timing.Derived} {
+		if got := departureZone(k, "", "floating", "LHR", nil, nil); got != want {
+			t.Errorf("kind %v = %+v", k, got)
+		}
+	}
+	if got := departureZone(timing.Estimated, "", "floating", "ZZZ", nil, nil); got != (endZone{Source: timing.Unknown}) {
+		t.Errorf("unplaceable airport = %+v", got)
+	}
+	if got := departureZone(timing.Estimated, "Europe/Paris", "inferred", "LHR", nil, nil); got != (endZone{TZ: "Europe/Paris", Source: timing.Inferred}) {
+		t.Errorf("non-floating = %+v", got)
+	}
+}

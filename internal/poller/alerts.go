@@ -523,6 +523,7 @@ func withTerminal(changed bool, terminal string) string {
 func delayDetail(f *store.Flight, home string) string {
 	t := timing.Effective(f.Times())
 	if !t.Revised {
+		// Unreachable for a floating flight: Effective gives it a delay of 0.
 		return "now delayed"
 	}
 	b := instantBlock(f.ScheduledOut.Add(t.Departure.Delay), t.Departure.Kind,

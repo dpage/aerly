@@ -75,6 +75,17 @@ func startZone(storedTZ, storedSource, iata string, lat, lon *float64) endZone {
 	return endZone{TZ: storedTZ, Source: timing.Source(storedSource)}
 }
 
+// departureZone is startZone for a departure time of the given kind. Only a
+// scheduled time on a floating start is wall-clock digits; an estimate or
+// actual is a true instant, so it is labelled in the departure airport's zone
+// (unknown when the airport cannot be placed) rather than as floating.
+func departureZone(kind timing.Kind, storedTZ, storedSource, iata string, lat, lon *float64) endZone {
+	if timing.Source(storedSource) == timing.Floating && kind != timing.Scheduled {
+		return flightZone(iata, lat, lon)
+	}
+	return startZone(storedTZ, storedSource, iata, lat, lon)
+}
+
 // instantBlock is the label block for a flight time: in its zone, with that
 // zone's source, when one is known, else without a zone and with the source
 // given (floating, or unknown so the label falls back to the recipient's home
