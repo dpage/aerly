@@ -15,7 +15,7 @@ import (
 func TestImportICalCreatesTrip(t *testing.T) {
 	e := setup(t, nil, nil) // no extractor
 	owner := e.user(t, "owner", false)
-	body := map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}
+	body := map[string]any{"text": readICS(t, "tripit_conf_2016.ics")}
 
 	w := e.req(t, "POST", "/api/trips/import", body, owner)
 	if w.Code != http.StatusOK {
@@ -23,8 +23,8 @@ func TestImportICalCreatesTrip(t *testing.T) {
 	}
 	res := decodeBody[api.ImportResultDTO](t, w)
 
-	if res.Trip.Name != "PGConf.EU 2016" {
-		t.Errorf("trip name = %q, want PGConf.EU 2016", res.Trip.Name)
+	if res.Trip.Name != "Test Conference 2016" {
+		t.Errorf("trip name = %q, want Test Conference 2016", res.Trip.Name)
 	}
 	// 4 flights + 2 taxis + 1 hotel.
 	if res.Added != 7 || res.Skipped != 0 {

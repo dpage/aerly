@@ -26,8 +26,8 @@ type Calendar struct {
 	// X-WR-CAL* headers do.
 	ProdID string
 	// Name / Desc are the X-WR-CALNAME / X-WR-CALDESC headers. TripIt puts the
-	// trip name here, e.g. Name="Dave Page (TripIt - PGConf.EU 2016)" and
-	// Desc="PGConf.EU 2016 (Trip Shared by Dave Page)".
+	// trip name here, e.g. Name="Test Traveller (TripIt - Test Conference 2016)" and
+	// Desc="Test Conference 2016 (Trip Shared by Test Traveller)".
 	Name string
 	Desc string
 	// Timezone is the X-WR-TIMEZONE header: the calendar's default IANA zone

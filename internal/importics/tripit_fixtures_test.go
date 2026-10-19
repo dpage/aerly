@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// These tests run against real TripIt .ics exports (Dave's own shared trips,
-// provided as samples) so the parser is pinned to the actual format rather than
-// a synthesized guess. They assert the structural facts the event->plan mapper
-// will depend on.
+// These tests run against synthetic TripIt .ics exports (fake names, flights and
+// hotels) that copy the structure of real ones, so the parser is pinned to the
+// actual format. They assert the structural facts the event->plan mapper will
+// depend on.
 
 func parseFixture(t *testing.T, name string) *Calendar {
 	t.Helper()
@@ -25,11 +25,11 @@ func parseFixture(t *testing.T, name string) *Calendar {
 	return cal
 }
 
-func TestRealPGConfEU2016(t *testing.T) {
-	cal := parseFixture(t, "pgconfeu_2016.ics")
+func TestTripItConference2016(t *testing.T) {
+	cal := parseFixture(t, "tripit_conf_2016.ics")
 
 	// TripIt's trip name lives in the X-WR-CAL* headers, not PRODID (Bennu).
-	if cal.Desc != "PGConf.EU 2016 (Trip Shared by Dave Page)" {
+	if cal.Desc != "Test Conference 2016 (Trip Shared by Test Traveller)" {
 		t.Errorf("Desc = %q", cal.Desc)
 	}
 	if cal.Name == "" {
@@ -54,13 +54,13 @@ func TestRealPGConfEU2016(t *testing.T) {
 	// A flight leg: SUMMARY carries ident + IATA route; DTSTART/DTEND are UTC.
 	var flight *Event
 	for i := range cal.Events {
-		if cal.Events[i].Summary == "AY832 LHR to HEL" {
+		if cal.Events[i].Summary == "XX100 LHR to HEL" {
 			flight = &cal.Events[i]
 			break
 		}
 	}
 	if flight == nil {
-		t.Fatal("did not find the AY832 LHR to HEL flight event")
+		t.Fatal("did not find the XX100 LHR to HEL flight event")
 	}
 	if !flight.Start.IsUTC || flight.Start.Time.Format("2006-01-02T15:04:05Z") != "2016-10-30T10:20:00Z" {
 		t.Errorf("flight start = %+v, want UTC 2016-10-30T10:20:00Z", flight.Start)
@@ -73,9 +73,9 @@ func TestRealPGConfEU2016(t *testing.T) {
 	var hotelIn, hotelOut bool
 	for _, e := range cal.Events {
 		switch e.Summary {
-		case "Check-in: Radisson Blu Hotel Olumpia, Tallinn":
+		case "Check-in: Test Hotel Tallinn":
 			hotelIn = true
-		case "Check-out: Radisson Blu Hotel Olumpia, Tallinn":
+		case "Check-out: Test Hotel Tallinn":
 			hotelOut = true
 		}
 	}
@@ -84,8 +84,8 @@ func TestRealPGConfEU2016(t *testing.T) {
 	}
 }
 
-func TestRealCalais2025Eurotunnel(t *testing.T) {
-	cal := parseFixture(t, "calais_2025.ics")
+func TestTripItFerry2025Eurotunnel(t *testing.T) {
+	cal := parseFixture(t, "tripit_ferry_2025.ics")
 	// The Eurotunnel crossing is present and its UTC instants are parsed; the
 	// [Ground Transportation] tag in the description is how the mapper will
 	// classify it (TripIt files it as ground, not rail).

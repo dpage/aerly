@@ -1,0 +1,103 @@
+BEGIN:VCALENDAR
+METHOD:PUBLISH
+X-WR-CALNAME:Test Traveller (TripIt - Test Conference 2026)
+X-WR-CALDESC:Test Conference 2026 (Trip Shared by Test Traveller)
+PRODID:-//John Papaioannou/NONSGML Bennu 0.1//EN
+VERSION:2.0
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+UID:00000000-0000-9000-0001-000000000002@tripit.com
+DTSTART;VALUE=DATE:20260518
+DTEND;VALUE=DATE:20260525
+SUMMARY:Test Conference 2026
+LOCATION:Vancouver\, BC\, Canada
+GEO:49.24966;-123.11934
+TRANSP:TRANSPARENT
+DESCRIPTION:Test Traveller is in Vancouver\, BC\, Canada from May 18 to 24\
+ , 2026\nView and/or edit details in TripIt : https://www.tripit.com/trip/s
+ how?id=900000002\nTripIt - organize your travel at https://www.tripit.com\
+ n
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20260518T111500Z
+SUMMARY:Example Cars (TBC) - Home to LHR T5
+LOCATION:Home
+TRANSP:TRANSPARENT
+UID:item-000003e9-0000-9000-0003-0000000003e9@tripit.com
+DTSTART:20260518T094500Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000002\n \n\nMon\, May 18\n10:45 AM BST\n[Transportation] Exa
+ mple Cars (TBC) - Home to LHR T5\nDepart Home \n12:15 PM BST\nArrive LHR T
+ 5 \n \n\n \nTripIt - organize your travel at https://www.tripit.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20260518T230000Z
+SUMMARY:XX200 LHR to YVR
+LOCATION:London (LHR)
+UID:item-000003ea-0000-9000-0003-0000000003ea@tripit.com
+DTSTART:20260518T131500Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000002\n \n\n2:15 PM BST\n[Flight] LHR to YVR\n \nExample Air
+  200\, Terminal 5\, Gate B39\n \n3:33 PM PDT\nArrive Vancouver (YVR)\nTerm
+ inal I\, Gate D58\n \n\n \nTripIt - organize your travel at https://www.tr
+ ipit.com
+GEO:49.24966;-123.11934
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20260519T000000Z
+SUMMARY:Check-in: Test Hotel Vancouver
+LOCATION:1 Example Street\, Vancouver\, British Columbia V6B 0A0 Canada
+UID:item-000003eb-0000-9000-0003-0000000003eb@tripit.com
+DTSTART:20260518T230000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000002\n \n\n4:00 PM PDT\n[Lodging] Arrive Test Hotel Vancouv
+ er\nCheck-In: 4:00pm\n1 Example Street\, Vancouver\, British Columbia V6B 
+ 0A0 Canada\n+1-604-555-0100\n \n\n \nTripIt - organize your travel at http
+ s://www.tripit.com
+GEO:49.2842411;-123.1125785
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20260523T190000Z
+SUMMARY:Check-out: Test Hotel Vancouver
+LOCATION:1 Example Street\, Vancouver\, British Columbia V6B 0A0 Canada
+UID:item-000003ec-0000-9000-0003-0000000003ec@tripit.com
+DTSTART:20260523T180000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000002\n \n\nSat\, May 23\n11:00 AM PDT\n[Lodging] Depart Tes
+ t Hotel Vancouver\nCheck-Out: 11:00am\n1 Example Street\, Vancouver\, Brit
+ ish Columbia V6B 0A0 Canada\n+1-604-555-0100\n \n\n \nTripIt - organize yo
+ ur travel at https://www.tripit.com
+GEO:49.2842411;-123.1125785
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20260524T101000Z
+SUMMARY:XX201 YVR to LHR
+LOCATION:Vancouver (YVR)
+UID:item-000003ed-0000-9000-0003-0000000003ed@tripit.com
+DTSTART:20260524T005000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000002\n \n\n5:50 PM PDT\n[Flight] YVR to LHR\n \nExample Air
+  201\, Terminal M\, Gate \n \n \nSun\, May 24\n11:10 AM BST\nArrive London
+  (LHR)\nTerminal 5\, Gate \n \n\n \nTripIt - organize your travel at https
+ ://www.tripit.com
+GEO:51.50853;-0.12574
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20260524T121000Z
+SUMMARY:Example Cars (TBC) - LHR T5 to Home
+LOCATION:LHR T5
+TRANSP:TRANSPARENT
+UID:item-000003ee-0000-9000-0003-0000000003ee@tripit.com
+DTSTART:20260524T104000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000002\n \n\n11:40 AM BST\n[Transportation] Example Cars (TBC
+ ) - LHR T5 to Home\nDepart LHR T5 \n1:10 PM BST\nArrive Home \n \n\n \nTri
+ pIt - organize your travel at https://www.tripit.com
+END:VEVENT
+END:VCALENDAR

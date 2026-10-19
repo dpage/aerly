@@ -34,7 +34,7 @@ type MappedTrip struct {
 // uploaded .ics is "upload".
 const importSource = "upload"
 
-// flightRe matches a TripIt flight SUMMARY, e.g. "AY832 LHR to HEL": an
+// flightRe matches a TripIt flight SUMMARY, e.g. "XX100 LHR to HEL": an
 // airline+number ident followed by an origin and destination IATA code. The
 // airline designator may contain a digit (easyJet "U2", Wizz "W6", Sichuan
 // "3U"), so the leading group allows alphanumerics, and the space between
@@ -43,7 +43,7 @@ const importSource = "upload"
 var flightRe = regexp.MustCompile(`^([A-Z0-9]{2,3}\s?[0-9]{1,4})\s+([A-Z]{3})\s+to\s+([A-Z]{3})$`)
 
 // transportRe matches a ground/rail SUMMARY, e.g.
-// "Bonny's Taxi - Home to Heathrow T3" → provider / from / to.
+// "Example Cars - Home to Heathrow T3" → provider / from / to.
 var transportRe = regexp.MustCompile(`^(.+?) - (.+) to (.+)$`)
 
 // phoneRe pulls an international phone number out of a lodging description,
@@ -51,7 +51,7 @@ var transportRe = regexp.MustCompile(`^(.+?) - (.+) to (.+)$`)
 var phoneRe = regexp.MustCompile(`\+[0-9][0-9 ()\-]{6,}[0-9]`)
 
 // tripItIDRe extracts the numeric TripIt trip id from a show URL, which appears
-// as "trip/show?id=175153005" (envelope) or "trip/show/id/175153005" (items).
+// as "trip/show?id=900000001" (envelope) or "trip/show/id/900000001" (items).
 var tripItIDRe = regexp.MustCompile(`trip/show(?:\?id=|/id/)(\d+)`)
 
 // tripItID returns the TripIt trip id mentioned in a description, or "".

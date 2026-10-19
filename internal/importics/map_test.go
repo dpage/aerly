@@ -8,7 +8,7 @@ import (
 )
 
 func TestDetectSource(t *testing.T) {
-	if src := Detect(parseFixture(t, "pgconfeu_2016.ics")); src != SourceTripIt {
+	if src := Detect(parseFixture(t, "tripit_conf_2016.ics")); src != SourceTripIt {
 		t.Errorf("Detect(TripIt fixture) = %q, want tripit", src)
 	}
 	// A standard calendar from some other producer isn't recognised, so Map
@@ -47,11 +47,11 @@ func plansByType(mt *MappedTrip) map[string][]planops.ConfirmPlanInput {
 	return m
 }
 
-func TestMapPGConfEU2016(t *testing.T) {
-	mt := mustMapTripIt(t, parseFixture(t, "pgconfeu_2016.ics"))
+func TestMapConference2016(t *testing.T) {
+	mt := mustMapTripIt(t, parseFixture(t, "tripit_conf_2016.ics"))
 
-	if mt.Name != "PGConf.EU 2016" {
-		t.Errorf("trip name = %q, want PGConf.EU 2016", mt.Name)
+	if mt.Name != "Test Conference 2016" {
+		t.Errorf("trip name = %q, want Test Conference 2016", mt.Name)
 	}
 	// Envelope DTSTART 20161030 / DTEND 20161107 (exclusive) → Oct 30–Nov 6.
 	if mt.StartsOn == nil || mt.StartsOn.Format("2006-01-02") != "2016-10-30" {
@@ -73,32 +73,32 @@ func TestMapPGConfEU2016(t *testing.T) {
 	}
 
 	// The outbound LHR→HEL leg: ident, IATA route, UTC schedule, terminal status.
-	var ay832 *planops.ConfirmPartInput
+	var xx100 *planops.ConfirmPartInput
 	for i := range by["flight"] {
 		p := by["flight"][i]
-		if p.Parts[0].Flight.Ident == "AY832" {
-			ay832 = &by["flight"][i].Parts[0]
+		if p.Parts[0].Flight.Ident == "XX100" {
+			xx100 = &by["flight"][i].Parts[0]
 		}
 	}
-	if ay832 == nil {
-		t.Fatal("AY832 flight not mapped")
+	if xx100 == nil {
+		t.Fatal("XX100 flight not mapped")
 	}
-	fd := ay832.Flight
+	fd := xx100.Flight
 	if fd.OriginIATA != "LHR" || fd.DestIATA != "HEL" {
-		t.Errorf("AY832 route = %s→%s, want LHR→HEL", fd.OriginIATA, fd.DestIATA)
+		t.Errorf("XX100 route = %s→%s, want LHR→HEL", fd.OriginIATA, fd.DestIATA)
 	}
 	if fd.FlightStatus != "Arrived" {
-		t.Errorf("AY832 status = %q, want Arrived (so the poller skips it)", fd.FlightStatus)
+		t.Errorf("XX100 status = %q, want Arrived (so the poller skips it)", fd.FlightStatus)
 	}
 	if fd.ScheduledOut.Format("2006-01-02T15:04:05Z") != "2016-10-30T10:20:00Z" {
-		t.Errorf("AY832 scheduled_out = %v, want 2016-10-30T10:20:00Z", fd.ScheduledOut)
+		t.Errorf("XX100 scheduled_out = %v, want 2016-10-30T10:20:00Z", fd.ScheduledOut)
 	}
 	// LHR is in the embedded IATA table, so the origin gets coords + a zone.
-	if ay832.StartTZ != "Europe/London" {
-		t.Errorf("AY832 start tz = %q, want Europe/London", ay832.StartTZ)
+	if xx100.StartTZ != "Europe/London" {
+		t.Errorf("XX100 start tz = %q, want Europe/London", xx100.StartTZ)
 	}
-	if ay832.StartLat == nil || ay832.StartLon == nil {
-		t.Error("AY832 should have origin coordinates for the great-circle arc")
+	if xx100.StartLat == nil || xx100.StartLon == nil {
+		t.Error("XX100 should have origin coordinates for the great-circle arc")
 	}
 
 	// The hotel stay pairs into one plan spanning check-in → check-out.
@@ -109,13 +109,13 @@ func TestMapPGConfEU2016(t *testing.T) {
 	if h.EndsAt == nil || h.EndsAt.Format("2006-01-02") != "2016-11-06" {
 		t.Errorf("hotel check-out = %v, want 2016-11-06", h.EndsAt)
 	}
-	if h.Hotel == nil || h.Hotel.PropertyName != "Radisson Blu Hotel Olumpia, Tallinn" {
+	if h.Hotel == nil || h.Hotel.PropertyName != "Test Hotel Tallinn" {
 		t.Errorf("hotel name = %+v", h.Hotel)
 	}
 }
 
 func TestMapCalaisEurotunnelAsTrain(t *testing.T) {
-	mt := mustMapTripIt(t, parseFixture(t, "calais_2025.ics"))
+	mt := mustMapTripIt(t, parseFixture(t, "tripit_ferry_2025.ics"))
 	by := plansByType(mt)
 
 	// Both Eurotunnel crossings are lifted to "train"; there are no taxis here.
@@ -174,7 +174,7 @@ func TestMapRailTagged(t *testing.T) {
 // is the other leg's arrival. Folkestone ≈ (51.08169, 1.16734), Calais ≈
 // (50.95194, 1.85635).
 func TestMapTransferEndpointsAreDistinct(t *testing.T) {
-	mt := mustMapTripIt(t, parseFixture(t, "calais_2025.ics"))
+	mt := mustMapTripIt(t, parseFixture(t, "tripit_ferry_2025.ics"))
 
 	const folkLat, folkLon = 51.08169, 1.16734
 	const calaisLat, calaisLon = 50.95194, 1.85635
@@ -304,11 +304,11 @@ func TestTripNameEmptyWhenNoCalendarName(t *testing.T) {
 }
 
 func TestMapTripProvenance(t *testing.T) {
-	mt := mustMapTripIt(t, parseFixture(t, "pgconfeu_2016.ics"))
+	mt := mustMapTripIt(t, parseFixture(t, "tripit_conf_2016.ics"))
 	// The TripIt trip id is lifted from the envelope's show URL, for re-import
 	// trip dedupe.
-	if mt.TripItID != "175153005" {
-		t.Errorf("TripItID = %q, want 175153005", mt.TripItID)
+	if mt.TripItID != "900000001" {
+		t.Errorf("TripItID = %q, want 900000001", mt.TripItID)
 	}
 	// Every imported plan carries its source event UID, for per-plan dedupe.
 	for _, p := range mt.Plans {
@@ -319,7 +319,7 @@ func TestMapTripProvenance(t *testing.T) {
 }
 
 func TestMapSourceAlwaysUpload(t *testing.T) {
-	mt := mustMapTripIt(t, parseFixture(t, "pgconfdev_2026.ics"))
+	mt := mustMapTripIt(t, parseFixture(t, "tripit_conf_2026.ics"))
 	if len(mt.Plans) == 0 {
 		t.Fatal("expected plans")
 	}
@@ -331,11 +331,11 @@ func TestMapSourceAlwaysUpload(t *testing.T) {
 }
 
 // TestMapFlightIdentSpacing is the issue #118 regression for the TripIt-shaped
-// import: a SUMMARY written "AY 832 LHR to HEL" is the same flight as
-// "AY832 LHR to HEL", and both are stored under the unspaced ident.
+// import: a SUMMARY written "XX 100 LHR to HEL" is the same flight as
+// "XX100 LHR to HEL", and both are stored under the unspaced ident.
 func TestMapFlightIdentSpacing(t *testing.T) {
 	out := time.Date(2026, 10, 30, 10, 20, 0, 0, time.UTC)
-	for _, summary := range []string{"AY832 LHR to HEL", "AY 832 LHR to HEL"} {
+	for _, summary := range []string{"XX100 LHR to HEL", "XX 100 LHR to HEL"} {
 		t.Run(summary, func(t *testing.T) {
 			e := Event{
 				UID:     "item-1@tripit.com",
@@ -351,8 +351,8 @@ func TestMapFlightIdentSpacing(t *testing.T) {
 				t.Fatalf("mapFlight(%q) did not map", summary)
 			}
 			fd := plan.Parts[0].Flight
-			if fd.Ident != "AY832" {
-				t.Errorf("ident = %q, want AY832", fd.Ident)
+			if fd.Ident != "XX100" {
+				t.Errorf("ident = %q, want XX100", fd.Ident)
 			}
 			if fd.OriginIATA != "LHR" || fd.DestIATA != "HEL" {
 				t.Errorf("route = %s→%s, want LHR→HEL", fd.OriginIATA, fd.DestIATA)
