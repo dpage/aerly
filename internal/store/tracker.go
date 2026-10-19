@@ -513,7 +513,7 @@ func (s *Store) RefreshFlightPartArrival(ctx context.Context, partID int64, esti
 
 // RefreshFlightPartSchedule overwrites the scheduled departure/arrival from the
 // resolver whilst the flight is still unconfirmed (resolved = false), and moves
-// the part's own starts_at/ends_at with it in the same transaction. An
+// the part's own starts_at/ends_at with it in the same statement. An
 // unconfirmed schedule is provisional (extracted from an email, or hand-typed)
 // and the provider is authoritative, so we correct it, including a complete
 // schedule that turned out to differ from the published one. Once a flight is
@@ -527,31 +527,24 @@ func (s *Store) RefreshFlightPartArrival(ctx context.Context, partID int64, esti
 // ScheduledIn.After(ScheduledOut) first, so it never writes a degenerate
 // schedule. The plan-part edit path uses SyncFlightDetailSchedule instead.
 func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out, in time.Time) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // best-effort rollback on early return
-	tag, err := tx.Exec(ctx, `
-		UPDATE flight_details SET scheduled_out = $2, scheduled_in = $3
-		WHERE plan_part_id = $1 AND resolved = false`, partID, out, in)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return nil
-	}
-	if _, err := tx.Exec(ctx, `
+	// One statement rather than a transaction: the poller calls this on every
+	// tick, and for a confirmed flight the guard matches nothing, so a
+	// transaction would end in a ROLLBACK each time and swamp the database's
+	// rollback rate.
+	_, err := s.pool.Exec(ctx, `
+		WITH fd AS (
+			UPDATE flight_details SET scheduled_out = $2, scheduled_in = $3
+			WHERE plan_part_id = $1 AND resolved = false
+			RETURNING plan_part_id
+		)
 		UPDATE plan_parts SET
 			starts_at = $2,
 			ends_at   = $3,
 			start_tz_source = CASE WHEN start_tz = '' THEN 'unknown' ELSE start_tz_source END,
 			end_tz_source   = CASE WHEN end_tz = '' THEN 'unknown' ELSE end_tz_source END,
 			updated_at = NOW()
-		WHERE id = $1`, partID, out, in); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		WHERE id IN (SELECT plan_part_id FROM fd)`, partID, out, in)
+	return err
 }
 
 // SyncFlightDetailSchedule copies a traveller's edited times into an
