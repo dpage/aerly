@@ -78,7 +78,8 @@ func TestTripFeedsCRUDAndEvents(t *testing.T) {
 
 	// The parser names every event's source, so an empty one is refused
 	// rather than guessed, with or without a zone, as is a source that
-	// contradicts the zone, and floating, which a feed event never is. The refusal rolls back, keeping the prior set.
+	// contradicts the zone, and floating, which a feed event never is. The
+	// refusal rolls back, keeping the prior set.
 	for _, bad := range []TripFeedEvent{
 		{UID: "no-source", Summary: "Plain", StartsAt: start},
 		{UID: "zone-no-source", Summary: "Zoned", StartsAt: start, StartTZ: "Europe/London"},

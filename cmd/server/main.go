@@ -200,12 +200,12 @@ func run(configPath string) error {
 	// zone-less ends the zone of their coordinates. It needs only the airport
 	// table and the offline zone lookup, so it is quick. In the background,
 	// addressed parts still missing coordinates are then geocoded (a network
-	// call per part, too slow to hold startup for), and the time zone pass runs
-	// again so newly filled coordinates can drive it: coordinates, then zones.
+	// call per part, too slow to hold startup for); geocode.PlanParts resolves
+	// the zones of the parts it places, so the time zone pass need not run
+	// again.
 	api.BackfillPartTimezones(context.Background())
 	go func() {
 		api.BackfillPartCoordinates(context.Background())
-		api.BackfillPartTimezones(context.Background())
 		api.BackfillTripCountries(context.Background())
 		// After coordinates exist, fill a destination (and flag) for trips that
 		// lack one — notably calendar imports, whose feeds carry no destination.
