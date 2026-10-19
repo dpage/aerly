@@ -79,7 +79,9 @@ func Label(code, providerName string) string {
 // airport: it is the bare code ("LHR"), the code is in brackets ("Sal (SID)"),
 // the label says "airport" or "terminal", or it carries a terminal number
 // ("LHR T5"). Real codes spell ordinary words (THE, INN, BUS, VAN), so a token
-// alone is not enough: "Hotel near LHR" names no airport.
+// alone is not enough: "Hotel near LHR" names no airport. A label naming a
+// hotel or saying "near" never yields a code, since the place is not the
+// airport itself.
 func CodeIn(label string) string {
 	label = strings.TrimSpace(label)
 	toks := strings.FieldsFunc(label, func(r rune) bool {
@@ -90,6 +92,9 @@ func CodeIn(label string) string {
 	for _, tok := range toks {
 		if isTerminalNumber(tok) {
 			airporty = true
+		}
+		if notAirport[strings.ToLower(tok)] && tok != label {
+			return ""
 		}
 	}
 	for _, tok := range toks {
@@ -104,6 +109,13 @@ func CodeIn(label string) string {
 		}
 	}
 	return ""
+}
+
+// notAirport holds words that put a label somewhere other than the airport it
+// mentions: "Airport Hotel near LHR" is a hotel, not Heathrow.
+var notAirport = map[string]bool{
+	"hotel": true, "hotels": true, "inn": true, "motel": true, "hostel": true,
+	"lodge": true, "resort": true, "suites": true, "near": true, "nr": true,
 }
 
 // isTerminalNumber reports whether a token is a terminal number such as "T5"
