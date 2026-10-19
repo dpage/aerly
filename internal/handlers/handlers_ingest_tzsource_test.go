@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/planops"
 )
 
@@ -41,4 +42,72 @@ func TestICalProposalsZoneSources(t *testing.T) {
 	if p.StartTZSource != "unknown" || p.EndTZSource != "unknown" {
 		t.Errorf("sources = %q/%q, want unknown/unknown", p.StartTZSource, p.EndTZSource)
 	}
+}
+
+// icalPart previews an .ics through icalProposals and returns the first part
+// of the plan with the given title.
+func icalPart(t *testing.T, ics, title string) api.PlanPartDTO {
+	t.Helper()
+	out, ok := icalProposals([]byte(ics))
+	if !ok {
+		t.Fatal("icalProposals did not recognise the calendar")
+	}
+	for _, p := range out.Proposals {
+		if p.Title == title {
+			return p.Parts[0]
+		}
+	}
+	t.Fatalf("no proposal titled %q in %+v", title, out.Proposals)
+	return api.PlanPartDTO{}
+}
+
+func checkPart(t *testing.T, what string, at time.Time, tz, src, wantAt, wantTZ, wantSrc string) {
+	t.Helper()
+	if g := at.UTC().Format(time.RFC3339); g != wantAt || tz != wantTZ || src != wantSrc {
+		t.Errorf("%s = %s %q/%q, want %s %q/%q", what, g, tz, src, wantAt, wantTZ, wantSrc)
+	}
+}
+
+// TestICalProposalsOutlookZones: Outlook's own export has no booking source,
+// so it is left for the LLM; the same Windows TZID and VTIMEZONE in a
+// recognised calendar reach the proposal as Europe/Berlin, confirmed, and an
+// unmapped TZID its VTIMEZONE settles keeps the instant with no zone.
+func TestICalProposalsOutlookZones(t *testing.T) {
+	outlook := readICS(t, "outlook_windows_tz.ics")
+	if _, ok := icalProposals([]byte(outlook)); ok {
+		t.Fatal("an Outlook export should not be recognised as a booking source")
+	}
+	view := `\n\nView trip: https://www.kayak.com/trips/!TESTOUT?ref=calendar`
+	ics := strings.Replace(outlook, "END:VCALENDAR",
+		"BEGIN:VEVENT\nUID:din-1@kayak.com\nSUMMARY:Test Bistro\n"+
+			`DTSTART;TZID="W. Europe Standard Time":20260701T190000`+"\n"+
+			`DTEND;TZID="W. Europe Standard Time":20260701T210000`+"\n"+
+			"DESCRIPTION:Restaurant Name: Test Bistro"+view+"\nEND:VEVENT\n"+
+			"BEGIN:VEVENT\nUID:din-2@kayak.com\nSUMMARY:Test Cafe\n"+
+			"DTSTART;TZID=Example Zone:20260702T090000\nDTEND;TZID=Example Zone:20260702T100000\n"+
+			"DESCRIPTION:Restaurant Name: Test Cafe"+view+"\nEND:VEVENT\n"+
+			"BEGIN:VTIMEZONE\nTZID:Example Zone\nBEGIN:STANDARD\nDTSTART:19700101T000000\n"+
+			"TZOFFSETFROM:+0530\nTZOFFSETTO:+0530\nEND:STANDARD\nEND:VTIMEZONE\nEND:VCALENDAR", 1)
+
+	p := icalPart(t, ics, "Test Bistro")
+	checkPart(t, "Windows start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T17:00:00Z", "Europe/Berlin", "confirmed")
+	checkPart(t, "Windows end", *p.EndsAt, p.EndTZ, p.EndTZSource, "2026-07-01T19:00:00Z", "Europe/Berlin", "confirmed")
+	p = icalPart(t, ics, "Test Cafe")
+	checkPart(t, "VTIMEZONE start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-02T03:30:00Z", "", "unknown")
+}
+
+// TestICalProposalsCalendarZone: a floating time with no location of its own
+// is anchored in the calendar's X-WR-TIMEZONE as inferred, and without one
+// stays floating with its digits untouched.
+func TestICalProposalsCalendarZone(t *testing.T) {
+	ics := func(header string) string {
+		return "BEGIN:VCALENDAR\nPRODID:-//Test//Synthetic//EN\n" + header +
+			"BEGIN:VEVENT\nUID:item-1@tripit.com\nSUMMARY:Test Shuttle\nDESCRIPTION:[Ground Transportation]\n" +
+			"DTSTART:20261018T140000\nDTEND:20261018T150000\nEND:VEVENT\nEND:VCALENDAR\n"
+	}
+	p := icalPart(t, ics("X-WR-TIMEZONE:Asia/Tashkent\n"), "Test Shuttle")
+	checkPart(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-10-18T09:00:00Z", "Asia/Tashkent", "inferred")
+	checkPart(t, "end", *p.EndsAt, p.EndTZ, p.EndTZSource, "2026-10-18T10:00:00Z", "Asia/Tashkent", "inferred")
+	p = icalPart(t, ics(""), "Test Shuttle")
+	checkPart(t, "zoneless start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-10-18T14:00:00Z", "", "floating")
 }

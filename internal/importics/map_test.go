@@ -346,7 +346,7 @@ func TestMapFlightIdentSpacing(t *testing.T) {
 			if got := classify(e); got != "flight" {
 				t.Fatalf("classify(%q) = %q, want flight", summary, got)
 			}
-			plan, ok := mapFlight(e)
+			plan, ok := mapFlight(e, "")
 			if !ok {
 				t.Fatalf("mapFlight(%q) did not map", summary)
 			}

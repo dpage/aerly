@@ -454,7 +454,7 @@ func TestMapKayakFlightIdentSpacing(t *testing.T) {
 				Start:   DateTime{Time: out},
 				End:     DateTime{Time: out.Add(time.Hour)},
 			}
-			plan, ok := mapKayakFlight(e)
+			plan, ok := mapKayakFlight(e, "")
 			if !ok {
 				t.Fatalf("mapKayakFlight(%q) did not map", summary)
 			}
