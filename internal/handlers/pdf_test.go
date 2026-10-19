@@ -118,9 +118,9 @@ func TestRenderItineraryPDFSingleAddress(t *testing.T) {
 func TestRenderItineraryPDFHotelCheckOut(t *testing.T) {
 	in := mustTime(t, "2026-09-07T14:00:00Z")  // 15:00 BST check-in, Mon 7 Sep
 	out := mustTime(t, "2026-09-09T11:00:00Z") // 12:00 BST check-out, Wed 9 Sep
-	trip := &store.Trip{Name: "PGDay UK 2026"}
+	trip := &store.Trip{Name: "Test Conference 2026"}
 	plans := []api.PlanDTO{{
-		Type: "hotel", Title: "Radisson Blu", ConfirmationRef: "3BD48BMG",
+		Type: "hotel", Title: "Test Hotel", ConfirmationRef: "TEST01",
 		Parts: []api.PlanPartDTO{{
 			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London", Start: blk(in, "Europe/London"), End: blkp(out, "Europe/London"),
 		}},
@@ -128,8 +128,8 @@ func TestRenderItineraryPDFHotelCheckOut(t *testing.T) {
 	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
 
 	for _, want := range []string{
-		`Accommodation: Radisson Blu \(Check-in\)`,
-		`Accommodation: Radisson Blu \(Check-out\)`,
+		`Accommodation: Test Hotel \(Check-in\)`,
+		`Accommodation: Test Hotel \(Check-out\)`,
 		"Check-in: Mon 7 Sep, 15:00 UTC+1",
 		"Check-out: Wed 9 Sep, 12:00 UTC+1",
 		"Monday, 7 September 2026",
@@ -141,7 +141,7 @@ func TestRenderItineraryPDFHotelCheckOut(t *testing.T) {
 	}
 	// The confirmation belongs to the check-in row only, not duplicated onto the
 	// check-out reminder.
-	if got := strings.Count(s, "Confirmation: 3BD48BMG"); got != 1 {
+	if got := strings.Count(s, "Confirmation: TEST01"); got != 1 {
 		t.Errorf("confirmation should appear once (on check-in), got %d", got)
 	}
 }
