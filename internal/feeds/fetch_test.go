@@ -1,13 +1,16 @@
 package feeds
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/dpage/aerly/internal/importics"
+	"github.com/dpage/aerly/internal/store"
 	"github.com/dpage/aerly/internal/timing"
 )
 
@@ -293,5 +296,59 @@ func TestFetchRejectsNonICalendar(t *testing.T) {
 
 	if _, err := f.Fetch(context.Background(), srv.URL, "", "", ""); err != ErrNotICalendar {
 		t.Errorf("Fetch err = %v, want ErrNotICalendar", err)
+	}
+}
+
+// TestMapEventsOutlookFixture: an Outlook calendar feed's Windows TZID gives
+// Europe/Berlin, confirmed, and its TZID=Local event, with no zone to anchor
+// it, keeps its digits as UTC and is unknown, as feeds have no floating.
+func TestMapEventsOutlookFixture(t *testing.T) {
+	b, err := os.ReadFile("../importics/testdata/outlook_windows_tz.ics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cal, err := importics.Parse(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := mapEvents(cal.Events, cal.Timezone, "")
+	if len(out) != 2 {
+		t.Fatalf("got %d events, want 2", len(out))
+	}
+	cases := []struct {
+		got            store.TripFeedEvent
+		start, end, tz string
+		src            timing.Source
+	}{
+		{out[0], "2026-07-01T07:00:00Z", "2026-07-01T08:00:00Z", "Europe/Berlin", timing.Confirmed},
+		{out[1], "2026-07-02T09:00:00Z", "2026-07-02T09:30:00Z", "", timing.Unknown},
+	}
+	for _, c := range cases {
+		if s := c.got.StartsAt.UTC().Format(time.RFC3339); s != c.start || c.got.EndsAt == nil ||
+			c.got.EndsAt.UTC().Format(time.RFC3339) != c.end || c.got.StartTZ != c.tz || c.got.StartTZSource != string(c.src) {
+			t.Errorf("%s: %s-%v %q/%q, want %s-%s %q/%q", c.got.UID, s, c.got.EndsAt,
+				c.got.StartTZ, c.got.StartTZSource, c.start, c.end, c.tz, c.src)
+		}
+	}
+}
+
+// TestMapEventsAnchorsLikeTheMappers: a London DST-gap wall clock and a
+// floating end settle with timing.Anchor, the end in its start's TZID.
+func TestMapEventsAnchorsLikeTheMappers(t *testing.T) {
+	gap := time.Date(2026, 3, 29, 1, 30, 0, 0, time.UTC)
+	want := time.Date(2026, 3, 29, 1, 30, 0, 0, time.UTC) // the pre-gap offset (GMT)
+	out := mapEvents([]importics.Event{{UID: "g", Summary: "Test Event",
+		Start: importics.DateTime{Time: gap, HasTime: true, Floating: true}}}, "Europe/London", "")
+	if !out[0].StartsAt.Equal(want) || out[0].StartTZSource != string(timing.Inferred) {
+		t.Errorf("gap = %v %q, want %v inferred", out[0].StartsAt, out[0].StartTZSource, want)
+	}
+
+	paris, _ := time.LoadLocation("Europe/Paris")
+	wall := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	out = mapEvents([]importics.Event{{UID: "e", Summary: "Test Event",
+		Start: importics.DateTime{Time: time.Date(2026, 7, 1, 9, 0, 0, 0, paris), HasTime: true, TZID: "Europe/Paris"},
+		End:   importics.DateTime{Time: wall, HasTime: true, Floating: true}}}, "America/Vancouver", "")
+	if out[0].EndsAt == nil || !out[0].EndsAt.Equal(time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)) {
+		t.Errorf("end = %v, want 08:00Z (10:00 in Paris)", out[0].EndsAt)
 	}
 }

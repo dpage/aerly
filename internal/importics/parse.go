@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Calendar is the parsed contents of one .ics file.
@@ -26,8 +28,8 @@ type Calendar struct {
 	// X-WR-CAL* headers do.
 	ProdID string
 	// Name / Desc are the X-WR-CALNAME / X-WR-CALDESC headers. TripIt puts the
-	// trip name here, e.g. Name="Dave Page (TripIt - PGConf.EU 2016)" and
-	// Desc="PGConf.EU 2016 (Trip Shared by Dave Page)".
+	// trip name here, e.g. Name="Test Traveller (TripIt - Test Conference 2016)" and
+	// Desc="Test Conference 2016 (Trip Shared by Test Traveller)".
 	Name string
 	Desc string
 	// Timezone is the X-WR-TIMEZONE header: the calendar's default IANA zone
@@ -35,6 +37,9 @@ type Calendar struct {
 	// in UTC and rely on this to render them in the event's local zone.
 	Timezone string
 	Events   []Event
+	// Zones holds the calendar's VTIMEZONE definitions, keyed by their raw
+	// TZID. Nil when the calendar has none.
+	Zones map[string]*VTimezone
 }
 
 // Event is one VEVENT. The strongly-typed fields cover the properties the
@@ -61,12 +66,25 @@ type LatLon struct {
 // a UTC instant ("…Z"), a floating/local time (optionally with a TZID param),
 // and a date-only value (VALUE=DATE). Raw preserves the original token.
 type DateTime struct {
-	Raw      string
-	TZID     string
-	Time     time.Time // best-effort; zero if unparseable
-	HasTime  bool      // false for date-only values
-	IsUTC    bool      // the value carried a trailing Z
-	Floating bool      // wall-clock time with no zone applied (no TZID/Z, or an unresolvable TZID)
+	Raw string
+	// TZID is the IANA zone name for the TZID param: the param itself when it
+	// is an IANA name, or the IANA zone a Windows name maps to. Empty when
+	// there was no TZID, it was "Local", or it named no zone we know.
+	TZID string
+	// RawTZID is the TZID param as the file gave it, with quotes and
+	// surrounding spaces trimmed.
+	RawTZID string
+	Time    time.Time // best-effort; zero if unparseable
+	HasTime bool      // false for date-only values
+	IsUTC   bool      // the value carried a trailing Z
+	// Floating means Time holds wall-clock digits with no instant yet: no TZID
+	// or Z, TZID=Local, or a TZID we could not resolve.
+	Floating bool
+	// UnknownTZID means a TZID was present but is neither an IANA name nor a
+	// mappable Windows name. When the calendar's own VTIMEZONE for it can
+	// give the offset, Time is settled to the true instant and Floating is
+	// cleared, but UnknownTZID stays set: the zone still has no IANA name.
+	UnknownTZID bool
 }
 
 // Property is a single iCalendar content line: NAME;PARAM=v;…:VALUE.
@@ -87,6 +105,7 @@ func Parse(r io.Reader) (*Calendar, error) {
 	}
 	cal := &Calendar{}
 	var cur *Event
+	var zone *zoneBuilder
 	for _, ln := range lines {
 		if ln == "" {
 			continue
@@ -96,10 +115,30 @@ func Parse(r io.Reader) (*Calendar, error) {
 			continue
 		}
 		name := strings.ToUpper(p.Name)
+		if zone != nil && endsUnterminatedZone(name, p.Value) {
+			// A VTIMEZONE missing its END must not swallow what follows:
+			// drop it as incomplete and read this line normally.
+			zone = nil
+		}
+		if zone != nil {
+			if z, done := zone.add(name, p); done {
+				if z != nil {
+					if cal.Zones == nil {
+						cal.Zones = map[string]*VTimezone{}
+					}
+					cal.Zones[z.TZID] = z
+				}
+				zone = nil
+			}
+			continue
+		}
 		switch name {
 		case "BEGIN":
-			if strings.EqualFold(p.Value, "VEVENT") {
+			switch {
+			case strings.EqualFold(p.Value, "VEVENT"):
 				cur = &Event{}
+			case strings.EqualFold(p.Value, "VTIMEZONE"):
+				zone = &zoneBuilder{}
 			}
 			continue
 		case "END":
@@ -126,6 +165,10 @@ func Parse(r io.Reader) (*Calendar, error) {
 		case "X-WR-TIMEZONE":
 			if cur == nil {
 				cal.Timezone = strings.TrimSpace(p.Value)
+				// A Windows zone name here maps to its IANA zone like a TZID.
+				if tz, known := resolveTZID(cal.Timezone); known && tz != "" {
+					cal.Timezone = tz
+				}
 			}
 			continue
 		}
@@ -154,7 +197,63 @@ func Parse(r io.Reader) (*Calendar, error) {
 		// Unterminated VEVENT — keep what we have rather than dropping it.
 		cal.Events = append(cal.Events, *cur)
 	}
+	// A VTIMEZONE may come after the events that use it, so unknown TZIDs
+	// are settled against the calendar's own definitions only now.
+	for i := range cal.Events {
+		settleByVTimezone(&cal.Events[i].Start, cal.Zones)
+		settleByVTimezone(&cal.Events[i].End, cal.Zones)
+	}
 	return cal, nil
+}
+
+// endsUnterminatedZone reports a line that cannot belong inside a VTIMEZONE,
+// so one still open there was never closed.
+func endsUnterminatedZone(name, value string) bool {
+	return (name == "BEGIN" && strings.EqualFold(value, "VEVENT")) ||
+		(name == "END" && strings.EqualFold(value, "VCALENDAR"))
+}
+
+// settleByVTimezone turns a floating time with an unknown TZID into a true
+// instant when the calendar defines that TZID and its offsets answer for the
+// wall clock. TZID stays empty and UnknownTZID set, as no IANA name is known.
+func settleByVTimezone(dt *DateTime, zones map[string]*VTimezone) {
+	if !dt.UnknownTZID || !dt.Floating || !dt.HasTime || dt.Time.IsZero() {
+		return
+	}
+	z := zones[dt.RawTZID]
+	if z == nil {
+		return
+	}
+	off, ok := z.Offset(dt.Time)
+	if !ok {
+		return
+	}
+	dt.Time = dt.Time.Add(-off)
+	dt.Floating = false
+}
+
+// WindowsToIANA maps a Windows time zone name, as Outlook and Exchange write
+// in a TZID (e.g. "W. Europe Standard Time"), to CLDR's default IANA zone for
+// it. The table is generated by cmd/gen-windows-zones.
+func WindowsToIANA(name string) (string, bool) {
+	tz, ok := windowsZones[name]
+	return tz, ok
+}
+
+// resolveTZID turns a raw TZID param into an IANA zone name. known is false
+// only for a TZID that is present but names no zone we can identify; an
+// absent TZID or "Local" gives "", true.
+func resolveTZID(raw string) (tz string, known bool) {
+	switch {
+	case raw == "" || strings.EqualFold(raw, "Local"):
+		return "", true
+	case timing.ValidZone(raw):
+		return raw, true
+	}
+	if tz, ok := WindowsToIANA(raw); ok && timing.ValidZone(tz) {
+		return tz, true
+	}
+	return "", false
 }
 
 // unfold reads the stream and undoes RFC 5545 line folding: a CRLF (or LF)
@@ -214,10 +313,14 @@ func parseLine(line string) (Property, bool) {
 
 // parseDateTime interprets a DTSTART/DTEND property into a DateTime. Supported
 // value forms: 20060102T150405Z (UTC), 20060102T150405 (floating or, with a
-// TZID param, zone-local), and 20060102 (date only, VALUE=DATE).
+// TZID param, zone-local), and 20060102 (date only, VALUE=DATE). A TZID is
+// resolved as an IANA name first, then as a Windows name; "Local" counts as
+// no TZID, and anything else leaves the time floating and flagged unknown.
 func parseDateTime(p Property) DateTime {
 	v := strings.TrimSpace(p.Value)
-	dt := DateTime{Raw: v, TZID: p.Params["TZID"]}
+	raw := strings.TrimSpace(p.Params["TZID"])
+	tz, known := resolveTZID(raw)
+	dt := DateTime{Raw: v, TZID: tz, RawTZID: raw, UnknownTZID: !known}
 	if strings.EqualFold(p.Params["VALUE"], "DATE") || len(v) == 8 {
 		if t, err := time.Parse("20060102", v); err == nil {
 			dt.Time = t
@@ -232,22 +335,18 @@ func parseDateTime(p Property) DateTime {
 		}
 		return dt
 	}
-	// Zoned local time: resolve against the TZID when we can load it.
-	if dt.TZID != "" {
-		if loc, err := time.LoadLocation(dt.TZID); err == nil {
-			if t, err := time.ParseInLocation("20060102T150405", v, loc); err == nil {
-				dt.Time = t
-				return dt
-			}
+	// Zoned local time: resolveTZID only returns names that load.
+	if tz != "" {
+		loc, _ := time.LoadLocation(tz)
+		if t, err := time.ParseInLocation("20060102T150405", v, loc); err == nil {
+			dt.Time = t
+			return dt
 		}
-		// TZID present but unresolvable (e.g. a non-IANA name like
-		// "Pacific Time"): fall through to a floating parse rather than
-		// pretend the zone was applied. dt.TZID is kept for best-effort
-		// mapping later.
 	}
-	// Floating local time — either no TZID, or one we couldn't load. The wall
-	// clock is parsed naively and flagged Floating so callers know no zone was
-	// applied and must not treat dt.Time as an absolute instant.
+	// Floating local time: no TZID, TZID=Local, an unknown TZID, or digits
+	// that would not parse. The wall clock is parsed naively and flagged
+	// Floating so callers know no zone was applied and must not treat
+	// dt.Time as an absolute instant.
 	dt.Floating = true
 	if t, err := time.Parse("20060102T150405", v); err == nil {
 		dt.Time = t

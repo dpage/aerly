@@ -28,7 +28,7 @@ func TestIngestICalPropose(t *testing.T) {
 	owner := e.user(t, "owner", false)
 	tid := newTrip(t, e, owner, "Trip")
 
-	body := map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}
+	body := map[string]any{"text": readICS(t, "tripit_conf_2016.ics")}
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/ingest", tid), body, owner)
 	if w.Code != http.StatusOK {
 		t.Fatalf("ical propose = %d: %s", w.Code, w.Body.String())
@@ -42,7 +42,7 @@ func TestIngestICalPropose(t *testing.T) {
 		byType[p.Type]++
 		switch p.Type {
 		case "flight":
-			if p.Parts[0].Flight != nil && p.Parts[0].Flight.Ident == "AY832" {
+			if p.Parts[0].Flight != nil && p.Parts[0].Flight.Ident == "XX100" {
 				aFlight = &res.Proposals[i].Parts[0]
 			}
 		case "hotel":
@@ -54,20 +54,20 @@ func TestIngestICalPropose(t *testing.T) {
 	}
 
 	if aFlight == nil || aFlight.Flight == nil {
-		t.Fatal("AY832 flight proposal missing")
+		t.Fatal("XX100 flight proposal missing")
 	}
 	fd := aFlight.Flight
 	if fd.OriginIATA != "LHR" || fd.DestIATA != "HEL" {
-		t.Errorf("AY832 route = %s→%s", fd.OriginIATA, fd.DestIATA)
+		t.Errorf("XX100 route = %s→%s", fd.OriginIATA, fd.DestIATA)
 	}
 	if fd.FlightStatus != "Arrived" {
-		t.Errorf("AY832 flight_status = %q, want Arrived", fd.FlightStatus)
+		t.Errorf("XX100 flight_status = %q, want Arrived", fd.FlightStatus)
 	}
 	if fd.ScheduledOut.Format("2006-01-02T15:04:05Z") != "2016-10-30T10:20:00Z" {
-		t.Errorf("AY832 scheduled_out = %v", fd.ScheduledOut)
+		t.Errorf("XX100 scheduled_out = %v", fd.ScheduledOut)
 	}
 	if aFlight.StartTZ != "Europe/London" {
-		t.Errorf("AY832 start_tz = %q, want Europe/London", aFlight.StartTZ)
+		t.Errorf("XX100 start_tz = %q, want Europe/London", aFlight.StartTZ)
 	}
 
 	if aHotel == nil || aHotel.Hotel == nil {
@@ -88,7 +88,7 @@ func TestIngestICalConfirmKeepsArrived(t *testing.T) {
 	tid := newTrip(t, e, owner, "Trip")
 
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/ingest", tid),
-		map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}, owner)
+		map[string]any{"text": readICS(t, "tripit_conf_2016.ics")}, owner)
 	if w.Code != http.StatusOK {
 		t.Fatalf("propose = %d: %s", w.Code, w.Body.String())
 	}

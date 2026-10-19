@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/planops"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // findTrip returns the mapped trip with the given name, or fails.
@@ -454,7 +455,7 @@ func TestMapKayakFlightIdentSpacing(t *testing.T) {
 				Start:   DateTime{Time: out},
 				End:     DateTime{Time: out.Add(time.Hour)},
 			}
-			plan, ok := mapKayakFlight(e)
+			plan, ok := mapKayakFlight(e, "")
 			if !ok {
 				t.Fatalf("mapKayakFlight(%q) did not map", summary)
 			}
@@ -467,4 +468,27 @@ func TestMapKayakFlightIdentSpacing(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestKayakCarHireBlankReturnZone: a return with no zone of its own (floating
+// digits, no calendar zone) is not placed in the pickup's zone; it stays
+// floating with no zone.
+func TestKayakCarHireBlankReturnZone(t *testing.T) {
+	pickup := strings.Replace(carVEvent("hire-z@example.test", "Car Pickup (Agency: Testcar Hire)",
+		"20260301T090000", "20260301T093000", `Confirmation Number: TEST222`),
+		"DTSTART:20260301T090000", "DTSTART;TZID=Europe/Paris:20260301T090000", 1)
+	dropoff := carVEvent("hire-z-back@example.test", "Car Dropoff (Agency: Testcar Hire)",
+		"20260303T170000", "20260303T173000", `Confirmation Number: TEST222`)
+	plans := syntheticPlans(t, parseSynthetic(t, pickup, dropoff))
+	if len(plans) != 1 {
+		t.Fatalf("got %d plans, want 1", len(plans))
+	}
+	p := plans[0].Parts[0]
+	if p.StartTZ != "Europe/Paris" || p.StartTZSource != string(timing.Confirmed) {
+		t.Fatalf("start = %q %q, want Europe/Paris confirmed", p.StartTZ, p.StartTZSource)
+	}
+	if p.EndTZ != "" || p.EndTZSource != string(timing.Floating) {
+		t.Errorf("end = %q %q, want no zone, floating (not the start zone)", p.EndTZ, p.EndTZSource)
+	}
+	assertInstant(t, "EndsAt", p.EndsAt, "2026-03-03T17:00:00Z")
 }

@@ -98,17 +98,18 @@ func TestParseQuotedParamColon(t *testing.T) {
 	if len(cal.Events) != 1 {
 		t.Fatalf("got %d events, want 1", len(cal.Events))
 	}
-	if got := cal.Events[0].Start.TZID; got != "Some/Zone:With:Colons" {
-		t.Errorf("TZID = %q, want Some/Zone:With:Colons", got)
+	if got := cal.Events[0].Start.RawTZID; got != "Some/Zone:With:Colons" {
+		t.Errorf("RawTZID = %q, want Some/Zone:With:Colons", got)
 	}
 	if cal.Events[0].Start.Raw != "20170223T080000" {
 		t.Errorf("raw = %q, want 20170223T080000", cal.Events[0].Start.Raw)
 	}
-	// The TZID can't be loaded, so the time must be flagged Floating (not a
-	// resolved zoned instant) while keeping the original name for later mapping.
+	// The TZID can't be loaded, so the time must be flagged Floating and
+	// UnknownTZID (not a resolved zoned instant), with no IANA name, whilst
+	// RawTZID keeps the original name for later mapping.
 	st := cal.Events[0].Start
-	if !st.Floating || st.IsUTC {
-		t.Errorf("unresolvable TZID should be floating & non-UTC, got %+v", st)
+	if !st.Floating || !st.UnknownTZID || st.IsUTC || st.TZID != "" {
+		t.Errorf("unresolvable TZID should be floating, unknown & non-UTC, got %+v", st)
 	}
 }
 

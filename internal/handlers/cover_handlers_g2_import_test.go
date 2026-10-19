@@ -61,7 +61,7 @@ func TestImportCommitErrG2(t *testing.T) {
 	e := setup(t, nil, nil)
 	owner := e.user(t, "g2impcommit", false)
 	g1dropTable(t, e, "plan_parts")
-	body := map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}
+	body := map[string]any{"text": readICS(t, "tripit_conf_2016.ics")}
 	if w := e.req(t, "POST", "/api/trips/import", body, owner); w.Code != http.StatusBadGateway {
 		t.Errorf("commit err = %d, want 502; body=%s", w.Code, w.Body.String())
 	}
@@ -74,7 +74,7 @@ func TestImportTripDTOErrG2(t *testing.T) {
 	e := setup(t, nil, nil)
 	owner := e.user(t, "g2impdto", false)
 	g1dropTable(t, e, "trip_tags")
-	body := map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}
+	body := map[string]any{"text": readICS(t, "tripit_conf_2016.ics")}
 	if w := e.req(t, "POST", "/api/trips/import", body, owner); w.Code != http.StatusInternalServerError {
 		t.Errorf("tripDTO err = %d, want 500; body=%s", w.Code, w.Body.String())
 	}
@@ -93,7 +93,7 @@ func TestImportGeocodeDeriveAsyncG2(t *testing.T) {
 	e.api.GeoResolver = geoResolver(geo)
 	owner := e.user(t, "g2impgeo", false)
 
-	body := map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}
+	body := map[string]any{"text": readICS(t, "tripit_conf_2016.ics")}
 	w := e.req(t, "POST", "/api/trips/import", body, owner)
 	if w.Code != http.StatusOK {
 		t.Fatalf("import = %d: %s", w.Code, w.Body.String())
@@ -126,7 +126,7 @@ func TestImportPlanExistsErrG2(t *testing.T) {
 	// tripit_uid is matched by PlanExistsByTripItUID; dropping it makes that
 	// check error for the first TripIt plan (which carries a UID).
 	g1dropColumn(t, e, "plans", "tripit_uid")
-	body := map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}
+	body := map[string]any{"text": readICS(t, "tripit_conf_2016.ics")}
 	if w := e.req(t, "POST", "/api/trips/import", body, owner); w.Code != http.StatusBadGateway {
 		t.Errorf("PlanExists err = %d, want 502; body=%s", w.Code, w.Body.String())
 	}
@@ -142,7 +142,7 @@ func TestImportReuseTripByTripItIDErrG2(t *testing.T) {
 	// tripit_id is the column matched by TripByTripItID; dropping it makes the
 	// query error (not a clean NotFound) inside findOrCreateImportTrip.
 	g1dropColumn(t, e, "trips", "tripit_id")
-	body := map[string]any{"text": readICS(t, "pgconfeu_2016.ics")}
+	body := map[string]any{"text": readICS(t, "tripit_conf_2016.ics")}
 	if w := e.req(t, "POST", "/api/trips/import", body, owner); w.Code != http.StatusInternalServerError {
 		t.Errorf("TripByTripItID err = %d, want 500; body=%s", w.Code, w.Body.String())
 	}

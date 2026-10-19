@@ -34,7 +34,7 @@ type MappedTrip struct {
 // uploaded .ics is "upload".
 const importSource = "upload"
 
-// flightRe matches a TripIt flight SUMMARY, e.g. "AY832 LHR to HEL": an
+// flightRe matches a TripIt flight SUMMARY, e.g. "XX100 LHR to HEL": an
 // airline+number ident followed by an origin and destination IATA code. The
 // airline designator may contain a digit (easyJet "U2", Wizz "W6", Sichuan
 // "3U"), so the leading group allows alphanumerics, and the space between
@@ -43,7 +43,7 @@ const importSource = "upload"
 var flightRe = regexp.MustCompile(`^([A-Z0-9]{2,3}\s?[0-9]{1,4})\s+([A-Z]{3})\s+to\s+([A-Z]{3})$`)
 
 // transportRe matches a ground/rail SUMMARY, e.g.
-// "Bonny's Taxi - Home to Heathrow T3" → provider / from / to.
+// "Example Cars - Home to Heathrow T3" → provider / from / to.
 var transportRe = regexp.MustCompile(`^(.+?) - (.+) to (.+)$`)
 
 // phoneRe pulls an international phone number out of a lodging description,
@@ -51,7 +51,7 @@ var transportRe = regexp.MustCompile(`^(.+?) - (.+) to (.+)$`)
 var phoneRe = regexp.MustCompile(`\+[0-9][0-9 ()\-]{6,}[0-9]`)
 
 // tripItIDRe extracts the numeric TripIt trip id from a show URL, which appears
-// as "trip/show?id=175153005" (envelope) or "trip/show/id/175153005" (items).
+// as "trip/show?id=900000001" (envelope) or "trip/show/id/900000001" (items).
 var tripItIDRe = regexp.MustCompile(`trip/show(?:\?id=|/id/)(\d+)`)
 
 // tripItID returns the TripIt trip id mentioned in a description, or "".
@@ -87,18 +87,18 @@ func mapTripIt(cal *Calendar) *MappedTrip {
 		}
 		switch c := classify(e); c {
 		case "flight":
-			if p, ok := mapFlight(e); ok {
+			if p, ok := mapFlight(e, cal.Timezone); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "ground", "train":
-			if p, ok := mapTransport(e, c, placeGeo); ok {
+			if p, ok := mapTransport(e, c, placeGeo, cal.Timezone); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "hotel":
 			hotelEvents = append(hotelEvents, e)
 		}
 	}
-	mt.Plans = append(mt.Plans, mapHotels(hotelEvents)...)
+	mt.Plans = append(mt.Plans, mapHotels(hotelEvents, cal.Timezone)...)
 	// Name the trip for where it goes when the calendar carried no name of its
 	// own, so a nameless import isn't a generic "Imported trip" (#21).
 	if mt.Name == "" {
@@ -160,7 +160,7 @@ func isRail(summary string) bool {
 
 // mapFlight maps a TripIt flight event into a flight plan. ok is false when the
 // SUMMARY isn't a recognisable "<ident> <ORIG> to <DEST>" flight line.
-func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
+func mapFlight(e Event, calTZ string) (planops.ConfirmPlanInput, bool) {
 	m := flightRe.FindStringSubmatch(e.Summary)
 	if m == nil {
 		return planops.ConfirmPlanInput{}, false
@@ -212,7 +212,7 @@ func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
 			part.EndTZ = tz
 		}
 	}
-	settleFlightZones(&part, &e.Start, &e.End)
+	settleFlightZones(&part, &e.Start, &e.End, calTZ)
 
 	return planops.ConfirmPlanInput{
 		Type:      "flight",
@@ -228,7 +228,7 @@ func mapFlight(e Event) (planops.ConfirmPlanInput, bool) {
 // "train") comes from classify, which is the single arbiter of the type; this
 // function trusts it rather than re-sniffing the summary. placeGeo (built by
 // transferPlaceIndex) supplies the origin coordinate TripIt omits.
-func mapTransport(e Event, planType string, placeGeo map[string]LatLon) (planops.ConfirmPlanInput, bool) {
+func mapTransport(e Event, planType string, placeGeo map[string]LatLon, calTZ string) (planops.ConfirmPlanInput, bool) {
 	provider, from, to := e.Summary, "", ""
 	if m := transportRe.FindStringSubmatch(e.Summary); m != nil {
 		provider, from, to = m[1], m[2], m[3]
@@ -260,7 +260,7 @@ func mapTransport(e Event, planType string, placeGeo map[string]LatLon) (planops
 		// endpoints are what let the map draw the crow-flight leg.
 		applyTransferGeo(&part, lookupPlace(placeGeo, from), e.Geo)
 	}
-	settleZones(&part, &e.Start, &e.End)
+	settleZones(&part, &e.Start, &e.End, calTZ)
 
 	return planops.ConfirmPlanInput{
 		Type:      planType,
@@ -325,7 +325,7 @@ func applyTransferGeo(part *planops.ConfirmPartInput, startGeo, endGeo *LatLon) 
 // mapHotels pairs check-in and check-out events that share a property name into
 // a single hotel plan spanning the stay. An unpaired event still yields a plan
 // using whatever instant it carries.
-func mapHotels(events []Event) []planops.ConfirmPlanInput {
+func mapHotels(events []Event, calTZ string) []planops.ConfirmPlanInput {
 	type stay struct {
 		in, out *Event
 	}
@@ -376,7 +376,7 @@ func mapHotels(events []Event) []planops.ConfirmPlanInput {
 			geo = st.out.Geo
 		}
 		applyGeoTZ(&part, geo)
-		settleZones(&part, &anchor.Start, endDT)
+		settleZones(&part, &anchor.Start, endDT, calTZ)
 		out = append(out, planops.ConfirmPlanInput{
 			Type:      "hotel",
 			Title:     name,

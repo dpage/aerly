@@ -1,0 +1,128 @@
+BEGIN:VCALENDAR
+METHOD:PUBLISH
+X-WR-CALNAME:Test Traveller (TripIt - Test Conference 2016)
+X-WR-CALDESC:Test Conference 2016 (Trip Shared by Test Traveller)
+PRODID:-//John Papaioannou/NONSGML Bennu 0.1//EN
+VERSION:2.0
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+UID:00000000-0000-9000-0001-000000000001@tripit.com
+DTSTART;VALUE=DATE:20161030
+DTEND;VALUE=DATE:20161107
+SUMMARY:Test Conference 2016
+LOCATION:Tallinn\, Estonia
+GEO:59.43696;24.75353
+TRANSP:TRANSPARENT
+DESCRIPTION:Test Traveller is in Tallinn\, Estonia from Oct 30 to Nov 6\, 2
+ 016\nView and/or edit details in TripIt : https://www.tripit.com/trip/show
+ ?id=900000001\nTripIt - organize your travel at https://www.tripit.com\n
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20161030T082000Z
+SUMMARY:Example Cars - Home to Heathrow T3
+LOCATION:Home
+TRANSP:TRANSPARENT
+UID:item-00000001-0000-9000-0003-000000000001@tripit.com
+DTSTART:20161030T072000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000001\n \n\nSun\, Oct 30\n7:20 AM GMT\n[Ground Transportatio
+ n] Example Cars - Home to Heathrow T3\nDepart Home \n8:20 AM GMT\nArrive H
+ eathrow T3 \n \n\n \nTripIt - organize your travel at https://www.tripit.c
+ om
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20161030T131500Z
+SUMMARY:XX100 LHR to HEL
+LOCATION:London (LHR)
+UID:item-00000002-0000-9000-0003-000000000002@tripit.com
+DTSTART:20161030T102000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000001\n \n\n10:20 AM GMT\n[Flight] LHR to HEL\n \nExample Ai
+ r 100\, Terminal 3\, Gate \n \n3:15 PM EET\nArrive Helsinki (HEL)\nTermina
+ l 2\, Gate \, 1h\, 10m layover\n \n\n \nTripIt - organize your travel at h
+ ttps://www.tripit.com
+GEO:60.175556;24.934167
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20161030T150000Z
+SUMMARY:XX101 HEL to TLL
+LOCATION:Helsinki (HEL)
+UID:item-00000003-0000-9000-0003-000000000003@tripit.com
+DTSTART:20161030T142500Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000001\n \n\n4:25 PM EET\n[Flight] HEL to TLL\n \nExample Air
+  101\, Terminal 2\, Gate \n5:00 PM EET\nArrive Tallinn (TLL)\nTerminal \, 
+ Gate \n \n\n \nTripIt - organize your travel at https://www.tripit.com
+GEO:59.433889;24.728056
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20161030T160000Z
+SUMMARY:Check-in: Test Hotel Tallinn
+LOCATION:1 Example Street\, Tallinn 10118\, Estonia
+UID:item-00000004-0000-9000-0003-000000000004@tripit.com
+DTSTART:20161030T150000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000001\n \n\n5:00 PM EET\n[Lodging] Arrive Test Hotel Tallinn
+ \nCheck-In: 5:00pm\n1 Example Street\, Tallinn 10118\, Estonia\n+372 555 0
+ 100\n \n\n \nTripIt - organize your travel at https://www.tripit.com
+GEO:59.4302772;24.7577102
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20161106T110000Z
+SUMMARY:Check-out: Test Hotel Tallinn
+LOCATION:1 Example Street\, Tallinn 10118\, Estonia
+UID:item-00000005-0000-9000-0003-000000000005@tripit.com
+DTSTART:20161106T100000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000001\n \n\nSun\, Nov 6\n12:00 PM EET\n[Lodging] Depart Test
+  Hotel Tallinn\nCheck-Out: 12:00pm\n1 Example Street\, Tallinn 10118\, Est
+ onia\n+372 555 0100\n \n\n \nTripIt - organize your travel at https://www.
+ tripit.com
+GEO:59.4302772;24.7577102
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20161106T105000Z
+SUMMARY:XX102 TLL to HEL
+LOCATION:Tallinn (TLL)
+UID:item-00000006-0000-9000-0003-000000000006@tripit.com
+DTSTART:20161106T101500Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000001\n \n\n12:15 PM EET\n[Flight] TLL to HEL\n \nExample Ai
+ r 102\, Terminal \, Gate \n12:50 PM EET\nArrive Helsinki (HEL)\nTerminal 2
+ \, Gate \, 1h\, 10m layover\n \n\n \nTripIt - organize your travel at http
+ s://www.tripit.com
+GEO:60.175556;24.934167
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20161106T151000Z
+SUMMARY:XX103 HEL to LHR
+LOCATION:Helsinki (HEL)
+UID:item-00000007-0000-9000-0003-000000000007@tripit.com
+DTSTART:20161106T120000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000001\n \n\n2:00 PM EET\n[Flight] HEL to LHR\n \nExample Air
+  103\, Terminal 2\, Gate \n3:10 PM GMT\nArrive London (LHR)\nTerminal 3\, 
+ Gate \n \n\n \nTripIt - organize your travel at https://www.tripit.com
+GEO:51.5;-0.116667
+END:VEVENT
+BEGIN:VEVENT
+DTSTAMP:20260601T121536Z
+DTEND:20161106T163000Z
+SUMMARY:Example Cars - Heathrow T3 to Home
+LOCATION:Heathrow T3
+TRANSP:TRANSPARENT
+UID:item-00000008-0000-9000-0003-000000000008@tripit.com
+DTSTART:20161106T153000Z
+DESCRIPTION:View and/or edit details in TripIt : https://www.tripit.com/tri
+ p/show/id/900000001\n \n\n3:30 PM GMT\n[Ground Transportation] Example Car
+ s - Heathrow T3 to Home\nDepart Heathrow T3 \n4:30 PM GMT\nArrive Home \n 
+ \n\n \nTripIt - organize your travel at https://www.tripit.com
+END:VEVENT
+END:VCALENDAR

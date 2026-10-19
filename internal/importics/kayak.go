@@ -95,7 +95,7 @@ func mapKayak(cal *Calendar) []*MappedTrip {
 	trips := make([]*MappedTrip, 0, len(order))
 	for _, token := range order {
 		g := groups[token]
-		if mt := mapKayakTrip(token, g.envelope, g.events); mt != nil {
+		if mt := mapKayakTrip(token, g.envelope, g.events, cal.Timezone); mt != nil {
 			trips = append(trips, mt)
 		}
 	}
@@ -105,7 +105,7 @@ func mapKayak(cal *Calendar) []*MappedTrip {
 // mapKayakTrip maps one Kayak trip (its envelope plus its booking events) into a
 // MappedTrip. Returns nil for a group with neither an envelope nor any mappable
 // booking. The token is the trip's source id, used for re-import dedupe.
-func mapKayakTrip(token string, envelope *Event, events []Event) *MappedTrip {
+func mapKayakTrip(token string, envelope *Event, events []Event, calTZ string) *MappedTrip {
 	mt := &MappedTrip{TripItID: token}
 	if envelope != nil {
 		mt.Name = strings.TrimSpace(envelope.Summary)
@@ -117,35 +117,35 @@ func mapKayakTrip(token string, envelope *Event, events []Event) *MappedTrip {
 		e := events[i]
 		switch classifyKayak(e) {
 		case "flight":
-			if p, ok := mapKayakFlight(e); ok {
+			if p, ok := mapKayakFlight(e, calTZ); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "hotel":
 			hotelEvents = append(hotelEvents, e)
 		case "train":
-			if p, ok := mapKayakTransport(e, "train"); ok {
+			if p, ok := mapKayakTransport(e, "train", calTZ); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "ground":
-			if p, ok := mapKayakTransport(e, "ground"); ok {
+			if p, ok := mapKayakTransport(e, "ground", calTZ); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "car":
 			carEvents = append(carEvents, e)
 		case "dining":
-			if p, ok := mapKayakSimple(e, "dining"); ok {
+			if p, ok := mapKayakSimple(e, "dining", calTZ); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		case "excursion":
-			if p, ok := mapKayakSimple(e, "excursion"); ok {
+			if p, ok := mapKayakSimple(e, "excursion", calTZ); ok {
 				mt.Plans = append(mt.Plans, p)
 			}
 		}
 	}
 	// Lodging and vehicle hire are both ranged bookings Kayak writes as a pair
 	// of events, so they are mapped after the loop, once both edges are in hand.
-	mt.Plans = append(mt.Plans, mapKayakHotels(hotelEvents)...)
-	mt.Plans = append(mt.Plans, mapKayakCars(carEvents)...)
+	mt.Plans = append(mt.Plans, mapKayakHotels(hotelEvents, calTZ)...)
+	mt.Plans = append(mt.Plans, mapKayakCars(carEvents, calTZ)...)
 
 	if envelope == nil && len(mt.Plans) == 0 {
 		return nil
@@ -205,7 +205,7 @@ func classifyKayak(e Event) string {
 
 // mapKayakFlight maps a Kayak flight event into a flight plan, taking the ident
 // and IATA route from the SUMMARY and the schedule from the event's UTC instants.
-func mapKayakFlight(e Event) (planops.ConfirmPlanInput, bool) {
+func mapKayakFlight(e Event, calTZ string) (planops.ConfirmPlanInput, bool) {
 	m := kayakFlightRe.FindStringSubmatch(e.Summary)
 	if m == nil {
 		return planops.ConfirmPlanInput{}, false
@@ -244,7 +244,7 @@ func mapKayakFlight(e Event) (planops.ConfirmPlanInput, bool) {
 	if tz, ok := airports.LookupTZ(dest); ok {
 		part.EndTZ = tz
 	}
-	settleFlightZones(&part, &e.Start, &e.End)
+	settleFlightZones(&part, &e.Start, &e.End, calTZ)
 	fd.FlightStatus = kayakFlightStatus(fd.ScheduledIn)
 
 	return planops.ConfirmPlanInput{
@@ -270,7 +270,7 @@ func kayakFlightStatus(scheduledIn time.Time) string {
 // mapKayakTransport maps a Kayak rail or bus event into a train / ground plan.
 // The route comes from the DESCRIPTION's "Departing from … / Arriving at …"
 // lines and the provider from the SUMMARY ("Bus Slovak Lines 102806").
-func mapKayakTransport(e Event, planType string) (planops.ConfirmPlanInput, bool) {
+func mapKayakTransport(e Event, planType, calTZ string) (planops.ConfirmPlanInput, bool) {
 	from := kayakField(kayakDepartRe, e.Description)
 	to := kayakField(kayakArriveRe, e.Description)
 	out := e.Start.Time
@@ -291,7 +291,7 @@ func mapKayakTransport(e Event, planType string) (planops.ConfirmPlanInput, bool
 	} else {
 		part.Ground = &store.GroundDetail{Provider: provider}
 	}
-	settleZones(&part, &e.Start, &e.End)
+	settleZones(&part, &e.Start, &e.End, calTZ)
 
 	return planops.ConfirmPlanInput{
 		Type:            planType,
@@ -313,7 +313,7 @@ func mapKayakTransport(e Event, planType string) (planops.ConfirmPlanInput, bool
 // pickup is the anchor that carries both endpoints' addresses, the confirmation
 // number and the UID the re-import dedupe keys on, so a stray return event on
 // its own is not enough to build a plan from.
-func mapKayakCars(events []Event) []planops.ConfirmPlanInput {
+func mapKayakCars(events []Event, calTZ string) []planops.ConfirmPlanInput {
 	var pickups, dropoffs []*Event
 	for i := range events {
 		if strings.HasPrefix(events[i].Summary, "Car Dropoff") {
@@ -346,7 +346,7 @@ func mapKayakCars(events []Event) []planops.ConfirmPlanInput {
 
 	out := make([]planops.ConfirmPlanInput, 0, len(pickups))
 	for i, p := range pickups {
-		out = append(out, mapKayakCar(*p, matched[i]))
+		out = append(out, mapKayakCar(*p, matched[i], calTZ))
 	}
 	return out
 }
@@ -402,7 +402,7 @@ func kayakCarPairs(pickup, dropoff Event, withRef bool) bool {
 // the return. The pickup carries both branches' addresses and the hire company
 // goes on the plan's SupplierName, which is where the vehicle-hire design keeps
 // it (VehicleHireDetail has no provider field of its own).
-func mapKayakCar(e Event, dropoff *Event) planops.ConfirmPlanInput {
+func mapKayakCar(e Event, dropoff *Event, calTZ string) planops.ConfirmPlanInput {
 	agency := kayakField(kayakAgencyRe, e.Summary)
 	label := orDefault(agency, "Car hire")
 	pickupAddr := kayakField(kayakPickupAddrRe, e.Description)
@@ -435,7 +435,7 @@ func mapKayakCar(e Event, dropoff *Event) planops.ConfirmPlanInput {
 		end := e.End.Time
 		part.EndsAt = &end
 	}
-	settleZones(&part, &e.Start, endDT)
+	settleZones(&part, &e.Start, endDT, calTZ)
 
 	return planops.ConfirmPlanInput{
 		Type:            "vehicle_hire",
@@ -467,7 +467,7 @@ func kayakVehicleHire(desc string) *store.VehicleHireDetail {
 
 // mapKayakSimple maps a single-venue booking (a dining reservation or an
 // activity) into a dining / excursion plan anchored at one place.
-func mapKayakSimple(e Event, planType string) (planops.ConfirmPlanInput, bool) {
+func mapKayakSimple(e Event, planType, calTZ string) (planops.ConfirmPlanInput, bool) {
 	name := strings.TrimSpace(e.Summary)
 	out := e.Start.Time
 	in := e.End.Time
@@ -487,7 +487,7 @@ func mapKayakSimple(e Event, planType string) (planops.ConfirmPlanInput, bool) {
 		part.Excursion = &store.ExcursionDetail{}
 	}
 	applyGeoTZ(&part, e.Geo)
-	settleZones(&part, &e.Start, &e.End)
+	settleZones(&part, &e.Start, &e.End, calTZ)
 
 	return planops.ConfirmPlanInput{
 		Type:            planType,
@@ -503,7 +503,7 @@ func mapKayakSimple(e Event, planType string) (planops.ConfirmPlanInput, bool) {
 // property name into a single hotel plan spanning the stay (the check-in event's
 // DTSTART is arrival; the check-out event's DTSTART is departure). An unpaired
 // event still yields a plan from whatever instant it carries.
-func mapKayakHotels(events []Event) []planops.ConfirmPlanInput {
+func mapKayakHotels(events []Event, calTZ string) []planops.ConfirmPlanInput {
 	type stay struct{ in, out *Event }
 	stays := map[string]*stay{}
 	var order []string
@@ -550,7 +550,7 @@ func mapKayakHotels(events []Event) []planops.ConfirmPlanInput {
 			geo = st.out.Geo
 		}
 		applyGeoTZ(&part, geo)
-		settleZones(&part, &anchor.Start, endDT)
+		settleZones(&part, &anchor.Start, endDT, calTZ)
 		out = append(out, planops.ConfirmPlanInput{
 			Type:            "hotel",
 			Title:           name,

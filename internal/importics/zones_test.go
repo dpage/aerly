@@ -47,65 +47,65 @@ func checkEnd(t *testing.T, what string, gotAt time.Time, gotTZ, gotSrc string, 
 func TestSettleZones(t *testing.T) {
 	t.Run("part zone anchors a floating time", func(t *testing.T) {
 		p := planops.ConfirmPartInput{StartsAt: wall, StartTZ: "Europe/Paris"}
-		settleZones(&p, floatingDT(), nil)
+		settleZones(&p, floatingDT(), nil, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T13:00:00Z", "Europe/Paris", timing.Confirmed)
 	})
 	t.Run("part zone keeps a UTC instant", func(t *testing.T) {
 		p := planops.ConfirmPartInput{StartsAt: wall, StartTZ: "Europe/Paris"}
-		settleZones(&p, utcDT(), nil)
+		settleZones(&p, utcDT(), nil, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T15:00:00Z", "Europe/Paris", timing.Confirmed)
 	})
 	t.Run("invalid part zone is dropped", func(t *testing.T) {
 		p := planops.ConfirmPartInput{StartsAt: wall, StartTZ: "Not/AZone"}
-		settleZones(&p, floatingDT(), nil)
+		settleZones(&p, floatingDT(), nil, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T15:00:00Z", "", timing.Floating)
 	})
 	t.Run("valid TZID gives the zone", func(t *testing.T) {
 		dt := zonedDT(t, "America/New_York")
 		p := planops.ConfirmPartInput{StartsAt: dt.Time}
-		settleZones(&p, dt, nil)
+		settleZones(&p, dt, nil, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T19:00:00Z", "America/New_York", timing.Confirmed)
 	})
 	t.Run("floating with no zone stays floating", func(t *testing.T) {
 		p := planops.ConfirmPartInput{StartsAt: wall}
-		settleZones(&p, floatingDT(), nil)
+		settleZones(&p, floatingDT(), nil, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T15:00:00Z", "", timing.Floating)
 	})
 	t.Run("unresolvable TZID is floating", func(t *testing.T) {
 		dt := floatingDT()
 		dt.TZID = "Pacific Time"
 		p := planops.ConfirmPartInput{StartsAt: wall}
-		settleZones(&p, dt, nil)
+		settleZones(&p, dt, nil, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T15:00:00Z", "", timing.Floating)
 	})
 	t.Run("UTC with no zone is unknown", func(t *testing.T) {
 		p := planops.ConfirmPartInput{StartsAt: wall}
-		settleZones(&p, utcDT(), nil)
+		settleZones(&p, utcDT(), nil, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T15:00:00Z", "", timing.Unknown)
 	})
 	t.Run("date-only is floating with no zone", func(t *testing.T) {
 		day := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 		p := planops.ConfirmPartInput{StartsAt: day, StartTZ: "Europe/Paris"}
-		settleZones(&p, &DateTime{Raw: "20260701", Time: day}, nil)
+		settleZones(&p, &DateTime{Raw: "20260701", Time: day}, nil, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T00:00:00Z", "", timing.Floating)
 	})
 	t.Run("end settles from its own DateTime", func(t *testing.T) {
 		end := wall.Add(2 * time.Hour)
 		p := planops.ConfirmPartInput{StartsAt: wall, EndsAt: &end, EndTZ: "Europe/Paris"}
 		endDT := &DateTime{Raw: "20260701T170000", HasTime: true, Floating: true, Time: end}
-		settleZones(&p, utcDT(), endDT)
+		settleZones(&p, utcDT(), endDT, "")
 		checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T15:00:00Z", "", timing.Unknown)
 		checkEnd(t, "end", *p.EndsAt, p.EndTZ, p.EndTZSource, "2026-07-01T15:00:00Z", "Europe/Paris", timing.Confirmed)
 	})
 	t.Run("nil end takes the start's form", func(t *testing.T) {
 		end := wall.Add(2 * time.Hour)
 		p := planops.ConfirmPartInput{StartsAt: wall, EndsAt: &end}
-		settleZones(&p, floatingDT(), nil)
+		settleZones(&p, floatingDT(), nil, "")
 		checkEnd(t, "end", *p.EndsAt, p.EndTZ, p.EndTZSource, "2026-07-01T17:00:00Z", "", timing.Floating)
 	})
 	t.Run("no end leaves the end source for the store", func(t *testing.T) {
 		p := planops.ConfirmPartInput{StartsAt: wall}
-		settleZones(&p, floatingDT(), floatingDT())
+		settleZones(&p, floatingDT(), floatingDT(), "")
 		if p.EndsAt != nil || p.EndTZSource != "" {
 			t.Errorf("end = %v / %q, want nil / empty", p.EndsAt, p.EndTZSource)
 		}
@@ -272,4 +272,52 @@ func TestFloatingFlightScheduleFollowsAnchor(t *testing.T) {
 				p.Flight.ScheduledOut, p.Flight.ScheduledIn, p.StartsAt, *p.EndsAt)
 		}
 	}
+}
+
+// TestMappersUseCalendarZone: with no zone at its own location, a time takes
+// the calendar's X-WR-TIMEZONE as inferred, floating digits being anchored in
+// it; a location zone still wins and stays confirmed.
+func TestMappersUseCalendarZone(t *testing.T) {
+	tripIt := "BEGIN:VCALENDAR\nPRODID:-//Test//Synthetic//EN\nX-WR-TIMEZONE:Asia/Tashkent\n" +
+		tripItVEvent("item-p@tripit.com", "Test Shuttle", "[Ground Transportation]",
+			"20260702T120000", "20260702T130000Z", "") +
+		tripItVEvent("item-f@tripit.com", "XX100 LHR to CDG", "[Flight]",
+			"20260701T090000", "20260701T113000", "") +
+		"END:VCALENDAR\n"
+	cal, err := Parse(strings.NewReader(tripIt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byType := plansByType(mapTripIt(cal))
+	p := byType["ground"][0].Parts[0]
+	checkEnd(t, "floating start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-02T07:00:00Z", "Asia/Tashkent", timing.Inferred)
+	checkEnd(t, "UTC end", *p.EndsAt, p.EndTZ, p.EndTZSource, "2026-07-02T13:00:00Z", "Asia/Tashkent", timing.Inferred)
+	f := byType["flight"][0].Parts[0]
+	checkEnd(t, "flight start", f.StartsAt, f.StartTZ, f.StartTZSource, "2026-07-01T08:00:00Z", "Europe/London", timing.Confirmed)
+
+	kayak := parseSynthetic(t, "BEGIN:VEVENT\nUID:din@kayak.com\nDTSTART:20260701T190000\nDTEND:20260701T210000\n"+
+		"SUMMARY:Test Bistro\n"+`DESCRIPTION:Restaurant Name: Test Bistro\n\nView trip: https://www.kayak.com/trips/!TESTCAL?ref=calendar`+
+		"\nEND:VEVENT\n")
+	kayak.Timezone = "Asia/Tashkent"
+	d := syntheticPlans(t, kayak)[0].Parts[0]
+	checkEnd(t, "dining start", d.StartsAt, d.StartTZ, d.StartTZSource, "2026-07-01T14:00:00Z", "Asia/Tashkent", timing.Inferred)
+}
+
+// TestSettleZonesTZIDBeatsLocation: a time's own TZID outranks the zone found
+// at its location; the instant is the TZID's either way.
+func TestSettleZonesTZIDBeatsLocation(t *testing.T) {
+	dt := zonedDT(t, "America/New_York")
+	p := planops.ConfirmPartInput{StartsAt: dt.Time, StartTZ: "Europe/Paris"}
+	settleZones(&p, dt, nil, "Asia/Tashkent")
+	checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "2026-07-01T19:00:00Z", "America/New_York", timing.Confirmed)
+}
+
+// TestSettleZonesNoTime: a value with no usable time keeps no zone, by form.
+func TestSettleZonesNoTime(t *testing.T) {
+	end := time.Time{}
+	p := planops.ConfirmPartInput{StartTZ: "Europe/Paris", EndsAt: &end, EndTZ: "Europe/Paris"}
+	settleZones(&p, &DateTime{Raw: "garbage", HasTime: true, Floating: true},
+		&DateTime{Raw: "garbageZ", HasTime: true, IsUTC: true}, "")
+	checkEnd(t, "start", p.StartsAt, p.StartTZ, p.StartTZSource, "0001-01-01T00:00:00Z", "", timing.Floating)
+	checkEnd(t, "end", *p.EndsAt, p.EndTZ, p.EndTZSource, "0001-01-01T00:00:00Z", "", timing.Unknown)
 }

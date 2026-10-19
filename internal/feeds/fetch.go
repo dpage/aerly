@@ -196,29 +196,16 @@ func looksLikeICalendar(body []byte) bool {
 
 // mapEvents projects parsed VEVENTs into cached store events, dropping any with
 // no usable start instant (a feed we couldn't date can't be placed on a
-// timeline). The display zone for each event is the first of: its own TZID, the
-// calendar's X-WR-TIMEZONE (calTZ), or the user-set fallback (fallbackTZ). That
-// zone is also used to anchor floating wall-clock times to a real instant.
+// timeline). Each start is settled by importics.Resolve: its own TZID is
+// confirmed, while the calendar's X-WR-TIMEZONE (calTZ) and then the user-set
+// fallback (fallbackTZ) are inferred, and floating wall-clock times are
+// anchored in whichever applies. For a UTC-stamped feed with no zone info this
+// is what turns "all times in UTC" into the event's real local time.
 func mapEvents(in []importics.Event, calTZ, fallbackTZ string) []store.TripFeedEvent {
+	ctx := importics.Context{CalendarTZ: calTZ, FallbackTZ: fallbackTZ}
 	out := make([]store.TripFeedEvent, 0, len(in))
 	for _, e := range in {
-		// Display zone: the event's own TZID, else the calendar default, else the
-		// user-set fallback. For a UTC-stamped feed with no zone info this is what
-		// turns "all times in UTC" into the event's real local time.
-		// A TZID is the feed's own statement of the zone (confirmed); the
-		// calendar default and the user fallback are assumptions (inferred).
-		// A name that cannot be loaded is skipped, so an unusable TZID falls
-		// through to the next candidate rather than being stored.
-		zone, source := "", timing.Unknown
-		switch {
-		case timing.ValidZone(e.Start.TZID):
-			zone, source = e.Start.TZID, timing.Confirmed
-		case timing.ValidZone(calTZ):
-			zone, source = calTZ, timing.Inferred
-		case timing.ValidZone(fallbackTZ):
-			zone, source = fallbackTZ, timing.Inferred
-		}
-		start, ok := resolveInstant(e.Start, zone)
+		start, ok := importics.Resolve(e.Start, ctx)
 		if !ok {
 			continue
 		}
@@ -227,39 +214,29 @@ func mapEvents(in []importics.Event, calTZ, fallbackTZ string) []store.TripFeedE
 			Summary:     e.Summary,
 			Description: e.Description,
 			Location:    e.Location,
-			StartsAt:    start,
-			AllDay:      !e.Start.HasTime,
+			StartsAt:    start.At,
+			StartTZ:     start.TZ,
+			AllDay:      start.AllDay,
+			// Feed events have no floating source: an all-day event, or a
+			// floating time with no zone to anchor it, keeps its digits as
+			// UTC and is stored as unknown.
+			StartTZSource: string(start.Source),
 		}
-		// Date-only events have no time of day, so no zone applies.
-		ev.StartTZSource = string(timing.Unknown)
-		if !ev.AllDay {
-			ev.StartTZ = zone
-			ev.StartTZSource = string(source)
+		if start.Source == timing.Floating {
+			ev.StartTZSource = string(timing.Unknown)
 		}
-		if end, ok := resolveInstant(e.End, zone); ok {
-			ev.EndsAt = &end
+		// The end has no zone of its own on a feed event, so a floating end
+		// is anchored as its start would be, its start's TZID first.
+		endCtx := ctx
+		if timing.ValidZone(e.Start.TZID) {
+			endCtx.CalendarTZ = e.Start.TZID
+		}
+		if end, ok := importics.Resolve(e.End, endCtx); ok {
+			ev.EndsAt = &end.At
 		}
 		out = append(out, ev)
 	}
 	return out
-}
-
-// resolveInstant turns a parsed DTSTART/DTEND into a UTC instant. A UTC- or
-// TZID-anchored value already is an absolute instant. A *floating* value is a
-// wall-clock with no zone; when the calendar supplies a default zone we
-// reinterpret the wall-clock in it (so a 09:00 talk in America/Vancouver lands
-// at the right instant, not at 09:00 UTC). ok is false for an undated value.
-func resolveInstant(dt importics.DateTime, zone string) (time.Time, bool) {
-	if dt.Time.IsZero() {
-		return time.Time{}, false
-	}
-	if dt.Floating && zone != "" {
-		if loc, err := time.LoadLocation(zone); err == nil {
-			t := dt.Time // wall-clock, parsed naively as UTC by importics
-			return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, loc).UTC(), true
-		}
-	}
-	return dt.Time.UTC(), true
 }
 
 // parseFeedURL parses rawURL, upgrades the webcal scheme to https, and runs the

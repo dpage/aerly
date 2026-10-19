@@ -180,6 +180,8 @@ type CalendarEvent struct {
 	EndsAt          *time.Time
 	StartTZ         string
 	EndTZ           string
+	StartTZSource   string // timing.Source: what each zone, or its absence, means
+	EndTZSource     string
 	StartLabel      string
 	EndLabel        string
 	Status          string // planned|confirmed|cancelled
@@ -219,6 +221,7 @@ var calendarEventSelect = `
 	            ELSE COALESCE(NULLIF(pl.title, ''), fd.ident, pl.title) END,
 	       pl.confirmation_ref,
 	       pl.notes, part.starts_at, part.ends_at, part.start_tz, part.end_tz,
+	       part.start_tz_source, part.end_tz_source,
 	       part.start_label, part.end_label, part.status, part.updated_at,
 	       t.id, t.name, t.starts_on, t.ends_on
 	  FROM plan_parts part
@@ -235,7 +238,7 @@ func scanCalendarEvents(rows pgx.Rows) ([]*CalendarEvent, error) {
 		var e CalendarEvent
 		if err := rows.Scan(&e.PartID, &e.PlanID, &e.Type, &e.Title,
 			&e.ConfirmationRef, &e.Notes, &e.StartsAt, &e.EndsAt,
-			&e.StartTZ, &e.EndTZ, &e.StartLabel, &e.EndLabel,
+			&e.StartTZ, &e.EndTZ, &e.StartTZSource, &e.EndTZSource, &e.StartLabel, &e.EndLabel,
 			&e.Status, &e.UpdatedAt,
 			&e.TripID, &e.TripName, &e.TripStartsOn, &e.TripEndsOn); err != nil {
 			return nil, err
