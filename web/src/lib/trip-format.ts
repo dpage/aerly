@@ -598,16 +598,15 @@ export function zoneConfirmPatch(
   return patch;
 }
 
-/** How many live parts have a start or end whose zone is unknown or floating. */
-export function countPartsNeedingZone(plans: Plan[]): number {
-  let n = 0;
-  for (const plan of plans) {
-    for (const part of plan.parts) {
-      if (part.dismissed_at) continue;
-      if (needsZone(startBlockOf(part)) || needsZone(endBlockOf(part))) n++;
-    }
-  }
-  return n;
+/** How many plans have a live part with a start or end whose zone is unknown
+ * or floating. A plan counts once however many of its parts need one. */
+export function countPlansNeedingZone(plans: Plan[]): number {
+  return plans.filter((plan) =>
+    plan.parts.some(
+      (part) =>
+        !part.dismissed_at && (needsZone(startBlockOf(part)) || needsZone(endBlockOf(part))),
+    ),
+  ).length;
 }
 
 /** The zone a new item at `atMs` most likely sits in: where the traveller is

@@ -25,7 +25,7 @@ import {
   tripSpan,
   typeHasEnd,
   zoneConfirmPatch,
-  countPartsNeedingZone,
+  countPlansNeedingZone,
   neighbourZone,
 } from './trip-format';
 import { block, partBlocks } from '../test/blocks';
@@ -1110,10 +1110,17 @@ describe('branch edge cases', () => {
 describe('zone confirm and count', () => {
   const hotel = (over: Partial<PlanPart>): PlanPart =>
     ({
-      id: 7, plan_id: 3, type: 'hotel', seq: 0, status: 'planned',
-      starts_at: '2026-10-18T09:00:00Z', ends_at: '2026-10-21T01:00:00Z',
-      start_tz: 'Asia/Tashkent', end_tz: 'Asia/Tashkent',
-      start_tz_source: 'inferred', end_tz_source: 'inferred',
+      id: 7,
+      plan_id: 3,
+      type: 'hotel',
+      seq: 0,
+      status: 'planned',
+      starts_at: '2026-10-18T09:00:00Z',
+      ends_at: '2026-10-21T01:00:00Z',
+      start_tz: 'Asia/Tashkent',
+      end_tz: 'Asia/Tashkent',
+      start_tz_source: 'inferred',
+      end_tz_source: 'inferred',
       start_label: 'Test Hotel',
       start: block('2026-10-18T09:00:00Z', 'Asia/Tashkent', { tz_source: 'inferred' }),
       end: block('2026-10-21T01:00:00Z', 'Asia/Tashkent', { tz_source: 'inferred' }),
@@ -1149,7 +1156,8 @@ describe('zone confirm and count', () => {
 
   it('reads a floating time by its digits', () => {
     const p = hotel({
-      start_tz: '', start_tz_source: 'floating',
+      start_tz: '',
+      start_tz_source: 'floating',
       starts_at: '2026-10-18T14:00:00Z',
       start: block('2026-10-18T14:00:00Z', ''),
     });
@@ -1160,7 +1168,8 @@ describe('zone confirm and count', () => {
     // As the server sends one: the raw zone is the airport fallback.
     const p = hotel({
       type: 'flight',
-      start_tz: 'Europe/London', start_tz_source: 'floating',
+      start_tz: 'Europe/London',
+      start_tz_source: 'floating',
       starts_at: '2026-10-18T14:00:00Z',
       start: block('2026-10-18T14:00:00Z', ''),
     });
@@ -1174,8 +1183,10 @@ describe('zone confirm and count', () => {
   it('confirms an unknown zone without moving its instant', () => {
     // An unknown end's time is a true instant; only where it is was missing.
     const p = hotel({
-      start_tz: '', start_tz_source: 'unknown',
-      end_tz: '', end_tz_source: 'unknown',
+      start_tz: '',
+      start_tz_source: 'unknown',
+      end_tz: '',
+      end_tz_source: 'unknown',
       start: block('2026-10-18T09:00:00Z', '', { tz_source: 'unknown' }),
       end: block('2026-10-21T01:00:00Z', '', { tz_source: 'unknown' }),
     });
@@ -1196,25 +1207,48 @@ describe('zone confirm and count', () => {
     expect(zoneConfirmPatch(p, 'start', 'Asia/Samarkand').start_local).toBe('2026-10-18T14:00');
   });
 
-  it('counts non-dismissed parts with a start or end needing a zone', () => {
+  it('counts plans with a non-dismissed part needing a zone', () => {
     const plans = [
       { parts: [hotel({ start: block('2026-10-18T09:00:00Z', '') })] },
       { parts: [hotel({ end: block('2026-10-21T01:00:00Z', '', { tz_source: 'unknown' }) })] },
-      { parts: [hotel({ start: block('2026-10-18T09:00:00Z', ''), dismissed_at: '2026-10-01T00:00:00Z' })] },
+      {
+        parts: [
+          hotel({ start: block('2026-10-18T09:00:00Z', ''), dismissed_at: '2026-10-01T00:00:00Z' }),
+        ],
+      },
       { parts: [hotel({})] },
     ] as Plan[];
-    expect(countPartsNeedingZone(plans)).toBe(2);
+    expect(countPlansNeedingZone(plans)).toBe(2);
+  });
+
+  it('counts a plan once when several of its parts need a zone', () => {
+    const legs = [
+      hotel({ start: block('2026-10-18T09:00:00Z', '') }),
+      hotel({ start: block('2026-10-19T09:00:00Z', '') }),
+      hotel({ start: block('2026-10-20T09:00:00Z', '') }),
+    ];
+    expect(countPlansNeedingZone([{ parts: legs }] as Plan[])).toBe(1);
   });
 });
 
 describe('neighbourZone', () => {
   const mk = (id: number, at: string, tz: string, endTz?: string, endAt?: string): PlanPart =>
     ({
-      id, plan_id: id, type: 'hotel', seq: 0, status: 'planned', starts_at: at,
-      start: block(at, tz), end: endAt ? block(endAt, endTz ?? tz) : undefined,
+      id,
+      plan_id: id,
+      type: 'hotel',
+      seq: 0,
+      status: 'planned',
+      starts_at: at,
+      start: block(at, tz),
+      end: endAt ? block(endAt, endTz ?? tz) : undefined,
     }) as PlanPart;
   const plans = [
-    { parts: [mk(1, '2026-10-18T04:00:00Z', 'Europe/London', 'Asia/Tashkent', '2026-10-18T12:00:00Z')] },
+    {
+      parts: [
+        mk(1, '2026-10-18T04:00:00Z', 'Europe/London', 'Asia/Tashkent', '2026-10-18T12:00:00Z'),
+      ],
+    },
     { parts: [mk(2, '2026-10-25T04:00:00Z', '')] },
   ] as Plan[];
 
@@ -1229,13 +1263,32 @@ describe('neighbourZone', () => {
     expect(neighbourZone(plans, Number.NaN)).toBe('');
   });
   it('skips dismissed parts and parts without a usable time', () => {
-    const dismissed = { ...mk(3, '2026-10-19T00:00:00Z', 'Asia/Tokyo'), dismissed_at: '2026-10-19T01:00:00Z' };
+    const dismissed = {
+      ...mk(3, '2026-10-19T00:00:00Z', 'Asia/Tokyo'),
+      dismissed_at: '2026-10-19T01:00:00Z',
+    };
     const bad = mk(4, 'not a time', 'Asia/Seoul');
-    const withEnd = [{ parts: [dismissed, bad, mk(5, '2026-10-17T00:00:00Z', 'Europe/Paris')] }] as Plan[];
+    const withEnd = [
+      { parts: [dismissed, bad, mk(5, '2026-10-17T00:00:00Z', 'Europe/Paris')] },
+    ] as Plan[];
     expect(neighbourZone(withEnd, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Paris');
   });
   it('reads a part that predates blocks through its starts_at and start_tz', () => {
-    const old = [{ parts: [{ id: 6, plan_id: 6, type: 'hotel', seq: 0, status: 'planned', starts_at: '2026-10-17T00:00:00Z', start_tz: 'Europe/Rome' }] }] as Plan[];
+    const old = [
+      {
+        parts: [
+          {
+            id: 6,
+            plan_id: 6,
+            type: 'hotel',
+            seq: 0,
+            status: 'planned',
+            starts_at: '2026-10-17T00:00:00Z',
+            start_tz: 'Europe/Rome',
+          },
+        ],
+      },
+    ] as Plan[];
     expect(neighbourZone(old, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Rome');
   });
 });
@@ -1243,8 +1296,10 @@ describe('neighbourZone', () => {
 describe('zone-aware days and spans', () => {
   it('uses the server span when present', () => {
     const trip = {
-      starts_on: '2026-10-18', ends_on: '2026-10-25',
-      span_start: '2026-10-17T19:00:00Z', span_end: '2026-10-26T04:00:00Z',
+      starts_on: '2026-10-18',
+      ends_on: '2026-10-25',
+      span_start: '2026-10-17T19:00:00Z',
+      span_end: '2026-10-26T04:00:00Z',
     } as Trip;
     expect(tripSpan(trip)).toEqual({
       start: Date.parse('2026-10-17T19:00:00Z'),
@@ -1255,13 +1310,21 @@ describe('zone-aware days and spans', () => {
   });
 
   it('falls back to UTC dates without a server span', () => {
-    expect(tripSpan({ starts_on: '2026-10-18' } as Trip).start).toBe(Date.parse('2026-10-18T00:00:00Z'));
+    expect(tripSpan({ starts_on: '2026-10-18' } as Trip).start).toBe(
+      Date.parse('2026-10-18T00:00:00Z'),
+    );
   });
 
   it("groups the timeline by each block's own zone", () => {
     const late = {
-      id: 1, plan_id: 1, type: 'dining', seq: 0, status: 'planned',
-      starts_at: '2026-10-18T20:00:00Z', effective_at: '2026-10-18T20:00:00Z', start_tz: 'Asia/Tashkent',
+      id: 1,
+      plan_id: 1,
+      type: 'dining',
+      seq: 0,
+      status: 'planned',
+      starts_at: '2026-10-18T20:00:00Z',
+      effective_at: '2026-10-18T20:00:00Z',
+      start_tz: 'Asia/Tashkent',
       start: block('2026-10-18T20:00:00Z', 'Asia/Tashkent'),
     } as PlanPart;
     const days = buildTimeline([{ id: 1, parts: [late] } as Plan]);
@@ -1270,18 +1333,30 @@ describe('zone-aware days and spans', () => {
   });
 
   it('keys external events in their own zone, UTC for all-day', () => {
-    const ev = (o: Partial<ExternalEvent>) => ({ starts_at: '2026-10-18T20:00:00Z', ...o }) as ExternalEvent;
+    const ev = (o: Partial<ExternalEvent>) =>
+      ({ starts_at: '2026-10-18T20:00:00Z', ...o }) as ExternalEvent;
     expect(buildExternalDays([ev({ start_tz: 'Asia/Tashkent' })])[0].dayKey).toBe('2026-10-19');
-    expect(buildExternalDays([ev({ start_tz: 'Asia/Tashkent', all_day: true })])[0].dayKey).toBe('2026-10-18');
+    expect(buildExternalDays([ev({ start_tz: 'Asia/Tashkent', all_day: true })])[0].dayKey).toBe(
+      '2026-10-18',
+    );
   });
 
   it('flags a part outside the trip dates in its own zone', () => {
     const part = {
-      id: 1, plan_id: 1, type: 'dining', seq: 0, status: 'planned',
-      starts_at: '2026-10-18T20:00:00Z', start: block('2026-10-18T20:00:00Z', 'Asia/Tashkent'),
+      id: 1,
+      plan_id: 1,
+      type: 'dining',
+      seq: 0,
+      status: 'planned',
+      starts_at: '2026-10-18T20:00:00Z',
+      start: block('2026-10-18T20:00:00Z', 'Asia/Tashkent'),
     } as PlanPart;
     const plans = [{ id: 1, parts: [part] } as Plan];
-    expect(plansOutsideTripDates({ starts_on: '2026-10-18', ends_on: '2026-10-18' } as Trip, plans)).toBe(true);
-    expect(plansOutsideTripDates({ starts_on: '2026-10-19', ends_on: '2026-10-19' } as Trip, plans)).toBe(false);
+    expect(
+      plansOutsideTripDates({ starts_on: '2026-10-18', ends_on: '2026-10-18' } as Trip, plans),
+    ).toBe(true);
+    expect(
+      plansOutsideTripDates({ starts_on: '2026-10-19', ends_on: '2026-10-19' } as Trip, plans),
+    ).toBe(false);
   });
 });

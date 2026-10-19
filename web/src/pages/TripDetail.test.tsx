@@ -11,7 +11,7 @@ const h = vi.hoisted(() => ({
   loadTrip: vi.fn(),
   clearCurrentTrip: vi.fn(),
   plansOutsideTripDates: vi.fn(() => false),
-  countPartsNeedingZone: vi.fn(() => 0),
+  countPlansNeedingZone: vi.fn(() => 0),
   exportTripIcs: vi.fn(() => Promise.resolve()),
   exportTripPdf: vi.fn(() => Promise.resolve()),
   state: {
@@ -42,7 +42,7 @@ vi.mock('../pwa', () => ({ useOnlineStatus: () => h.state.online }));
 
 vi.mock('../lib/trip-format', () => ({
   plansOutsideTripDates: (...args: unknown[]) => h.plansOutsideTripDates(...args),
-  countPartsNeedingZone: (...args: unknown[]) => h.countPartsNeedingZone(...args),
+  countPlansNeedingZone: (...args: unknown[]) => h.countPlansNeedingZone(...args),
   fmtTripDates: (t: { starts_on?: string; ends_on?: string }) =>
     `${t.starts_on ?? ''} – ${t.ends_on ?? ''}`,
 }));
@@ -127,7 +127,7 @@ beforeEach(() => {
   h.state.currentTripStatus = 'loading';
   h.state.online = true;
   h.plansOutsideTripDates.mockReturnValue(false);
-  h.countPartsNeedingZone.mockReturnValue(0);
+  h.countPlansNeedingZone.mockReturnValue(0);
   // Reset the shared (localStorage-backed) description-collapse preference so
   // it doesn't bleed between tests.
   localStorage.clear();
@@ -514,14 +514,14 @@ describe('TripDetail', () => {
 
   it('says how many plans need a time zone', () => {
     h.state.currentTrip = trip();
-    h.countPartsNeedingZone.mockReturnValue(3);
+    h.countPlansNeedingZone.mockReturnValue(3);
     renderDetail();
     expect(screen.getByText('3 plans need a time zone')).toBeInTheDocument();
   });
 
   it('uses the singular for one plan', () => {
     h.state.currentTrip = trip();
-    h.countPartsNeedingZone.mockReturnValue(1);
+    h.countPlansNeedingZone.mockReturnValue(1);
     renderDetail();
     expect(screen.getByText('1 plan needs a time zone')).toBeInTheDocument();
   });

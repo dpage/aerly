@@ -36,7 +36,7 @@ import { showExternalPlansEnabled } from '../lib/showExternalPlans';
 import { useTripDescriptionCollapsed } from '../lib/tripDescriptionCollapsed';
 import { useStore } from '../state/store';
 import { useOnlineStatus } from '../pwa';
-import { countPartsNeedingZone, fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
+import { countPlansNeedingZone, fmtTripDates, plansOutsideTripDates } from '../lib/trip-format';
 import AddToTripDialog from '../components/AddToTripDialog';
 import TripMembersDialog from '../components/TripMembersDialog';
 import TripEditDialog from '../components/TripEditDialog';
@@ -141,7 +141,7 @@ export default function TripDetail() {
   // Only owners/editors get the tag editor; viewers see nothing to change.
   const canEdit = loaded != null && loaded.my_role !== 'viewer';
   const datesMismatch = loaded != null && plansOutsideTripDates(loaded, loaded.plans);
-  const zoneCount = loaded != null ? countPartsNeedingZone(loaded.plans) : 0;
+  const zoneCount = loaded != null ? countPlansNeedingZone(loaded.plans) : 0;
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
