@@ -16,6 +16,7 @@ vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 
 import PlanMapView from './PlanMapView';
 import { fmtScrubTime, planePlacementAt, positionAt, trackFC, tracksFC } from '../lib/flight-track';
+import { block, partBlocks } from '../test/blocks';
 
 function user(over: Partial<User> = {}): User {
   return {
@@ -32,7 +33,7 @@ function user(over: Partial<User> = {}): User {
 }
 
 function flight(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 1,
     plan_id: 1,
     type: 'flight',
@@ -64,12 +65,12 @@ function flight(over: Partial<PlanPart> = {}): PlanPart {
         { ts: '2026-10-12T11:00:00Z', lat: 48, lon: -30, is_estimated: false },
       ],
     },
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function hotel(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 2,
     plan_id: 2,
     type: 'hotel',
@@ -93,8 +94,8 @@ function hotel(over: Partial<PlanPart> = {}): PlanPart {
       room_type: 'King',
       kind: '',
     },
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 beforeEach(() => {
@@ -142,6 +143,34 @@ describe('PlanMapView', () => {
     expect(screen.getByTestId('flight-detail-card')).toBeInTheDocument();
     // A transfer with both ends fits bounds (the whole path), not flyTo.
     expect(map.fitBounds).toHaveBeenCalled();
+  });
+
+  it("leaves a floating flight's timetable unlabelled in its detail card", async () => {
+    const user = userEvent.setup();
+    // As the server sends one: the raw zones carry the airport fallback, the
+    // timetable blocks none, and a provider estimate the airport's zone.
+    const f = flight({
+      start_tz_source: 'floating',
+      end_tz_source: 'floating',
+      start: block('2026-10-12T09:15:00Z', 'Europe/London', {
+        tz_source: 'floating',
+        kind: 'estimated',
+        delay_min: 15,
+      }),
+      end: block('2026-10-12T13:15:00Z', '', { kind: 'derived', delay_min: 15 }),
+    });
+    f.flight = {
+      ...f.flight!,
+      estimated_out: '2026-10-12T09:15:00Z',
+      departure: f.start,
+      arrival: f.end,
+    };
+    render(<PlanMapView parts={[f]} />);
+    await user.click(screen.getByTestId('plan-row-1'));
+    const card = within(screen.getByTestId('flight-detail-card'));
+    expect(card.getByText('Mon 12 Oct, 09:00')).toBeInTheDocument();
+    expect(card.getByText('Mon 12 Oct, 13:00')).toBeInTheDocument();
+    expect(card.getByText('Mon 12 Oct, 10:15 UTC+1')).toBeInTheDocument();
   });
 
   it('does not re-fit the map when a selected flight refreshes (keeps a manual zoom)', async () => {

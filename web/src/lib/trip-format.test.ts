@@ -5,18 +5,18 @@ import {
   buildExternalDays,
   buildTimeline,
   classifyTrip,
-  floatingISO,
   fmtPartPlaces,
   flightStatusLabel,
   fmtPartDuration,
-  fmtPartRevisedTimeRange,
+  fmtPartScheduledRange,
+  startBlockOf,
+  endBlockOf,
+  fmtPartDateRange,
   fmtPartTimeRange,
   fmtPartTimeRangeText,
-  fmtLocalDateTime,
   fmtTripDates,
   plansOutsideTripDates,
   splitLocal,
-  tzAbbrev,
   zonedTimeToUtc,
   bandEdgeLabels,
   bandSpanDays,
@@ -24,7 +24,11 @@ import {
   planTypeLabel,
   tripSpan,
   typeHasEnd,
+  zoneConfirmPatch,
+  countPlansNeedingZone,
+  neighbourZone,
 } from './trip-format';
+import { block, partBlocks } from '../test/blocks';
 
 function trip(over: Partial<Trip> = {}): Trip {
   return {
@@ -41,7 +45,7 @@ function trip(over: Partial<Trip> = {}): Trip {
 }
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 1,
     plan_id: 1,
     type: 'flight',
@@ -53,8 +57,8 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
     end_label: 'LIS',
     status: 'planned',
     effective_at: '2026-10-12T09:00:00Z',
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function plan(parts: PlanPart[], over: Partial<Plan> = {}): Plan {
@@ -527,8 +531,19 @@ describe('fmtPartPlaces', () => {
 });
 
 describe('flightStatusLabel', () => {
-  const f = (over: Partial<PlanPart['flight']> = {}) =>
+  // delay is minutes past the timetable: the departure block then reads as an
+  // airline estimate, the way the server sends it.
+  const f = (over: Partial<PlanPart['flight']> = {}, delay = 0) =>
     part({
+      ...(delay
+        ? {
+            start: block('2026-08-20T15:05:00Z', 'UTC', {
+              at: new Date(Date.parse('2026-08-20T15:05:00Z') + delay * 60000).toISOString(),
+              kind: 'estimated',
+              delay_min: delay,
+            }),
+          }
+        : {}),
       starts_at: '2026-08-20T15:05:00Z',
       ends_at: '2026-08-20T17:15:00Z',
       flight: {
@@ -543,26 +558,24 @@ describe('flightStatusLabel', () => {
   it('reads Delayed when the airline has moved the departure later', () => {
     // Stored as Scheduled, because the aircraft is still on stand. True, and
     // useless to somebody two hours into a delay.
-    expect(flightStatusLabel(f({ estimated_out: '2026-08-20T17:00:00Z' }))).toEqual({
+    expect(flightStatusLabel(f({}, 115))).toEqual({
       label: 'Delayed',
       tone: 'warning',
     });
   });
 
   it('reads Delayed for a flight that got airborne late as well', () => {
-    expect(
-      flightStatusLabel(
-        f({ flight_status: 'Enroute', estimated_out: '2026-08-20T17:00:00Z' }),
-      ),
-    ).toEqual({ label: 'Delayed', tone: 'warning' });
+    expect(flightStatusLabel(f({ flight_status: 'Enroute' }, 115))).toEqual({
+      label: 'Delayed',
+      tone: 'warning',
+    });
   });
 
   it('lets a cancellation beat a delay, a journey not happening beating a late one', () => {
-    expect(
-      flightStatusLabel(
-        f({ flight_status: 'Cancelled', estimated_out: '2026-08-20T17:00:00Z' }),
-      ),
-    ).toEqual({ label: 'Cancelled', tone: 'error' });
+    expect(flightStatusLabel(f({ flight_status: 'Cancelled' }, 115))).toEqual({
+      label: 'Cancelled',
+      tone: 'error',
+    });
     expect(flightStatusLabel(f({ flight_status: 'Diverted' }))).toEqual({
       label: 'Diverted',
       tone: 'error',
@@ -570,13 +583,14 @@ describe('flightStatusLabel', () => {
   });
 
   it('lets an arrival beat a delay, since how late it ran is then history', () => {
-    expect(
-      flightStatusLabel(f({ flight_status: 'Arrived', estimated_out: '2026-08-20T17:00:00Z' })),
-    ).toEqual({ label: 'Arrived', tone: 'normal' });
+    expect(flightStatusLabel(f({ flight_status: 'Arrived' }, 115))).toEqual({
+      label: 'Arrived',
+      tone: 'normal',
+    });
   });
 
   it('does not call an early departure a delay', () => {
-    expect(flightStatusLabel(f({ estimated_out: '2026-08-20T14:40:00Z' }))).toEqual({
+    expect(flightStatusLabel(f({}, -25))).toEqual({
       label: 'Scheduled',
       tone: 'normal',
     });
@@ -595,75 +609,157 @@ describe('flightStatusLabel', () => {
   });
 });
 
-describe('fmtPartRevisedTimeRange', () => {
-  const flight = (over: Partial<PlanPart['flight']> = {}) =>
-    part({
-      starts_at: '2026-08-20T15:05:00Z',
-      ends_at: '2026-08-20T17:15:00Z',
+describe('block-based part times', () => {
+  const lhr = block('2026-10-18T09:00:00Z', 'Europe/London');
+  const jfk = block('2026-10-18T17:05:00Z', 'America/New_York');
+  const flight = (over: Partial<PlanPart>): PlanPart =>
+    ({
+      id: 1,
+      plan_id: 1,
+      type: 'flight',
+      seq: 0,
+      status: 'planned',
+      starts_at: '2026-10-18T09:00:00Z',
+      ends_at: '2026-10-18T17:05:00Z',
+      start_tz: 'Europe/London',
+      end_tz: 'America/New_York',
+      start_tz_source: 'confirmed',
+      end_tz_source: 'confirmed',
+      start_label: 'LHR',
+      end_label: 'JFK',
+      start: lhr,
+      end: jfk,
       flight: {
-        ident: 'OS967',
-        scheduled_out: '2026-08-20T15:05:00Z',
-        scheduled_in: '2026-08-20T17:15:00Z',
-        ...over,
-      } as PlanPart['flight'],
+        ident: 'XX100',
+        scheduled_out: '2026-10-18T09:00:00Z',
+        scheduled_in: '2026-10-18T17:05:00Z',
+      },
+      ...over,
+    }) as PlanPart;
+
+  it('reads the range and duration from the blocks', () => {
+    expect(fmtPartTimeRange(flight({}))).toBe('10:00 UTC+1 → 13:05 UTC-4');
+    expect(fmtPartDuration(flight({}))).toBe('8h 5m');
+    expect(fmtPartScheduledRange(flight({}))).toBeNull();
+  });
+
+  it('keeps the timetable beside a delayed estimate', () => {
+    const p = flight({
+      start: { ...lhr, at: '2026-10-18T09:40:00Z', kind: 'estimated', delay_min: 40 },
+      end: { ...jfk, at: '2026-10-18T17:45:00Z', kind: 'derived', delay_min: 40 },
     });
-
-  it('reports the revised range when the airline has moved both ends', () => {
-    expect(
-      fmtPartRevisedTimeRange(
-        flight({ estimated_out: '2026-08-20T17:00:00Z', estimated_in: '2026-08-20T19:00:00Z' }),
-      ),
-    ).toBe('17:00 UTC → 19:00 UTC');
-  });
-
-  it('reports a revised departure even when the arrival still stands', () => {
-    expect(fmtPartRevisedTimeRange(flight({ estimated_out: '2026-08-20T17:00:00Z' }))).toBe(
-      '17:00 UTC → 17:15 UTC',
+    expect(fmtPartTimeRange(p)).toBe('10:40 UTC+1 → ≈13:45 UTC-4');
+    expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
+    expect(fmtPartTimeRangeText(p)).toBe(
+      '10:40 UTC+1 → ≈13:45 UTC-4 (scheduled 10:00 UTC+1 → 13:05 UTC-4)',
     );
+    expect(flightStatusLabel(p)).toEqual({ label: 'Delayed', tone: 'warning' });
   });
 
-  it('prefers the observed time over the estimate, matching effective_at', () => {
-    expect(
-      fmtPartRevisedTimeRange(
-        flight({ estimated_out: '2026-08-20T17:00:00Z', actual_out: '2026-08-20T17:12:00Z' }),
-      ),
-    ).toBe('17:12 UTC → 17:15 UTC');
+  it('shows a floating timetable time with no zone label', () => {
+    const p = flight({
+      starts_at: '2026-10-18T10:00:00Z',
+      start_tz: '',
+      start_tz_source: 'floating',
+      flight: { ident: 'XX100', scheduled_out: '2026-10-18T10:00:00Z' },
+      start: {
+        ...lhr,
+        at: '2026-10-18T09:40:00Z',
+        tz_source: 'floating',
+        kind: 'estimated',
+        delay_min: 40,
+      },
+      ends_at: undefined,
+      end: undefined,
+    } as Partial<PlanPart>);
+    expect(fmtPartScheduledRange(p)).toBe('10:00');
   });
 
-  it('stays null for a flight running to its timetable', () => {
-    expect(
-      fmtPartRevisedTimeRange(
-        flight({ estimated_out: '2026-08-20T15:05:00Z', estimated_in: '2026-08-20T17:15:00Z' }),
-      ),
-    ).toBeNull();
+  it('revises only the arrival when the departure stands', () => {
+    const p = flight({
+      end: { ...jfk, at: '2026-10-18T17:45:00Z', kind: 'estimated', delay_min: 40 },
+    });
+    expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
   });
 
-  it('ignores a revision too small to read differently on the clock', () => {
-    // Forty seconds later is still 15:05 to a reader, so striking the timetable
-    // through would say a flight had moved when nothing visible had changed.
-    expect(fmtPartRevisedTimeRange(flight({ estimated_out: '2026-08-20T15:05:40Z' }))).toBeNull();
+  it('handles a revised part with no end', () => {
+    const p = flight({
+      ends_at: undefined,
+      end: undefined,
+      start: { ...lhr, at: '2026-10-18T09:40:00Z', kind: 'estimated', delay_min: 40 },
+    });
+    expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1');
   });
 
-  it('stays null for a flight with no live coverage, and for other types', () => {
-    expect(fmtPartRevisedTimeRange(flight())).toBeNull();
-    expect(fmtPartRevisedTimeRange(part({ type: 'hotel', flight: undefined }))).toBeNull();
+  it('does not call an early or on-time flight delayed', () => {
+    const early = flight({ start: { ...lhr, kind: 'estimated', delay_min: -5 } });
+    expect(flightStatusLabel(early)).toBeNull();
   });
 
-  it('handles a part with no end time', () => {
-    expect(
-      fmtPartRevisedTimeRange(
-        part({
-          starts_at: '2026-08-20T15:05:00Z',
-          ends_at: undefined,
-          flight: {
-            ident: 'OS967',
-            scheduled_out: '2026-08-20T15:05:00Z',
-            scheduled_in: '2026-08-20T15:05:00Z',
-            estimated_out: '2026-08-20T17:00:00Z',
-          } as PlanPart['flight'],
-        }),
-      ),
-    ).toBe('17:00 UTC');
+  it('gives the date range in each end’s zone', () => {
+    expect(fmtPartDateRange(flight({}))).toBe('Sun, 18 Oct 2026');
+    const overnight = flight({
+      start: block('2026-10-18T23:00:00Z', 'UTC'),
+      end: block('2026-10-19T07:00:00Z', 'Asia/Tokyo'),
+    });
+    expect(fmtPartDateRange(overnight)).toBe('Sun, 18 Oct 2026 → Mon, 19 Oct 2026');
+    expect(fmtPartDateRange(flight({ end: undefined }))).toBe('Sun, 18 Oct 2026');
+  });
+
+  it('shows only the start of a revised part with no scheduled end', () => {
+    const p = flight({
+      ends_at: undefined,
+      end: jfk,
+      flight: { ident: 'XX100', scheduled_out: '2026-10-18T09:00:00Z' },
+      start: { ...lhr, at: '2026-10-18T09:40:00Z', kind: 'estimated', delay_min: 40 },
+    } as Partial<PlanPart>);
+    expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1');
+  });
+
+  it('reads a part with no blocks from its starts_at and zones', () => {
+    const p = flight({ start: undefined, end: undefined } as unknown as Partial<PlanPart>);
+    expect(startBlockOf(p).at).toBe('2026-10-18T09:00:00Z');
+    expect(fmtPartTimeRange(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
+    expect(fmtPartTimeRangeText(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
+    expect(fmtPartDateRange(p)).toBe('Sun, 18 Oct 2026');
+    expect(fmtPartDuration(p)).toBe('8h 5m');
+    expect(flightStatusLabel(p)).toBeNull();
+    const noEnd = flight({
+      start: undefined,
+      end: undefined,
+      ends_at: undefined,
+    } as unknown as Partial<PlanPart>);
+    expect(endBlockOf(noEnd)).toBeUndefined();
+  });
+
+  it('builds missing blocks as the server would from the raw zones and sources', () => {
+    const p = flight({
+      start: undefined,
+      end: undefined,
+      start_tz: 'Europe/London',
+      start_tz_source: 'floating',
+      end_tz: '',
+      end_tz_source: 'unknown',
+    } as unknown as Partial<PlanPart>);
+    // A floating start's raw zone is the airport fallback; its digits have none.
+    expect(startBlockOf(p)).toMatchObject({ tz: '', tz_source: 'floating' });
+    // An end with no zone of its own does not borrow the start's.
+    expect(endBlockOf(p)).toMatchObject({ tz: '', tz_source: 'unknown' });
+    const inferred = flight({
+      start: undefined,
+      end: undefined,
+      start_tz_source: 'inferred',
+      end_tz_source: 'confirmed',
+    } as unknown as Partial<PlanPart>);
+    expect(startBlockOf(inferred)).toMatchObject({ tz: 'Europe/London', tz_source: 'inferred' });
+    expect(endBlockOf(inferred)).toMatchObject({
+      tz: 'America/New_York',
+      tz_source: 'confirmed',
+    });
+  });
+
+  it('has no duration for a single-place type', () => {
+    expect(fmtPartDuration(flight({ type: 'hotel' }))).toBeNull();
   });
 });
 
@@ -678,9 +774,9 @@ describe('fmtPartTimeRangeText', () => {
             ident: 'OS967',
             scheduled_out: '2026-08-20T15:05:00Z',
             scheduled_in: '2026-08-20T17:15:00Z',
-            estimated_out: '2026-08-20T17:00:00Z',
-            estimated_in: '2026-08-20T19:00:00Z',
           } as PlanPart['flight'],
+          start: block('2026-08-20T17:00:00Z', 'UTC', { kind: 'estimated', delay_min: 115 }),
+          end: block('2026-08-20T19:00:00Z', 'UTC', { kind: 'estimated', delay_min: 105 }),
         }),
       ),
     ).toBe('17:00 UTC → 19:00 UTC (scheduled 15:05 UTC → 17:15 UTC)');
@@ -729,14 +825,12 @@ describe('fmtPartDuration', () => {
         part({
           starts_at: '2026-08-20T15:05:00Z',
           ends_at: '2026-08-20T17:15:00Z',
-          flight: {
-            ident: 'OS967',
-            estimated_out: '2026-08-20T17:00:00Z',
-            estimated_in: '2026-08-20T19:00:00Z',
-          } as PlanPart['flight'],
+          flight: { ident: 'OS967' } as PlanPart['flight'],
+          start: block('2026-08-20T17:00:00Z', 'UTC', { kind: 'estimated', delay_min: 115 }),
+          end: block('2026-08-20T19:00:00Z', 'UTC', { kind: 'estimated', delay_min: 105 }),
         }),
       ),
-    ).toBe('2h 0m');
+    ).toBe('2h');
   });
 
   it('is null with no end, and for single-place types', () => {
@@ -761,12 +855,12 @@ describe('fmtPartTimeRange', () => {
     );
   });
 
-  it('falls back to a UTC suffix when the tz is unknown', () => {
+  it('shows the time with no zone label when the tz is unknown', () => {
     expect(
       fmtPartTimeRange(
         part({ starts_at: '2026-10-12T09:00:00Z', ends_at: undefined, start_tz: '' }),
       ),
-    ).toBe('09:00 UTC');
+    ).toBe('09:00');
   });
   it('renders a range with each end in its own tz + abbreviation', () => {
     const out = fmtPartTimeRange(
@@ -777,25 +871,7 @@ describe('fmtPartTimeRange', () => {
         end_tz: 'America/New_York',
       }),
     );
-    // 11:00 BST (London summer) → 10:00 EDT (New York summer); the exact London
-    // abbreviation (BST vs GMT+1) depends on the runtime ICU, so match loosely.
-    expect(out).toMatch(/^11:00 \S+ → 10:00 EDT$/);
-  });
-});
-
-describe('tzAbbrev', () => {
-  it('returns a real abbreviation for a known zone', () => {
-    expect(tzAbbrev('2026-07-01T14:00:00Z', 'America/New_York')).toBe('EDT');
-  });
-  it('falls back to UTC when the zone is unknown', () => {
-    expect(tzAbbrev('2026-07-01T14:00:00Z', '')).toBe('UTC');
-  });
-});
-
-describe('fmtLocalDateTime', () => {
-  it('renders date + local time + tz abbreviation', () => {
-    // 14:00Z → 10:00 EDT on the same day.
-    expect(fmtLocalDateTime('2026-07-01T14:00:00Z', 'America/New_York')).toMatch(/Jul.*10:00 EDT$/);
+    expect(out).toBe('11:00 UTC+1 → 10:00 UTC-4');
   });
 });
 
@@ -1015,15 +1091,13 @@ describe('branch edge cases', () => {
     ];
     const days = buildTimeline(plans);
     expect(days).toHaveLength(1);
-    // localDayKey + fmtDayHeader both fall back to the raw iso on NaN.
+    // dayKey and fmtDayHeading both fall back to the raw iso on NaN.
     expect(days[0].dayKey).toBe('not-a-date');
     expect(days[0].label).toBe('not-a-date');
   });
 
-  it('fmtTimeOfDay / tzAbbrev / fmtLocalDateTime / splitLocal: empty for unparseable iso', () => {
+  it('splitLocal: empty for unparseable iso', () => {
     expect(fmtPartTimeRange(part({ starts_at: 'not-a-date', ends_at: undefined }))).toBe('');
-    expect(tzAbbrev('not-a-date', 'UTC')).toBe('');
-    expect(fmtLocalDateTime('not-a-date', 'UTC')).toBe('');
     expect(splitLocal('not-a-date', 'UTC')).toEqual({ date: '', time: '' });
   });
 
@@ -1033,9 +1107,256 @@ describe('branch edge cases', () => {
   });
 });
 
-describe('floatingISO', () => {
-  it("keeps a local Date's wall-clock digits whatever the runner's zone", () => {
-    expect(floatingISO(new Date(2026, 6, 1, 15, 0))).toBe('2026-07-01T15:00:00Z');
-    expect(floatingISO(new Date(2026, 0, 5, 9, 7, 42))).toBe('2026-01-05T09:07:00Z');
+describe('zone confirm and count', () => {
+  const hotel = (over: Partial<PlanPart>): PlanPart =>
+    ({
+      id: 7,
+      plan_id: 3,
+      type: 'hotel',
+      seq: 0,
+      status: 'planned',
+      starts_at: '2026-10-18T09:00:00Z',
+      ends_at: '2026-10-21T01:00:00Z',
+      start_tz: 'Asia/Tashkent',
+      end_tz: 'Asia/Tashkent',
+      start_tz_source: 'inferred',
+      end_tz_source: 'inferred',
+      start_label: 'Test Hotel',
+      start: block('2026-10-18T09:00:00Z', 'Asia/Tashkent', { tz_source: 'inferred' }),
+      end: block('2026-10-21T01:00:00Z', 'Asia/Tashkent', { tz_source: 'inferred' }),
+      ...over,
+    }) as PlanPart;
+
+  it('confirms the shown zone without touching the time', () => {
+    expect(zoneConfirmPatch(hotel({}), 'start', 'Asia/Tashkent')).toEqual({
+      start_tz: 'Asia/Tashkent',
+      start_tz_source: 'confirmed',
+    });
+  });
+
+  it('keeps the shown wall-clock time when a different zone is picked', () => {
+    expect(zoneConfirmPatch(hotel({}), 'start', 'Asia/Samarkand')).toEqual({
+      start_tz: 'Asia/Samarkand',
+      start_tz_source: 'confirmed',
+      start_local: '2026-10-18T14:00',
+    });
+    expect(zoneConfirmPatch(hotel({}), 'end', 'Europe/London')).toEqual({
+      end_tz: 'Europe/London',
+      end_tz_source: 'confirmed',
+      end_local: '2026-10-21T06:00',
+    });
+  });
+
+  it('confirms the shown end zone without touching the time', () => {
+    expect(zoneConfirmPatch(hotel({}), 'end', 'Asia/Tashkent')).toEqual({
+      end_tz: 'Asia/Tashkent',
+      end_tz_source: 'confirmed',
+    });
+  });
+
+  it('reads a floating time by its digits', () => {
+    const p = hotel({
+      start_tz: '',
+      start_tz_source: 'floating',
+      starts_at: '2026-10-18T14:00:00Z',
+      start: block('2026-10-18T14:00:00Z', ''),
+    });
+    expect(zoneConfirmPatch(p, 'start', 'Asia/Tashkent').start_local).toBe('2026-10-18T14:00');
+  });
+
+  it('reads a floating flight by its digits whatever its raw zone says', () => {
+    // As the server sends one: the raw zone is the airport fallback.
+    const p = hotel({
+      type: 'flight',
+      start_tz: 'Europe/London',
+      start_tz_source: 'floating',
+      starts_at: '2026-10-18T14:00:00Z',
+      start: block('2026-10-18T14:00:00Z', ''),
+    });
+    expect(zoneConfirmPatch(p, 'start', 'Europe/London')).toEqual({
+      start_tz: 'Europe/London',
+      start_tz_source: 'confirmed',
+      start_local: '2026-10-18T14:00',
+    });
+  });
+
+  it('confirms an unknown zone without moving its instant', () => {
+    // An unknown end's time is a true instant; only where it is was missing.
+    const p = hotel({
+      start_tz: '',
+      start_tz_source: 'unknown',
+      end_tz: '',
+      end_tz_source: 'unknown',
+      start: block('2026-10-18T09:00:00Z', '', { tz_source: 'unknown' }),
+      end: block('2026-10-21T01:00:00Z', '', { tz_source: 'unknown' }),
+    });
+    expect(zoneConfirmPatch(p, 'start', 'Asia/Tashkent')).toEqual({
+      start_tz: 'Asia/Tashkent',
+      start_tz_source: 'confirmed',
+    });
+    expect(zoneConfirmPatch(p, 'end', 'Asia/Tashkent')).toEqual({
+      end_tz: 'Asia/Tashkent',
+      end_tz_source: 'confirmed',
+    });
+  });
+
+  it('takes the scheduled time from starts_at when the start block is an estimate', () => {
+    const p = hotel({
+      start: block('2026-10-18T10:30:00Z', 'Asia/Tashkent', { kind: 'estimated', delay_min: 90 }),
+    });
+    expect(zoneConfirmPatch(p, 'start', 'Asia/Samarkand').start_local).toBe('2026-10-18T14:00');
+  });
+
+  it('counts plans with a non-dismissed part needing a zone', () => {
+    const plans = [
+      { parts: [hotel({ start: block('2026-10-18T09:00:00Z', '') })] },
+      { parts: [hotel({ end: block('2026-10-21T01:00:00Z', '', { tz_source: 'unknown' }) })] },
+      {
+        parts: [
+          hotel({ start: block('2026-10-18T09:00:00Z', ''), dismissed_at: '2026-10-01T00:00:00Z' }),
+        ],
+      },
+      { parts: [hotel({})] },
+    ] as Plan[];
+    expect(countPlansNeedingZone(plans)).toBe(2);
+  });
+
+  it('counts a plan once when several of its parts need a zone', () => {
+    const legs = [
+      hotel({ start: block('2026-10-18T09:00:00Z', '') }),
+      hotel({ start: block('2026-10-19T09:00:00Z', '') }),
+      hotel({ start: block('2026-10-20T09:00:00Z', '') }),
+    ];
+    expect(countPlansNeedingZone([{ parts: legs }] as Plan[])).toBe(1);
+  });
+});
+
+describe('neighbourZone', () => {
+  const mk = (id: number, at: string, tz: string, endTz?: string, endAt?: string): PlanPart =>
+    ({
+      id,
+      plan_id: id,
+      type: 'hotel',
+      seq: 0,
+      status: 'planned',
+      starts_at: at,
+      start: block(at, tz),
+      end: endAt ? block(endAt, endTz ?? tz) : undefined,
+    }) as PlanPart;
+  const plans = [
+    {
+      parts: [
+        mk(1, '2026-10-18T04:00:00Z', 'Europe/London', 'Asia/Tashkent', '2026-10-18T12:00:00Z'),
+      ],
+    },
+    { parts: [mk(2, '2026-10-25T04:00:00Z', '')] },
+  ] as Plan[];
+
+  it('takes the zone you are in after the latest earlier part', () => {
+    expect(neighbourZone(plans, Date.parse('2026-10-19T09:00:00Z'))).toBe('Asia/Tashkent');
+  });
+  it('falls forward to the first later part with a zone', () => {
+    expect(neighbourZone(plans, Date.parse('2026-10-01T09:00:00Z'))).toBe('Europe/London');
+  });
+  it('is blank with nothing to borrow from', () => {
+    expect(neighbourZone([], Date.parse('2026-10-19T09:00:00Z'))).toBe('');
+    expect(neighbourZone(plans, Number.NaN)).toBe('');
+  });
+  it('skips dismissed parts and parts without a usable time', () => {
+    const dismissed = {
+      ...mk(3, '2026-10-19T00:00:00Z', 'Asia/Tokyo'),
+      dismissed_at: '2026-10-19T01:00:00Z',
+    };
+    const bad = mk(4, 'not a time', 'Asia/Seoul');
+    const withEnd = [
+      { parts: [dismissed, bad, mk(5, '2026-10-17T00:00:00Z', 'Europe/Paris')] },
+    ] as Plan[];
+    expect(neighbourZone(withEnd, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Paris');
+  });
+  it('reads a part that predates blocks through its starts_at and start_tz', () => {
+    const old = [
+      {
+        parts: [
+          {
+            id: 6,
+            plan_id: 6,
+            type: 'hotel',
+            seq: 0,
+            status: 'planned',
+            starts_at: '2026-10-17T00:00:00Z',
+            start_tz: 'Europe/Rome',
+          },
+        ],
+      },
+    ] as Plan[];
+    expect(neighbourZone(old, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Rome');
+  });
+});
+
+describe('zone-aware days and spans', () => {
+  it('uses the server span when present', () => {
+    const trip = {
+      starts_on: '2026-10-18',
+      ends_on: '2026-10-25',
+      span_start: '2026-10-17T19:00:00Z',
+      span_end: '2026-10-26T04:00:00Z',
+    } as Trip;
+    expect(tripSpan(trip)).toEqual({
+      start: Date.parse('2026-10-17T19:00:00Z'),
+      end: Date.parse('2026-10-26T04:00:00Z'),
+    });
+    // 20:00 in New York on the last day is still during the trip.
+    expect(classifyTrip(tripSpan(trip), Date.parse('2026-10-26T00:00:00Z'))).toBe('now');
+  });
+
+  it('falls back to UTC dates without a server span', () => {
+    expect(tripSpan({ starts_on: '2026-10-18' } as Trip).start).toBe(
+      Date.parse('2026-10-18T00:00:00Z'),
+    );
+  });
+
+  it("groups the timeline by each block's own zone", () => {
+    const late = {
+      id: 1,
+      plan_id: 1,
+      type: 'dining',
+      seq: 0,
+      status: 'planned',
+      starts_at: '2026-10-18T20:00:00Z',
+      effective_at: '2026-10-18T20:00:00Z',
+      start_tz: 'Asia/Tashkent',
+      start: block('2026-10-18T20:00:00Z', 'Asia/Tashkent'),
+    } as PlanPart;
+    const days = buildTimeline([{ id: 1, parts: [late] } as Plan]);
+    expect(days[0].dayKey).toBe('2026-10-19');
+    expect(days[0].label).toBe('Mon, 19 Oct 2026');
+  });
+
+  it('keys external events in their own zone, UTC for all-day', () => {
+    const ev = (o: Partial<ExternalEvent>) =>
+      ({ starts_at: '2026-10-18T20:00:00Z', ...o }) as ExternalEvent;
+    expect(buildExternalDays([ev({ start_tz: 'Asia/Tashkent' })])[0].dayKey).toBe('2026-10-19');
+    expect(buildExternalDays([ev({ start_tz: 'Asia/Tashkent', all_day: true })])[0].dayKey).toBe(
+      '2026-10-18',
+    );
+  });
+
+  it('flags a part outside the trip dates in its own zone', () => {
+    const part = {
+      id: 1,
+      plan_id: 1,
+      type: 'dining',
+      seq: 0,
+      status: 'planned',
+      starts_at: '2026-10-18T20:00:00Z',
+      start: block('2026-10-18T20:00:00Z', 'Asia/Tashkent'),
+    } as PlanPart;
+    const plans = [{ id: 1, parts: [part] } as Plan];
+    expect(
+      plansOutsideTripDates({ starts_on: '2026-10-18', ends_on: '2026-10-18' } as Trip, plans),
+    ).toBe(true);
+    expect(
+      plansOutsideTripDates({ starts_on: '2026-10-19', ends_on: '2026-10-19' } as Trip, plans),
+    ).toBe(false);
   });
 });

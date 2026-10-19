@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
+import { setViewerZone } from '../lib/time';
 import { Mono, Row, Section, TimeRow } from './DetailRows';
 
 describe('Row', () => {
@@ -110,19 +111,19 @@ describe('TimeRow', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders local time + UTC secondary line when a tz is given', () => {
-    render(<TimeRow label="Scheduled out" iso="2026-07-01T14:00:00Z" tz="America/New_York" />);
+  it("renders the zone's time and the viewer's time when they differ", () => {
+    setViewerZone('Europe/London');
+    render(<TimeRow label="Scheduled out" iso="2026-10-18T09:00:00Z" tz="Asia/Tashkent" />);
     expect(screen.getByText('Scheduled out')).toBeInTheDocument();
-    // Local line (EDT, no UTC suffix) plus the secondary UTC caption line.
-    expect(screen.getByText(/UTC$/)).toBeInTheDocument();
+    expect(screen.getByText('Sun 18 Oct, 14:00 UTC+5')).toBeInTheDocument();
+    expect(screen.getByText('Your time: Sun 18 Oct, 10:00 (UTC+1)')).toBeInTheDocument();
+    setViewerZone(null);
   });
 
-  it('renders only the UTC line (no secondary caption) without a tz', () => {
+  it('renders no caption without a tz', () => {
     render(<TimeRow label="Scheduled out" iso="2026-07-01T14:00:00Z" />);
-    const utcMatches = screen.getAllByText(/UTC$/);
-    // Without a tz the primary value already carries the UTC suffix; there is
-    // no separate caption line.
-    expect(utcMatches).toHaveLength(1);
+    expect(screen.getByText('Wed 1 Jul, 14:00')).toBeInTheDocument();
+    expect(screen.queryByText(/Your time/)).not.toBeInTheDocument();
   });
 });
 

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Children, isValidElement } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { fmtDateTime, fmtUTC } from '../lib/format';
+import { blockFor, fmtFull, fmtViewer } from '../lib/time';
 
 // Small presentational primitives shared by FlightDetailCard and PartDetailBlock
 // — a labelled section with label/value rows. A Section/Row renders nothing when
@@ -67,19 +67,21 @@ export function Row({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-/** A schedule row: airport-local time with a secondary UTC line. Null when the
- * instant is missing. */
+/** A schedule row: the time in its own zone, with the viewer's time beneath when
+ * it differs. Null when the instant is missing. */
 export function TimeRow({ label, iso, tz }: { label: string; iso?: string; tz?: string }) {
   if (!iso) return null;
+  const b = blockFor(iso, tz ?? '');
+  const yours = fmtViewer(b);
   return (
     <Row
       label={label}
       value={
         <Stack component="span" sx={{ display: 'inline-flex' }}>
-          <Box component="span">{fmtDateTime(iso, tz)}</Box>
-          {tz && (
+          <Box component="span">{fmtFull(b)}</Box>
+          {yours && (
             <Typography variant="caption" color="text.secondary">
-              {fmtUTC(iso)}
+              Your time: {yours}
             </Typography>
           )}
         </Stack>

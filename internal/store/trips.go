@@ -36,6 +36,11 @@ type Trip struct {
 	// client derives it there).
 	EffectiveStart *time.Time
 	EffectiveEnd   *time.Time
+	// FirstTZ/LastTZ are the zones of the trip's first and last live items (the
+	// earliest start; the latest end, its end zone else its start zone), so the
+	// span's dates can be read where they happen. List only, like the above.
+	FirstTZ string
+	LastTZ  string
 }
 
 // TripMember is one (trip, user, role) edge — the sharing boundary. Role is
@@ -96,7 +101,15 @@ var listTripsSelect = `
 		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL),
 		(SELECT max(COALESCE(p.ends_at, p.starts_at)) FROM plan_parts p
 		   JOIN plans pl ON pl.id = p.plan_id
-		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL)
+		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL),
+		COALESCE((SELECT p.start_tz FROM plan_parts p
+		   JOIN plans pl ON pl.id = p.plan_id
+		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL
+		  ORDER BY p.starts_at, p.id LIMIT 1), ''),
+		COALESCE((SELECT COALESCE(NULLIF(p.end_tz, ''), p.start_tz) FROM plan_parts p
+		   JOIN plans pl ON pl.id = p.plan_id
+		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL
+		  ORDER BY COALESCE(p.ends_at, p.starts_at) DESC, p.id DESC LIMIT 1), '')
 	FROM trips t`
 
 func (s *Store) scanTripList(rows pgx.Rows) ([]*Trip, error) {
@@ -106,7 +119,7 @@ func (s *Store) scanTripList(rows pgx.Rows) ([]*Trip, error) {
 		var t Trip
 		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
 			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.Description, &t.ShareAllFriendsRole,
-			&t.EffectiveStart, &t.EffectiveEnd); err != nil {
+			&t.EffectiveStart, &t.EffectiveEnd, &t.FirstTZ, &t.LastTZ); err != nil {
 			return nil, err
 		}
 		out = append(out, &t)

@@ -1,5 +1,7 @@
 import type { PlanPart, Position } from '../api/types';
 import { initialBearing } from './great-circle';
+import { blockFor, fmtFull, viewerZone } from './time';
+import { endBlockOf, startBlockOf } from './trip-format';
 
 /** Pure flight position/track/window helpers shared by the map view: where a
  * plane icon belongs (live or scrubbed back in time), when it's visible, and
@@ -26,25 +28,13 @@ export function parseMs(iso?: string | null): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-/** A flight leg's effective departure / arrival epoch ms (actual → estimated →
- * scheduled, falling back to the part's own start/end), or null when unknown. */
-function flightDeparture(p: PlanPart): number | null {
-  const f = p.flight;
-  return (
-    parseMs(f?.actual_out) ??
-    parseMs(f?.estimated_out) ??
-    parseMs(f?.scheduled_out) ??
-    parseMs(p.starts_at)
-  );
+/** A part's departure / arrival epoch ms from its server blocks, which already
+ * carry the actual, estimated, derived or scheduled time; null when unknown. */
+function blockStartMs(p: PlanPart): number | null {
+  return parseMs(startBlockOf(p).at);
 }
-function flightArrival(p: PlanPart): number | null {
-  const f = p.flight;
-  return (
-    parseMs(f?.actual_in) ??
-    parseMs(f?.estimated_in) ??
-    parseMs(f?.scheduled_in) ??
-    parseMs(p.ends_at)
-  );
+function blockEndMs(p: PlanPart): number | null {
+  return parseMs(endBlockOf(p)?.at);
 }
 
 /** The live plane placement (latest reported fix). Landed: park at the
@@ -97,8 +87,8 @@ export function planePlacementAt(p: PlanPart, t: number): PlanePlacement | null 
       : null;
   const dest = (): PlanePlacement | null =>
     hasEnd ? { lon: p.end_lon!, lat: p.end_lat!, heading: routeHeading, estimated: false } : null;
-  const dep = flightDeparture(p);
-  const arr = flightArrival(p);
+  const dep = blockStartMs(p);
+  const arr = blockEndMs(p);
 
   // Before push-back: parked at the origin, oriented along the route.
   if (dep != null && t < dep) return origin() ?? dest();
@@ -170,7 +160,7 @@ export function planeWindows(parts: PlanPart[]): Map<number, { start: number; en
   }
   for (const legs of groups.values()) {
     const wins = legs
-      .map((p) => ({ id: p.id, dep: flightDeparture(p), arr: flightArrival(p) }))
+      .map((p) => ({ id: p.id, dep: blockStartMs(p), arr: blockEndMs(p) }))
       .filter((w): w is { id: number; dep: number; arr: number | null } => w.dep != null)
       .sort((a, b) => a.dep - b.dep)
       .map((w) => ({
@@ -254,20 +244,12 @@ function clipTrackCoords(track: Position[], until: number | null): [number, numb
   return coords;
 }
 
-/** The scrubbed instant in the viewer's local time, e.g. "Mon 12 Oct, 11:30".
- * The map can span many timezones, so local (browser) time is the one frame
+/** The scrubbed instant in the viewer's zone, e.g. "Sun 18 Oct, 10:00 UTC+1".
+ * The map can span many timezones, so the viewer's zone is the one frame
  * everything shares. */
-export function fmtScrubTime(ms: number): string {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+export function fmtScrubTime(ms: number, tz: string = viewerZone()): string {
+  if (Number.isNaN(ms)) return '';
+  return fmtFull(blockFor(new Date(ms).toISOString(), tz));
 }
 
 function emptyFC(): GeoJSON.FeatureCollection {

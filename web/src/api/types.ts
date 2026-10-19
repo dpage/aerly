@@ -319,6 +319,10 @@ export interface Trip {
    * dates when starts_on/ends_on aren't set. */
   effective_start?: string;
   effective_end?: string;
+  /** The instants the trip runs between, in its first and last items' zones
+   * (list payload only). Preferred over the date fields for Upcoming/Now/Past. */
+  span_start?: string;
+  span_end?: string;
   created_by?: number;
   /** The viewer's role on this trip. */
   my_role: TripRole;
@@ -796,7 +800,12 @@ export interface UpdatePlanInput {
 export interface PlanPartInput {
   type: PlanType;
   seq?: number;
-  starts_at: string;
+  /** An instant; send this or start_local, not both. */
+  starts_at?: string;
+  /** Wall-clock "YYYY-MM-DDTHH:MM" at start_tz, converted by the server. */
+  start_local?: string;
+  /** Wall-clock "YYYY-MM-DDTHH:MM" at end_tz, converted by the server. */
+  end_local?: string;
   ends_at?: string;
   start_tz?: string;
   end_tz?: string;
@@ -828,6 +837,9 @@ export interface PlanPartInput {
 
 export interface UpdatePlanPartInput {
   starts_at?: string;
+  /** Wall-clock "YYYY-MM-DDTHH:MM" at the sent (or current) zone. */
+  start_local?: string;
+  end_local?: string;
   ends_at?: string;
   start_tz?: string;
   end_tz?: string;

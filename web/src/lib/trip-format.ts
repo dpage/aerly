@@ -1,7 +1,26 @@
 // Display + classification helpers for the trip list and timeline (spec §11,
 // PRD §6.1/§6.2). Pure functions, unit-tested in trip-format.test.ts.
 
-import type { ExternalEvent, Plan, PlanPart, PlanType, Trip } from '../api/types';
+import type {
+  ExternalEvent,
+  Plan,
+  PlanPart,
+  PlanType,
+  TimeBlock,
+  Trip,
+  TZSource,
+  UpdatePlanPartInput,
+} from '../api/types';
+import {
+  blockFor,
+  dayKey,
+  durationMin,
+  fmtCompact,
+  fmtDayHeading,
+  fmtDuration,
+  isRevised,
+  needsZone,
+} from './time';
 
 /** Which home-screen group a trip falls under. */
 export type TripBucket = 'upcoming' | 'now' | 'past';
@@ -25,17 +44,22 @@ export function tripSpan(trip: Trip, plans?: Plan[]): TripSpan {
   for (const plan of plans ?? []) {
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
-      const s = parseInstant(part.effective_at ?? part.starts_at);
+      const s = parseInstant(startBlockOf(part).at);
       if (s != null) instants.push(s);
-      const e = parseInstant(part.ends_at);
+      const e = parseInstant(endBlockOf(part)?.at);
       if (e != null) instants.push(e);
     }
   }
   if (instants.length > 0) {
     return { start: Math.min(...instants), end: Math.max(...instants) };
   }
-  // No parts in this payload: prefer the explicit dates, then the span the
-  // server inferred from the trip's parts (the list payload carries no parts).
+  // The server's span is in the first and last items' own zones, so a trip
+  // ending in New York is still current through that evening.
+  const ss = parseInstant(trip.span_start);
+  const se = parseInstant(trip.span_end);
+  if (ss != null || se != null) return { start: ss, end: se };
+  // Dateless payloads and the detail payload: prefer the explicit dates, then
+  // the span the server inferred from the trip's parts, read as UTC dates.
   // A date-only end is the *last day* of the trip, through which it's still
   // ongoing — so extend it to the end of that day. Without this a trip ending
   // today reads as "past" the moment UTC midnight rolls over, mis-filing a
@@ -87,9 +111,9 @@ export function plansOutsideTripDates(trip: Trip, plans: Plan[]): boolean {
   for (const plan of plans) {
     for (const part of plan.parts) {
       if (part.dismissed_at) continue;
-      const startDay = localDayKey(part.effective_at ?? part.starts_at, part.start_tz);
+      const startDay = dayKey(startBlockOf(part));
       if (trip.starts_on && startDay < trip.starts_on) return true;
-      const endDay = localDayKey(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz);
+      const endDay = dayKey(endBlockOf(part) ?? startBlockOf(part));
       if (trip.ends_on && endDay > trip.ends_on) return true;
     }
   }
@@ -133,17 +157,17 @@ export interface TimelineDay {
  * - Dismissed parts are dropped entirely (PRD §6.2).
  * - Superseded-but-not-dismissed parts stay (the page greys them).
  * - Parts sort by `effective_at`; days group by the local calendar day in the
- *   part's `start_tz` so a red-eye lands on its departure day's header and the
- *   header reads in the local time of where it happens. */
+ *   zone of the part's start block, so a red-eye lands on its departure day's
+ *   header and the header reads in the local time of where it happens. */
 export function buildTimeline(plans: Plan[]): TimelineDay[] {
-  // Each entry carries the instant + iso/tz used to place and sort it, so a
-  // banded booking (a multi-night stay, a multi-day hire) can contribute two
-  // entries: one on the day it opens and one on the day it closes.
+  // Each entry carries the instant to sort by and the block that places it on
+  // a day (in that block's own zone), so a banded booking (a multi-night stay,
+  // a multi-day hire) can contribute two entries: one on the day it opens and
+  // one on the day it closes.
   interface Entry {
     tp: TimelinePart;
     instant: number;
-    iso: string;
-    tz?: string;
+    block: TimeBlock;
   }
   const flat: Entry[] = [];
   for (const plan of plans) {
@@ -155,20 +179,17 @@ export function buildTimeline(plans: Plan[]): TimelineDay[] {
           // Sort by the smart opening time (effective_at: after the inbound
           // flight's arrival) so the booking doesn't jump ahead of the flight
           // that gets you there, matching the map's ordering. Keep the day
-          // bucket on the booked opening date (iso = starts_at).
+          // bucket on the booked opening (part.start, which is starts_at).
           instant: instantOf(part),
-          iso: part.starts_at,
-          tz: part.start_tz,
+          block: startBlockOf(part),
         });
         flat.push({
           tp: { part, plan, edge: 'last' },
           instant: parseInstant(part.ends_at) ?? 0,
-          iso: part.ends_at,
-          tz: part.end_tz || part.start_tz,
+          block: endBlockOf(part) ?? startBlockOf(part),
         });
       } else {
-        const iso = part.effective_at ?? part.starts_at;
-        flat.push({ tp: { part, plan }, instant: instantOf(part), iso, tz: part.start_tz });
+        flat.push({ tp: { part, plan }, instant: instantOf(part), block: startBlockOf(part) });
       }
     }
   }
@@ -176,10 +197,10 @@ export function buildTimeline(plans: Plan[]): TimelineDay[] {
 
   const days = new Map<string, TimelineDay>();
   for (const e of flat) {
-    const key = localDayKey(e.iso, e.tz);
+    const key = dayKey(e.block);
     let day = days.get(key);
     if (!day) {
-      day = { dayKey: key, label: fmtDayHeader(e.iso, e.tz), parts: [] };
+      day = { dayKey: key, label: fmtDayHeading(e.block), parts: [] };
       days.set(key, day);
     }
     day.parts.push(e.tp);
@@ -202,11 +223,12 @@ export function buildExternalDays(events: ExternalEvent[]): ExternalDay[] {
   const sorted = [...events].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const days = new Map<string, ExternalDay>();
   for (const e of sorted) {
-    const tz = e.all_day ? 'UTC' : e.start_tz || undefined;
-    const key = localDayKey(e.starts_at, tz);
+    const tz = e.all_day ? 'UTC' : e.start_tz || '';
+    const b = blockFor(e.starts_at, tz);
+    const key = dayKey(b);
     let day = days.get(key);
     if (!day) {
-      day = { dayKey: key, label: fmtDayHeader(e.starts_at, tz), events: [] };
+      day = { dayKey: key, label: fmtDayHeading(b), events: [] };
       days.set(key, day);
     }
     day.events.push(e);
@@ -258,9 +280,8 @@ export function bandEdgeLabels(type: PlanType): [string, string] | null {
  * in between. */
 export function isBandedPart(part: PlanPart): boolean {
   if (!BANDED[part.type] || !part.ends_at) return false;
-  const startDay = localDayKey(part.starts_at, part.start_tz);
-  const endDay = localDayKey(part.ends_at, part.end_tz || part.start_tz);
-  return endDay > startDay;
+  const sb = startBlockOf(part);
+  return dayKey(endBlockOf(part) ?? sb) > dayKey(sb);
 }
 
 /** The length of a banded booking in whole days, for its span chip: the nights
@@ -272,55 +293,6 @@ export function bandSpanDays(part: PlanPart): number {
   if (start == null || end == null) return 0;
   const ms = end - start;
   return Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
-}
-
-/** A time-of-day in the given tz, e.g. "14:30". 24-hour for determinism, same
- * convention as `fmtDateTime`. */
-export function fmtTimeOfDay(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const base = d.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz || 'UTC',
-  });
-  // Always carry the local tz abbreviation so every plan reads consistently in
-  // local time (PRD §6.2) — falling back to "UTC" when the zone is unknown.
-  return `${base} ${tzAbbrev(iso, tz)}`;
-}
-
-/** The local timezone abbreviation for an instant in a tz, e.g. "BST", "EDT",
- * "UTC". Falls back to "UTC" when the tz is unknown (the instant is stored UTC
- * and the digits are the wall-clock the booking stated). */
-export function tzAbbrev(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz || 'UTC',
-    timeZoneName: 'short',
-  }).formatToParts(d);
-  return parts.find((p) => p.type === 'timeZoneName')?.value ?? 'UTC';
-}
-
-/** A full local date + time + tz abbreviation for a marker tooltip, e.g.
- * "Sun 25 Oct, 16:00 BST". Empty for an unparseable instant. */
-export function fmtLocalDateTime(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const date = d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    timeZone: tz || 'UTC',
-  });
-  const time = d.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz || 'UTC',
-  });
-  return `${date}, ${time} ${tzAbbrev(iso, tz)}`;
 }
 
 /** Split an instant into its local date ("YYYY-MM-DD") + time ("HH:MM") in the
@@ -348,14 +320,6 @@ export function zonedTimeToUtc(date: string, time: string, tz?: string): string 
   if (!y || !mo || !d) return '';
   const guess = Date.UTC(y, mo - 1, d, h || 0, mi || 0);
   return new Date(guess - tzOffsetMs(tz || 'UTC', guess)).toISOString();
-}
-
-/** A Date's local wall-clock digits (in the browser's zone) as a floating
- * timestamp, "YYYY-MM-DDTHH:mm:00Z": the Z is a lie by design, as the server
- * reads the digits as local time at the place and re-anchors them. */
-export function floatingISO(d: Date): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `${p(d.getFullYear(), 4)}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00Z`;
 }
 
 /** The offset (ms) of tz at the given UTC instant: how far the zone's local
@@ -387,93 +351,75 @@ function tzOffsetMs(tz: string, utcMs: number): number {
   return asUTC - utcMs;
 }
 
-/** A part's local-time range: "14:30" for an instant, "14:30 → 18:05" when it
- * has an end. Ends render in their own tz so a flight reads in arrival-local. */
-export function fmtPartTimeRange(part: PlanPart): string {
-  const start = fmtTimeOfDay(part.starts_at, part.start_tz);
-  if (!part.ends_at) return start;
-  const end = fmtTimeOfDay(part.ends_at, part.end_tz || part.start_tz);
-  return `${start} → ${end}`;
+/** A part's start block: the server's, or for a response that predates blocks
+ * (a stale cache) a scheduled one built from starts_at, start_tz and
+ * start_tz_source the way the server would: a floating time gets no zone,
+ * whatever airport fallback the raw zone carries, and a blank zone no label. */
+export function startBlockOf(part: PlanPart): TimeBlock {
+  return part.start ?? fallbackBlock(part.starts_at, part.start_tz, part.start_tz_source);
 }
 
-/** A part's local calendar date(s) for the share text, e.g. "Mon 12 Oct 2026",
- * or "Mon 12 Oct 2026 → Thu 15 Oct 2026" when it ends on a different local day
- * (a stay, a red-eye). Each end reads in its own tz, like fmtPartTimeRange. */
+/** A part's end block, as startBlockOf from the end's own zone and source;
+ * absent when the part has no end. */
+export function endBlockOf(part: PlanPart): TimeBlock | undefined {
+  if (part.end) return part.end;
+  return part.ends_at ? fallbackBlock(part.ends_at, part.end_tz, part.end_tz_source) : undefined;
+}
+
+function fallbackBlock(at: string, tz?: string, src?: TZSource): TimeBlock {
+  return blockFor(at, src === 'floating' ? '' : tz || '', src);
+}
+
+/** A part's current times: "14:00 UTC+5", or "14:00 UTC+5 → ≈18:05 UTC+1" with
+ * an end. Each end reads in its own zone, from the server's blocks. */
+export function fmtPartTimeRange(part: PlanPart): string {
+  const start = fmtCompact(startBlockOf(part));
+  const end = endBlockOf(part);
+  return end ? `${start} → ${fmtCompact(end)}` : start;
+}
+
+/** The zone an end's timetable (starts_at/ends_at, scheduled_out/in) reads in:
+ * the block's, but blank for a floating end, whose timetable is wall-clock
+ * digits even when a provider estimate gives its block the airport's zone
+ * (newTimeBlock in internal/api/dto.go does the same). '' with no block. */
+export function timetableZone(b: TimeBlock | undefined): string {
+  return !b || b.tz_source === 'floating' ? '' : b.tz;
+}
+
+// The timetable time behind a revised block, in its timetable zone.
+function timetableBlock(b: TimeBlock, at: string): TimeBlock {
+  return { ...b, at, tz: timetableZone(b), kind: 'scheduled', delay_min: 0 };
+}
+
+/** The timetable range, when either end is running to a reported or worked-out
+ * time at least a minute away from it; null when the part is on schedule. */
+export function fmtPartScheduledRange(part: PlanPart): string | null {
+  const sb = startBlockOf(part);
+  const eb = endBlockOf(part);
+  if (!isRevised(sb) && !isRevised(eb)) return null;
+  const f = part.flight;
+  const start = fmtCompact(timetableBlock(sb, f?.scheduled_out ?? part.starts_at));
+  const endAt = f?.scheduled_in ?? part.ends_at;
+  if (!eb || !endAt) return start;
+  return `${start} → ${fmtCompact(timetableBlock(eb, endAt))}`;
+}
+
+/** A part's local date(s) for the share text, e.g. "Sun, 18 Oct 2026", or a
+ * range when it ends on a different local day. */
 export function fmtPartDateRange(part: PlanPart): string {
-  const start = fmtDayHeader(part.starts_at, part.start_tz);
-  if (!part.ends_at) return start;
-  const end = fmtDayHeader(part.ends_at, part.end_tz || part.start_tz);
+  const start = fmtDayHeading(startBlockOf(part));
+  const eb = endBlockOf(part);
+  if (!eb) return start;
+  const end = fmtDayHeading(eb);
   return end === start ? start : `${start} → ${end}`;
 }
 
-/** How long a transfer takes door to door, e.g. "10h 30m", worked out from the
- * instants rather than the wall-clocks so a range that crosses time zones reads
- * true (22:30 GMT+1 → 10:00 GMT+2 is 10h 30m). Uses the times the flight is
- * actually running to, like the revised range, and counts whole clock minutes
- * so it agrees with the times shown. Null for a single-place type, a part with
- * no end, or an end that isn't after the start. */
+/** How long a transfer takes, end block minus start block, e.g. "8h 5m". Null
+ * for a single-place type, a part with no end, or an end not after the start. */
 export function fmtPartDuration(part: PlanPart): string | null {
-  if (!isTransferType(part.type) || !part.ends_at) return null;
-  const live = liveTimes(part);
-  const start = parseInstant(live.out ?? part.starts_at);
-  const end = parseInstant(live.in ?? part.ends_at);
-  if (start === null || end === null) return null;
-  const mins = Math.floor(end / 60000) - Math.floor(start / 60000);
-  if (mins <= 0) return null;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return h ? `${h}h ${m}m` : `${m}m`;
-}
-
-/** The live times a flight is actually running to, in the same precedence the
- * server uses for `effective_at` (observed, then the airline's estimate, then
- * the timetable), so what a tile reads agrees with where it sorts. Only flights
- * carry these; every other type has nothing but its schedule. */
-function liveTimes(part: PlanPart): { out?: string; in?: string } {
-  if (part.type !== 'flight' || !part.flight) return {};
-  return {
-    out: part.flight.actual_out ?? part.flight.estimated_out,
-    in: part.flight.actual_in ?? part.flight.estimated_in,
-  };
-}
-
-/** The revised time range, when the flight is running to times that read
- * differently from its timetable; null when it is on schedule or has no live
- * coverage at all.
- *
- * The comparison is on the formatted times rather than the raw instants,
- * because the question being asked is whether a reader would see a different
- * clock time: a revision of forty seconds still shows as 17:05 and is not worth
- * striking the timetable through for.
- */
-export function fmtPartRevisedTimeRange(part: PlanPart): string | null {
-  const live = liveTimes(part);
-  if (!live.out && !live.in) return null;
-
-  const startTz = part.start_tz;
-  const endTz = part.end_tz || part.start_tz;
-  const revisedStart = fmtTimeOfDay(live.out ?? part.starts_at, startTz);
-  const scheduledStart = fmtTimeOfDay(part.starts_at, startTz);
-
-  if (!part.ends_at) return revisedStart === scheduledStart ? null : revisedStart;
-
-  const revisedEnd = fmtTimeOfDay(live.in ?? part.ends_at, endTz);
-  const scheduledEnd = fmtTimeOfDay(part.ends_at, endTz);
-  if (revisedStart === scheduledStart && revisedEnd === scheduledEnd) return null;
-  return `${revisedStart} → ${revisedEnd}`;
-}
-
-/** True when the airline has moved the departure later than the timetable, on
- * both counts that matter: the revised time reads differently on the clock, and
- * it is genuinely later rather than earlier. */
-function departureIsLate(part: PlanPart): boolean {
-  const live = liveTimes(part);
-  if (!live.out) return false;
-  const startTz = part.start_tz;
-  if (fmtTimeOfDay(live.out, startTz) === fmtTimeOfDay(part.starts_at, startTz)) return false;
-  const revised = new Date(live.out).getTime();
-  const scheduled = new Date(part.starts_at).getTime();
-  return Number.isFinite(revised) && Number.isFinite(scheduled) && revised > scheduled;
+  if (!isTransferType(part.type)) return null;
+  const mins = durationMin(startBlockOf(part), endBlockOf(part));
+  return mins == null ? null : fmtDuration(mins);
 }
 
 export interface FlightStatusLabel {
@@ -504,23 +450,27 @@ export function flightStatusLabel(part: PlanPart): FlightStatusLabel | null {
   if (part.type !== 'flight' || !part.flight) return null;
   const status = part.flight.flight_status?.trim() ?? '';
   if (status === 'Cancelled' || status === 'Diverted') return { label: status, tone: 'error' };
-  if (status !== 'Arrived' && departureIsLate(part)) return { label: 'Delayed', tone: 'warning' };
+  // A departure the airline has reported or estimated later than the timetable.
+  const sb = startBlockOf(part);
+  const late = (sb.kind === 'estimated' || sb.kind === 'actual') && sb.delay_min > 0;
+  if (status !== 'Arrived' && late) return { label: 'Delayed', tone: 'warning' };
   return status ? { label: status, tone: 'normal' } : null;
 }
 
-/** The one-line plain-text form, for the places that cannot strike text
- * through: the map popup's summary line and the share text. It leads with the
- * times the flight is actually running to and keeps the timetable behind them,
- * so someone reading a shared plan is told when to turn up rather than what was
- * booked. Collapses to the plain range when nothing has been revised. */
+/** The one-line plain-text form for the map popup and share text, which cannot
+ * strike text through: the current times, then the timetable when revised. */
 export function fmtPartTimeRangeText(part: PlanPart): string {
-  const revised = fmtPartRevisedTimeRange(part);
-  const scheduled = fmtPartTimeRange(part);
-  return revised ? `${revised} (scheduled ${scheduled})` : scheduled;
+  const scheduled = fmtPartScheduledRange(part);
+  const now = fmtPartTimeRange(part);
+  return scheduled ? `${now} (scheduled ${scheduled})` : now;
 }
 
 // --- internals --------------------------------------------------------------
 
+// The instant a part sorts by: effective_at, not the start block's time,
+// because a stay's effective_at is its suggested check-in after the inbound
+// flight lands (handlers_plans.go), which its start block, the booked time,
+// does not carry. A flight's effective_at is its start block's instant.
 function instantOf(part: PlanPart): number {
   return parseInstant(part.effective_at ?? part.starts_at) ?? 0;
 }
@@ -543,26 +493,6 @@ function parseDateOnly(dateOnly?: string): number | null {
 function parseDateOnlyEnd(dateOnly?: string): number | null {
   const t = parseDateOnly(dateOnly);
   return t == null ? null : t + 24 * 60 * 60 * 1000;
-}
-
-/** A sortable YYYY-MM-DD key for an instant in the given tz. Uses en-CA which
- * formats as ISO-8601 dates, so string comparison orders chronologically. */
-function localDayKey(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-CA', { timeZone: tz || 'UTC' });
-}
-
-function fmtDayHeader(iso: string, tz?: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: tz || 'UTC',
-  });
 }
 
 const TRANSFER_TYPES = new Set<PlanType>(['flight', 'train', 'ground']);
@@ -635,4 +565,68 @@ export const ACCOMMODATION_KINDS = [
  * doesn't. */
 export function planTypeLabel(type: PlanType): string {
   return PLAN_TYPE_LABELS[type] ?? type;
+}
+
+/** The PATCH that confirms the zone of one end of a part. When the zone picked
+ * differs from the one shown, the scheduled wall-clock time is sent too (taken
+ * from starts_at/ends_at, not from the block, so an estimate or actual, which
+ * is a real instant, is never moved), so the wall-clock time is kept and the
+ * instant moves: a guessed zone was a guess about where, not about when. A
+ * floating end's digits are already wall-clock. An unknown end's time is a
+ * true instant, so only its zone is sent and the server keeps the instant. */
+export function zoneConfirmPatch(
+  part: PlanPart,
+  which: 'start' | 'end',
+  tz: string,
+): UpdatePlanPartInput {
+  const b = which === 'start' ? startBlockOf(part) : endBlockOf(part);
+  const shown = timetableZone(b);
+  const keepInstant = b?.tz_source === 'unknown';
+  if (which === 'start') {
+    const patch: UpdatePlanPartInput = { start_tz: tz, start_tz_source: 'confirmed' };
+    if (tz !== shown && !keepInstant) {
+      const { date, time } = splitLocal(part.starts_at, shown);
+      patch.start_local = `${date}T${time}`;
+    }
+    return patch;
+  }
+  const patch: UpdatePlanPartInput = { end_tz: tz, end_tz_source: 'confirmed' };
+  if (tz !== shown && !keepInstant && part.ends_at) {
+    const { date, time } = splitLocal(part.ends_at, shown);
+    patch.end_local = `${date}T${time}`;
+  }
+  return patch;
+}
+
+/** How many plans have a live part with a start or end whose zone is unknown
+ * or floating. A plan counts once however many of its parts need one. */
+export function countPlansNeedingZone(plans: Plan[]): number {
+  return plans.filter((plan) =>
+    plan.parts.some(
+      (part) =>
+        !part.dismissed_at && (needsZone(startBlockOf(part)) || needsZone(endBlockOf(part))),
+    ),
+  ).length;
+}
+
+/** The zone a new item at `atMs` most likely sits in: where the traveller is
+ * after the latest live part at or before it (its end's zone, else its
+ * start's), else the zone of the first part after it. Blank zones are skipped;
+ * '' when nothing is left. The caller sends a zone found this way as inferred. */
+export function neighbourZone(plans: Plan[], atMs: number): string {
+  if (Number.isNaN(atMs)) return '';
+  let before: { at: number; tz: string } | null = null;
+  let after: { at: number; tz: string } | null = null;
+  for (const plan of plans) {
+    for (const part of plan.parts) {
+      if (part.dismissed_at) continue;
+      const sb = startBlockOf(part);
+      const at = Date.parse(sb.at);
+      if (Number.isNaN(at)) continue;
+      const tz = endBlockOf(part)?.tz || sb.tz;
+      if (at <= atMs && tz && (!before || at > before.at)) before = { at, tz };
+      if (at > atMs && sb.tz && (!after || at < after.at)) after = { at, tz: sb.tz };
+    }
+  }
+  return before?.tz ?? after?.tz ?? '';
 }

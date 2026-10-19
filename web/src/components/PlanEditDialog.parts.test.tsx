@@ -127,8 +127,8 @@ describe('PlanEditDialog — part detail editors', () => {
     await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
     const [partId, patch] = h.updatePlanPart.mock.calls[0];
     expect(partId).toBe(100);
-    // 13:35 BST → 12:35Z, carrying the tz.
-    expect(patch.starts_at).toBe('2026-10-12T12:35:00.000Z');
+    // 13:35 London wall-clock, carrying the zone.
+    expect(patch.start_local).toBe('2026-10-12T13:35');
     expect(patch.start_tz).toBe('Europe/London');
   });
 
@@ -229,7 +229,7 @@ describe('PlanEditDialog — part detail editors', () => {
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.updatePlanPart).toHaveBeenCalled());
     const [, patch] = h.updatePlanPart.mock.calls[0];
-    expect(patch.ends_at).toBeTruthy();
+    expect(patch.end_local).toBe('2026-10-15T10:00');
   });
 
   it('shows a single "Where" endpoint for a non-transfer single-point part', () => {

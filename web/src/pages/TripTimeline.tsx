@@ -32,6 +32,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import { api } from '../api/client';
 import { useStore } from '../state/store';
 import type { ExternalEvent, Plan, PlanPart, Trip } from '../api/types';
+import TimeMarker from '../components/TimeMarker';
 import PlanTypeIcon from '../components/PlanTypeIcon';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
@@ -49,12 +50,14 @@ import {
   fmtPartPlaces,
   flightStatusLabel,
   fmtPartDuration,
-  fmtPartRevisedTimeRange,
+  fmtPartScheduledRange,
   fmtPartTimeRange,
-  fmtTimeOfDay,
+  startBlockOf,
+  endBlockOf,
   planTypeLabel,
 } from '../lib/trip-format';
 import type { BandEdge } from '../lib/trip-format';
+import { blockFor, fmtCompact } from '../lib/time';
 import { fmtGate } from '../lib/gate';
 import { formatCost } from '../lib/format';
 import { isUnlocated } from '../lib/geo';
@@ -491,8 +494,8 @@ function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: st
   const [expanded, setExpanded] = useState(false);
   const when = event.all_day
     ? 'All day'
-    : fmtTimeOfDay(event.starts_at, event.start_tz) +
-      (event.ends_at ? ` – ${fmtTimeOfDay(event.ends_at, event.start_tz)}` : '');
+    : fmtCompact(blockFor(event.starts_at, event.start_tz || 'UTC')) +
+      (event.ends_at ? ` – ${fmtCompact(blockFor(event.ends_at, event.start_tz || 'UTC'))}` : '');
   return (
     <Card
       variant="outlined"
@@ -614,13 +617,14 @@ function PartCard({
       ? part.flight.ident
       : plan.title || planTypeLabel(part.type);
 
-  // Non-null only when the flight is running to times that read differently
-  // from its timetable, which is what turns the line below into a departure
-  // board rather than a booking record.
-  const revisedWhen = fmtPartRevisedTimeRange(part);
+  // Non-null only when a block differs from the timetable, which is what turns
+  // the line below into a departure board rather than a booking record.
+  const scheduledWhen = fmtPartScheduledRange(part);
   // Total time of a transfer, shown after its range because the two ends can
   // sit in different time zones and the clock times alone don't say it.
   const duration = fmtPartDuration(part);
+  const startBlock = startBlockOf(part);
+  const endBlock = endBlockOf(part);
   // How the flight's state should read here. Lives on the collapsed tile rather
   // than behind a tap, because a cancellation is the single most important
   // thing a tile can say and nobody expands a tile to find out that their
@@ -809,10 +813,10 @@ function PartCard({
 
           <Typography variant="caption" color="text.secondary">
             {edge === 'first' ? (
-              `${edgeLabel} · ${fmtTimeOfDay(part.starts_at, part.start_tz)}`
+              `${edgeLabel} · ${fmtCompact(startBlock)}`
             ) : edge === 'last' ? (
-              `${edgeLabel} · ${fmtTimeOfDay(part.ends_at ?? part.starts_at, part.end_tz || part.start_tz)}`
-            ) : revisedWhen ? (
+              `${edgeLabel} · ${fmtCompact(endBlock ?? startBlock)}`
+            ) : scheduledWhen ? (
               // Departure-board treatment: the timetable stays visible but is
               // struck through, and the times the flight is actually running to
               // sit beside it in the warning colour. Both are announced to a
@@ -822,16 +826,16 @@ function PartCard({
                 <Box
                   component="span"
                   sx={{ textDecoration: 'line-through', opacity: 0.6 }}
-                  aria-label={`Scheduled ${fmtPartTimeRange(part)}`}
+                  aria-label={`Scheduled ${scheduledWhen}`}
                 >
-                  {fmtPartTimeRange(part)}
+                  {scheduledWhen}
                 </Box>{' '}
                 <Box
                   component="span"
                   sx={{ color: 'warning.main', fontWeight: 600 }}
-                  aria-label={`Now expected ${revisedWhen}`}
+                  aria-label={`Now expected ${fmtPartTimeRange(part)}`}
                 >
-                  {revisedWhen}
+                  {fmtPartTimeRange(part)}
                 </Box>
                 {duration && ` · ${duration}`}
               </>
@@ -839,6 +843,14 @@ function PartCard({
               `${fmtPartTimeRange(part)}${duration ? ` · ${duration}` : ''}`
             )}
           </Typography>
+          {edge !== 'last' && <TimeMarker part={part} which="start" canEdit={canEdit} />}
+          {endBlock &&
+            edge !== 'first' &&
+            (edge === 'last' ||
+              endBlock.kind === 'derived' ||
+              endBlock.tz_source !== startBlock.tz_source) && (
+              <TimeMarker part={part} which="end" canEdit={canEdit} />
+            )}
 
           {flightStatus && (
             <Typography

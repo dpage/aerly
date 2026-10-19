@@ -464,8 +464,12 @@ type TripDTO struct {
 	// Inferred from the trip's parts when StartsOn/EndsOn aren't set (list only).
 	EffectiveStart *string `json:"effective_start,omitempty"` // YYYY-MM-DD
 	EffectiveEnd   *string `json:"effective_end,omitempty"`
-	CreatedBy      *int64  `json:"created_by,omitempty"`
-	MyRole         string  `json:"my_role"` // owner|editor|viewer
+	// SpanStart/SpanEnd are the instants the trip runs between, in its first
+	// and last items' zones, for Upcoming / Now / Past.
+	SpanStart *time.Time `json:"span_start,omitempty"`
+	SpanEnd   *time.Time `json:"span_end,omitempty"`
+	CreatedBy *int64     `json:"created_by,omitempty"`
+	MyRole    string     `json:"my_role"` // owner|editor|viewer
 	// ViewerIsPassenger is true when the viewer is a passenger on at least one
 	// plan in the trip (i.e. they're travelling on it), as opposed to merely
 	// having the trip shared with them. The trip list uses it to file
@@ -935,13 +939,14 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 		dto.EndsOn = &s
 	}
 	if t.EffectiveStart != nil {
-		s := t.EffectiveStart.UTC().Format("2006-01-02")
+		s := t.EffectiveStart.In(tripZone(t.FirstTZ)).Format("2006-01-02")
 		dto.EffectiveStart = &s
 	}
 	if t.EffectiveEnd != nil {
-		s := t.EffectiveEnd.UTC().Format("2006-01-02")
+		s := t.EffectiveEnd.In(tripZone(t.LastTZ)).Format("2006-01-02")
 		dto.EffectiveEnd = &s
 	}
+	dto.SpanStart, dto.SpanEnd = tripSpanEdges(t)
 	return dto
 }
 

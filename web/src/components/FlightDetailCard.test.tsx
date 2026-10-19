@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 
 import type { FlightDetail, Position } from '../api/types';
+import { block } from '../test/blocks';
 import FlightDetailCard from './FlightDetailCard';
 
 function flight(over: Partial<FlightDetail> = {}): FlightDetail {
@@ -38,6 +39,46 @@ describe('FlightDetailCard', () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('labels estimated and actual times with the airport zone on a floating flight', () => {
+    render(
+      <FlightDetailCard
+        flight={flight({
+          estimated_out: '2026-10-12T09:15:00Z',
+          actual_in: '2026-10-12T13:05:00Z',
+          // The server's blocks for a floating flight: provider times keep
+          // the airport zone, the source stays floating.
+          departure: block('2026-10-12T09:15:00Z', 'Europe/London', {
+            tz_source: 'floating',
+            kind: 'estimated',
+            delay_min: 15,
+          }),
+          arrival: block('2026-10-12T13:05:00Z', 'America/New_York', {
+            tz_source: 'floating',
+            kind: 'actual',
+            delay_min: 5,
+          }),
+        })}
+        startTz=""
+        endTz=""
+      />,
+    );
+    expect(screen.getByText('Mon 12 Oct, 10:15 UTC+1')).toBeInTheDocument();
+    expect(screen.getByText('Mon 12 Oct, 09:05 UTC-4')).toBeInTheDocument();
+    // The timetable stays unlabelled: its digits are wall-clock, not an instant.
+    expect(screen.getByText('Mon 12 Oct, 09:00')).toBeInTheDocument();
+  });
+
+  it('falls back to the part zone when the flight carries no block zone', () => {
+    render(
+      <FlightDetailCard
+        flight={flight({ estimated_out: '2026-10-12T09:15:00Z' })}
+        startTz="Europe/London"
+        endTz="America/New_York"
+      />,
+    );
+    expect(screen.getByText('Mon 12 Oct, 10:15 UTC+1')).toBeInTheDocument();
   });
 
   it('renders aircraft, route and schedule rows with optional times present', () => {

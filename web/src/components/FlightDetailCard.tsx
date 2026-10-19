@@ -8,9 +8,11 @@ import { Mono, Row, Section, TimeRow } from './DetailRows';
 
 interface Props {
   flight: FlightDetail;
-  /** Departure-airport tz, for the "out" schedule rows. */
+  /** The departure's timetable zone (timetableZone), for the "out" schedule
+   * rows: the airport's, or blank for a floating end, never the raw start_tz,
+   * which carries the airport fallback even then. */
   startTz?: string;
-  /** Arrival-airport tz, for the "in" schedule rows. */
+  /** The arrival's timetable zone, for the "in" schedule rows, as startTz. */
   endTz?: string;
 }
 
@@ -19,6 +21,12 @@ interface Props {
  * full schedule (scheduled/estimated/actual out + in), live position, status,
  * and polling freshness. Collapses gracefully when telemetry is absent. */
 export default function FlightDetailCard({ flight, startTz, endTz }: Props) {
+  // Estimated and actual times are real instants from the provider, so they get
+  // a real zone even when the part's own is floating: the airport's, from the
+  // server's departure/arrival block, else the part's. Scheduled rows keep the
+  // part's zone, so a floating timetable stays unlabelled.
+  const liveOutTz = flight.departure?.tz || startTz;
+  const liveInTz = flight.arrival?.tz || endTz;
   // Tick once a second so "Fix age" / "Last polled" stay live.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -49,11 +57,11 @@ export default function FlightDetailCard({ flight, startTz, endTz }: Props) {
 
       <Section title="Schedule">
         <TimeRow label="Scheduled out" iso={flight.scheduled_out} tz={startTz} />
-        <TimeRow label="Estimated out" iso={flight.estimated_out} tz={startTz} />
-        <TimeRow label="Actual out" iso={flight.actual_out} tz={startTz} />
+        <TimeRow label="Estimated out" iso={flight.estimated_out} tz={liveOutTz} />
+        <TimeRow label="Actual out" iso={flight.actual_out} tz={liveOutTz} />
         <TimeRow label="Scheduled in" iso={flight.scheduled_in} tz={endTz} />
-        <TimeRow label="Estimated in" iso={flight.estimated_in} tz={endTz} />
-        <TimeRow label="Actual in" iso={flight.actual_in} tz={endTz} />
+        <TimeRow label="Estimated in" iso={flight.estimated_in} tz={liveInTz} />
+        <TimeRow label="Actual in" iso={flight.actual_in} tz={liveInTz} />
       </Section>
 
       {pos && (

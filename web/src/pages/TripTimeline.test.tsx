@@ -63,19 +63,22 @@ vi.mock('../components/ExplorePanel', () => ({
     initialCenter?: { lat: number; lon: number; label?: string };
   }) => (
     <div data-testid="explore-panel">
-      {initialCenter ? `${initialCenter.lat},${initialCenter.lon},${initialCenter.label ?? ''}` : ''}
+      {initialCenter
+        ? `${initialCenter.lat},${initialCenter.lon},${initialCenter.label ?? ''}`
+        : ''}
     </div>
   ),
 }));
 
 import { api } from '../api/client';
 import TripTimeline from './TripTimeline';
+import { block, partBlocks } from '../test/blocks';
 
 // The edit dialog's date/time picker, as a plain input (see the mock's notes).
 vi.mock('@mui/x-date-pickers/DateTimePicker', () => import('../test/date-time-picker-mock'));
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 1,
     plan_id: 1,
     type: 'flight',
@@ -87,8 +90,8 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
     end_label: 'LIS',
     status: 'planned',
     effective_at: '2026-10-12T09:00:00Z',
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function plan(parts: PlanPart[], over: Partial<Plan> = {}): Plan {
@@ -193,6 +196,28 @@ describe('TripTimeline', () => {
     expect(screen.getByTestId('part-card-1')).toBeInTheDocument();
   });
 
+  it('renders the scheduled time for a part with no time blocks (a cached pre-deploy response)', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            starts_at: '2026-10-12T09:30:00Z',
+            ends_at: '2026-10-12T11:45:00Z',
+            start: undefined,
+            end: undefined,
+          }),
+        ],
+        { id: 1, title: 'Flight out' },
+      ),
+    ]);
+    expect(() => renderTimeline()).not.toThrow();
+    const card = screen.getByTestId('part-card-1');
+    expect(card).toHaveTextContent('09:30');
+    expect(card).toHaveTextContent('11:45');
+  });
+
   it('drops dismissed parts', () => {
     state.currentTrip = tripWith([plan([part({ id: 1, dismissed_at: '2026-09-01T00:00:00Z' })])]);
     renderTimeline();
@@ -273,6 +298,8 @@ describe('TripTimeline', () => {
               estimated_out: '2026-08-20T17:00:00Z',
               estimated_in: '2026-08-20T19:00:00Z',
             } as PlanPart['flight'],
+            start: block('2026-08-20T17:00:00Z', 'UTC', { kind: 'estimated', delay_min: 115 }),
+            end: block('2026-08-20T19:00:00Z', 'UTC', { kind: 'estimated', delay_min: 105 }),
           }),
         ],
         { id: 1, title: 'OS967 VIE to ARN' },
@@ -289,6 +316,19 @@ describe('TripTimeline', () => {
       'aria-label',
       'Now expected 17:00 UTC → 19:00 UTC',
     );
+  });
+
+  it('strikes the timetable through beside a delayed estimate', () => {
+    const p = part({
+      flight: { ident: 'XX100', scheduled_out: '2026-10-12T09:00:00Z' } as PlanPart['flight'],
+      start: block('2026-10-12T09:30:00Z', 'UTC', { kind: 'estimated', delay_min: 30 }),
+    });
+    state.currentTrip = tripWith([plan([p])]);
+    renderTimeline();
+    expect(screen.getByLabelText('Scheduled 09:00 UTC')).toHaveStyle({
+      textDecoration: 'line-through',
+    });
+    expect(screen.getByLabelText('Now expected 09:30 UTC')).toBeInTheDocument();
   });
 
   it('leaves an on-time flight showing its schedule once, unstruck', () => {
@@ -335,6 +375,9 @@ describe('TripTimeline', () => {
           flight_status: status,
           ...extra,
         } as PlanPart['flight'],
+        ...(extra.estimated_out
+          ? { start: block(extra.estimated_out, 'UTC', { kind: 'estimated', delay_min: 115 }) }
+          : {}),
       });
 
     // A cancellation is the most important thing a tile can say, and it must
@@ -504,7 +547,7 @@ describe('TripTimeline', () => {
     expect(screen.queryByText('2 nights')).not.toBeInTheDocument();
   });
 
-  it('shows the DROP-OFF place and address on a one-way hire\'s Return tile, not the pickup ones', () => {
+  it("shows the DROP-OFF place and address on a one-way hire's Return tile, not the pickup ones", () => {
     // A one-way hire is collected in one city and dropped in another; the
     // Return tile must point the traveller at the drop-off depot, not repeat
     // the pickup one (the same defect commit 9e10a99 fixed on the PDF side).
@@ -714,9 +757,7 @@ describe('TripTimeline', () => {
     // viewer can open (unlike the owner-only Edit/Sharing/Delete controls).
     await userEvent.click(within(card).getByRole('button', { name: /Notifications/i }));
     expect(screen.getByLabelText(/Notify me of changes/i)).toBeInTheDocument();
-    expect(
-      within(card).queryByRole('button', { name: /Sharing/i }),
-    ).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: /Sharing/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /^Edit$/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /^Move$/i })).not.toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: /Delete/i })).not.toBeInTheDocument();
@@ -861,7 +902,15 @@ describe('TripTimeline', () => {
             id: 21,
             plan_id: 1,
             type: 'vehicle_hire',
-            vehicle_hire: { category: 'Compact', vehicle: '', transmission: '', fuel_policy: '', mileage: '', excess_amount: 0, excess_currency: 'GBP' },
+            vehicle_hire: {
+              category: 'Compact',
+              vehicle: '',
+              transmission: '',
+              fuel_policy: '',
+              mileage: '',
+              excess_amount: 0,
+              excess_currency: 'GBP',
+            },
           }),
         ],
         { id: 1, type: 'vehicle_hire', title: 'Hire car' },
@@ -1563,10 +1612,13 @@ describe('TripTimeline', () => {
   describe('Directions', () => {
     it('offers a Directions menu linking each maps app to the plan location', async () => {
       state.currentTrip = tripWith([
-        plan([part({ id: 1, plan_id: 1, start_lat: 48.11, start_lon: 16.57, start_label: 'VIE' })], {
-          id: 1,
-          title: 'Flight out',
-        }),
+        plan(
+          [part({ id: 1, plan_id: 1, start_lat: 48.11, start_lon: 16.57, start_label: 'VIE' })],
+          {
+            id: 1,
+            title: 'Flight out',
+          },
+        ),
       ]);
       renderTimeline();
       const card = screen.getByTestId('part-card-1');

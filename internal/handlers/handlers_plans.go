@@ -29,14 +29,19 @@ type planPartReq struct {
 	EndTZ         string     `json:"end_tz"`
 	StartTZSource string     `json:"start_tz_source,omitempty"`
 	EndTZSource   string     `json:"end_tz_source,omitempty"`
-	StartLabel    string     `json:"start_label"`
-	StartLat      *float64   `json:"start_lat"`
-	StartLon      *float64   `json:"start_lon"`
-	StartAddress  string     `json:"start_address"`
-	EndLabel      string     `json:"end_label"`
-	EndLat        *float64   `json:"end_lat"`
-	EndLon        *float64   `json:"end_lon"`
-	EndAddress    string     `json:"end_address"`
+	// StartLocal/EndLocal are wall-clock times, "YYYY-MM-DDTHH:MM", at
+	// StartTZ/EndTZ; the server converts them (see local_times.go). Send
+	// either these or StartsAt/EndsAt, not both.
+	StartLocal   string   `json:"start_local,omitempty"`
+	EndLocal     string   `json:"end_local,omitempty"`
+	StartLabel   string   `json:"start_label"`
+	StartLat     *float64 `json:"start_lat"`
+	StartLon     *float64 `json:"start_lon"`
+	StartAddress string   `json:"start_address"`
+	EndLabel     string   `json:"end_label"`
+	EndLat       *float64 `json:"end_lat"`
+	EndLon       *float64 `json:"end_lon"`
+	EndAddress   string   `json:"end_address"`
 	// StartCoordsPinned/EndCoordsPinned: send true alongside start_lat/start_lon
 	// (or end_lat/end_lon) to pin the coordinates against the async geocoder.
 	StartCoordsPinned bool   `json:"start_coords_pinned,omitempty"`
@@ -186,15 +191,19 @@ type updatePlanPartReq struct {
 	EndTZ         *string    `json:"end_tz,omitempty"`
 	StartTZSource *string    `json:"start_tz_source,omitempty"`
 	EndTZSource   *string    `json:"end_tz_source,omitempty"`
-	StartLabel    *string    `json:"start_label,omitempty"`
-	StartLat      *float64   `json:"start_lat,omitempty"`
-	StartLon      *float64   `json:"start_lon,omitempty"`
-	StartAddress  *string    `json:"start_address,omitempty"`
-	EndLabel      *string    `json:"end_label,omitempty"`
-	EndLat        *float64   `json:"end_lat,omitempty"`
-	EndLon        *float64   `json:"end_lon,omitempty"`
-	EndAddress    *string    `json:"end_address,omitempty"`
-	Status        *string    `json:"status,omitempty"`
+	// StartLocal/EndLocal are wall-clock times at the zone sent alongside, or
+	// at the part's current zone when none is sent.
+	StartLocal   *string  `json:"start_local,omitempty"`
+	EndLocal     *string  `json:"end_local,omitempty"`
+	StartLabel   *string  `json:"start_label,omitempty"`
+	StartLat     *float64 `json:"start_lat,omitempty"`
+	StartLon     *float64 `json:"start_lon,omitempty"`
+	StartAddress *string  `json:"start_address,omitempty"`
+	EndLabel     *string  `json:"end_label,omitempty"`
+	EndLat       *float64 `json:"end_lat,omitempty"`
+	EndLon       *float64 `json:"end_lon,omitempty"`
+	EndAddress   *string  `json:"end_address,omitempty"`
+	Status       *string  `json:"status,omitempty"`
 
 	// Coords pin flags: a manual lat/lon override the geocoder must not touch.
 	// Setting one true (with explicit coords) opts that endpoint out of
@@ -336,8 +345,12 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := make([]store.CreatePlanPartPayload, 0, len(in.Parts))
-	for _, p := range in.Parts {
-		parts = append(parts, toCreatePartPayload(in.Type, p))
+	for i := range in.Parts {
+		if err := applyLocalTimes(&in.Parts[i]); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		parts = append(parts, toCreatePartPayload(in.Type, in.Parts[i]))
 	}
 	plan, err := a.Store.CreatePlan(r.Context(), store.CreatePlanPayload{
 		TripID:          tripID,
@@ -730,6 +743,17 @@ func (a *API) updatePlanPart(w http.ResponseWriter, r *http.Request) {
 	if err := decode(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if in.StartLocal != nil || in.EndLocal != nil {
+		cur, cerr := a.Store.PlanPartByID(r.Context(), id)
+		if cerr != nil {
+			handleStoreErr(w, cerr)
+			return
+		}
+		if err := resolveLocalEdit(&in, cur.StartTZ, cur.EndTZ); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	// A changed address is re-located via the shared resolver (address →
 	// name+country → airport label, judged by confidence), the same path the

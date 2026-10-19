@@ -23,7 +23,7 @@ import {
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 
-import type { PlanPart, PlanType } from '../api/types';
+import type { PlanPart, PlanType, TimeBlock } from '../api/types';
 import { unlocatedCount } from '../lib/geo';
 import { osmRasterStyle } from '../lib/map-style';
 import {
@@ -42,8 +42,11 @@ import { personColor } from '../lib/person-color';
 import {
   fmtPartPlaces,
   fmtPartTimeRangeText,
+  startBlockOf,
+  endBlockOf,
   isTransferType,
   planTypeLabel,
+  timetableZone,
 } from '../lib/trip-format';
 import FlightDetailCard from './FlightDetailCard';
 import PartDetailBlock from './PartDetailBlock';
@@ -328,8 +331,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
                   type: p.type,
                   location: ep.label,
                   address: ep.address,
-                  iso: ep.iso,
-                  tz: ep.tz,
+                  when: ep.when,
                   owner: p.owner ? userName(p.owner) : undefined,
                   passengers: (p.passengers ?? []).map((u) => ({
                     name: userName(u),
@@ -611,7 +613,11 @@ function PartRow({
       <Collapse in={selected} unmountOnExit>
         <Box sx={{ px: 2, py: 1.5, bgcolor: 'action.hover' }}>
           {part.type === 'flight' && part.flight ? (
-            <FlightDetailCard flight={part.flight} startTz={part.start_tz} endTz={part.end_tz} />
+            <FlightDetailCard
+              flight={part.flight}
+              startTz={timetableZone(startBlockOf(part))}
+              endTz={timetableZone(endBlockOf(part))}
+            />
           ) : (
             <PartDetailBlock part={part} />
           )}
@@ -809,8 +815,7 @@ interface Endpoint {
   lon: number;
   label: string;
   address: string;
-  iso: string;
-  tz?: string;
+  when: TimeBlock;
 }
 
 /** Whether a part's two pins stand at the same place, so a blank label or
@@ -846,8 +851,7 @@ function endpoints(p: PlanPart): Endpoint[] {
           lon: p.start_lon,
           label: startLabel,
           address: startAddress,
-          iso: p.starts_at,
-          tz: p.start_tz,
+          when: startBlockOf(p),
         }
       : null;
   const end: Endpoint | null =
@@ -858,8 +862,7 @@ function endpoints(p: PlanPart): Endpoint[] {
           lon: p.end_lon,
           label: endLabel,
           address: endAddress,
-          iso: p.ends_at ?? p.starts_at,
-          tz: p.end_tz || p.start_tz,
+          when: endBlockOf(p) ?? startBlockOf(p),
         }
       : null;
   return [start, end].filter((e): e is Endpoint => e != null);

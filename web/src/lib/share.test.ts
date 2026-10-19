@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Plan, PlanPart } from '../api/types';
 import { setMatchMedia } from '../test/setup';
 import { buildPlanShareText, canShareNatively, sharePlan } from './share';
+import { block, partBlocks } from '../test/blocks';
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 1,
     plan_id: 1,
     type: 'flight',
@@ -17,8 +18,8 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
     end_label: 'LIS',
     status: 'planned',
     effective_at: '2026-10-12T09:00:00Z',
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function plan(over: Partial<Plan> = {}): Plan {
@@ -58,6 +59,8 @@ describe('buildPlanShareText', () => {
           estimated_out: '2026-08-20T17:00:00Z',
           estimated_in: '2026-08-20T19:00:00Z',
         } as PlanPart['flight'],
+        start: block('2026-08-20T17:00:00Z', 'UTC', { kind: 'estimated', delay_min: 115 }),
+        end: block('2026-08-20T19:00:00Z', 'UTC', { kind: 'estimated', delay_min: 105 }),
       }),
     );
     expect(text).toContain('17:00 UTC → 19:00 UTC (scheduled 15:05 UTC → 17:15 UTC)');

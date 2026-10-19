@@ -34,6 +34,7 @@ vi.mock('../api/client', () => ({
 
 import type { PlanPart } from '../api/types';
 import PlanEditDialog from './PlanEditDialog';
+import { block } from '../test/blocks';
 
 // The edit dialog's date/time picker, as a plain input (see the mock's notes).
 vi.mock('@mui/x-date-pickers/DateTimePicker', () => import('../test/date-time-picker-mock'));
@@ -363,7 +364,8 @@ describe('PlanEditDialog', () => {
         target: { value: '2026-10-12T12:00' },
       });
       const patch = await save();
-      expect(patch.starts_at).toBe('2026-10-12T12:00:00.000Z');
+      expect(patch.start_local).toBe('2026-10-12T12:00');
+      expect(patch.starts_at).toBeUndefined();
       expect(patch.start_tz).toBe('');
       expect(patch.start_tz_source).toBe('floating');
     });
@@ -402,15 +404,31 @@ describe('PlanEditDialog', () => {
       expect(patch.end_tz_source).toBe('inferred');
     });
 
-    it('omits the source when an older part has none and the zone is unchanged', async () => {
+    it('sends the zone and a source with the digits even when the part has no source', async () => {
       h.updatePlanPart.mockResolvedValue(part());
       render_(plan({ parts: [part()] }));
       fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
         target: { value: '2026-10-12T12:00' },
       });
       const patch = await save();
+      expect(patch.start_local).toBe('2026-10-12T12:00');
       expect(patch.start_tz).toBe('Europe/London');
-      expect(patch).not.toHaveProperty('start_tz_source');
+      expect(patch.start_tz_source).toBe('inferred');
+    });
+
+    it('never sends start_local or end_local without their zone and source', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [part({ start_tz_source: 'confirmed', end_tz_source: 'confirmed' })] }));
+      const whens = screen.getAllByLabelText('Date & time');
+      fireEvent.change(whens[0], { target: { value: '2026-10-12T12:00' } });
+      fireEvent.change(whens[1], { target: { value: '2026-10-12T21:00' } });
+      const patch = await save();
+      expect(patch.start_local).toBe('2026-10-12T12:00');
+      expect(patch.start_tz).toBe('Europe/London');
+      expect(patch.start_tz_source).toBe('confirmed');
+      expect(patch.end_local).toBe('2026-10-12T21:00');
+      expect(patch.end_tz).toBe('America/New_York');
+      expect(patch.end_tz_source).toBe('confirmed');
     });
 
     it('sends inferred for an end whose zone is only borrowed from the start', async () => {
@@ -422,6 +440,103 @@ describe('PlanEditDialog', () => {
       const patch = await save();
       expect(patch.end_tz).toBe('Europe/London');
       expect(patch.end_tz_source).toBe('inferred');
+    });
+
+    // As the server sends a floating flight: the raw zones carry the airport
+    // fallback whilst the blocks, like the stored digits, have no zone.
+    function floatingFlight() {
+      return part({
+        start_tz_source: 'floating',
+        end_tz_source: 'floating',
+        start: block('2026-10-12T11:35:00Z', ''),
+        end: block('2026-10-12T19:55:00Z', ''),
+      });
+    }
+
+    it('shows a floating flight its stored digits with no zone', () => {
+      render_(plan({ parts: [floatingFlight()] }));
+      const whens = screen.getAllByLabelText('Date & time');
+      expect(whens[0]).toHaveValue('2026-10-12T11:35');
+      expect(whens[1]).toHaveValue('2026-10-12T19:55');
+      const zones = screen.getAllByRole('combobox', { name: /timezone/i });
+      expect(zones[0]).toHaveValue('');
+      expect(zones[1]).toHaveValue('');
+    });
+
+    it('keeps a floating flight floating when only its time changes', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [floatingFlight()] }));
+      fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
+        target: { value: '2026-10-12T12:00' },
+      });
+      const patch = await save();
+      expect(patch.start_local).toBe('2026-10-12T12:00');
+      expect(patch.start_tz).toBe('');
+      expect(patch.start_tz_source).toBe('floating');
+    });
+
+    it('confirms a zone picked for a floating flight', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [floatingFlight()] }));
+      const zone = screen.getAllByRole('combobox', { name: /timezone/i })[0];
+      await userEvent.type(zone, 'Europe/Paris');
+      const patch = await save();
+      expect(patch.start_tz).toBe('Europe/Paris');
+      expect(patch.start_tz_source).toBe('confirmed');
+    });
+
+    it('sends inferred, never unknown, with a zone it did not change', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(
+        plan({
+          parts: [
+            part({
+              type: 'dining',
+              ends_at: undefined,
+              start_tz_source: 'unknown',
+              start: block('2026-10-12T11:35:00Z', 'Europe/London', { tz_source: 'unknown' }),
+            }),
+          ],
+        }),
+      );
+      fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
+        target: { value: '2026-10-12T13:00' },
+      });
+      const patch = await save();
+      expect(patch.start_tz).toBe('Europe/London');
+      expect(patch.start_tz_source).toBe('inferred');
+    });
+
+    it('reports a time the server refuses and keeps the dialog open', async () => {
+      h.updatePlanPart.mockRejectedValue(
+        new Error("That time doesn't exist in Europe/London (clocks go forward)."),
+      );
+      render_(plan({ parts: [part()] }));
+      fireEvent.change(screen.getAllByLabelText('Date & time')[0], {
+        target: { value: '2026-03-29T01:30' },
+      });
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() =>
+        expect(h.setError).toHaveBeenCalledWith(
+          "That time doesn't exist in Europe/London (clocks go forward).",
+        ),
+      );
+      expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument();
+    });
+
+    it('moves a time the zone skips forward to the first real minute', async () => {
+      h.updatePlanPart.mockResolvedValue(part());
+      render_(plan({ parts: [part()] }));
+      // 01:30 does not exist in London on 29 March 2026: the clocks go from
+      // 01:00 to 02:00. Luxon, under the picker, reads it as 02:30 BST, so the
+      // field and the patch both carry the time that does exist.
+      const when = screen.getAllByLabelText('Date & time')[0];
+      fireEvent.change(when, { target: { value: '2026-03-29T01:30' } });
+      expect(when).toHaveValue('2026-03-29T02:30');
+      const patch = await save();
+      expect(patch.start_local).toBe('2026-03-29T02:30');
+      expect(patch.start_tz).toBe('Europe/London');
+      expect(patch.starts_at).toBeUndefined();
     });
   });
 });
