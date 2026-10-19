@@ -728,6 +728,34 @@ func TestICSBlankEndZoneNeverBorrowsStartZone(t *testing.T) {
 	}
 }
 
+// TestICSUnknownEndOnUTCDayBoundaryBands is the converse: an unknown end that
+// crosses midnight UTC but not midnight in the start's zone. Read in UTC (the
+// feed has no viewer's home zone) it is the next day, so the stay bands into
+// check-in and check-out; borrowing Los Angeles, as the feed once did, it
+// would still be the 11th and render as one event.
+func TestICSUnknownEndOnUTCDayBoundaryBands(t *testing.T) {
+	end := time.Date(2026, 6, 12, 2, 0, 0, 0, time.UTC) // 11 Jun 19:00 in Los Angeles
+	ev := &store.CalendarEvent{
+		PartID: 8, Type: "hotel", Title: "Test Hotel", TripID: 3, TripName: "Test Trip",
+		StartsAt: time.Date(2026, 6, 11, 16, 0, 0, 0, time.UTC), EndsAt: &end,
+		StartTZ: "America/Los_Angeles", StartTZSource: "confirmed", EndTZSource: "unknown",
+		UpdatedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if !isBandedEvent(ev) {
+		t.Error("an unknown end on the next UTC day must band")
+	}
+	raw := renderICS("Aerly", []*store.CalendarEvent{ev}, false)
+	for _, want := range []string{"UID:plan-part-8-checkin@aerly", "UID:plan-part-8-checkout@aerly", "DTSTART:20260612T020000Z"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("feed missing %q:\n%s", want, raw)
+		}
+	}
+	bands := tripBandEvents([]*store.CalendarEvent{ev})
+	if len(bands) != 1 || !bands[0].end.Equal(time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("trip band = %+v, want it to end on 12 Jun", bands)
+	}
+}
+
 // TestICSRoundTripKeepsZonesAndSources exports a trip with a part of every
 // zone source and imports it back through the real parser and resolver: each
 // end keeps its instant, its zone and its source, except that inferred comes

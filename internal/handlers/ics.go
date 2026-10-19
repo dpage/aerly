@@ -366,10 +366,13 @@ func bandEdgeSummary(e *store.CalendarEvent, edge string) string {
 // isBandedEvent reports whether an event should split into two point events
 // rather than render as one spanning banner: a booking of a banding type (see
 // banding.go) whose end falls on a later local calendar day than its start.
-// Mirrors the frontend rule in web/src/lib/trip-format.ts so the feed and the
-// UI timeline agree. Each end is read by timing.Day in its own zone and
-// source: its UTC digits when floating, and UTC when unknown (a feed has no
-// viewer's home zone), as the printed itinerary does.
+// Mirrors the frontend rule in web/src/lib/trip-format.ts. Each end is read by
+// timing.Day in its own zone and source: its UTC digits when floating, and UTC
+// when unknown (a feed has no viewer's home zone), as the printed itinerary
+// does. The feed and the UI timeline agree for every zoned or floating end and
+// for a viewer whose zone is UTC, but they can differ on an unknown end near
+// midnight: the UI reads it in the viewer's zone, the feed in UTC, so the same
+// stay can band in one and not the other.
 func isBandedEvent(e *store.CalendarEvent) bool {
 	if _, ok := bandLabelsFor(e.Type); !ok || e.EndsAt == nil {
 		return false
