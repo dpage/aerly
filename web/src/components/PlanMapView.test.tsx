@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setMatchMedia } from '../test/setup';
 
@@ -17,6 +17,8 @@ vi.mock('maplibre-gl', () => ({ default: maplibreMock, ...maplibreMock }));
 import PlanMapView from './PlanMapView';
 import { fmtScrubTime, planePlacementAt, positionAt, trackFC, tracksFC } from '../lib/flight-track';
 import { block, partBlocks } from '../test/blocks';
+import { setViewerZone } from '../lib/time';
+import { useStore } from '../state/store';
 
 function user(over: Partial<User> = {}): User {
   return {
@@ -633,6 +635,22 @@ describe('PlanMapView', () => {
     // setPopup was given DOM content with the venue's title + type.
     expect(pin.popup?.html).toContain('Tysons Marriott');
     expect(pin.popup?.html).toContain('Accommodation');
+  });
+
+  it("rebuilds a pin's Your time line when the home zone changes", () => {
+    setViewerZone('America/New_York');
+    useStore.setState({ me: user({ home_tz: 'America/New_York' }) });
+    render(<PlanMapView parts={[hotel()]} />);
+    expect(pinFor(2).popup?.html).not.toContain('Your time');
+    act(() => {
+      setViewerZone('Asia/Tokyo');
+      useStore.setState({ me: user({ home_tz: 'Asia/Tokyo' }) });
+    });
+    // The popup is cached by key, so a fresh marker carries the new line.
+    const latest = FakeMarker.instances.filter((m) => m.getElement()?.dataset.partId === '2');
+    expect(latest[latest.length - 1].popup?.html).toContain('Tue 13 Oct, 00:00 (UTC+9)');
+    setViewerZone(null);
+    useStore.setState({ me: null });
   });
 
   it("gives a hotel's check-out pin the property it stands at", () => {
