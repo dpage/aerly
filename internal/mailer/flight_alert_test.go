@@ -34,7 +34,6 @@ func TestBuildFlightAlertEmail_DelayHeadlineAndStructure(t *testing.T) {
 		Ident:     "BA123",
 		Kind:      "delayed",
 		Detail:    "now departing 14:35 UTC",
-		When:      time.Now(),
 	})
 	for _, want := range []string{
 		`From: "Aerly" <alerts@aerly.test>`,

@@ -568,13 +568,13 @@ func (p *Poller) dispatchAlert(
 		if !always && st.delayMin < r.MinDelayMin {
 			continue
 		}
-		detail := recipientDetail(kind, detail, cur, r.HomeTZ)
-		msg := alertMessage(cur.Ident, kind, detail)
+		recipDetail := recipientDetail(kind, detail, cur, r.HomeTZ)
+		msg := alertMessage(cur.Ident, kind, recipDetail)
 		if r.InApp {
 			p.publishAlert(ctx, r.UserID, tp, cur.Ident, kind, msg)
 		}
 		if r.Email && r.EmailAddr != "" {
-			p.sendAlertEmail(ctx, r.EmailAddr, r.HomeTZ, cur, kind, detail)
+			p.sendAlertEmail(ctx, r.EmailAddr, r.HomeTZ, cur, kind, recipDetail)
 		}
 		p.pushAlert(ctx, r.UserID, tp, cur.Ident, msg)
 	}

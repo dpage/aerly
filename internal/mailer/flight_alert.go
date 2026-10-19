@@ -11,20 +11,19 @@ import (
 
 // FlightAlertInput is the data needed to render a flight-change alert email
 // (spec §9). Kind selects the headline ("delayed" / "cancelled" / "diverted" /
-// "gate" / "gate_assigned" / "belt" / "terminal"); When is the new effective time for a delay (zero for
-// cancellations, which have no meaningful new time). Detail is a short human
-// phrase describing the change, e.g. "now departing 14:35", "to a different
-// airport", "now departs gate B32", "departs gate B32", or "bags on belt 34". The route and time
+// "gate" / "gate_assigned" / "belt" / "terminal"). Detail is a short human
+// phrase describing the change, e.g. "now departing 14:35 London (UTC+1)", "to
+// a different airport", "now departs gate B32", "departs gate B32", or "bags
+// on belt 34". The route and time
 // fields describe which flight changed, since a traveller with several
 // flights booked can't tell them apart from the ident alone (issue #144).
 type FlightAlertInput struct {
 	FromAddr  string
 	ToAddr    string
 	PublicURL string
-	Ident     string    // flight ident, e.g. "BA123"
-	Kind      string    // delayed|cancelled|diverted|gate|gate_assigned|belt|terminal
-	Detail    string    // ready-to-render change phrase
-	When      time.Time // new effective time for delays; zero otherwise
+	Ident     string // flight ident, e.g. "BA123"
+	Kind      string // delayed|cancelled|diverted|gate|gate_assigned|belt|terminal
+	Detail    string // ready-to-render change phrase
 
 	Origin  string        // departure airport label, e.g. "London Heathrow (LHR)"
 	Dest    string        // arrival airport label
