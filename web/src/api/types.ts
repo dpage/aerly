@@ -137,13 +137,9 @@ export interface ResolvedFlight {
   origin_iata: string;
   origin_lat: number;
   origin_lon: number;
-  /** IANA timezone of the origin airport, empty if unknown. */
-  origin_tz?: string;
   dest_iata: string;
   dest_lat: number;
   dest_lon: number;
-  /** IANA timezone of the destination airport, empty if unknown. */
-  dest_tz?: string;
   icao24: string;
   notes: string;
 }
@@ -174,16 +170,9 @@ export interface Flight {
   origin_iata: string;
   origin_lat?: number;
   origin_lon?: number;
-  /** IANA timezone of the origin airport; used to render scheduled_out
-   * in the departure airport's local time. Empty when the IATA is unknown. */
-  origin_tz?: string;
   dest_iata: string;
   dest_lat?: number;
   dest_lon?: number;
-  /** IANA timezone of the destination airport; used to render scheduled_in
-   * and estimated_in in the arrival airport's local time. Empty when the
-   * IATA is unknown. */
-  dest_tz?: string;
   status: FlightStatus;
   notes: string;
   last_polled_at?: string;
