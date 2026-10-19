@@ -16,14 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 
-import type {
-  Plan,
-  PlanPart,
-  TimeBlock,
-  TZSource,
-  UpdatePlanInput,
-  UpdatePlanPartInput,
-} from '../api/types';
+import type { Plan, PlanPart, TZSource, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
 import PlanAttachments from './PlanAttachments';
 import TimezoneSelect from './TimezoneSelect';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
@@ -42,6 +35,7 @@ import {
   planTypeLabel,
   splitLocal,
   startBlockOf,
+  timetableZone,
   typeHasEnd,
   zonedTimeToUtc,
 } from '../lib/trip-format';
@@ -157,20 +151,15 @@ function endForm(
   return { label, address, date, time, tz, coords };
 }
 
-// The zone the form edits an end's stored time in: the block's, which is blank
-// for floating digits even where the raw zone carries an airport fallback. A
-// floating flight's provider estimate keeps the airport zone in its block, but
-// the form edits the timetable digits, so floating always reads as blank.
-function formZone(b: TimeBlock | undefined): string {
-  return !b || b.tz_source === 'floating' ? '' : b.tz;
-}
-
 function partForm(part: PlanPart): PartForm {
-  const startTz = formZone(startBlockOf(part));
+  // The form edits the stored timetable digits, so each end's zone is its
+  // timetable zone, from the block: blank for floating digits even where the
+  // raw start_tz/end_tz carry an airport fallback.
+  const startTz = timetableZone(startBlockOf(part));
   const eb = endBlockOf(part);
   // An end with no zone of its own borrows the start's, unless its digits are
   // floating and would be misread in it.
-  const endTz = formZone(eb) || (eb?.tz_source === 'floating' ? '' : startTz);
+  const endTz = timetableZone(eb) || (eb?.tz_source === 'floating' ? '' : startTz);
   return {
     start: endForm(
       part.start_label ?? '',

@@ -47,8 +47,18 @@ describe('FlightDetailCard', () => {
         flight={flight({
           estimated_out: '2026-10-12T09:15:00Z',
           actual_in: '2026-10-12T13:05:00Z',
-          departure: block('2026-10-12T09:15:00Z', 'Europe/London'),
-          arrival: block('2026-10-12T13:05:00Z', 'America/New_York'),
+          // The server's blocks for a floating flight: provider times keep
+          // the airport zone, the source stays floating.
+          departure: block('2026-10-12T09:15:00Z', 'Europe/London', {
+            tz_source: 'floating',
+            kind: 'estimated',
+            delay_min: 15,
+          }),
+          arrival: block('2026-10-12T13:05:00Z', 'America/New_York', {
+            tz_source: 'floating',
+            kind: 'actual',
+            delay_min: 5,
+          }),
         })}
         startTz=""
         endTz=""

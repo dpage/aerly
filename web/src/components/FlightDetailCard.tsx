@@ -8,9 +8,11 @@ import { Mono, Row, Section, TimeRow } from './DetailRows';
 
 interface Props {
   flight: FlightDetail;
-  /** Departure-airport tz, for the "out" schedule rows. */
+  /** The departure's timetable zone (timetableZone), for the "out" schedule
+   * rows: the airport's, or blank for a floating end, never the raw start_tz,
+   * which carries the airport fallback even then. */
   startTz?: string;
-  /** Arrival-airport tz, for the "in" schedule rows. */
+  /** The arrival's timetable zone, for the "in" schedule rows, as startTz. */
   endTz?: string;
 }
 

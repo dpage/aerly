@@ -371,11 +371,17 @@ export function fmtPartTimeRange(part: PlanPart): string {
   return end ? `${start} → ${fmtCompact(end)}` : start;
 }
 
-// The timetable time behind a revised block, in the same zone. A floating
-// end's timetable is wall-clock digits, so it never takes the zone a provider
-// estimate carries (newTimeBlock in internal/api/dto.go does the same).
+/** The zone an end's timetable (starts_at/ends_at, scheduled_out/in) reads in:
+ * the block's, but blank for a floating end, whose timetable is wall-clock
+ * digits even when a provider estimate gives its block the airport's zone
+ * (newTimeBlock in internal/api/dto.go does the same). '' with no block. */
+export function timetableZone(b: TimeBlock | undefined): string {
+  return !b || b.tz_source === 'floating' ? '' : b.tz;
+}
+
+// The timetable time behind a revised block, in its timetable zone.
 function timetableBlock(b: TimeBlock, at: string): TimeBlock {
-  return { ...b, at, tz: b.tz_source === 'floating' ? '' : b.tz, kind: 'scheduled', delay_min: 0 };
+  return { ...b, at, tz: timetableZone(b), kind: 'scheduled', delay_min: 0 };
 }
 
 /** The timetable range, when either end is running to a reported or worked-out

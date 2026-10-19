@@ -46,6 +46,7 @@ import {
   endBlockOf,
   isTransferType,
   planTypeLabel,
+  timetableZone,
 } from '../lib/trip-format';
 import FlightDetailCard from './FlightDetailCard';
 import PartDetailBlock from './PartDetailBlock';
@@ -612,7 +613,11 @@ function PartRow({
       <Collapse in={selected} unmountOnExit>
         <Box sx={{ px: 2, py: 1.5, bgcolor: 'action.hover' }}>
           {part.type === 'flight' && part.flight ? (
-            <FlightDetailCard flight={part.flight} startTz={part.start_tz} endTz={part.end_tz} />
+            <FlightDetailCard
+              flight={part.flight}
+              startTz={timetableZone(startBlockOf(part))}
+              endTz={timetableZone(endBlockOf(part))}
+            />
           ) : (
             <PartDetailBlock part={part} />
           )}
