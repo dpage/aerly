@@ -329,3 +329,32 @@ func TestListTripsCarriesEdgeZones(t *testing.T) {
 	}
 	t.Fatal("trip not listed")
 }
+
+// The last item's zone is its end zone, else its start zone: a later-ending
+// part with no end zone lends its own start zone, not an earlier part's.
+func TestListTripsLastZoneFallsBackToStartZone(t *testing.T) {
+	s := newStore(t)
+	uid := mkUser(t, s)
+	trip := seedTrip(t, s, uid)
+	flight := mkTypedPlan(t, s, trip, uid, "flight", "XX100", "", "")
+	in := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	mkPart(t, s, flight, time.Date(2026, 10, 18, 4, 0, 0, 0, time.UTC), &in, "Europe/London", "Asia/Tashkent", "LHR")
+	hotel := mkTypedPlan(t, s, trip, uid, "hotel", "Test Hotel", "", "")
+	out := time.Date(2026, 10, 21, 6, 0, 0, 0, time.UTC)
+	mkPart(t, s, hotel, time.Date(2026, 10, 18, 14, 0, 0, 0, time.UTC), &out, "Asia/Samarkand", "", "Test Hotel")
+
+	trips, err := s.ListTrips(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tr := range trips {
+		if tr.ID != trip {
+			continue
+		}
+		if tr.FirstTZ != "Europe/London" || tr.LastTZ != "Asia/Samarkand" {
+			t.Errorf("edge zones = %q .. %q, want Europe/London .. Asia/Samarkand", tr.FirstTZ, tr.LastTZ)
+		}
+		return
+	}
+	t.Fatal("trip not listed")
+}

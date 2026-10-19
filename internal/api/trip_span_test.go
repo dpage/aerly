@@ -48,3 +48,24 @@ func TestTripSpanEmptyAndBadZone(t *testing.T) {
 		t.Error("tripZone should fall back to UTC")
 	}
 }
+
+func TestTripSpanOneSided(t *testing.T) {
+	so := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	d := ToTripDTO(&store.Trip{ID: 6, StartsOn: &so, FirstTZ: "Europe/London"}, "owner", nil, nil)
+	if d.SpanStart == nil || !d.SpanStart.Equal(time.Date(2026, 6, 30, 23, 0, 0, 0, time.UTC)) {
+		t.Errorf("span_start = %v", d.SpanStart)
+	}
+	if d.SpanEnd != nil {
+		t.Errorf("span_end = %v, want none without an end date", d.SpanEnd)
+	}
+
+	ee := time.Date(2026, 7, 8, 22, 0, 0, 0, time.UTC) // 9 Jul 00:00 in Paris
+	d = ToTripDTO(&store.Trip{ID: 7, EffectiveEnd: &ee, LastTZ: "Europe/Paris"}, "owner", nil, nil)
+	if d.SpanStart != nil {
+		t.Errorf("span_start = %v, want none without a start", d.SpanStart)
+	}
+	// Midnight ending 9 Jul in Paris (UTC+2).
+	if d.SpanEnd == nil || !d.SpanEnd.Equal(time.Date(2026, 7, 9, 22, 0, 0, 0, time.UTC)) {
+		t.Errorf("span_end = %v", d.SpanEnd)
+	}
+}
