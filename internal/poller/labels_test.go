@@ -277,7 +277,7 @@ func TestDispatchAlert_DelayPerRecipient(t *testing.T) {
 		"departing Fri 15 Jan, 18:50 Istanbul (UTC+3) (15:50 your time)",
 		// The derived arrival is on London's clock, which is the home zone,
 		// so it needs no second time.
-		"arriving Fri 15 Jan, ≈19:50 London (UTC).",
+		"arriving Fri 15 Jan, ≈19:50 London (UTC) (based on departure delay).",
 	} {
 		if !strings.Contains(cap.sent[0], want) {
 			t.Errorf("email missing %q:\n%s", want, cap.sent[0])

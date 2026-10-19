@@ -109,7 +109,7 @@ func TestDepartureSummaryHeadline(t *testing.T) {
 
 // TestDepartureSummaryHeadline_HomeZone: a recipient at home in another zone
 // gets their own time after each end's; without a home zone they get none.
-// A derived arrival keeps its ≈ on the airport's clock only.
+// A derived arrival keeps its ≈ and the web's wording on the airport's clock only.
 func TestDepartureSummaryHeadline_HomeZone(t *testing.T) {
 	in := depInput()
 	in.HomeTZ = "America/New_York"
@@ -118,7 +118,7 @@ func TestDepartureSummaryHeadline_HomeZone(t *testing.T) {
 		"BA171 (LHR → ORD) is on time, departing terminal 5, gate B32 at Thu 15 Oct, 11:10 London (UTC+1) (06:10 your time)."; got != want {
 		t.Errorf("headline:\n got %q\nwant %q", got, want)
 	}
-	if got, want := arrivalLine(in), "Arrival at ORD is Thu 15 Oct, ≈13:50 Chicago (UTC-5) (14:50 your time)."; got != want {
+	if got, want := arrivalLine(in), "Arrival at ORD is Thu 15 Oct, ≈13:50 Chicago (UTC-5) (based on departure delay) (14:50 your time)."; got != want {
 		t.Errorf("arrival:\n got %q\nwant %q", got, want)
 	}
 	in.HomeTZ = ""

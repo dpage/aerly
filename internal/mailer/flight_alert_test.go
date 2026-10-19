@@ -127,7 +127,7 @@ func TestFlightAlertDetails(t *testing.T) {
 				Arrives: &timing.Block{At: in, TZ: "Australia/Sydney", Source: timing.Confirmed, Place: "Sydney", Kind: timing.Derived},
 				HomeTZ:  "America/New_York",
 			},
-			want: "Flight departing Mon 1 Mar, 10:00 London (UTC) (05:00 your time), arriving Tue 2 Mar, ≈19:00 Sydney (UTC+11) (03:00 your time).",
+			want: "Flight departing Mon 1 Mar, 10:00 London (UTC) (05:00 your time), arriving Tue 2 Mar, ≈19:00 Sydney (UTC+11) (based on departure delay) (03:00 your time).",
 		},
 		{
 			name: "origin only, no arrival",

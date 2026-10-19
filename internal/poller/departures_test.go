@@ -155,7 +155,7 @@ func TestRemindDepartures_FullSummary(t *testing.T) {
 	for _, want := range []string{
 		"Subject: Departure summary: BA295 to Chicago",
 		"BA295 (LHR → ORD) is delayed by 1 h 20 min, now departing terminal 5, gate B32 at Thu 15 Oct, 17:20 London (UTC+1).",
-		"Arrival at ORD is Thu 15 Oct, ≈20:20 Chicago (UTC-5).",
+		"Arrival at ORD is Thu 15 Oct, ≈20:20 Chicago (UTC-5) (based on departure delay).",
 		"For help or changes, contact Example Air: +44 20 7946 0000",
 		"/trips/",
 		"Weather in Chicago",

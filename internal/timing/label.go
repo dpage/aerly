@@ -13,8 +13,12 @@ type Block struct {
 	TZ     string // IANA; "" for floating or unknown
 	Source Source
 	Place  string // from PlaceName; may be ""
-	Kind   Kind   // Derived adds the ≈ prefix
+	Kind   Kind   // Derived adds the ≈ prefix, and the note below in Full
 }
+
+// derivedNote follows a derived time in the full form, the same words the web
+// shows under one (TimeMarker); compact forms keep only the ≈.
+const derivedNote = " (based on departure delay)"
 
 const (
 	dateLayout  = "Mon 2 Jan"
@@ -78,12 +82,21 @@ func (b Block) clock(loc *time.Location) string {
 }
 
 // Full is the form for detail views: "Sun 18 Oct, 14:00 Tashkent (UTC+5)",
-// the offset alone when there is no place, and no label with no zone. home is
-// used only for an unknown block.
+// the offset alone when there is no place, and no label with no zone. A
+// derived time adds "(based on departure delay)". home is used only for an
+// unknown block.
 func Full(b Block, home string) string {
 	if b.At.IsZero() {
 		return ""
 	}
+	s := full(b, home)
+	if b.Kind == Derived {
+		s += derivedNote
+	}
+	return s
+}
+
+func full(b Block, home string) string {
 	loc, labelled, place := b.view(home)
 	head := b.At.In(loc).Format(dateLayout) + ", " + b.clock(loc)
 	if !labelled {
