@@ -367,14 +367,14 @@ func bandEdgeSummary(e *store.CalendarEvent, edge string) string {
 // rather than render as one spanning banner: a booking of a banding type (see
 // banding.go) whose end falls on a later local calendar day than its start.
 // Mirrors the frontend rule in web/src/lib/trip-format.ts so the feed and the
-// UI timeline agree. Each end is read in its own zone; one with none is read
-// in UTC, which is its instant when unknown and its digits when floating, as
-// the printed itinerary does.
+// UI timeline agree. Each end is read by timing.Day in its own zone and
+// source: its UTC digits when floating, and UTC when unknown (a feed has no
+// viewer's home zone), as the printed itinerary does.
 func isBandedEvent(e *store.CalendarEvent) bool {
 	if _, ok := bandLabelsFor(e.Type); !ok || e.EndsAt == nil {
 		return false
 	}
-	return bandsToLaterDay(e.StartsAt, e.StartTZ, *e.EndsAt, e.EndTZ)
+	return bandsToLaterDay(eventStartBlock(e), eventEndBlock(e, *e.EndsAt))
 }
 
 // tripBand is one all-day trip banner: its id, name, inclusive local date span,
@@ -418,10 +418,10 @@ func tripBandEvents(events []*store.CalendarEvent) []tripBand {
 			a.storedStart, a.storedEnd = dateOnly(*e.TripStartsOn), dateOnly(*e.TripEndsOn)
 			a.haveStored = true
 		}
-		start := localDate(e.StartsAt, e.StartTZ)
+		start := timing.Day(eventStartBlock(e), "")
 		end := start
 		if e.EndsAt != nil {
-			end = localDate(*e.EndsAt, e.EndTZ)
+			end = timing.Day(eventEndBlock(e, *e.EndsAt), "")
 		}
 		if !a.havePart {
 			a.partStart, a.partEnd, a.havePart = start, end, true
@@ -457,17 +457,15 @@ func tripBandEvents(events []*store.CalendarEvent) []tripBand {
 	return out
 }
 
-// localDate returns the calendar date (midnight UTC of the y/m/d) that instant t
-// falls on in the named IANA zone, or in UTC when the zone is empty/unknown.
-func localDate(t time.Time, tzName string) time.Time {
-	loc := time.UTC
-	if tzName != "" {
-		if l, err := time.LoadLocation(tzName); err == nil {
-			loc = l
-		}
-	}
-	lt := t.In(loc)
-	return time.Date(lt.Year(), lt.Month(), lt.Day(), 0, 0, 0, 0, time.UTC)
+// eventStartBlock and eventEndBlock build a calendar event's ends as timing
+// blocks from the stored zone and source, so the day helpers follow each end's
+// own source rather than guessing one from the zone.
+func eventStartBlock(e *store.CalendarEvent) timing.Block {
+	return timing.Block{At: e.StartsAt, TZ: e.StartTZ, Source: timing.Source(e.StartTZSource)}
+}
+
+func eventEndBlock(e *store.CalendarEvent, at time.Time) timing.Block {
+	return timing.Block{At: at, TZ: e.EndTZ, Source: timing.Source(e.EndTZSource)}
 }
 
 // dateOnly strips a stored DATE value to midnight UTC of its y/m/d.

@@ -281,10 +281,12 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 		if tz, ok := airports.LookupTZ(fd.DestIATA); ok {
 			out.EndTZ = tz
 		}
-		// A flight's times are instants (the provider's, or parsed in the
-		// airport's zone), so a missing zone is unknown, never floating.
-		out.StartTZSource = instantSource(out.StartTZ)
-		out.EndTZSource = instantSource(out.EndTZ)
+		// A resolved flight's times are the provider's instants, so a missing
+		// zone is unknown. Otherwise they are the email's own wall-clock times,
+		// instants only where an airport zone placed them: with none they are
+		// floating digits.
+		out.StartTZSource = flightSource(out.StartTZ, fd.Resolved)
+		out.EndTZSource = flightSource(out.EndTZ, fd.Resolved)
 		// A flight's place line IS its route, so default the label to the
 		// friendly "Name (CODE)" (e.g. "Faro (FAO)") rather than the bare code.
 		if out.StartLabel == "" {
@@ -416,13 +418,17 @@ func proposePart(ctx context.Context, deps Deps, part ExtractedPart) (ProposedPa
 	return out, conf
 }
 
-// instantSource is the source for a true instant: confirmed in tz, or unknown
-// when there is no zone.
-func instantSource(tz string) string {
-	if tz == "" {
+// flightSource is the source for a flight end: confirmed in tz when there is
+// one, else unknown for a provider's instant and floating for wall-clock
+// digits parsed from the email.
+func flightSource(tz string, resolved bool) string {
+	switch {
+	case tz != "":
+		return string(timing.Confirmed)
+	case resolved:
 		return string(timing.Unknown)
 	}
-	return string(timing.Confirmed)
+	return string(timing.Floating)
 }
 
 // enrichFlight builds a FlightDetail for a flight part: it asks the resolver to
@@ -514,13 +520,17 @@ func combineLocal(date, hhmm string, defaultHour int) time.Time {
 	return t.UTC()
 }
 
-// parseLocalInTZ interprets date+time in the airport's tz, falling back to UTC.
+// parseLocalInTZ interprets date+time in the airport's tz. With no airport
+// zone it returns the digits as they stand (floating wall-clock time, in UTC
+// digits, for the caller to give a floating source and a blank zone).
 func parseLocalInTZ(date, hhmm, iata string) time.Time {
-	loc := time.UTC
-	if tzName, ok := airports.LookupTZ(iata); ok {
-		if l, err := time.LoadLocation(tzName); err == nil {
-			loc = l
-		}
+	tzName, ok := airports.LookupTZ(iata)
+	if !ok {
+		return combineLocal(date, hhmm, 0)
+	}
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		return combineLocal(date, hhmm, 0)
 	}
 	t, err := time.ParseInLocation("2006-01-02T15:04", date+"T"+hhmm, loc)
 	if err != nil {

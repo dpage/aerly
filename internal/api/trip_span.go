@@ -7,15 +7,19 @@ import (
 	"github.com/dpage/aerly/internal/timing"
 )
 
-// tripZone loads tz, or UTC for a blank or unusable zone: a trip whose edge
-// item has no zone reads its dates as stored (floating digits are local time).
-func tripZone(tz string) *time.Location {
-	if timing.ValidZone(tz) {
-		if loc, err := time.LoadLocation(tz); err == nil {
-			return loc
+// tripEdgeDate is the local date the instant at falls on at one end of a
+// trip, and the zone its midnight is read in. The date is timing.Day's, so a
+// floating end reads in its UTC digits and an unknown one in UTC (a trip has
+// no viewer's home zone here); the midnight uses the zone when it has one.
+func tripEdgeDate(at time.Time, tz, source string) (date time.Time, loc *time.Location) {
+	b := timing.Block{At: at, TZ: tz, Source: timing.Source(source)}
+	loc = time.UTC
+	if b.TZ != "" && timing.ValidZone(b.TZ) {
+		if l, err := time.LoadLocation(b.TZ); err == nil {
+			loc = l
 		}
 	}
-	return time.UTC
+	return timing.Day(b, ""), loc
 }
 
 // tripSpanEdges returns the instants the trip runs between: midnight starting
@@ -23,25 +27,27 @@ func tripZone(tz string) *time.Location {
 // its last item's zone. The days are the explicit dates when set, else the
 // inferred ones read in those zones. Nil where the trip has no such day.
 func tripSpanEdges(t *store.Trip) (start, end *time.Time) {
-	first, last := tripZone(t.FirstTZ), tripZone(t.LastTZ)
-	day := func(date, inferred *time.Time, loc *time.Location) (y int, m time.Month, d int, ok bool) {
-		switch {
-		case date != nil:
-			y, m, d = date.Date()
-			return y, m, d, true
-		case inferred != nil:
-			y, m, d = inferred.In(loc).Date()
-			return y, m, d, true
-		}
-		return 0, 0, 0, false
-	}
-	if y, m, d, ok := day(t.StartsOn, t.EffectiveStart, first); ok {
-		s := time.Date(y, m, d, 0, 0, 0, 0, first)
+	if date, loc, ok := tripEdge(t.StartsOn, t.EffectiveStart, t.FirstTZ, t.FirstTZSource); ok {
+		s := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, loc)
 		start = &s
 	}
-	if y, m, d, ok := day(t.EndsOn, t.EffectiveEnd, last); ok {
-		e := time.Date(y, m, d+1, 0, 0, 0, 0, last)
+	if date, loc, ok := tripEdge(t.EndsOn, t.EffectiveEnd, t.LastTZ, t.LastTZSource); ok {
+		e := time.Date(date.Year(), date.Month(), date.Day()+1, 0, 0, 0, 0, loc)
 		end = &e
 	}
 	return start, end
+}
+
+// tripEdge is the day at one end of a trip: the explicit date when set, else
+// the inferred instant's local date. ok is false where the trip has neither.
+func tripEdge(date, inferred *time.Time, tz, source string) (day time.Time, loc *time.Location, ok bool) {
+	switch {
+	case date != nil:
+		_, loc = tripEdgeDate(*date, tz, source)
+		return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC), loc, true
+	case inferred != nil:
+		day, loc = tripEdgeDate(*inferred, tz, source)
+		return day, loc, true
+	}
+	return time.Time{}, nil, false
 }

@@ -942,11 +942,13 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 		dto.EndsOn = &s
 	}
 	if t.EffectiveStart != nil {
-		s := t.EffectiveStart.In(tripZone(t.FirstTZ)).Format("2006-01-02")
+		day, _ := tripEdgeDate(*t.EffectiveStart, t.FirstTZ, t.FirstTZSource)
+		s := day.Format("2006-01-02")
 		dto.EffectiveStart = &s
 	}
 	if t.EffectiveEnd != nil {
-		s := t.EffectiveEnd.In(tripZone(t.LastTZ)).Format("2006-01-02")
+		day, _ := tripEdgeDate(*t.EffectiveEnd, t.LastTZ, t.LastTZSource)
+		s := day.Format("2006-01-02")
 		dto.EffectiveEnd = &s
 	}
 	dto.SpanStart, dto.SpanEnd = tripSpanEdges(t)

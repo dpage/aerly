@@ -47,6 +47,8 @@ type flightInfo struct {
 	in         time.Time
 	outTZ      string
 	inTZ       string
+	outSource  string // what a blank outTZ means: unknown or floating
+	inSource   string
 	longHaul   bool
 }
 
@@ -65,6 +67,8 @@ func collectFlights(plans []ProposedPlan) []flightInfo {
 				in:         fd.ScheduledIn,
 				outTZ:      part.StartTZ,
 				inTZ:       part.EndTZ,
+				outSource:  part.StartTZSource,
+				inSource:   part.EndTZSource,
 				longHaul:   !fd.ScheduledOut.IsZero() && fd.ScheduledIn.Sub(fd.ScheduledOut) > longHaulThreshold,
 			})
 		}
@@ -89,13 +93,12 @@ func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 	if startIsAirport == endIsAirport {
 		return
 	}
-	transferDate := part.StartsAt.UTC().Format("2006-01-02")
+	transferDate := timing.Day(timing.Block{At: part.StartsAt, TZ: part.StartTZ, Source: timing.Source(part.StartTZSource)}, "")
 
 	if startIsAirport {
 		// Airport → accommodation: time off the inbound flight's arrival.
 		if f, ok := findArrival(flights, startCode, transferDate); ok {
-			retimeStart(part, f.in.Add(transferArrivalBuffer))
-			part.StartTZ, part.StartTZSource = f.inTZ, instantSource(f.inTZ)
+			retimeStart(part, f.in.Add(transferArrivalBuffer), f.inTZ, flightEndSource(f.inTZ, f.inSource))
 		}
 		return
 	}
@@ -105,8 +108,7 @@ func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 		if f.longHaul {
 			lead = leadLongHaul
 		}
-		retimeStart(part, f.out.Add(-lead))
-		part.StartTZ, part.StartTZSource = f.outTZ, instantSource(f.outTZ)
+		retimeStart(part, f.out.Add(-lead), f.outTZ, flightEndSource(f.outTZ, f.outSource))
 	}
 }
 
@@ -116,18 +118,23 @@ func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 // unreachable), EndsAt is shifted by the same delta rather than left in
 // place, preserving the transfer's stated duration instead of risking an
 // EndsAt that lands at or before the retimed StartsAt.
-func retimeStart(part *ProposedPart, newStart time.Time) {
+func retimeStart(part *ProposedPart, newStart time.Time, tz, source string) {
 	if part.EndsAt != nil {
 		delta := newStart.Sub(part.StartsAt)
 		newEnd := part.EndsAt.Add(delta)
 		part.EndsAt = &newEnd
-		// Shifted off a flight's instant, a floating end is now a true
-		// instant whose zone is not known.
+		// Shifted off a flight's time, a blank end zone is as known as the
+		// flight end it follows: still floating digits after a floating end,
+		// else a true instant whose zone is not known.
 		if part.EndTZ == "" {
 			part.EndTZSource = string(timing.Unknown)
+			if source == string(timing.Floating) {
+				part.EndTZSource = source
+			}
 		}
 	}
 	part.StartsAt = newStart
+	part.StartTZ, part.StartTZSource = tz, source
 }
 
 // findArrival returns the flight arriving on transferDate (in its arrival-local
@@ -135,11 +142,11 @@ func retimeStart(part *ProposedPart, newStart time.Time) {
 // code matches none (e.g. wantCode was a spurious 3-letter token, or the label
 // names the airport in words), it falls back to any same-date arrival. Among
 // ties the latest arrival wins.
-func findArrival(flights []flightInfo, wantCode, transferDate string) (flightInfo, bool) {
+func findArrival(flights []flightInfo, wantCode string, transferDate time.Time) (flightInfo, bool) {
 	var coded, dated flightInfo
 	var haveCoded, haveDated bool
 	for _, f := range flights {
-		if f.in.IsZero() || localDate(f.in, f.inTZ) != transferDate {
+		if f.in.IsZero() || !localDate(f.in, f.inTZ, f.inSource).Equal(transferDate) {
 			continue
 		}
 		if !haveDated || f.in.After(dated.in) {
@@ -158,11 +165,11 @@ func findArrival(flights []flightInfo, wantCode, transferDate string) (flightInf
 // findDeparture returns the flight departing on transferDate (in its
 // departure-local calendar), with the same code-preferred / date-fallback logic
 // as findArrival; among ties the earliest departure wins.
-func findDeparture(flights []flightInfo, wantCode, transferDate string) (flightInfo, bool) {
+func findDeparture(flights []flightInfo, wantCode string, transferDate time.Time) (flightInfo, bool) {
 	var coded, dated flightInfo
 	var haveCoded, haveDated bool
 	for _, f := range flights {
-		if f.out.IsZero() || localDate(f.out, f.outTZ) != transferDate {
+		if f.out.IsZero() || !localDate(f.out, f.outTZ, f.outSource).Equal(transferDate) {
 			continue
 		}
 		if !haveDated || f.out.Before(dated.out) {
@@ -178,15 +185,24 @@ func findDeparture(flights []flightInfo, wantCode, transferDate string) (flightI
 	return dated, haveDated
 }
 
-// localDate renders the instant's calendar date in tzName, falling back to UTC
-// when the zone is empty or won't load.
-func localDate(t time.Time, tzName string) string {
-	if tzName != "" {
-		if loc, err := time.LoadLocation(tzName); err == nil {
-			return t.In(loc).Format("2006-01-02")
-		}
+// localDate is the calendar date (midnight UTC) of a flight end's instant, by
+// the end's own zone and source: its UTC digits when floating, and UTC when
+// unknown (an email has no viewer's home zone).
+func localDate(t time.Time, tzName, source string) time.Time {
+	return timing.Day(timing.Block{At: t, TZ: tzName, Source: timing.Source(source)}, "")
+}
+
+// flightEndSource is the source a transfer takes from the flight end it was
+// timed off: confirmed in the end's zone, else whatever the end's own source
+// says (unknown or floating).
+func flightEndSource(tz, source string) string {
+	if tz != "" {
+		return string(timing.Confirmed)
 	}
-	return t.UTC().Format("2006-01-02")
+	if source == string(timing.Floating) {
+		return source
+	}
+	return string(timing.Unknown)
 }
 
 // looksLikeAirport reports whether a free-text label names an airport.

@@ -298,7 +298,7 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 	var lastDay string
 	for i, row := range rows {
 		sb := row.start()
-		day := sb.At.In(eventLoc(sb.TZ)).Format("Monday, 2 January 2006")
+		day := timing.Day(sb, "").Format("Monday, 2 January 2006")
 		if day != lastDay {
 			l.ensure(34)
 			l.y -= 6
@@ -551,7 +551,7 @@ func bandedPart(planType string, pt *api.PlanPartDTO) bool {
 	if _, ok := bandLabelsFor(planType); !ok || pt.End == nil {
 		return false
 	}
-	return bandsToLaterDay(pt.Start.At, pt.Start.TZ, pt.End.At, pt.End.TZ)
+	return bandsToLaterDay(blockOf(pt.Start), blockOf(*pt.End))
 }
 
 // routeLine joins a start and end label with an arrow, tolerating either being
@@ -597,28 +597,10 @@ func timeRange(start timing.Block, end *timing.Block) string {
 	if end == nil {
 		return s
 	}
-	if sameDay(start.At.In(eventLoc(start.TZ)), end.At.In(eventLoc(end.TZ))) {
+	if timing.Day(start, "").Equal(timing.Day(*end, "")) {
 		return s + " – " + timing.Compact(*end, "")
 	}
 	return s + " – " + timing.Full(*end, "")
-}
-
-func sameDay(a, b time.Time) bool {
-	ay, am, ad := a.Date()
-	by, bm, bd := b.Date()
-	return ay == by && am == bm && ad == bd
-}
-
-// eventLoc loads an IANA zone, falling back to UTC for an empty or unknown name
-// so rendering never fails on bad tz data.
-func eventLoc(tz string) *time.Location {
-	if tz == "" {
-		return time.UTC
-	}
-	if loc, err := time.LoadLocation(tz); err == nil {
-		return loc
-	}
-	return time.UTC
 }
 
 func nonEmpty(s, fallback string) string {

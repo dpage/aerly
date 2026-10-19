@@ -44,8 +44,10 @@ func TestTripSpanEmptyAndBadZone(t *testing.T) {
 	if d.SpanStart != nil || d.SpanEnd != nil {
 		t.Errorf("dateless span = %v .. %v", d.SpanStart, d.SpanEnd)
 	}
-	if tripZone("Mars/Olympus") != time.UTC || tripZone("") != time.UTC || tripZone("Local") != time.UTC {
-		t.Error("tripZone should fall back to UTC")
+	for _, tz := range []string{"Mars/Olympus", "", "Local"} {
+		if _, loc := tripEdgeDate(time.Now(), tz, "confirmed"); loc != time.UTC {
+			t.Errorf("tripEdgeDate(%q) should read midnight in UTC", tz)
+		}
 	}
 }
 
@@ -67,5 +69,28 @@ func TestTripSpanOneSided(t *testing.T) {
 	// Midnight ending 9 Jul in Paris (UTC+2).
 	if d.SpanEnd == nil || !d.SpanEnd.Equal(time.Date(2026, 7, 9, 22, 0, 0, 0, time.UTC)) {
 		t.Errorf("span_end = %v", d.SpanEnd)
+	}
+}
+
+// A last item whose end zone is unknown reads in UTC (a trip has no home
+// zone), never in its start zone: here the end is 25 Oct 23:30 UTC, which is
+// 26 Oct in the start's zone (Tokyo) but 25 Oct in UTC. The same instant on a
+// floating end reads as its UTC digits.
+func TestTripSpanUnknownAndFloatingEndsDoNotBorrow(t *testing.T) {
+	ee := time.Date(2026, 10, 25, 23, 30, 0, 0, time.UTC)
+	for _, src := range []string{"unknown", "floating", ""} {
+		d := ToTripDTO(&store.Trip{ID: 8, EffectiveEnd: &ee, FirstTZ: "Asia/Tokyo", FirstTZSource: "confirmed", LastTZSource: src}, "owner", nil, nil)
+		if *d.EffectiveEnd != "2026-10-25" {
+			t.Errorf("%q end: effective_end = %s, want 2026-10-25", src, *d.EffectiveEnd)
+		}
+		if !d.SpanEnd.Equal(time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)) {
+			t.Errorf("%q end: span_end = %v", src, d.SpanEnd)
+		}
+	}
+	// An unknown start on the same boundary is read in UTC, not Tokyo.
+	es := time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC)
+	d := ToTripDTO(&store.Trip{ID: 9, EffectiveStart: &es, FirstTZSource: "unknown"}, "owner", nil, nil)
+	if *d.EffectiveStart != "2026-10-17" {
+		t.Errorf("effective_start = %s", *d.EffectiveStart)
 	}
 }

@@ -859,3 +859,25 @@ func TestICSVTimezoneDublinSummerIsDaylight(t *testing.T) {
 		}
 	}
 }
+
+// A floating end reads its UTC digits for banding and the trip banner, and
+// the same boundary on a zoned end reads in its zone.
+func TestICSFloatingEndReadsDigits(t *testing.T) {
+	end := time.Date(2026, 6, 12, 0, 30, 0, 0, time.UTC)
+	ev := &store.CalendarEvent{
+		PartID: 6, Type: "hotel", Title: "Test Hotel", TripID: 3, TripName: "Test Trip",
+		StartsAt: time.Date(2026, 6, 11, 14, 0, 0, 0, time.UTC), EndsAt: &end,
+		StartTZ: "America/New_York", StartTZSource: "confirmed", EndTZSource: "floating",
+	}
+	if !isBandedEvent(ev) {
+		t.Error("a floating end on the next digit day must band")
+	}
+	bands := tripBandEvents([]*store.CalendarEvent{ev})
+	if len(bands) != 1 || !bands[0].end.Equal(time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("trip band = %+v, want it to end on 12 Jun", bands)
+	}
+	ev.EndTZ, ev.EndTZSource = "America/New_York", "confirmed" // 11 Jun 20:30 local
+	if isBandedEvent(ev) {
+		t.Error("the same instant in New York is still the 11th and must not band")
+	}
+}

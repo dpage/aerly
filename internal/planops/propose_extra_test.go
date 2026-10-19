@@ -273,8 +273,43 @@ func TestProposePartZoneSources(t *testing.T) {
 	offTable, _ := proposePart(ctx, Deps{}, ExtractedPart{Type: "flight", Flight: FlightFields{
 		Ident: "XX100", Date: "2026-07-01", OriginIATA: "AAA", DestIATA: "BBB", DepartTimeLocal: "09:00",
 	}})
-	if offTable.StartTZ != "" || offTable.StartTZSource != "unknown" || offTable.EndTZSource != "unknown" {
-		t.Errorf("off-table flight = %q %q/%q, want '' unknown/unknown",
+	// The email's own wall-clock times, with no airport zone to place them,
+	// are floating digits and not instants.
+	if offTable.StartTZ != "" || offTable.StartTZSource != "floating" || offTable.EndTZSource != "floating" {
+		t.Errorf("off-table flight = %q %q/%q, want '' floating/floating",
 			offTable.StartTZ, offTable.StartTZSource, offTable.EndTZSource)
+	}
+}
+
+// flightSource: an airport zone confirms, a provider's instant without one is
+// unknown, and the email's own digits without one are floating.
+func TestFlightSource(t *testing.T) {
+	for _, tc := range []struct {
+		tz       string
+		resolved bool
+		want     string
+	}{
+		{"Europe/London", false, "confirmed"},
+		{"Europe/London", true, "confirmed"},
+		{"", true, "unknown"},
+		{"", false, "floating"},
+	} {
+		if got := flightSource(tc.tz, tc.resolved); got != tc.want {
+			t.Errorf("flightSource(%q, %v) = %q, want %q", tc.tz, tc.resolved, got, tc.want)
+		}
+	}
+}
+
+// parseLocalInTZ with no airport zone returns the digits as they stand, and
+// with a zone converts them to the true instant.
+func TestParseLocalInTZ(t *testing.T) {
+	if got := parseLocalInTZ("2026-07-01", "09:00", "AAA"); !got.Equal(time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)) {
+		t.Errorf("unknown airport = %v, want the digits as UTC", got)
+	}
+	if got := parseLocalInTZ("2026-07-01", "09:00", "LHR"); !got.Equal(time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)) {
+		t.Errorf("LHR = %v, want 08:00Z (BST)", got)
+	}
+	if got := parseLocalInTZ("2026-07-01", "bad", "LHR"); !got.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("bad time = %v, want midnight digits", got)
 	}
 }

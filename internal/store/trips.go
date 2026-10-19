@@ -37,10 +37,14 @@ type Trip struct {
 	EffectiveStart *time.Time
 	EffectiveEnd   *time.Time
 	// FirstTZ/LastTZ are the zones of the trip's first and last live items (the
-	// earliest start; the latest end, its end zone else its start zone), so the
-	// span's dates can be read where they happen. List only, like the above.
-	FirstTZ string
-	LastTZ  string
+	// earliest start; the latest end, in its own end zone, or its start zone
+	// when it has no end), each with the source that says what a blank one
+	// means, so the span's dates can be read where they happen. List only,
+	// like the above.
+	FirstTZ       string
+	FirstTZSource string
+	LastTZ        string
+	LastTZSource  string
 }
 
 // TripMember is one (trip, user, role) edge — the sharing boundary. Role is
@@ -106,10 +110,18 @@ var listTripsSelect = `
 		   JOIN plans pl ON pl.id = p.plan_id
 		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL
 		  ORDER BY p.starts_at, p.id LIMIT 1), ''),
-		COALESCE((SELECT COALESCE(NULLIF(p.end_tz, ''), p.start_tz) FROM plan_parts p
+		COALESCE((SELECT p.start_tz_source FROM plan_parts p
 		   JOIN plans pl ON pl.id = p.plan_id
 		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL
-		  ORDER BY COALESCE(p.ends_at, p.starts_at) DESC, p.id DESC LIMIT 1), '')
+		  ORDER BY p.starts_at, p.id LIMIT 1), 'unknown'),
+		COALESCE((SELECT CASE WHEN p.ends_at IS NULL THEN p.start_tz ELSE p.end_tz END FROM plan_parts p
+		   JOIN plans pl ON pl.id = p.plan_id
+		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL
+		  ORDER BY COALESCE(p.ends_at, p.starts_at) DESC, p.id DESC LIMIT 1), ''),
+		COALESCE((SELECT CASE WHEN p.ends_at IS NULL THEN p.start_tz_source ELSE p.end_tz_source END FROM plan_parts p
+		   JOIN plans pl ON pl.id = p.plan_id
+		  WHERE pl.trip_id = t.id AND p.dismissed_at IS NULL
+		  ORDER BY COALESCE(p.ends_at, p.starts_at) DESC, p.id DESC LIMIT 1), 'unknown')
 	FROM trips t`
 
 func (s *Store) scanTripList(rows pgx.Rows) ([]*Trip, error) {
@@ -119,7 +131,7 @@ func (s *Store) scanTripList(rows pgx.Rows) ([]*Trip, error) {
 		var t Trip
 		if err := rows.Scan(&t.ID, &t.Name, &t.Destination, &t.StartsOn, &t.EndsOn,
 			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CountryCode, &t.Description, &t.ShareAllFriendsRole,
-			&t.EffectiveStart, &t.EffectiveEnd, &t.FirstTZ, &t.LastTZ); err != nil {
+			&t.EffectiveStart, &t.EffectiveEnd, &t.FirstTZ, &t.FirstTZSource, &t.LastTZ, &t.LastTZSource); err != nil {
 			return nil, err
 		}
 		out = append(out, &t)

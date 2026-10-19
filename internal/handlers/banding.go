@@ -2,7 +2,8 @@ package handlers
 
 import (
 	"strings"
-	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Banding is the rule that turns one ranged booking into two itinerary entries:
@@ -98,6 +99,6 @@ func bandUIDSuffix(planType string, last bool) string {
 // can differ only when the two ends sit in different zones whose offset gap
 // exceeds the booking's elapsed time, reversing the ordering of their local
 // dates.
-func bandsToLaterDay(startsAt time.Time, startTZ string, endsAt time.Time, endTZ string) bool {
-	return localDate(endsAt, endTZ).After(localDate(startsAt, startTZ))
+func bandsToLaterDay(start, end timing.Block) bool {
+	return timing.Day(end, "").After(timing.Day(start, ""))
 }
