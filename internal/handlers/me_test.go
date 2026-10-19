@@ -133,3 +133,57 @@ func TestUpdateMeHiddenFeatures(t *testing.T) {
 		t.Errorf("hide_explore should be cleared: %v", me)
 	}
 }
+
+// TestUpdateMeHomeTZ: the home zone round-trips through PATCH /api/me, an
+// unknown zone is a 400, "" clears it, an absent field leaves it alone, and
+// other users never see it.
+func TestUpdateMeHomeTZ(t *testing.T) {
+	e := setup(t, nil, nil)
+	uid := e.user(t, "tzprefs", false)
+	other := e.user(t, "tzother", false)
+
+	w := e.req(t, "PATCH", "/api/me", map[string]string{"home_tz": "Asia/Tashkent"}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set home_tz = %d %s", w.Code, w.Body.String())
+	}
+	w = e.req(t, "GET", "/api/me", nil, uid)
+	if me := decodeBody[map[string]any](t, w); me["home_tz"] != "Asia/Tashkent" {
+		t.Errorf("home_tz = %v, want Asia/Tashkent", me["home_tz"])
+	}
+
+	// An unknown zone is rejected and the stored value survives.
+	w = e.req(t, "PATCH", "/api/me", map[string]string{"home_tz": "Mars/Olympus"}, uid)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("bad home_tz = %d, want 400", w.Code)
+	}
+	w = e.req(t, "GET", "/api/me", nil, uid)
+	if me := decodeBody[map[string]any](t, w); me["home_tz"] != "Asia/Tashkent" {
+		t.Errorf("rejected update changed home_tz to %v", me["home_tz"])
+	}
+
+	// A patch without the field leaves it unchanged.
+	w = e.req(t, "PATCH", "/api/me", map[string]string{"home_address": "1 Main St"}, uid)
+	if me := decodeBody[map[string]any](t, w); me["home_tz"] != "Asia/Tashkent" {
+		t.Errorf("partial patch changed home_tz to %v", me["home_tz"])
+	}
+
+	// Another user sees no home_tz for this one.
+	w = e.req(t, "GET", "/api/users", nil, other)
+	if w.Code != http.StatusOK {
+		t.Fatalf("/api/users = %d", w.Code)
+	}
+	for _, u := range decodeBody[[]map[string]any](t, w) {
+		if _, ok := u["home_tz"]; ok {
+			t.Errorf("user directory leaked home_tz: %v", u)
+		}
+	}
+
+	// "" clears it.
+	w = e.req(t, "PATCH", "/api/me", map[string]string{"home_tz": ""}, uid)
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear home_tz = %d %s", w.Code, w.Body.String())
+	}
+	if me := decodeBody[map[string]any](t, w); me["home_tz"] != nil {
+		t.Errorf("cleared home_tz = %v, want absent", me["home_tz"])
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/auth"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +29,8 @@ type updateMeReq struct {
 	// pin unchanged; present with both lat/lon sets it; present with null lat/lon
 	// clears it. Both coordinates must be supplied together to pin.
 	HomeCoords *homeCoordsReq `json:"home_coords"`
+	// HomeTZ is the user's home IANA zone. Absent leaves it unchanged; "" clears it.
+	HomeTZ *string `json:"home_tz"`
 }
 
 type homeCoordsReq struct {
@@ -44,6 +47,10 @@ func (a *API) updateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.PaperSize != nil && *in.PaperSize != "a4" && *in.PaperSize != "letter" {
 		writeError(w, http.StatusBadRequest, "Paper size must be \"a4\" or \"letter\".")
+		return
+	}
+	if in.HomeTZ != nil && *in.HomeTZ != "" && !timing.ValidZone(*in.HomeTZ) {
+		writeError(w, http.StatusBadRequest, "invalid home_tz")
 		return
 	}
 	var homeLat, homeLon *float64
@@ -67,6 +74,7 @@ func (a *API) updateMe(w http.ResponseWriter, r *http.Request) {
 		SetHome:     in.HomeCoords != nil,
 		HomeLat:     homeLat,
 		HomeLon:     homeLon,
+		HomeTZ:      in.HomeTZ,
 	})
 	if err != nil {
 		handleStoreErr(w, err)
