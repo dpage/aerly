@@ -75,14 +75,45 @@ func partBlock(at time.Time, storedTZ, source, iata string, lat, lon *float64) t
 	return timing.Block{At: at, Source: timing.Unknown}
 }
 
+// endZone is the zone a flight end is labelled in, with the source to label
+// it by.
+type endZone struct {
+	TZ     string
+	Source timing.Source
+}
+
+// flightZone is an airport's zone for a flight end. timing.AirportZone counts
+// a table or coordinate hit as the airport's own place, so it is Confirmed;
+// with neither the end is Unknown.
+func flightZone(iata string, lat, lon *float64) endZone {
+	if tz := airportZone(iata, lat, lon); tz != "" {
+		return endZone{TZ: tz, Source: timing.Confirmed}
+	}
+	return endZone{Source: timing.Unknown}
+}
+
+// startZone is the zone for a flight's departure: the part's stored zone with
+// the source it was stored with (a zone stored before sources were recorded
+// counts as given), else the departure airport's.
+func startZone(storedTZ, storedSource, iata string, lat, lon *float64) endZone {
+	if storedTZ == "" {
+		return flightZone(iata, lat, lon)
+	}
+	src := timing.Source(storedSource)
+	if !src.Valid() {
+		src = timing.Confirmed
+	}
+	return endZone{TZ: storedTZ, Source: src}
+}
+
 // instantBlock is the label block for a flight time, which is always a true
-// instant: in the airport's zone when that is known, else unknown, so the
-// label falls back to the recipient's home zone or UTC.
-func instantBlock(at time.Time, kind timing.Kind, tz, iata string) timing.Block {
-	if tz == "" {
+// instant: in its zone, with that zone's source, when one is known, else
+// unknown, so the label falls back to the recipient's home zone or UTC.
+func instantBlock(at time.Time, kind timing.Kind, z endZone, iata string) timing.Block {
+	if z.TZ == "" {
 		return timing.Block{At: at, Source: timing.Unknown, Kind: kind}
 	}
-	return timing.Block{At: at, TZ: tz, Source: timing.Confirmed, Place: timing.PlaceName(tz, iata), Kind: kind}
+	return timing.Block{At: at, TZ: z.TZ, Source: z.Source, Place: timing.PlaceName(z.TZ, iata), Kind: kind}
 }
 
 // labelDay is the calendar date a block is shown on, judged in the zone its

@@ -245,6 +245,12 @@ func TestChangeDetail_DelayQuotedInAirportTime(t *testing.T) {
 	if got := changeDetail("delayed", alertState{}, alertState{}, unknown); got != "now departing 12:35 UTC" {
 		t.Errorf("unplaceable delay detail = %q, want 'now departing 12:35 UTC'", got)
 	}
+
+	// A recipient with a home zone sees the unplaceable time on their own
+	// clock, labelled, and with no second "your time" to compare it against.
+	if got := recipientDetail("delayed", "", unknown, "Europe/London"); got != "now departing 13:35 UTC+1" {
+		t.Errorf("unplaceable delay detail at home = %q, want 'now departing 13:35 UTC+1'", got)
+	}
 }
 
 // TestAlert_DedupeSigMatchSuppressesReAlert covers the stored-signature match

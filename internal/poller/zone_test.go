@@ -3,6 +3,8 @@ package poller
 import (
 	"testing"
 	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 func f64(v float64) *float64 { return &v }
@@ -72,5 +74,44 @@ func TestInZone(t *testing.T) {
 	}
 	if got := inZone(at, "Mars/Olympus_Mons").Format("15:04 MST"); got != "09:00 UTC" {
 		t.Fatalf("unknown-zone render = %q, want 09:00 UTC", got)
+	}
+}
+
+// TestFlightZone: an airport placed by the table or its own coordinates is a
+// confirmed zone; one that cannot be placed is unknown.
+func TestFlightZone(t *testing.T) {
+	if got := flightZone("LHR", nil, nil); got != (endZone{TZ: "Europe/London", Source: timing.Confirmed}) {
+		t.Errorf("table = %+v", got)
+	}
+	if got := flightZone("NQY", f64(50.4406), f64(-4.9954)); got != (endZone{TZ: "Europe/London", Source: timing.Confirmed}) {
+		t.Errorf("coords = %+v", got)
+	}
+	if got := flightZone("ZZZ", nil, nil); got != (endZone{Source: timing.Unknown}) {
+		t.Errorf("unplaceable = %+v", got)
+	}
+}
+
+// TestStartZone: a stored departure zone keeps the source it was stored with,
+// rather than being relabelled confirmed; without one the airport's is used.
+func TestStartZone(t *testing.T) {
+	if got := startZone("Europe/Paris", "inferred", "LHR", nil, nil); got != (endZone{TZ: "Europe/Paris", Source: timing.Inferred}) {
+		t.Errorf("stored inferred = %+v", got)
+	}
+	if got := startZone("Europe/Paris", "", "LHR", nil, nil); got != (endZone{TZ: "Europe/Paris", Source: timing.Confirmed}) {
+		t.Errorf("stored before sources = %+v", got)
+	}
+	if got := startZone("", "floating", "LHR", nil, nil); got != (endZone{TZ: "Europe/London", Source: timing.Confirmed}) {
+		t.Errorf("no stored zone = %+v", got)
+	}
+}
+
+func TestInstantBlockCarriesSource(t *testing.T) {
+	at := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	b := instantBlock(at, timing.Estimated, endZone{TZ: "Europe/Paris", Source: timing.Inferred}, "CDG")
+	if b.Source != timing.Inferred || b.TZ != "Europe/Paris" || b.Kind != timing.Estimated || b.Place == "" {
+		t.Errorf("zoned = %+v", b)
+	}
+	if b := instantBlock(at, timing.Scheduled, endZone{Source: timing.Unknown}, "ZZZ"); b.Source != timing.Unknown || b.TZ != "" {
+		t.Errorf("zoneless = %+v", b)
 	}
 }

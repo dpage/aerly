@@ -526,7 +526,7 @@ func delayDetail(f *store.Flight, home string) string {
 		return "now delayed"
 	}
 	b := instantBlock(f.ScheduledOut.Add(t.Departure.Delay), t.Departure.Kind,
-		airportZone(f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA)
+		flightZone(f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA)
 	return "now departing " + mailer.WithYourTime(timing.CompactPlace(b, home), b, home)
 }
 
@@ -666,8 +666,8 @@ func (p *Poller) sendAlertEmail(ctx context.Context, to, home string, f *store.F
 		Detail:    detail,
 		Origin:    airports.Label(f.OriginIATA, ""),
 		Dest:      airports.Label(f.DestIATA, ""),
-		Departs:   instantBlock(t.Departure.At, t.Departure.Kind, airportZone(f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
-		Arrives:   arrivalBlock(t, airportZone(f.DestIATA, f.DestLat, f.DestLon), f.DestIATA),
+		Departs:   instantBlock(t.Departure.At, t.Departure.Kind, flightZone(f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
+		Arrives:   arrivalBlock(t, flightZone(f.DestIATA, f.DestLat, f.DestLon), f.DestIATA),
 		HomeTZ:    home,
 	})
 	if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
