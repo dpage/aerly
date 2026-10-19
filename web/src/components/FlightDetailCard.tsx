@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Chip, Stack, Typography } from '@mui/material';
 
-import type { FlightDetail } from '../api/types';
+import type { FlightDetail, TZSource } from '../api/types';
 import { fmtAgo } from '../lib/format';
 import { fmtGate } from '../lib/gate';
 import { Mono, Row, Section, TimeRow } from './DetailRows';
@@ -9,18 +9,28 @@ import { Mono, Row, Section, TimeRow } from './DetailRows';
 interface Props {
   flight: FlightDetail;
   /** The departure's timetable zone (timetableZone), for the "out" schedule
-   * rows: the airport's, or blank for a floating end, never the raw start_tz,
-   * which carries the airport fallback even then. */
+   * rows: the airport's, or blank for a floating or unknown end. */
   startTz?: string;
+  /** The departure block's source, so a blank zone on an unknown end reads in
+   * the viewer's zone rather than as floating digits. */
+  startSource?: TZSource;
   /** The arrival's timetable zone, for the "in" schedule rows, as startTz. */
   endTz?: string;
+  /** The arrival block's source, as startSource. */
+  endSource?: TZSource;
+}
+
+// A provider estimate or actual is a true instant, so with no zone to quote it
+// in it is unknown (read in the viewer's zone), never floating.
+function liveSource(tz: string | undefined): TZSource | undefined {
+  return tz ? undefined : 'unknown';
 }
 
 /** The rich flight detail block shown beneath a selected flight in the map list
  * — the same information the pre-trip-planning flight panel showed: aircraft,
  * full schedule (scheduled/estimated/actual out + in), live position, status,
  * and polling freshness. Collapses gracefully when telemetry is absent. */
-export default function FlightDetailCard({ flight, startTz, endTz }: Props) {
+export default function FlightDetailCard({ flight, startTz, startSource, endTz, endSource }: Props) {
   // Estimated and actual times are real instants from the provider, so they get
   // a real zone even when the part's own is floating: the airport's, from the
   // server's departure/arrival block, else the part's. Scheduled rows keep the
@@ -56,12 +66,37 @@ export default function FlightDetailCard({ flight, startTz, endTz }: Props) {
       </Section>
 
       <Section title="Schedule">
-        <TimeRow label="Scheduled out" iso={flight.scheduled_out} tz={startTz} />
-        <TimeRow label="Estimated out" iso={flight.estimated_out} tz={liveOutTz} />
-        <TimeRow label="Actual out" iso={flight.actual_out} tz={liveOutTz} />
-        <TimeRow label="Scheduled in" iso={flight.scheduled_in} tz={endTz} />
-        <TimeRow label="Estimated in" iso={flight.estimated_in} tz={liveInTz} />
-        <TimeRow label="Actual in" iso={flight.actual_in} tz={liveInTz} />
+        <TimeRow
+          label="Scheduled out"
+          iso={flight.scheduled_out}
+          tz={startTz}
+          source={startSource}
+        />
+        <TimeRow
+          label="Estimated out"
+          iso={flight.estimated_out}
+          tz={liveOutTz}
+          source={liveSource(liveOutTz)}
+        />
+        <TimeRow
+          label="Actual out"
+          iso={flight.actual_out}
+          tz={liveOutTz}
+          source={liveSource(liveOutTz)}
+        />
+        <TimeRow label="Scheduled in" iso={flight.scheduled_in} tz={endTz} source={endSource} />
+        <TimeRow
+          label="Estimated in"
+          iso={flight.estimated_in}
+          tz={liveInTz}
+          source={liveSource(liveInTz)}
+        />
+        <TimeRow
+          label="Actual in"
+          iso={flight.actual_in}
+          tz={liveInTz}
+          source={liveSource(liveInTz)}
+        />
       </Section>
 
       {pos && (

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 
 import type { FlightDetail, Position } from '../api/types';
+import { setViewerZone } from '../lib/time';
 import { block } from '../test/blocks';
 import FlightDetailCard from './FlightDetailCard';
 
@@ -47,15 +48,15 @@ describe('FlightDetailCard', () => {
         flight={flight({
           estimated_out: '2026-10-12T09:15:00Z',
           actual_in: '2026-10-12T13:05:00Z',
-          // The server's blocks for a floating flight: provider times keep
-          // the airport zone, the source stays floating.
+          // The server's blocks for a floating flight: provider times are
+          // quoted at the airport, so confirmed.
           departure: block('2026-10-12T09:15:00Z', 'Europe/London', {
-            tz_source: 'floating',
+            tz_source: 'confirmed',
             kind: 'estimated',
             delay_min: 15,
           }),
           arrival: block('2026-10-12T13:05:00Z', 'America/New_York', {
-            tz_source: 'floating',
+            tz_source: 'confirmed',
             kind: 'actual',
             delay_min: 5,
           }),
@@ -68,6 +69,23 @@ describe('FlightDetailCard', () => {
     expect(screen.getByText('Mon 12 Oct, 09:05 UTC-4')).toBeInTheDocument();
     // The timetable stays unlabelled: its digits are wall-clock, not an instant.
     expect(screen.getByText('Mon 12 Oct, 09:00')).toBeInTheDocument();
+  });
+
+  it("reads unknown ends and unplaced provider times in the viewer's zone", () => {
+    setViewerZone('Asia/Tokyo');
+    render(
+      <FlightDetailCard
+        flight={flight({ estimated_out: '2026-10-12T09:15:00Z' })}
+        startTz=""
+        startSource="unknown"
+        endTz=""
+        endSource="unknown"
+      />,
+    );
+    expect(screen.getByText('Mon 12 Oct, 18:00 UTC+9')).toBeInTheDocument();
+    expect(screen.getByText('Mon 12 Oct, 18:15 UTC+9')).toBeInTheDocument();
+    expect(screen.getByText('Mon 12 Oct, 22:00 UTC+9')).toBeInTheDocument();
+    setViewerZone(null);
   });
 
   it('falls back to the part zone when the flight carries no block zone', () => {

@@ -620,7 +620,9 @@ function PartRow({
             <FlightDetailCard
               flight={part.flight}
               startTz={timetableZone(startBlockOf(part))}
+              startSource={startBlockOf(part).tz_source}
               endTz={timetableZone(endBlockOf(part))}
+              endSource={endBlockOf(part)?.tz_source}
             />
           ) : (
             <PartDetailBlock part={part} />

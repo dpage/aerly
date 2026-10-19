@@ -82,24 +82,29 @@ function iso(offset: number, h = 10, m = 0) {
 // same shape. A flight uses its timetable times, as an unrevised flight does.
 function withBlocks<T extends Record<string, unknown>>(part: T): T {
   const f = part.flight as { scheduled_out?: string; scheduled_in?: string } | undefined;
-  const mk = (at: string, tz: string) => ({
+  const mk = (at: string, tz: string, tzSource: string) => ({
     at,
     tz,
-    tz_source: tz ? 'confirmed' : 'floating',
+    tz_source: tzSource,
     place: tz ? (tz.split('/').pop() ?? '').replace(/_/g, ' ') : '',
     kind: 'scheduled',
     delay_min: 0,
   });
   const startTz = (part.start_tz as string) ?? '';
-  const endTz = (part.end_tz as string) || startTz;
+  // An end with no zone of its own is unknown, never the start's zone: each end
+  // reads in its own zone, as the server's do.
+  const endTz = (part.end_tz as string) ?? '';
   const startAt = f?.scheduled_out ?? (part.starts_at as string);
   const endAt = f?.scheduled_in ?? (part.ends_at as string | undefined);
+  const startSrc = startTz ? 'confirmed' : 'floating';
+  const endSrc = endTz ? 'confirmed' : 'unknown';
   return {
     ...part,
-    start_tz_source: startTz ? 'confirmed' : 'floating',
-    end_tz_source: endAt ? (endTz ? 'confirmed' : 'floating') : 'unknown',
-    start: mk(startAt, startTz),
-    ...(endAt ? { end: mk(endAt, endTz) } : {}),
+    start_tz_source: startSrc,
+    end_tz: endTz,
+    end_tz_source: endSrc,
+    start: mk(startAt, startTz, startSrc),
+    ...(endAt ? { end: mk(endAt, endTz, endSrc) } : {}),
   };
 }
 

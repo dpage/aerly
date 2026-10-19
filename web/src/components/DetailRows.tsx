@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Children, isValidElement } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
+import type { TZSource } from '../api/types';
 import { blockFor, fmtFull, fmtViewer } from '../lib/time';
 import { useViewerZone } from '../state/viewerZone';
 
@@ -69,11 +70,23 @@ export function Row({ label, value }: { label: string; value: ReactNode }) {
 }
 
 /** A schedule row: the time in its own zone, with the viewer's time beneath when
- * it differs. Null when the instant is missing. */
-export function TimeRow({ label, iso, tz }: { label: string; iso?: string; tz?: string }) {
+ * it differs. Null when the instant is missing. A blank zone reads as floating
+ * unless the source says otherwise: an unknown end is a true instant, shown in
+ * the viewer's zone with its offset. */
+export function TimeRow({
+  label,
+  iso,
+  tz,
+  source,
+}: {
+  label: string;
+  iso?: string;
+  tz?: string;
+  source?: TZSource;
+}) {
   const viewer = useViewerZone();
   if (!iso) return null;
-  const b = blockFor(iso, tz ?? '');
+  const b = blockFor(iso, tz ?? '', source);
   const yours = fmtViewer(b, viewer);
   return (
     <Row
