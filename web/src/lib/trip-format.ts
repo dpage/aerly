@@ -8,6 +8,7 @@ import type {
   PlanType,
   TimeBlock,
   Trip,
+  TZSource,
   UpdatePlanPartInput,
 } from '../api/types';
 import {
@@ -383,17 +384,40 @@ export function fmtPartTimeRange(part: PlanPart): string {
   return end ? `${start} → ${fmtCompact(end)}` : start;
 }
 
-/** The zone an end's timetable (starts_at/ends_at, scheduled_out/in) reads in:
- * the block's, but blank for a floating end, whose timetable is wall-clock
- * digits even when a provider estimate gives its block the airport's zone
- * (newTimeBlock in internal/api/dto.go does the same). '' with no block. */
-export function timetableZone(b: TimeBlock | undefined): string {
-  return !b || b.tz_source === 'floating' ? '' : b.tz;
+/** How an end's timetable (starts_at/ends_at, scheduled_out/in) is zoned: the
+ * part's stored source, never the block's. A floating end's block can carry a
+ * provider estimate or actual quoted at the airport as confirmed, or as unknown
+ * when the airport cannot be placed (newTimeBlock in internal/api/dto.go), yet
+ * its timetable digits are still wall-clock time with no zone. */
+export function timetableSource(part: PlanPart, which: 'start' | 'end'): TZSource {
+  return which === 'start' ? part.start_tz_source : part.end_tz_source;
 }
 
-// The timetable time behind a revised block, in its timetable zone.
-function timetableBlock(b: TimeBlock, at: string): TimeBlock {
-  return { ...b, at, tz: timetableZone(b), kind: 'scheduled', delay_min: 0 };
+/** The zone an end's timetable reads in: the part's stored zone, so blank for
+ * a floating or unknown end (see timetableSource). */
+export function timetableZone(part: PlanPart, which: 'start' | 'end'): string {
+  if (timetableSource(part, which) === 'floating') return '';
+  return (which === 'start' ? part.start_tz : part.end_tz) ?? '';
+}
+
+// The timetable time behind a revised block, in the end's timetable zone and
+// source rather than the block's.
+function timetableBlock(
+  part: PlanPart,
+  which: 'start' | 'end',
+  b: TimeBlock,
+  at: string,
+): TimeBlock {
+  const tz = timetableZone(part, which);
+  return {
+    ...b,
+    at,
+    tz,
+    tz_source: timetableSource(part, which),
+    place: tz === b.tz ? b.place : '',
+    kind: 'scheduled',
+    delay_min: 0,
+  };
 }
 
 /** The timetable range, when either end is running to a reported or worked-out
@@ -403,10 +427,10 @@ export function fmtPartScheduledRange(part: PlanPart): string | null {
   const eb = endBlockOf(part);
   if (!isRevised(sb) && !isRevised(eb)) return null;
   const f = part.flight;
-  const start = fmtCompact(timetableBlock(sb, f?.scheduled_out ?? part.starts_at));
+  const start = fmtCompact(timetableBlock(part, 'start', sb, f?.scheduled_out ?? part.starts_at));
   const endAt = f?.scheduled_in ?? part.ends_at;
   if (!eb || !endAt) return start;
-  return `${start} → ${fmtCompact(timetableBlock(eb, endAt))}`;
+  return `${start} → ${fmtCompact(timetableBlock(part, 'end', eb, endAt))}`;
 }
 
 /** A part's local date(s) for the share text, e.g. "Sun, 18 Oct 2026", or a
@@ -589,9 +613,8 @@ export function zoneConfirmPatch(
   which: 'start' | 'end',
   tz: string,
 ): UpdatePlanPartInput {
-  const b = which === 'start' ? startBlockOf(part) : endBlockOf(part);
-  const shown = timetableZone(b);
-  const keepInstant = b?.tz_source === 'unknown';
+  const shown = timetableZone(part, which);
+  const keepInstant = timetableSource(part, which) === 'unknown';
   if (which === 'start') {
     const patch: UpdatePlanPartInput = { start_tz: tz, start_tz_source: 'confirmed' };
     if (tz !== shown && !keepInstant) {

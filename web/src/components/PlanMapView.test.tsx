@@ -149,13 +149,16 @@ describe('PlanMapView', () => {
 
   it("leaves a floating flight's timetable unlabelled in its detail card", async () => {
     const user = userEvent.setup();
-    // As the server sends one: the raw zones carry the airport fallback, the
-    // timetable blocks none, and a provider estimate the airport's zone.
+    // As the server sends one: the raw zones are blank and floating, a
+    // provider estimate is quoted at the airport as confirmed, and the derived
+    // arrival stays floating with no zone.
     const f = flight({
+      start_tz: '',
+      end_tz: '',
       start_tz_source: 'floating',
       end_tz_source: 'floating',
       start: block('2026-10-12T09:15:00Z', 'Europe/London', {
-        tz_source: 'floating',
+        tz_source: 'confirmed',
         kind: 'estimated',
         delay_min: 15,
       }),
@@ -173,6 +176,34 @@ describe('PlanMapView', () => {
     expect(card.getByText('Mon 12 Oct, 09:00')).toBeInTheDocument();
     expect(card.getByText('Mon 12 Oct, 13:00')).toBeInTheDocument();
     expect(card.getByText('Mon 12 Oct, 10:15 UTC+1')).toBeInTheDocument();
+  });
+
+  it("leaves a floating flight's timetable unlabelled beside an unplaced estimate", async () => {
+    const user = userEvent.setup();
+    // An estimate whose airport cannot be placed arrives unknown with no zone.
+    const f = flight({
+      start_tz: '',
+      end_tz: '',
+      start_tz_source: 'floating',
+      end_tz_source: 'floating',
+      start: block('2026-10-12T09:15:00Z', '', {
+        tz_source: 'unknown',
+        kind: 'estimated',
+        delay_min: 15,
+      }),
+      end: block('2026-10-12T13:15:00Z', '', { kind: 'derived', delay_min: 15 }),
+    });
+    f.flight = {
+      ...f.flight!,
+      estimated_out: '2026-10-12T09:15:00Z',
+      departure: f.start,
+      arrival: f.end,
+    };
+    render(<PlanMapView parts={[f]} />);
+    await user.click(screen.getByTestId('plan-row-1'));
+    const card = within(screen.getByTestId('flight-detail-card'));
+    expect(card.getByText('Mon 12 Oct, 09:00')).toBeInTheDocument();
+    expect(card.getByText('Mon 12 Oct, 13:00')).toBeInTheDocument();
   });
 
   it('does not re-fit the map when a selected flight refreshes (keeps a manual zoom)', async () => {

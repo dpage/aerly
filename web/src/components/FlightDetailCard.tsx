@@ -9,14 +9,15 @@ import { Mono, Row, Section, TimeRow } from './DetailRows';
 interface Props {
   flight: FlightDetail;
   /** The departure's timetable zone (timetableZone), for the "out" schedule
-   * rows: the airport's, or blank for a floating or unknown end. */
+   * rows: the part's stored zone, blank for a floating or unknown end. */
   startTz?: string;
-  /** The departure block's source, so a blank zone on an unknown end reads in
-   * the viewer's zone rather than as floating digits. */
+  /** The departure's timetable source (timetableSource, the part's, not the
+   * block's), so a blank zone on an unknown end reads in the viewer's zone
+   * rather than as floating digits. */
   startSource?: TZSource;
   /** The arrival's timetable zone, for the "in" schedule rows, as startTz. */
   endTz?: string;
-  /** The arrival block's source, as startSource. */
+  /** The arrival's timetable source, as startSource. */
   endSource?: TZSource;
 }
 
@@ -30,7 +31,13 @@ function liveSource(tz: string | undefined): TZSource | undefined {
  * — the same information the pre-trip-planning flight panel showed: aircraft,
  * full schedule (scheduled/estimated/actual out + in), live position, status,
  * and polling freshness. Collapses gracefully when telemetry is absent. */
-export default function FlightDetailCard({ flight, startTz, startSource, endTz, endSource }: Props) {
+export default function FlightDetailCard({
+  flight,
+  startTz,
+  startSource,
+  endTz,
+  endSource,
+}: Props) {
   // Estimated and actual times are real instants from the provider, so they get
   // a real zone even when the part's own is floating: the airport's, from the
   // server's departure/arrival block, else the part's. Scheduled rows keep the

@@ -470,6 +470,39 @@ describe('PlanEditDialog', () => {
       expect(zones[1]).toHaveValue('');
     });
 
+    it('seeds a floating flight from its digits beside a provider estimate', () => {
+      // As the server sends one: the estimate is quoted at the airport as
+      // confirmed, but the stored timetable is still floating digits.
+      render_(
+        plan({
+          parts: [
+            part({
+              start_tz: '',
+              end_tz: '',
+              start_tz_source: 'floating',
+              end_tz_source: 'floating',
+              start: block('2026-10-12T11:50:00Z', 'Europe/London', {
+                tz_source: 'confirmed',
+                kind: 'estimated',
+                delay_min: 15,
+              }),
+              end: block('2026-10-12T20:10:00Z', 'America/New_York', {
+                tz_source: 'confirmed',
+                kind: 'estimated',
+                delay_min: 15,
+              }),
+            }),
+          ],
+        }),
+      );
+      const whens = screen.getAllByLabelText('Date & time');
+      expect(whens[0]).toHaveValue('2026-10-12T11:35');
+      expect(whens[1]).toHaveValue('2026-10-12T19:55');
+      const zones = screen.getAllByRole('combobox', { name: /timezone/i });
+      expect(zones[0]).toHaveValue('');
+      expect(zones[1]).toHaveValue('');
+    });
+
     it('keeps a floating flight floating when only its time changes', async () => {
       h.updatePlanPart.mockResolvedValue(part());
       render_(plan({ parts: [floatingFlight()] }));

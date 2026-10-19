@@ -30,11 +30,9 @@ import { coordsFromText, isMapsUrl } from '../lib/maps-url';
 import { MAPS_NO_COORDS, resolveCoordsFromInput } from '../lib/resolve-coords';
 import {
   ACCOMMODATION_KINDS,
-  endBlockOf,
   isTransferType,
   planTypeLabel,
   splitLocal,
-  startBlockOf,
   timetableZone,
   typeHasEnd,
   zonedTimeToUtc,
@@ -153,10 +151,10 @@ function endForm(
 
 function partForm(part: PlanPart): PartForm {
   // The form edits the stored timetable digits, so each end's zone is its own
-  // timetable zone, from its block: blank for floating or unknown digits. An
-  // end never borrows the start's zone.
-  const startTz = timetableZone(startBlockOf(part));
-  const endTz = timetableZone(endBlockOf(part));
+  // stored zone (timetableZone), never its block's: blank for floating or
+  // unknown digits. An end never borrows the start's zone.
+  const startTz = timetableZone(part, 'start');
+  const endTz = timetableZone(part, 'end');
   return {
     start: endForm(
       part.start_label ?? '',
@@ -275,8 +273,8 @@ function hasEnd(part: PlanPart): boolean {
  * guessed zone is not silently upgraded to confirmed. Otherwise it is
  * undefined, as there is no source worth keeping (an older part with none, or
  * a floating or unknown one); timePatch settles that case. An unedited zone is
- * always the stored one, since partForm reads it through timetableZone, which
- * matches part.*_tz for every source. */
+ * always the stored one, since partForm seeds it from part.*_tz through
+ * timetableZone. */
 function zoneSource(
   tz: string,
   edited: boolean,

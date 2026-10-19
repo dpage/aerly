@@ -453,13 +453,19 @@ describe('external event blocks', () => {
   });
   it('makes an all-day event floating whatever zone it carries', () => {
     expect(
-      externalStartBlock(ev({ all_day: true, start_tz: 'Asia/Tokyo', start_tz_source: 'confirmed' })),
+      externalStartBlock(
+        ev({ all_day: true, start_tz: 'Asia/Tokyo', start_tz_source: 'confirmed' }),
+      ),
     ).toMatchObject({ tz: '', tz_source: 'floating' });
   });
   it('gives the end no zone of its own, never the start zone', () => {
     expect(
       externalEndBlock(
-        ev({ ends_at: '2026-10-20T10:00:00Z', start_tz: 'Europe/Berlin', start_tz_source: 'confirmed' }),
+        ev({
+          ends_at: '2026-10-20T10:00:00Z',
+          start_tz: 'Europe/Berlin',
+          start_tz_source: 'confirmed',
+        }),
       ),
     ).toMatchObject({ at: '2026-10-20T10:00:00Z', tz: '', tz_source: 'unknown' });
     expect(externalEndBlock(ev({}))).toBeUndefined();
@@ -710,10 +716,12 @@ describe('block-based part times', () => {
       start_tz: '',
       start_tz_source: 'floating',
       flight: { ident: 'XX100', scheduled_out: '2026-10-18T10:00:00Z' },
+      // As the server sends one: a provider estimate on a floating end is
+      // quoted at the airport, so its block is confirmed.
       start: {
         ...lhr,
         at: '2026-10-18T09:40:00Z',
-        tz_source: 'floating',
+        tz_source: 'confirmed',
         kind: 'estimated',
         delay_min: 40,
       },
@@ -721,6 +729,40 @@ describe('block-based part times', () => {
       end: undefined,
     } as Partial<PlanPart>);
     expect(fmtPartScheduledRange(p)).toBe('10:00');
+  });
+
+  it('shows a floating timetable unlabelled beside an unplaced estimate', () => {
+    const p = flight({
+      starts_at: '2026-10-18T10:00:00Z',
+      start_tz: '',
+      start_tz_source: 'floating',
+      end_tz: '',
+      end_tz_source: 'floating',
+      flight: {
+        ident: 'XX100',
+        scheduled_out: '2026-10-18T10:00:00Z',
+        scheduled_in: '2026-10-18T18:05:00Z',
+      },
+      start: {
+        ...lhr,
+        at: '2026-10-18T09:40:00Z',
+        tz: '',
+        place: '',
+        tz_source: 'unknown',
+        kind: 'estimated',
+        delay_min: 40,
+      },
+      end: {
+        ...jfk,
+        at: '2026-10-18T18:45:00Z',
+        tz: '',
+        place: '',
+        tz_source: 'floating',
+        kind: 'derived',
+        delay_min: 40,
+      },
+    } as Partial<PlanPart>);
+    expect(fmtPartScheduledRange(p)).toBe('10:00 → 18:05');
   });
 
   it('revises only the arrival when the departure stands', () => {
@@ -1191,6 +1233,28 @@ describe('zone confirm and count', () => {
       start_tz_source: 'confirmed',
       start_local: '2026-10-18T14:00',
     });
+  });
+
+  it('reads a floating flight by its digits beside a provider estimate', () => {
+    // A provider estimate on a floating end arrives confirmed at the airport,
+    // or unknown with no airport zone; the timetable digits are still floating.
+    for (const est of [
+      block('2026-10-18T13:20:00Z', 'Europe/London', { tz_source: 'confirmed', kind: 'estimated' }),
+      block('2026-10-18T13:20:00Z', '', { tz_source: 'unknown', kind: 'estimated' }),
+    ]) {
+      const p = hotel({
+        type: 'flight',
+        start_tz: '',
+        start_tz_source: 'floating',
+        starts_at: '2026-10-18T14:00:00Z',
+        start: est,
+      });
+      expect(zoneConfirmPatch(p, 'start', 'Europe/Paris')).toEqual({
+        start_tz: 'Europe/Paris',
+        start_tz_source: 'confirmed',
+        start_local: '2026-10-18T14:00',
+      });
+    }
   });
 
   it('confirms an unknown zone without moving its instant', () => {
