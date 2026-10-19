@@ -157,13 +157,13 @@ export interface TimelineDay {
  * - Dismissed parts are dropped entirely (PRD §6.2).
  * - Superseded-but-not-dismissed parts stay (the page greys them).
  * - Parts sort by `effective_at`; days group by the local calendar day in the
- *   part's `start_tz` so a red-eye lands on its departure day's header and the
- *   header reads in the local time of where it happens. */
+ *   zone of the part's start block, so a red-eye lands on its departure day's
+ *   header and the header reads in the local time of where it happens. */
 export function buildTimeline(plans: Plan[]): TimelineDay[] {
   // Each entry carries the instant to sort by and the block that places it on
-  // a day (in that block's own zone), so a
-  // banded booking (a multi-night stay, a multi-day hire) can contribute two
-  // entries: one on the day it opens and one on the day it closes.
+  // a day (in that block's own zone), so a banded booking (a multi-night stay,
+  // a multi-day hire) can contribute two entries: one on the day it opens and
+  // one on the day it closes.
   interface Entry {
     tp: TimelinePart;
     instant: number;
@@ -467,6 +467,10 @@ export function fmtPartTimeRangeText(part: PlanPart): string {
 
 // --- internals --------------------------------------------------------------
 
+// The instant a part sorts by: effective_at, not the start block's time,
+// because a stay's effective_at is its suggested check-in after the inbound
+// flight lands (handlers_plans.go), which its start block, the booked time,
+// does not carry. A flight's effective_at is its start block's instant.
 function instantOf(part: PlanPart): number {
   return parseInstant(part.effective_at ?? part.starts_at) ?? 0;
 }

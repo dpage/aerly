@@ -623,6 +623,8 @@ function PartCard({
   // Total time of a transfer, shown after its range because the two ends can
   // sit in different time zones and the clock times alone don't say it.
   const duration = fmtPartDuration(part);
+  const startBlock = startBlockOf(part);
+  const endBlock = endBlockOf(part);
   // How the flight's state should read here. Lives on the collapsed tile rather
   // than behind a tap, because a cancellation is the single most important
   // thing a tile can say and nobody expands a tile to find out that their
@@ -811,9 +813,9 @@ function PartCard({
 
           <Typography variant="caption" color="text.secondary">
             {edge === 'first' ? (
-              `${edgeLabel} · ${fmtCompact(startBlockOf(part))}`
+              `${edgeLabel} · ${fmtCompact(startBlock)}`
             ) : edge === 'last' ? (
-              `${edgeLabel} · ${fmtCompact(endBlockOf(part) ?? startBlockOf(part))}`
+              `${edgeLabel} · ${fmtCompact(endBlock ?? startBlock)}`
             ) : scheduledWhen ? (
               // Departure-board treatment: the timetable stays visible but is
               // struck through, and the times the flight is actually running to
@@ -842,11 +844,11 @@ function PartCard({
             )}
           </Typography>
           {edge !== 'last' && <TimeMarker part={part} which="start" canEdit={canEdit} />}
-          {endBlockOf(part) &&
+          {endBlock &&
             edge !== 'first' &&
             (edge === 'last' ||
-              endBlockOf(part)?.kind === 'derived' ||
-              endBlockOf(part)?.tz_source !== startBlockOf(part).tz_source) && (
+              endBlock.kind === 'derived' ||
+              endBlock.tz_source !== startBlock.tz_source) && (
               <TimeMarker part={part} which="end" canEdit={canEdit} />
             )}
 

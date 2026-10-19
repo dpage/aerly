@@ -1091,7 +1091,7 @@ describe('branch edge cases', () => {
     ];
     const days = buildTimeline(plans);
     expect(days).toHaveLength(1);
-    // localDayKey + fmtDayHeader both fall back to the raw iso on NaN.
+    // dayKey and fmtDayHeading both fall back to the raw iso on NaN.
     expect(days[0].dayKey).toBe('not-a-date');
     expect(days[0].label).toBe('not-a-date');
   });

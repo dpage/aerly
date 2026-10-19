@@ -52,7 +52,13 @@ describe('TimeMarker', () => {
     h.updatePlanPart.mockRejectedValue(new Error("That time doesn't exist in Europe/London (clocks go forward)."));
     render(
       <TimeMarker
-        part={part({ start_tz: '', start_tz_source: 'floating', start: block('2026-03-29T01:30:00Z', '') })}
+        part={part({
+          starts_at: '2026-03-29T01:30:00Z',
+          effective_at: '2026-03-29T01:30:00Z',
+          start_tz: '',
+          start_tz_source: 'floating',
+          start: block('2026-03-29T01:30:00Z', ''),
+        })}
         which="start"
         canEdit
       />,
@@ -64,6 +70,14 @@ describe('TimeMarker', () => {
     await waitFor(() =>
       expect(h.setError).toHaveBeenCalledWith("That time doesn't exist in Europe/London (clocks go forward)."),
     );
+    // The floating digits went as wall-clock time in the zone picked, which is
+    // what the server refused, and the picker stays open to try another.
+    expect(h.updatePlanPart).toHaveBeenCalledWith(7, {
+      start_tz: 'Europe/London',
+      start_tz_source: 'confirmed',
+      start_local: '2026-03-29T01:30',
+    });
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
   });
 
   it('cancels without a PATCH', async () => {

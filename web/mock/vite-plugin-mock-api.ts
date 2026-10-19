@@ -91,7 +91,7 @@ function withBlocks<T extends Record<string, unknown>>(part: T): T {
     delay_min: 0,
   });
   const startTz = (part.start_tz as string) ?? '';
-  const endTz = ((part.end_tz as string) || startTz) ?? '';
+  const endTz = (part.end_tz as string) || startTz;
   const startAt = f?.scheduled_out ?? (part.starts_at as string);
   const endAt = f?.scheduled_in ?? (part.ends_at as string | undefined);
   return {
