@@ -5,6 +5,8 @@ import (
 	"mime"
 	"strings"
 	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // FlightAlertInput is the data needed to render a flight-change alert email
@@ -24,19 +26,19 @@ type FlightAlertInput struct {
 	Detail    string    // ready-to-render change phrase
 	When      time.Time // new effective time for delays; zero otherwise
 
-	Origin    string     // departure airport label, e.g. "London Heathrow (LHR)"
-	Dest      string     // arrival airport label
-	DepartsAt time.Time  // best known departure; zero leaves it out
-	OriginTZ  string     // IANA; falls back to UTC when empty/invalid
-	ArrivesAt *time.Time // best known arrival; nil leaves it out
-	DestTZ    string     // IANA; falls back to UTC when empty/invalid
+	Origin  string        // departure airport label, e.g. "London Heathrow (LHR)"
+	Dest    string        // arrival airport label
+	Departs timing.Block  // best known departure; a zero At leaves it out
+	Arrives *timing.Block // best known arrival; nil leaves it out
+	HomeTZ  string        // the recipient's home zone, "" for none
 }
 
 // FlightAlertDetails returns the sentence identifying the flight, e.g.
 // "Flight from London Heathrow (LHR) to Sydney (SYD), departing Mon 1 Mar,
-// 10:00 GMT, arriving Wed 3 Mar, 06:00 AEDT." Each time is quoted on its own
-// airport's clock. Parts that aren't known are left out, and "" is returned
-// when nothing is.
+// 10:00 London (UTC), arriving Tue 2 Mar, 19:00 Sydney (UTC+11)." Each time is
+// quoted on its own airport's clock, followed by the recipient's own time when
+// it differs. Parts that aren't known are left out, and "" is returned when
+// nothing is.
 func FlightAlertDetails(in FlightAlertInput) string {
 	var route string
 	switch {
@@ -51,11 +53,11 @@ func FlightAlertDetails(in FlightAlertInput) string {
 	if route != "" {
 		parts = append(parts, route)
 	}
-	if !in.DepartsAt.IsZero() {
-		parts = append(parts, "departing "+LocalTime(in.DepartsAt, in.OriginTZ))
+	if !in.Departs.At.IsZero() {
+		parts = append(parts, "departing "+FullTime(in.Departs, in.HomeTZ))
 	}
-	if in.ArrivesAt != nil {
-		parts = append(parts, "arriving "+LocalTime(*in.ArrivesAt, in.DestTZ))
+	if in.Arrives != nil {
+		parts = append(parts, "arriving "+FullTime(*in.Arrives, in.HomeTZ))
 	}
 	if len(parts) == 0 {
 		return ""

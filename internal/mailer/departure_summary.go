@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // delayThreshold is how large the departure delay must be before the summary
@@ -28,10 +30,11 @@ type ForecastDay struct {
 }
 
 // DepartureSummaryInput is the data needed to render the departure summary
-// (issue #130). ScheduledOut is the timetable departure and DepartsAt the
+// (issue #130). ScheduledOut is the timetable departure and Departs the
 // effective one (actual, else estimated, else scheduled); DepartureDelay
-// drives the on time / delayed wording. Terminal, Gate, ArrivesAt,
-// ContactPhone and Forecast are all optional.
+// drives the on time / delayed wording. HomeTZ is the recipient's home zone,
+// "" for none. Terminal, Gate, Arrives, ContactPhone and Forecast are all
+// optional.
 type DepartureSummaryInput struct {
 	FromAddr     string
 	ToAddr       string
@@ -42,13 +45,12 @@ type DepartureSummaryInput struct {
 	DestLabel    string // destination city, else IATA; "" for no subject suffix
 	DestIATA     string
 	ScheduledOut time.Time
-	DepartsAt    time.Time
+	Departs      timing.Block
 	// DepartureDelay is the off-block estimate minus the timetable, zero
 	// without an estimate; it alone decides the on time / delayed wording.
 	DepartureDelay time.Duration
-	OriginTZ       string // IANA; falls back to UTC when empty/invalid
-	ArrivesAt      *time.Time
-	DestTZ         string
+	Arrives        *timing.Block
+	HomeTZ         string
 	Terminal       string
 	Gate           string
 	SupplierName   string // airline name; "the airline" when empty
@@ -84,7 +86,7 @@ func formatDuration(d time.Duration) string {
 // DepartureSummaryHeadline returns the first sentence of the summary, reused
 // as the in-app inbox row and the start of the push body, e.g.
 // "BA171 (LHR → ORD) is on time, departing terminal 5, gate B32 at Thu 15
-// Oct, 11:10 BST."
+// Oct, 11:10 London (UTC+1)."
 func DepartureSummaryHeadline(in DepartureSummaryInput) string {
 	flight := in.Ident
 	if in.Route != "" {
@@ -109,20 +111,20 @@ func DepartureSummaryHeadline(in DepartureSummaryInput) string {
 		at = " " + strings.Join(where, ", ") + " at "
 	}
 	return fmt.Sprintf("%s %s %s%s%s.", flight, status, departing, at,
-		LocalTime(in.DepartsAt, in.OriginTZ))
+		FullTime(in.Departs, in.HomeTZ))
 }
 
 // arrivalLine is the "Arrival at ORD is ..." sentence, or "" when the arrival
 // time is unknown.
 func arrivalLine(in DepartureSummaryInput) string {
-	if in.ArrivesAt == nil {
+	if in.Arrives == nil {
 		return ""
 	}
 	dest := in.DestIATA
 	if dest == "" {
 		dest = "the destination"
 	}
-	return fmt.Sprintf("Arrival at %s is %s.", dest, LocalTime(*in.ArrivesAt, in.DestTZ))
+	return fmt.Sprintf("Arrival at %s is %s.", dest, FullTime(*in.Arrives, in.HomeTZ))
 }
 
 // contactLine is the "For help or changes" sentence, or "" without a phone.

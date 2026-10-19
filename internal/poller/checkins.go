@@ -86,8 +86,8 @@ func (p *Poller) dispatchCheckin(ctx context.Context, d store.DueCheckin) {
 			TripID:    d.TripID,
 			Ident:     d.Ident,
 			Route:     checkinRoute(d),
-			StartsAt:  d.StartsAt,
-			StartTZ:   partZone(d.StartTZ, d.OriginIATA, d.StartLat, d.StartLon),
+			Start:     partBlock(d.StartsAt, d.StartTZ, d.StartTZSource, d.OriginIATA, d.StartLat, d.StartLon),
+			HomeTZ:    d.HomeTZ,
 		})
 		if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
 			// The recipient is identified by user id rather than address: the

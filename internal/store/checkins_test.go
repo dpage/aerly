@@ -266,3 +266,30 @@ func TestDueCheckins_QueryError(t *testing.T) {
 		t.Fatal("want an error from a cancelled context")
 	}
 }
+
+// TestDueCheckins_ZoneSourceAndHome: a due row carries the departure's zone
+// source and the recipient's home zone, which the labels need.
+func TestDueCheckins_ZoneSourceAndHome(t *testing.T) {
+	s := New(testsupport.NewPool(t))
+	ctx := context.Background()
+	uid := testsupport.InsertUser(t, s.pool, "alice", false, true)
+	enableCheckins(t, s, uid)
+	tid := seedTrip(t, s, uid)
+	out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
+	_, part := seedCheckinFlightPart(t, s, tid, uid, "XX100", out)
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE plan_parts SET start_tz = 'Europe/London', start_tz_source = 'confirmed' WHERE id = $1`, part); err != nil {
+		t.Fatal(err)
+	}
+	home := "America/New_York"
+	if _, err := s.UpdateUser(ctx, uid, UpdateUserPayload{HomeTZ: &home}); err != nil {
+		t.Fatal(err)
+	}
+	due, err := s.DueCheckins(ctx, out.Add(-time.Hour))
+	if err != nil || len(due) != 1 {
+		t.Fatalf("DueCheckins = %+v, %v", due, err)
+	}
+	if d := due[0]; d.StartTZ != "Europe/London" || d.StartTZSource != "confirmed" || d.HomeTZ != home {
+		t.Errorf("zone = %q, source = %q, home = %q", d.StartTZ, d.StartTZSource, d.HomeTZ)
+	}
+}

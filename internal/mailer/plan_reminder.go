@@ -3,22 +3,24 @@ package mailer
 import (
 	"fmt"
 	"strings"
-	"time"
 	"unicode"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // PlanReminderInput is the data needed to render an upcoming-plan reminder
 // (issue #11). Label is the human name for the plan (flight ident, plan title,
-// or a type fallback); StartsAt/StartTZ give the local start time; TripID
-// targets the "Open Aerly" link at the trip timeline.
+// or a type fallback); Start is the part's start as a label needs it, and
+// HomeTZ the recipient's home zone ("" for none); TripID targets the "Open
+// Aerly" link at the trip timeline.
 type PlanReminderInput struct {
 	FromAddr  string
 	ToAddr    string
 	PublicURL string
 	TripID    int64
 	Label     string
-	StartsAt  time.Time
-	StartTZ   string // IANA; falls back to UTC when empty/invalid
+	Start     timing.Block
+	HomeTZ    string
 }
 
 // PlanReminderLabel derives a concise label from a plan's type/title/ident.
@@ -59,17 +61,21 @@ func PlanReminderSubject(label string) string {
 	return "Upcoming: " + label
 }
 
-// LocalTime renders an instant in the given IANA zone, falling back to UTC when
-// the zone is empty or unknown. Exported so the push notifications quote a plan
-// the same way its email does, rather than growing a second layout string.
-func LocalTime(t time.Time, tz string) string {
-	loc := time.UTC
-	if tz != "" {
-		if l, err := time.LoadLocation(tz); err == nil {
-			loc = l
-		}
+// FullTime is how an email quotes a time: the web's full label, then the
+// recipient's own time when their home zone reads differently, e.g. "Sun 18
+// Oct, 14:00 Tashkent (UTC+5) (10:00 your time)". Exported so the push and
+// inbox copy that reuses an email's wording quotes the time the same way.
+func FullTime(b timing.Block, home string) string {
+	return WithYourTime(timing.Full(b, home), b, home)
+}
+
+// WithYourTime appends the recipient's own time to s, separated by a space,
+// when there is one to add, and returns s unchanged otherwise.
+func WithYourTime(s string, b timing.Block, home string) string {
+	if y := timing.YourTime(b, home); y != "" {
+		return s + " " + y
 	}
-	return t.In(loc).Format("Mon 2 Jan, 15:04 MST")
+	return s
 }
 
 // BuildPlanReminderEmail renders the complete RFC822 reminder message (plain +
@@ -78,7 +84,7 @@ func LocalTime(t time.Time, tz string) string {
 func BuildPlanReminderEmail(in PlanReminderInput) string {
 	site := strings.TrimRight(in.PublicURL, "/")
 	subject := PlanReminderSubject(in.Label)
-	when := LocalTime(in.StartsAt, in.StartTZ)
+	when := FullTime(in.Start, in.HomeTZ)
 	lead := fmt.Sprintf("%s starts %s", capitalise(in.Label), when)
 	link := fmt.Sprintf("%s/trips/%d", site, in.TripID)
 

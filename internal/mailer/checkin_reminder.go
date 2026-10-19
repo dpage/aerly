@@ -3,12 +3,14 @@ package mailer
 import (
 	"fmt"
 	"strings"
-	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // CheckinReminderInput is the data needed to render a check-in reminder
-// (issue #119). Ident names the flight; StartsAt/StartTZ give the scheduled
-// departure in the departure airport's own zone; Route, when set, is the
+// (issue #119). Ident names the flight; Start is the scheduled departure,
+// normally on the departure airport's clock, and HomeTZ the recipient's home
+// zone ("" for none); Route, when set, is the
 // "LHR → LIS" line that tells two same-numbered legs apart; TripID targets the
 // "Open Aerly" link at the trip timeline.
 type CheckinReminderInput struct {
@@ -18,8 +20,8 @@ type CheckinReminderInput struct {
 	TripID    int64
 	Ident     string
 	Route     string // "LHR → LIS", or "" when the route isn't known
-	StartsAt  time.Time
-	StartTZ   string // IANA; falls back to UTC when empty/invalid
+	Start     timing.Block
+	HomeTZ    string
 }
 
 // CheckinReminderSubject returns the Subject line, e.g.
@@ -35,7 +37,7 @@ func CheckinReminderSubject(ident string) string {
 func BuildCheckinReminderEmail(in CheckinReminderInput) string {
 	site := strings.TrimRight(in.PublicURL, "/")
 	subject := CheckinReminderSubject(in.Ident)
-	when := LocalTime(in.StartsAt, in.StartTZ)
+	when := FullTime(in.Start, in.HomeTZ)
 
 	flight := "Flight " + in.Ident
 	if in.Route != "" {

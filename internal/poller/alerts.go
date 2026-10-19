@@ -473,15 +473,7 @@ func terminalChanged(prev, cur string) bool {
 func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	switch kind {
 	case "delayed":
-		if t := timing.Effective(f.Times()); t.Revised {
-			eff := f.ScheduledOut.Add(t.Departure.Delay)
-			// Quote the revised departure on the departure airport's clock,
-			// which is the one the traveller is reading (issue #117); UTC only
-			// where the airport's zone can't be resolved at all.
-			zone := airportZone(f.OriginIATA, f.OriginLat, f.OriginLon)
-			return "now departing " + inZone(eff, zone).Format("15:04 MST")
-		}
-		return "now delayed"
+		return delayDetail(f, "")
 	case "diverted":
 		return "diverted to a different airport"
 	case "gate":
@@ -524,6 +516,29 @@ func withTerminal(changed bool, terminal string) string {
 	return ", terminal " + terminal
 }
 
+// delayDetail names the revised departure for a delay, labelled as the web
+// labels it: on the departure airport's clock, which is the one the traveller
+// is reading (issue #117), with the recipient's own time after it when home
+// differs. Without the airport's zone the time is shown in home, else UTC.
+func delayDetail(f *store.Flight, home string) string {
+	t := timing.Effective(f.Times())
+	if !t.Revised {
+		return "now delayed"
+	}
+	b := instantBlock(f.ScheduledOut.Add(t.Departure.Delay), t.Departure.Kind,
+		airportZone(f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA)
+	return "now departing " + mailer.WithYourTime(timing.CompactPlace(b, home), b, home)
+}
+
+// recipientDetail is the detail one recipient sees. Only a delay's differs
+// between recipients, since it may add their own time.
+func recipientDetail(kind, detail string, f *store.Flight, home string) string {
+	if kind == "delayed" {
+		return delayDetail(f, home)
+	}
+	return detail
+}
+
 // alertMessage is the one-liner carried in the in-app SSE payload.
 func alertMessage(ident, kind, detail string) string {
 	subj := mailer.FlightAlertSubject(ident, kind)
@@ -545,7 +560,6 @@ func (p *Poller) dispatchAlert(
 	st alertState,
 	recips []store.AlertRecipient,
 ) {
-	msg := alertMessage(cur.Ident, kind, detail)
 	always := kind == "cancelled" || kind == "diverted" || kind == "gate" || kind == "gate_assigned" || kind == "belt" || kind == "terminal"
 
 	for _, r := range recips {
@@ -554,11 +568,13 @@ func (p *Poller) dispatchAlert(
 		if !always && st.delayMin < r.MinDelayMin {
 			continue
 		}
+		detail := recipientDetail(kind, detail, cur, r.HomeTZ)
+		msg := alertMessage(cur.Ident, kind, detail)
 		if r.InApp {
 			p.publishAlert(ctx, r.UserID, tp, cur.Ident, kind, msg)
 		}
 		if r.Email && r.EmailAddr != "" {
-			p.sendAlertEmail(ctx, r.EmailAddr, cur, kind, detail)
+			p.sendAlertEmail(ctx, r.EmailAddr, r.HomeTZ, cur, kind, detail)
 		}
 		p.pushAlert(ctx, r.UserID, tp, cur.Ident, msg)
 	}
@@ -630,8 +646,9 @@ func ptrFlightAlertDTO(d api.FlightAlertDTO) *api.FlightAlertDTO { return &d }
 // MailFrom is configured (e.g. dev without a sendmail pipe). The email names the
 // route and times of f so a traveller with several flights booked can tell
 // which one changed (issue #144); each time is quoted on its own airport's
-// clock, as the delay detail already is.
-func (p *Poller) sendAlertEmail(ctx context.Context, to string, f *store.Flight, kind, detail string) {
+// clock, as the delay detail already is, with the recipient's own time after
+// it when their home zone differs.
+func (p *Poller) sendAlertEmail(ctx context.Context, to, home string, f *store.Flight, kind, detail string) {
 	if p.MailFromAddress == "" {
 		return
 	}
@@ -649,10 +666,9 @@ func (p *Poller) sendAlertEmail(ctx context.Context, to string, f *store.Flight,
 		Detail:    detail,
 		Origin:    airports.Label(f.OriginIATA, ""),
 		Dest:      airports.Label(f.DestIATA, ""),
-		DepartsAt: t.Departure.At,
-		OriginTZ:  airportZone(f.OriginIATA, f.OriginLat, f.OriginLon),
-		ArrivesAt: arrivalAt(t),
-		DestTZ:    airportZone(f.DestIATA, f.DestLat, f.DestLon),
+		Departs:   instantBlock(t.Departure.At, t.Departure.Kind, airportZone(f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
+		Arrives:   arrivalBlock(t, airportZone(f.DestIATA, f.DestLat, f.DestLon), f.DestIATA),
+		HomeTZ:    home,
 	})
 	if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
 		slog.Error("alert: send email", "to", to, "ident", f.Ident, "err", err)

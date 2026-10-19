@@ -10,6 +10,7 @@ import (
 	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // remindUpcoming dispatches upcoming-plan reminders (issue #11). It is a
@@ -46,14 +47,15 @@ func (p *Poller) remindUpcoming(ctx context.Context, now time.Time) {
 			continue // a trip-level opt-in must not leak a plan hidden from this viewer
 		}
 		d := d
-		guard("poller.remind", d.PlanPartID, func() { p.dispatchReminder(ctx, d) })
+		guard("poller.remind", d.PlanPartID, func() { p.dispatchReminder(ctx, d, now) })
 	}
 }
 
 // dispatchReminder sends the email + in-app reminder for one due pair, then
 // marks it sent. MarkReminderSent runs last so a crash mid-send re-sends rather
-// than silently dropping (mirrors the dedupe-sig ordering in alerts.go).
-func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
+// than silently dropping (mirrors the dedupe-sig ordering in alerts.go). now
+// decides whether the push can quote the start as a time of day alone.
+func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder, now time.Time) {
 	label := mailer.PlanReminderLabel(d.PlanType, d.PlanTitle, d.Ident)
 
 	// In-app: always (reuses the flight_alerts inbox with kind="reminder"). On a
@@ -64,7 +66,7 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 		return
 	}
 
-	zone := partZone(d.StartTZ, d.OriginIATA, d.StartLat, d.StartLon)
+	start := partBlock(d.StartsAt, d.StartTZ, d.StartTZSource, d.OriginIATA, d.StartLat, d.StartLon)
 
 	// Email: only when mail is configured and the user has a verified address.
 	if p.MailFromAddress != "" && d.Email != "" {
@@ -78,8 +80,8 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 			PublicURL: p.PublicURL,
 			TripID:    d.TripID,
 			Label:     label,
-			StartsAt:  d.StartsAt,
-			StartTZ:   zone,
+			Start:     start,
+			HomeTZ:    d.HomeTZ,
 		})
 		if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {
 			// Identified by user id rather than address: the pair already pins
@@ -100,7 +102,7 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 		return
 	}
 
-	p.pushReminder(ctx, d, label, zone)
+	p.pushReminder(ctx, d, label, start, now)
 }
 
 // pushReminder delivers the reminder to the recipient's subscribed devices as a
@@ -109,7 +111,7 @@ func (p *Poller) dispatchReminder(ctx context.Context, d store.DueReminder) {
 // reminder is wanted; this only decides whether it also reaches their phone.
 // Best-effort: a disabled Sender, a user with push off, or one with no
 // subscriptions is a silent no-op, and the Sender never blocks this path.
-func (p *Poller) pushReminder(ctx context.Context, d store.DueReminder, label, zone string) {
+func (p *Poller) pushReminder(ctx context.Context, d store.DueReminder, label string, start timing.Block, now time.Time) {
 	if p.Push == nil || !p.Push.Enabled() {
 		return
 	}
@@ -123,7 +125,7 @@ func (p *Poller) pushReminder(ctx context.Context, d store.DueReminder, label, z
 	}
 	p.Push.Send(ctx, []int64{d.UserID}, push.Payload{
 		Title: mailer.PlanReminderSubject(label),
-		Body:  "Starts " + mailer.LocalTime(d.StartsAt, zone),
+		Body:  reminderPushBody(start, d.HomeTZ, now),
 		// Deep-link to the plan's trip; the SW focuses/opens this on click.
 		URL: fmt.Sprintf("/trips/%d", d.TripID),
 		// One notification per part, so a re-delivery replaces rather than
@@ -131,6 +133,17 @@ func (p *Poller) pushReminder(ctx context.Context, d store.DueReminder, label, z
 		Tag:  fmt.Sprintf("reminder-%d", d.PlanPartID),
 		Kind: "reminder",
 	})
+}
+
+// reminderPushBody is the push text for a start: the time of day and place
+// when the start falls today on the clock it is quoted in, else the full date
+// too, then the recipient's own time when that differs.
+func reminderPushBody(start timing.Block, home string, now time.Time) string {
+	at := timing.Full(start, home)
+	if labelDay(now, start, home) == labelDay(start.At, start, home) {
+		at = timing.CompactPlace(start, home)
+	}
+	return "Starts " + mailer.WithYourTime(at, start, home)
 }
 
 // publishReminder persists an in-app alert row (kind="reminder") and pushes the

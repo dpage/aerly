@@ -111,11 +111,10 @@ func (p *Poller) departureInput(ctx context.Context, d store.DueDepartureSummary
 		DestLabel:      destLabel,
 		DestIATA:       f.DestIATA,
 		ScheduledOut:   f.ScheduledOut,
-		DepartsAt:      departs,
+		Departs:        instantBlock(departs, t.Departure.Kind, partZone(d.StartTZ, f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
 		DepartureDelay: t.Departure.Delay,
-		OriginTZ:       partZone(d.StartTZ, f.OriginIATA, f.OriginLat, f.OriginLon),
-		ArrivesAt:      arrives,
-		DestTZ:         destTZ,
+		Arrives:        arrivalBlock(t, destTZ, f.DestIATA),
+		HomeTZ:         d.HomeTZ,
 		Terminal:       f.OriginTerminal,
 		Gate:           f.OriginGate,
 		SupplierName:   plan.SupplierName,
@@ -123,6 +122,16 @@ func (p *Poller) departureInput(ctx context.Context, d store.DueDepartureSummary
 		Forecast:       p.departureForecast(ctx, f, destTZ, landing),
 		ForecastPlace:  destLabel,
 	}, true
+}
+
+// arrivalBlock is the label block for the effective arrival, or nil when none
+// is known. A derived arrival keeps its kind, so the label carries the ≈.
+func arrivalBlock(t timing.Times, tz, iata string) *timing.Block {
+	if t.Arrival == nil {
+		return nil
+	}
+	b := instantBlock(t.Arrival.At, t.Arrival.Kind, tz, iata)
+	return &b
 }
 
 // arrivalAt is the effective arrival time, or nil when none is known.

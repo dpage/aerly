@@ -29,13 +29,16 @@ type DueCheckin struct {
 	Ident      string
 	StartsAt   time.Time
 	StartTZ    string
-	OriginIATA string
-	DestIATA   string
-	StartLat   *float64
-	StartLon   *float64
-	InApp      bool
-	Email      bool
-	EmailAddr  string // newest verified address, "" when none
+	// StartTZSource is the timing.Source name for StartTZ.
+	StartTZSource string
+	OriginIATA    string
+	DestIATA      string
+	StartLat      *float64
+	StartLon      *float64
+	InApp         bool
+	Email         bool
+	EmailAddr     string // newest verified address, "" when none
+	HomeTZ        string // the recipient's home zone, "" when unset
 }
 
 // DueCheckins returns every (flight part, user) check-in reminder ready to fire
@@ -73,6 +76,7 @@ func (s *Store) dueFlightNotices(ctx context.Context, now time.Time, lead time.D
 		SELECT part.id, r.plan_id, r.trip_id, r.user_id,
 		       fd.ident, part.starts_at, part.start_tz,
 		       fd.origin_iata, fd.dest_iata, part.start_lat, part.start_lon,
+		       part.start_tz_source, u.home_tz,
 		       COALESCE(ap.in_app, TRUE), COALESCE(ap.email, TRUE),
 		       COALESCE((
 		           SELECT e.address FROM user_emails e
@@ -83,6 +87,7 @@ func (s *Store) dueFlightNotices(ctx context.Context, now time.Time, lead time.D
 		FROM recip r
 		JOIN plan_parts part ON part.plan_id = r.plan_id
 		JOIN flight_details fd ON fd.plan_part_id = part.id
+		JOIN users u ON u.id = r.user_id
 		LEFT JOIN alert_prefs ap ON ap.user_id = r.user_id
 		WHERE COALESCE(ap.`+prefCol+`, FALSE)
 		  AND part.status <> 'cancelled'
@@ -104,7 +109,8 @@ func (s *Store) dueFlightNotices(ctx context.Context, now time.Time, lead time.D
 		var d DueCheckin
 		if err := rows.Scan(&d.PlanPartID, &d.PlanID, &d.TripID, &d.UserID,
 			&d.Ident, &d.StartsAt, &d.StartTZ, &d.OriginIATA, &d.DestIATA,
-			&d.StartLat, &d.StartLon, &d.InApp, &d.Email, &d.EmailAddr); err != nil {
+			&d.StartLat, &d.StartLon, &d.StartTZSource, &d.HomeTZ,
+			&d.InApp, &d.Email, &d.EmailAddr); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
