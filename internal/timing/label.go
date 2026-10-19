@@ -55,13 +55,14 @@ func offsetIn(at time.Time, loc *time.Location) string {
 
 // view is how a block is shown: the zone its clock runs in, and whether an
 // offset label goes with it. A floating block shows its UTC digits as
-// wall-clock time with no label; an unknown one is a true instant, shown in
+// wall-clock time with no label; any other block without a zone is a true
+// instant, shown in
 // the viewer's home zone (UTC without one) and always with an offset.
 func (b Block) view(home string) (loc *time.Location, labelled bool, place string) {
 	switch {
 	case b.TZ != "":
 		return loadZone(b.TZ), true, b.Place
-	case b.Source == Unknown:
+	case b.Source != Floating:
 		return loadZone(home), true, ""
 	}
 	return time.UTC, false, ""
