@@ -732,6 +732,32 @@ describe('block-based part times', () => {
     expect(endBlockOf(noEnd)).toBeUndefined();
   });
 
+  it('builds missing blocks as the server would from the raw zones and sources', () => {
+    const p = flight({
+      start: undefined,
+      end: undefined,
+      start_tz: 'Europe/London',
+      start_tz_source: 'floating',
+      end_tz: '',
+      end_tz_source: 'unknown',
+    } as unknown as Partial<PlanPart>);
+    // A floating start's raw zone is the airport fallback; its digits have none.
+    expect(startBlockOf(p)).toMatchObject({ tz: '', tz_source: 'floating' });
+    // An end with no zone of its own does not borrow the start's.
+    expect(endBlockOf(p)).toMatchObject({ tz: '', tz_source: 'unknown' });
+    const inferred = flight({
+      start: undefined,
+      end: undefined,
+      start_tz_source: 'inferred',
+      end_tz_source: 'confirmed',
+    } as unknown as Partial<PlanPart>);
+    expect(startBlockOf(inferred)).toMatchObject({ tz: 'Europe/London', tz_source: 'inferred' });
+    expect(endBlockOf(inferred)).toMatchObject({
+      tz: 'America/New_York',
+      tz_source: 'confirmed',
+    });
+  });
+
   it('has no duration for a single-place type', () => {
     expect(fmtPartDuration(flight({ type: 'hotel' }))).toBeNull();
   });

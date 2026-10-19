@@ -8,6 +8,7 @@ import type {
   PlanType,
   TimeBlock,
   Trip,
+  TZSource,
   UpdatePlanPartInput,
 } from '../api/types';
 import {
@@ -351,16 +352,22 @@ function tzOffsetMs(tz: string, utcMs: number): number {
 }
 
 /** A part's start block: the server's, or for a response that predates blocks
- * (a stale cache, the mock API) a scheduled one built from starts_at/start_tz
- * the way the server would, with a blank zone giving no label. */
+ * (a stale cache) a scheduled one built from starts_at, start_tz and
+ * start_tz_source the way the server would: a floating time gets no zone,
+ * whatever airport fallback the raw zone carries, and a blank zone no label. */
 export function startBlockOf(part: PlanPart): TimeBlock {
-  return part.start ?? blockFor(part.starts_at, part.start_tz || '');
+  return part.start ?? fallbackBlock(part.starts_at, part.start_tz, part.start_tz_source);
 }
 
-/** A part's end block, as startBlockOf; absent when the part has no end. */
+/** A part's end block, as startBlockOf from the end's own zone and source;
+ * absent when the part has no end. */
 export function endBlockOf(part: PlanPart): TimeBlock | undefined {
   if (part.end) return part.end;
-  return part.ends_at ? blockFor(part.ends_at, part.end_tz || part.start_tz || '') : undefined;
+  return part.ends_at ? fallbackBlock(part.ends_at, part.end_tz, part.end_tz_source) : undefined;
+}
+
+function fallbackBlock(at: string, tz?: string, src?: TZSource): TimeBlock {
+  return blockFor(at, src === 'floating' ? '' : tz || '', src);
 }
 
 /** A part's current times: "14:00 UTC+5", or "14:00 UTC+5 → ≈18:05 UTC+1" with
