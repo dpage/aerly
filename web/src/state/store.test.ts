@@ -27,6 +27,7 @@ vi.mock('../api/client', async () => {
 });
 
 import { api } from '../api/client';
+import { viewerZone, setViewerZone } from '../lib/time';
 import { useStore } from './store';
 
 const mockApi = api as unknown as Record<string, ReturnType<typeof vi.fn>>;
@@ -294,6 +295,37 @@ describe('user mutations', () => {
     await useStore.getState().setHomeCoords(null);
     expect(mockApi.updateMe).toHaveBeenCalledWith({ home_coords: { lat: null, lon: null } });
     expect(useStore.getState().me?.home_lat).toBeUndefined();
+  });
+
+  it('init feeds the home zone to the viewer zone', async () => {
+    mockApi.getMe.mockResolvedValue(user({ home_tz: 'Asia/Tashkent' }));
+    mockApi.getConfig.mockResolvedValue({});
+    mockApi.getNotifications.mockResolvedValue({ friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 });
+    await useStore.getState().init();
+    expect(viewerZone()).toBe('Asia/Tashkent');
+    setViewerZone(null);
+  });
+
+  it('init with no home zone leaves the viewer on the device zone', async () => {
+    setViewerZone('Asia/Tashkent');
+    mockApi.getMe.mockResolvedValue(user());
+    mockApi.getConfig.mockResolvedValue({});
+    mockApi.getNotifications.mockResolvedValue({ friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 });
+    await useStore.getState().init();
+    expect(viewerZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it('setHomeTz saves, updates me and sets the viewer zone', async () => {
+    useStore.setState({ users: [user({ id: 1 })], me: user({ id: 1 }) });
+    mockApi.updateMe.mockResolvedValue(user({ id: 1, home_tz: 'Europe/Istanbul' }));
+    await useStore.getState().setHomeTz('Europe/Istanbul');
+    expect(mockApi.updateMe).toHaveBeenCalledWith({ home_tz: 'Europe/Istanbul' });
+    expect(useStore.getState().me?.home_tz).toBe('Europe/Istanbul');
+    expect(viewerZone()).toBe('Europe/Istanbul');
+    mockApi.updateMe.mockResolvedValue(user({ id: 1 }));
+    await useStore.getState().setHomeTz('');
+    expect(mockApi.updateMe).toHaveBeenLastCalledWith({ home_tz: '' });
+    expect(viewerZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 
   it('setPaperSize updates me and the users list', async () => {

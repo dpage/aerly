@@ -13,6 +13,7 @@ import type {
   User,
 } from '../api/types';
 import { errorMessage } from './helpers';
+import { setViewerZone } from '../lib/time';
 import { clearOfflineCaches } from '../offline-cache';
 import type { StoreState } from './store';
 
@@ -97,6 +98,7 @@ export interface CoreSlice {
   /** Pin the exact home coordinates, or clear the pin by passing null. */
   setHomeCoords: (coords: { lat: number; lon: number } | null) => Promise<void>;
   setPaperSize: (paperSize: PaperSize) => Promise<void>;
+  setHomeTz: (tz: string) => Promise<void>;
   /** Update the feature-hiding preferences (hide_explore / hide_maps). */
   setHiddenFeatures: (patch: { hide_explore?: boolean; hide_maps?: boolean }) => Promise<void>;
   refreshAutoShares: () => Promise<void>;
@@ -154,6 +156,7 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
   async init() {
     try {
       const [me, capabilities] = await Promise.all([api.getMe(), api.getConfig()]);
+      setViewerZone(me.home_tz || null);
       set({ me, capabilities, auth: 'authenticated' });
       await Promise.all([get().refreshAll(), get().refreshNotifications(), get().loadAlerts()]);
     } catch (err) {
@@ -227,6 +230,15 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
 
   async setPaperSize(paperSize) {
     const updated = await api.updateMe({ paper_size: paperSize });
+    set((s) => ({
+      me: updated,
+      users: s.users.map((u) => (u.id === updated.id ? updated : u)),
+    }));
+  },
+
+  async setHomeTz(tz) {
+    const updated = await api.updateMe({ home_tz: tz });
+    setViewerZone(updated.home_tz || null);
     set((s) => ({
       me: updated,
       users: s.users.map((u) => (u.id === updated.id ? updated : u)),

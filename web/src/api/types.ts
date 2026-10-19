@@ -17,6 +17,9 @@ export interface User {
   /** Preferred page size for the PDF itinerary download. Only present on the
    * signed-in user's own record (/api/me); absent for other viewers. */
   paper_size?: PaperSize;
+  /** IANA zone the user wants emails, notifications and the 'Your time' line in.
+   * Only on the signed-in user's own record; absent when unset. */
+  home_tz?: string;
   /** Feature-hiding preferences (only on the signed-in user's own record).
    * hide_explore hides the Explore feature; hide_maps hides the map features
    * (trip Map tab + global tracker). Absent means shown. */
