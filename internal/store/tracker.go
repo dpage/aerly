@@ -479,24 +479,20 @@ func (s *Store) SetFlightPartTerminalStatus(ctx context.Context, partID int64, s
 
 // RefreshFlightPartDeparture stores the live departure times: the airline's
 // revised off-block estimate and the observed wheels-off. The mirror of
-// RefreshFlightPartArrival, and COALESCE-guarded the same way so a poll that
-// comes back without live coverage leaves an earlier revision standing rather
-// than blanking it.
+// RefreshFlightPartArrival. The estimate is replaced outright, so one the
+// provider stops sending is cleared; the actual, once set, is never cleared.
 func (s *Store) RefreshFlightPartDeparture(ctx context.Context, partID int64, estimatedOut, actualOut *time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET
-			estimated_out = COALESCE($2, estimated_out),
+			estimated_out = $2,
 			actual_out    = COALESCE($3, actual_out)
 		WHERE plan_part_id = $1`, partID, estimatedOut, actualOut)
 	return err
 }
 
-// RefreshFlightPartArrival overwrites the live arrival times when the resolver
-// supplies them, leaving the existing column alone for a nil (the provider
-// omits both until the flight has live coverage, and an omission must not wipe
-// a time we already know). Mirrors RefreshFlightPartBelt's
-// overwrite-when-supplied rule, with NULL playing the part empty-string plays
-// there.
+// RefreshFlightPartArrival stores the live arrival times. The estimate is
+// replaced outright, so one the provider stops sending is cleared; the actual,
+// once set, is never cleared (a nil leaves it alone).
 //
 // These are what let a late flight be recognised as late: the derived status
 // keys off the arrival we actually expect rather than the timetabled one, so a
@@ -505,7 +501,7 @@ func (s *Store) RefreshFlightPartDeparture(ctx context.Context, partID int64, es
 func (s *Store) RefreshFlightPartArrival(ctx context.Context, partID int64, estimatedIn, actualIn *time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET
-			estimated_in = COALESCE($2, estimated_in),
+			estimated_in = $2,
 			actual_in    = COALESCE($3, actual_in)
 		WHERE plan_part_id = $1`, partID, estimatedIn, actualIn)
 	return err
@@ -550,11 +546,12 @@ func (s *Store) RefreshFlightPartSchedule(ctx context.Context, partID int64, out
 // SyncFlightDetailSchedule copies a traveller's edited times into an
 // unconfirmed flight's scheduled_out/scheduled_in (resolved = false; a
 // provider-confirmed schedule is the delay baseline and is left alone). It
-// writes flight_details only and must not touch plan_parts: the times come
-// from the part the traveller has just saved, which may be floating wall-clock
-// digits rather than provider instants, so rewriting the part (or turning its
-// floating ends unknown, as RefreshFlightPartSchedule does) would change what
-// the traveller typed. An arrival equal to the departure is a legitimate "no
+// writes flight_details only and must not touch plan_parts, nor turn its
+// floating ends unknown as RefreshFlightPartSchedule does. It copies the times
+// it is given as they stand, so a caller holding floating wall-clock digits
+// must anchor them in the airport's zone first (syncFlightSchedule does, where
+// an airport zone exists); an end with no known zone has its digits copied, as
+// the column is NOT NULL. An arrival equal to the departure is a legitimate "no
 // arrival known" and is stored as given.
 func (s *Store) SyncFlightDetailSchedule(ctx context.Context, partID int64, out, in time.Time) error {
 	_, err := s.pool.Exec(ctx, `
@@ -592,45 +589,69 @@ const departureSlipCap = "12 hours"
 // scheduled commercial flight.
 const noArrivalCap = "24 hours"
 
+// flightArrivalSQL is the SQL for timing.Effective's arrival over the
+// flight_details columns, each prefixed with p ("" or "fd."): the observed
+// touchdown; else the provider's estimate, but only one after the effective
+// departure; else, when the timetable has a real arrival (strictly after its
+// departure), that arrival moved by a non-zero off-block delay; else the
+// timetabled arrival. It is NULL where Effective reports no arrival at all.
+// The comparisons rely on NULL never satisfying a WHEN, so a missing estimate
+// falls through to the next arm.
+func flightArrivalSQL(p string) string {
+	return `CASE
+		WHEN ` + p + `actual_in IS NOT NULL THEN ` + p + `actual_in
+		WHEN ` + p + `estimated_in > ` + flightDepartureSQL(p) + ` THEN ` + p + `estimated_in
+		WHEN ` + p + `scheduled_in > ` + p + `scheduled_out
+			AND ` + p + `estimated_out <> ` + p + `scheduled_out
+			THEN ` + p + `scheduled_in + (` + p + `estimated_out - ` + p + `scheduled_out)
+		WHEN ` + p + `scheduled_in > ` + p + `scheduled_out THEN ` + p + `scheduled_in
+	END`
+}
+
+// flightDepartureSQL is timing.Effective's departure: wheels-off, else the
+// off-block estimate, else the timetable.
+func flightDepartureSQL(p string) string {
+	return `COALESCE(` + p + `actual_out, ` + p + `estimated_out, ` + p + `scheduled_out)`
+}
+
 // RefreshFlightPartStatus re-derives flight_status from the flight's times,
 // preserving terminal Cancelled / Diverted, and bumps last_polled_at.
 //
-// Arrival is judged against the arrival we actually expect — the observed
-// touchdown, else the airline's current estimate, else the timetable — so a
-// flight running late stays Enroute past its scheduled arrival and keeps being
-// polled instead of being declared Arrived whilst it is still in the air. With
-// no live times the expression collapses to scheduled_in and the behaviour is
+// Arrival is judged against timing.Effective's arrival (flightArrivalSQL), so
+// a flight running late stays Enroute past its scheduled arrival and keeps
+// being polled instead of being declared Arrived whilst it is still in the
+// air. That holds after the provider withdraws its arrival estimate, too: a
+// departure that is still delayed moves the expected arrival with it. With no
+// live times the expression collapses to scheduled_in and the behaviour is
 // exactly the timetable-only one this replaced.
 func (s *Store) RefreshFlightPartStatus(ctx context.Context, partID int64) error {
+	arrival := flightArrivalSQL("")
 	_, err := s.pool.Exec(ctx, `
 		UPDATE flight_details SET
 			flight_status = CASE
 				WHEN flight_status IN ('Cancelled', 'Diverted') THEN flight_status
-				-- Live times win outright, capped so a stale revision can't hold
-				-- the part open forever. No scheduled_in > scheduled_out guard
-				-- here: an observed arrival is real even on a part whose typed-in
-				-- schedule never had an arrival time.
-				WHEN COALESCE(actual_in, estimated_in) IS NOT NULL
-					AND NOW() > LEAST(
-						COALESCE(actual_in, estimated_in),
+				-- The effective arrival, capped so a stale revision (an arrival
+				-- estimate, or a departure estimate the derived arrival moves
+				-- with) can't hold the part open forever. An observed arrival
+				-- counts even on a part whose typed-in schedule never had an
+				-- arrival time; the timetable arms only count a real arrival
+				-- (strictly after departure), since a manually-entered flight
+				-- with no arrival time stores scheduled_in == scheduled_out and
+				-- would otherwise flip to Arrived a minute past its scheduled
+				-- departure, before takeoff. An arrival estimate at or before
+				-- the departure is ignored, as timing.Effective ignores it.
+				WHEN (`+arrival+`) IS NOT NULL
+					AND NOW() > LEAST(`+arrival+`,
 						scheduled_in + INTERVAL '`+arrivalSlipCap+`')
 					THEN 'Arrived'
-				-- No live times: the timetable, and only when it carries a real
-				-- arrival (strictly after departure). A manually-entered flight
-				-- with no arrival time stores scheduled_in == scheduled_out;
-				-- without this guard it flips to Arrived a minute past its
-				-- scheduled departure, before takeoff.
-				WHEN COALESCE(actual_in, estimated_in) IS NULL
-					AND scheduled_in > scheduled_out AND NOW() > scheduled_in THEN 'Arrived'
-				-- No live times and no real arrival in the timetable either, so
-				-- neither branch above can ever fire. Counted from the departure
-				-- we actually expect, not the timetabled one, so a flight held
-				-- on stand through a long delay isn't declared over before it
-				-- has left; capped, so a revision that stops being updated
-				-- can't hold the part open for ever. Long enough past that
-				-- departure that the flight is over however it went.
-				WHEN COALESCE(actual_in, estimated_in) IS NULL
-					AND scheduled_in <= scheduled_out
+				-- No arrival known at all, so the branch above can never fire.
+				-- Counted from the departure we actually expect, not the
+				-- timetabled one, so a flight held on stand through a long
+				-- delay isn't declared over before it has left; capped, so a
+				-- revision that stops being updated can't hold the part open
+				-- for ever. Long enough past that departure that the flight is
+				-- over however it went.
+				WHEN (`+arrival+`) IS NULL
 					AND NOW() > COALESCE(
 						-- An observed wheels-off is a fact, never capped.
 						actual_out,
@@ -649,10 +670,12 @@ func (s *Store) RefreshFlightPartStatus(ctx context.Context, partID int64) error
 				-- it outright; failing that the airline's revised off-block
 				-- time, so a flight held on stand through a rolling delay
 				-- stays Scheduled instead of being declared airborne the
-				-- moment its timetabled departure slid past. With no live
-				-- times this collapses to scheduled_out and the behaviour is
-				-- exactly the timetable-only one it replaced.
-				WHEN NOW() >= COALESCE(actual_out, estimated_out, scheduled_out)
+				-- moment its timetabled departure slid past. An estimate the
+				-- provider has withdrawn no longer claims a delay, so the
+				-- timetable decides again. With no live times this collapses
+				-- to scheduled_out and the behaviour is exactly the
+				-- timetable-only one it replaced.
+				WHEN NOW() >= `+flightDepartureSQL("")+`
 					THEN 'Enroute'
 				ELSE 'Scheduled'
 			END,
@@ -692,13 +715,17 @@ type TrackerPart struct {
 // share_all_friends grants.
 var trackerVisible = planVisibleExpr("pl", "t", "$1")
 
-// effectiveArrival is the SQL for a flight part's effective arrival, mirroring
-// FlightDetail.EffectiveIn / flights.go's COALESCE(actual, estimated, scheduled).
-const effectiveArrival = `COALESCE(fd.actual_in, fd.estimated_in, fd.scheduled_in)`
+// effectiveArrival is the tracker's arrival for windowing and ordering flight
+// parts: timing.Effective's arrival (flightArrivalSQL) wherever Effective
+// reports one. Where it reports none (a departure-only flight with no usable
+// estimate) it falls back to scheduled_in, which such a part stores equal to
+// its departure, so the part still sits in the window at the time it leaves.
+// That fallback is the one place it departs from the Go rule.
+var effectiveArrival = `COALESCE(` + flightArrivalSQL("fd.") + `, fd.scheduled_in)`
 
-// effectiveDeparture mirrors FlightDetail.EffectiveOut; it's what the tracker
+// effectiveDeparture is timing.Effective's departure; it's what the tracker
 // reports as the part's effective_at so the front end sorts uniformly.
-const effectiveDeparture = `COALESCE(fd.actual_out, fd.estimated_out, fd.scheduled_out)`
+var effectiveDeparture = flightDepartureSQL("fd.")
 
 // flightPartTitle labels one flight leg. A plan holding a single leg is titled
 // by the plan, so a hand-edited title still shows; a plan holding several is

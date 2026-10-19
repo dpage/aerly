@@ -18,6 +18,7 @@ import (
 	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 	"github.com/dpage/aerly/internal/weather"
 )
 
@@ -567,36 +568,19 @@ func metadataRefreshIntervalFor(f *store.Flight, now time.Time) time.Duration {
 // which then reads as a new non-empty belt and alerts through the normal path.
 const beltWindow = 3 * time.Hour
 
-// arrivalEstimate is the best available landing time for a flight: the actual
-// arrival where the provider or the traveller has given us one, then the
-// estimate, falling back to the schedule. Deliberately not scheduled-only,
-// since a flight that ran late lands hours after its timetabled arrival and the
-// belt window has to follow the aircraft rather than the timetable. The zero
-// time means "we don't know": a manually added flight with no arrival time
-// stores scheduled_in == scheduled_out, and an arrival that isn't after
-// departure tells us nothing.
-func arrivalEstimate(f *store.Flight) time.Time {
-	if f.ActualIn != nil {
-		return *f.ActualIn
-	}
-	if f.EstimatedIn != nil {
-		return *f.EstimatedIn
-	}
-	if f.ScheduledIn.After(f.ScheduledOut) {
-		return f.ScheduledIn
-	}
-	return time.Time{}
-}
-
 // beltIsCurrent reports whether now is close enough to the flight's arrival for
 // a published baggage belt to mean anything. An unknown arrival is treated as
 // out of window: better no belt than one attached to a schedule we don't trust.
+// The arrival follows the aircraft rather than the timetable (actual, then
+// estimate, then the timetable moved by the departure delay), since a flight
+// that ran late lands hours after its timetabled arrival; a manually added
+// flight storing scheduled_in == scheduled_out has no known arrival.
 func beltIsCurrent(f *store.Flight, now time.Time) bool {
-	arr := arrivalEstimate(f)
-	if arr.IsZero() {
+	arr := timing.Effective(f.Times()).Arrival
+	if arr == nil {
 		return false
 	}
-	gap := now.Sub(arr)
+	gap := now.Sub(arr.At)
 	if gap < 0 {
 		gap = -gap
 	}
@@ -660,7 +644,8 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	// the flight is still airborne is already in the row when the status is
 	// re-derived and can keep the part out of Arrived. Unlike the schedule
 	// below these are not frozen on resolved: the whole point is that they keep
-	// moving as the flight runs late.
+	// moving as the flight runs late. Estimates are replaced outright, so one
+	// the provider stops sending is cleared.
 	// Best-effort, like the schedule refresh below: a failure here must not
 	// abort the resolve and discard the airframe, gate and belt work already
 	// persisted above.
@@ -671,7 +656,8 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 	// have to be in the row before the caller re-derives the status, or a
 	// flight still on stand under a rolling delay is declared Enroute off its
 	// timetabled departure. Also the only source of estimated_out, which is
-	// what the departure-delay alert measures against.
+	// what the departure-delay alert measures against, and replaced outright in
+	// the same way, so a withdrawn delay estimate is cleared.
 	if err := p.Store.RefreshFlightPartDeparture(ctx, f.ID, rf.EstimatedOut, rf.ActualOut); err != nil {
 		slog.Error("poller: refresh departure times failed", "id", f.ID, "err", err)
 	}
@@ -732,5 +718,9 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 		"ident", f.Ident, "id", f.ID,
 		"origin", rf.OriginIATA, "dest", rf.DestIATA,
 		"icao24", rf.ICAO24, "callsign", rf.Callsign)
-	return p.Store.FlightPartByID(ctx, f.ID)
+	cur, err := p.Store.FlightPartByID(ctx, f.ID)
+	if err == nil && timing.Effective(cur.Times()).DroppedEstimatedIn {
+		slog.Warn("poller: dropped impossible arrival estimate", "id", cur.ID, "ident", cur.Ident)
+	}
+	return cur, err
 }

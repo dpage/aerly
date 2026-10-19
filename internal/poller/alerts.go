@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/push"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Flight-alert step (spec §9). The poller refresh path calls maybeAlert after
@@ -127,31 +129,13 @@ func snapshot(f *store.Flight) alertState {
 	}
 	st.terminalDV = f.Status == "Cancelled" || f.Status == "Diverted"
 	st.departed = f.ActualOut != nil || f.Status == "Enroute" || f.Status == "Arrived"
-	eff := revisedOut(f)
-	if eff != nil {
-		d := int(eff.Sub(f.ScheduledOut).Minutes())
-		if d < 0 {
-			d = 0
-		}
-		st.delayMin, st.hasDelay = d, true
+	// The delay is the off-block estimate's alone, never wheels-off's: that
+	// runs a taxi-time later, and counting it would fire a phantom "now
+	// delayed" alert to everyone watching just as the aircraft left.
+	if t := timing.Effective(f.Times()); t.Revised {
+		st.delayMin, st.hasDelay = max(0, int(t.Departure.Delay/time.Minute)), true
 	}
 	return st
-}
-
-// revisedOut is the departure time a delay is measured against: the airline's
-// revised off-block estimate, which is quoted on the same clock as the
-// timetabled departure it gets subtracted from. Nil when the provider has no
-// live departure coverage, so a flight known only from its timetable reports no
-// delay at all rather than a delay of zero.
-//
-// This deliberately does NOT fall back to actual_out the way
-// FlightDetail.EffectiveOut does. That column holds the observed wheels-off,
-// which runs a taxi-time later than the off-block time it would be compared
-// against, so preferring it would add a phantom ten-minute delay to almost
-// every flight at the moment it took off — and, worse, fire that as a
-// "now delayed" alert to everyone watching, just as the aircraft left.
-func revisedOut(f *store.Flight) *time.Time {
-	return f.EstimatedOut
 }
 
 // alertSignature is the per-part dedupe key for a state. Cancellation/diversion
@@ -186,6 +170,34 @@ func alertSignature(st alertState) string {
 	return strings.Join(parts, "|")
 }
 
+// signatureCarryingDelay is alertSignature(st), except that a state with no
+// published delay (and no cancellation or diversion, which key on status
+// instead) carries forward the delay in last, the signature last stamped. A
+// provider withdrawing its estimate has not cancelled the delay it announced,
+// and without the carry an alert stamped whilst the estimate was missing (a
+// gate, say) would drop the delay from the signature, so the same estimate
+// restored later would be announced a second time.
+func signatureCarryingDelay(st alertState, last string) string {
+	if !st.hasDelay && !st.terminalDV {
+		if n, ok := signatureDelay(last); ok {
+			st.hasDelay, st.delayMin = true, n
+		}
+	}
+	return alertSignature(st)
+}
+
+// signatureDelay returns the delay recorded in signature sig, if it has one.
+func signatureDelay(sig string) (int, bool) {
+	for _, part := range strings.Split(sig, "|") {
+		if v, found := strings.CutPrefix(part, "delay:"); found {
+			if n, err := strconv.Atoi(v); err == nil {
+				return n, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // maybeAlert is invoked by refresh after the part's flight_details have been
 // refreshed. prev is the part's pre-refresh carrier; partID identifies the
 // part; reported says whether this poll carried a fresh report from the
@@ -208,11 +220,19 @@ func (p *Poller) maybeAlert(ctx context.Context, prev *store.Flight, partID int6
 
 	// Dedupe: don't re-send a change whose signature matches the last one we
 	// alerted on for this part.
-	sig := alertSignature(sigSt)
-	if last, ok, serr := p.Store.FlightPartAlertSig(ctx, partID); serr == nil && ok && last == sig {
-		return
-	} else if serr != nil {
+	last, ok, serr := p.Store.FlightPartAlertSig(ctx, partID)
+	if serr != nil {
 		slog.Error("alert: read dedupe sig", "id", partID, "err", serr)
+		return
+	}
+	sig := signatureCarryingDelay(sigSt, last)
+	if ok && last == sig {
+		return
+	}
+	// changeKind measures a delay against the previous poll, which after a
+	// withdrawn estimate has none, so a restored delay always looks deeper. It
+	// is news only when deeper than the delay last announced.
+	if n, found := signatureDelay(last); ok && found && kind == "delayed" && sigSt.delayMin <= n {
 		return
 	}
 
@@ -271,10 +291,8 @@ func (p *Poller) evaluateAlert(partID int64, prev, cur *store.Flight, reported b
 // flight's effective departure (the revised off-block time the delay is
 // measured from, else the timetable), or past it.
 func inQuietPeriod(f *store.Flight, now time.Time) bool {
-	dep := f.ScheduledOut
-	if eff := revisedOut(f); eff != nil {
-		dep = *eff
-	}
+	// Not Departure.At: that becomes wheels-off once observed, a taxi later than the off-block time this window runs from.
+	dep := f.ScheduledOut.Add(timing.Effective(f.Times()).Departure.Delay)
 	return !now.Before(dep.Add(-terminalQuietPeriod))
 }
 
@@ -455,12 +473,13 @@ func terminalChanged(prev, cur string) bool {
 func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	switch kind {
 	case "delayed":
-		if eff := revisedOut(f); eff != nil {
+		if t := timing.Effective(f.Times()); t.Revised {
+			eff := f.ScheduledOut.Add(t.Departure.Delay)
 			// Quote the revised departure on the departure airport's clock,
 			// which is the one the traveller is reading (issue #117); UTC only
 			// where the airport's zone can't be resolved at all.
 			zone := airportZone(f.OriginIATA, f.OriginLat, f.OriginLon)
-			return "now departing " + inZone(*eff, zone).Format("15:04 MST")
+			return "now departing " + inZone(eff, zone).Format("15:04 MST")
 		}
 		return "now delayed"
 	case "diverted":
@@ -620,7 +639,7 @@ func (p *Poller) sendAlertEmail(ctx context.Context, to string, f *store.Flight,
 	if send == nil {
 		send = mailer.Send
 	}
-	departs, arrives := effectiveTimes(f)
+	t := timing.Effective(f.Times())
 	msg := mailer.BuildFlightAlertEmail(mailer.FlightAlertInput{
 		FromAddr:  p.MailFromAddress,
 		ToAddr:    to,
@@ -630,9 +649,9 @@ func (p *Poller) sendAlertEmail(ctx context.Context, to string, f *store.Flight,
 		Detail:    detail,
 		Origin:    airports.Label(f.OriginIATA, ""),
 		Dest:      airports.Label(f.DestIATA, ""),
-		DepartsAt: departs,
+		DepartsAt: t.Departure.At,
 		OriginTZ:  airportZone(f.OriginIATA, f.OriginLat, f.OriginLon),
-		ArrivesAt: arrives,
+		ArrivesAt: arrivalAt(t),
 		DestTZ:    airportZone(f.DestIATA, f.DestLat, f.DestLon),
 	})
 	if err := send(ctx, p.SendmailPath, p.MailFromAddress, msg); err != nil {

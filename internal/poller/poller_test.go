@@ -951,6 +951,19 @@ func TestBeltIsCurrent(t *testing.T) {
 		{"degenerate schedule is unknown, not current", &store.Flight{
 			ScheduledOut: now, ScheduledIn: now,
 		}, false},
+		// No arrival estimate, but the off-block estimate is 5h late: the
+		// window is measured from scheduled_in + 5h, which is now.
+		{"departure delay carries the arrival into the window", func() *store.Flight {
+			f := base()
+			f.EstimatedOut = at(-2 * time.Hour)
+			return f
+		}(), true},
+		// An arrival estimate before the departure is dropped, leaving the
+		// imminent timetabled arrival.
+		{"impossible arrival estimate is ignored", &store.Flight{
+			ScheduledOut: now.Add(-time.Hour), ScheduledIn: now.Add(time.Hour),
+			EstimatedIn: at(-6 * time.Hour),
+		}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

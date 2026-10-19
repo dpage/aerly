@@ -604,18 +604,6 @@ func TestTripCountryByPlan(t *testing.T) {
 	}
 }
 
-// TestCoalesceTimeAllNil covers the fallback branch of coalesceTime: when
-// every candidate is nil (no actual, no estimated, no scheduled), it must
-// return the zero time rather than panic or dereference a nil pointer.
-func TestCoalesceTimeAllNil(t *testing.T) {
-	if got := coalesceTime(nil, nil, nil); !got.IsZero() {
-		t.Errorf("coalesceTime(nil...) = %v, want zero time", got)
-	}
-	if got := coalesceTime(); !got.IsZero() {
-		t.Errorf("coalesceTime() = %v, want zero time", got)
-	}
-}
-
 // TestListVisiblePlanPartsFiltersByType covers ListVisiblePlanPartsOpts.Type:
 // a caller wanting only one plan type must not see another type's live part
 // bleed through.

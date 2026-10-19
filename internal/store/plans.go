@@ -118,25 +118,17 @@ type FlightDetail struct {
 	Resolved bool
 }
 
-// EffectiveOut / EffectiveIn collapse the three time pairs the way the tracker
-// does: prefer actual, then estimated, then scheduled.
-func (d *FlightDetail) EffectiveOut() time.Time {
-	return coalesceTime(d.ActualOut, d.EstimatedOut, &d.ScheduledOut)
-}
-
-func (d *FlightDetail) EffectiveIn() time.Time {
-	return coalesceTime(d.ActualIn, d.EstimatedIn, &d.ScheduledIn)
-}
-
-// coalesceTime returns the first non-nil time in priority order. The final
-// argument is expected to be the always-present scheduled fallback.
-func coalesceTime(ts ...*time.Time) time.Time {
-	for _, t := range ts {
-		if t != nil {
-			return *t
-		}
+// Times is the flight's six provider and schedule times in the form the
+// timing package resolves into per-end effective times.
+func (d *FlightDetail) Times() timing.FlightTimes {
+	return timing.FlightTimes{
+		ScheduledOut: d.ScheduledOut,
+		ScheduledIn:  d.ScheduledIn,
+		EstimatedOut: d.EstimatedOut,
+		EstimatedIn:  d.EstimatedIn,
+		ActualOut:    d.ActualOut,
+		ActualIn:     d.ActualIn,
 	}
-	return time.Time{}
 }
 
 // HotelDetail is the hotel-type satellite. The actual check-in/out instants

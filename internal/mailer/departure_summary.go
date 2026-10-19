@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// delayThreshold is how far past the scheduled departure the effective one
-// must be before the summary calls the flight delayed.
+// delayThreshold is how large the departure delay must be before the summary
+// calls the flight delayed.
 const delayThreshold = 5 * time.Minute
 
 // rainLikelyPct is the chance of rain from which the push weather line says
@@ -29,29 +29,32 @@ type ForecastDay struct {
 
 // DepartureSummaryInput is the data needed to render the departure summary
 // (issue #130). ScheduledOut is the timetable departure and DepartsAt the
-// effective one (actual, else estimated, else scheduled); the difference
+// effective one (actual, else estimated, else scheduled); DepartureDelay
 // drives the on time / delayed wording. Terminal, Gate, ArrivesAt,
 // ContactPhone and Forecast are all optional.
 type DepartureSummaryInput struct {
-	FromAddr      string
-	ToAddr        string
-	PublicURL     string
-	TripID        int64
-	Ident         string
-	Route         string // "LHR → ORD", or "" when unknown
-	DestLabel     string // destination city, else IATA; "" for no subject suffix
-	DestIATA      string
-	ScheduledOut  time.Time
-	DepartsAt     time.Time
-	OriginTZ      string // IANA; falls back to UTC when empty/invalid
-	ArrivesAt     *time.Time
-	DestTZ        string
-	Terminal      string
-	Gate          string
-	SupplierName  string // airline name; "the airline" when empty
-	ContactPhone  string
-	Forecast      []ForecastDay
-	ForecastPlace string // heads the forecast block, e.g. "Chicago"
+	FromAddr     string
+	ToAddr       string
+	PublicURL    string
+	TripID       int64
+	Ident        string
+	Route        string // "LHR → ORD", or "" when unknown
+	DestLabel    string // destination city, else IATA; "" for no subject suffix
+	DestIATA     string
+	ScheduledOut time.Time
+	DepartsAt    time.Time
+	// DepartureDelay is the off-block estimate minus the timetable, zero
+	// without an estimate; it alone decides the on time / delayed wording.
+	DepartureDelay time.Duration
+	OriginTZ       string // IANA; falls back to UTC when empty/invalid
+	ArrivesAt      *time.Time
+	DestTZ         string
+	Terminal       string
+	Gate           string
+	SupplierName   string // airline name; "the airline" when empty
+	ContactPhone   string
+	Forecast       []ForecastDay
+	ForecastPlace  string // heads the forecast block, e.g. "Chicago"
 }
 
 // DepartureSummarySubject returns the Subject line, e.g.
@@ -89,8 +92,8 @@ func DepartureSummaryHeadline(in DepartureSummaryInput) string {
 	}
 
 	status, departing := "is on time,", "departing"
-	if delay := in.DepartsAt.Sub(in.ScheduledOut); delay >= delayThreshold {
-		status = "is delayed by " + formatDuration(delay) + ","
+	if in.DepartureDelay >= delayThreshold {
+		status = "is delayed by " + formatDuration(in.DepartureDelay) + ","
 		departing = "now departing"
 	}
 

@@ -1,9 +1,11 @@
 package poller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -113,7 +115,7 @@ func drainAlerts(t *testing.T, ch <-chan sse.Event) []api.FlightAlertDTO {
 	}
 }
 
-// TestSnapshotAndSignature exercises the pure snapshot/effectiveOut/signature
+// TestSnapshotAndSignature exercises the pure snapshot/signature
 // helpers directly: the delay-clamp (negative effective-out → 0), the
 // estimated-out fallback when there's no actual time, and the belt/terminal
 // components of the dedupe signature.
@@ -140,11 +142,16 @@ func TestSnapshotAndSignature(t *testing.T) {
 	act := out.Add(40 * time.Minute)
 	est := out.Add(10 * time.Minute)
 	bothF := &store.Flight{Status: "Enroute", ScheduledOut: out, ActualOut: &act, EstimatedOut: &est}
-	if eff := revisedOut(bothF); eff == nil || !eff.Equal(est) {
-		t.Errorf("revisedOut should use estimated_out, got %v", eff)
+	if st := snapshot(bothF); !st.hasDelay || st.delayMin != 10 {
+		t.Errorf("delay from estimated_out = %+v, want 10", st)
 	}
-	if st := snapshot(bothF); st.delayMin != 10 {
-		t.Errorf("delay from estimated_out = %d, want 10", st.delayMin)
+
+	// The same with a deeper wheels-off: off-block 40 late, wheels-off 55
+	// late, is a 40-minute delay.
+	est40, act55 := out.Add(40*time.Minute), out.Add(55*time.Minute)
+	deepF := &store.Flight{Status: "Enroute", ScheduledOut: out, EstimatedOut: &est40, ActualOut: &act55}
+	if st := snapshot(deepF); !st.hasDelay || st.delayMin != 40 {
+		t.Errorf("off-block 40m, wheels-off 55m: delay = %+v, want 40", st)
 	}
 
 	// Wheels-off on its own reports no delay at all, rather than a phantom one
@@ -1123,5 +1130,196 @@ func TestAlert_SameGateDoesNotReAlert(t *testing.T) {
 	p.maybeAlert(ctx, prev3, f.ID, true)
 	if got := drainAlerts(t, ch); len(got) != 1 || got[0].Kind != "gate" {
 		t.Fatalf("new gate: expected 1 gate re-alert, got %+v", got)
+	}
+}
+
+// TestResolveClearsWithdrawnEstimateWithoutAlerting: a provider that stops
+// sending an estimate it sent earlier has the estimate cleared from the row,
+// and the clearing is not announced as a delay.
+func TestResolveClearsWithdrawnEstimateWithoutAlerting(t *testing.T) {
+	p, s, hub, cap := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "XX100", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	est := f.ScheduledOut.Add(45 * time.Minute).UTC().Truncate(time.Second)
+	res := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", EstimatedOut: &est,
+	}}
+	p.Resolver = res
+
+	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+	p.maybeAlert(ctx, f, f.ID, true)
+	if got := drainAlerts(t, ch); len(got) != 1 {
+		t.Fatalf("the published delay should alert once, got %d", len(got))
+	}
+	delayed, _ := s.FlightPartByID(ctx, f.ID)
+	if delayed.EstimatedOut == nil {
+		t.Fatal("the first resolve should have stored the estimate")
+	}
+	emails := cap.count()
+
+	// The provider drops the estimate; the next resolve must clear it.
+	res.rf = &providers.ResolvedFlight{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK"}
+	if _, err := p.resolveAndUpdate(ctx, delayed, now.Add(time.Minute)); err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+	cleared, _ := s.FlightPartByID(ctx, f.ID)
+	if cleared.EstimatedOut != nil {
+		t.Errorf("a withdrawn estimate should be cleared, got %v", cleared.EstimatedOut)
+	}
+
+	p.maybeAlert(ctx, delayed, f.ID, true)
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Errorf("clearing an estimate must not raise an alert, got %d", len(got))
+	}
+	if cap.count() != emails {
+		t.Errorf("clearing an estimate must not send email, got %d new", cap.count()-emails)
+	}
+}
+
+// TestResolveWarnsOnImpossibleArrivalEstimate: a provider arrival estimate at
+// or before the departure is logged as dropped after the resolve.
+func TestResolveWarnsOnImpossibleArrivalEstimate(t *testing.T) {
+	p, s, _, _ := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "XX100", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+
+	bad := f.ScheduledOut.Add(-30 * time.Minute).UTC().Truncate(time.Second)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", EstimatedIn: &bad,
+	}}
+	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !strings.Contains(buf.String(), "poller: dropped impossible arrival estimate") {
+		t.Errorf("no warning logged:\n%s", buf.String())
+	}
+
+	// A sensible estimate is not warned about.
+	buf.Reset()
+	good := f.ScheduledIn.Add(10 * time.Minute).UTC().Truncate(time.Second)
+	p.Resolver = &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", EstimatedIn: &good,
+	}}
+	if _, err := p.resolveAndUpdate(ctx, f, now); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if strings.Contains(buf.String(), "dropped impossible") {
+		t.Errorf("a sensible estimate was warned about:\n%s", buf.String())
+	}
+}
+
+// TestAlert_FlappingEstimateAlertsOnce: a provider that withdraws its
+// departure estimate and later restores the same one has not changed the
+// delay, so the delay is announced once, whether or not another alert was
+// stamped whilst the estimate was missing. A restored estimate with a
+// deeper delay alerts; a shallower one does not, as without the withdrawal.
+func TestAlert_FlappingEstimateAlertsOnce(t *testing.T) {
+	cases := []struct {
+		name        string
+		gateWhilst  bool
+		restoredMin int
+		wantDelays  int
+	}{
+		{"restored without an intervening alert", false, 40, 1},
+		{"restored after a gate alert", true, 40, 1},
+		{"restored with a deeper delay after a gate alert", true, 70, 2},
+		{"restored with a shallower delay", false, 20, 1},
+		{"restored with a shallower delay after a gate alert", true, 20, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, s, hub, _ := alertPoller(t)
+			ctx := context.Background()
+			owner := seedUser(t, s)
+			now := time.Now()
+			f, err := mkPart(ctx, s, partSeed{
+				Ident: "XX100", ScheduledOut: now.Add(2 * time.Hour), ScheduledIn: now.Add(4 * time.Hour),
+				OriginIATA: "LHR", DestIATA: "JFK",
+			}, owner)
+			if err != nil {
+				t.Fatalf("mkPart: %v", err)
+			}
+			ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+			defer unsub()
+			delays := 0
+			poll := func(change func()) {
+				t.Helper()
+				prev, err := s.FlightPartByID(ctx, f.ID)
+				if err != nil {
+					t.Fatalf("refetch: %v", err)
+				}
+				change()
+				p.maybeAlert(ctx, prev, f.ID, true)
+				for _, a := range drainAlerts(t, ch) {
+					if a.Kind == "delayed" {
+						delays++
+					}
+				}
+			}
+
+			poll(func() { setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(40*time.Minute)) })
+			poll(func() {
+				if err := s.RefreshFlightPartDeparture(ctx, f.ID, nil, nil); err != nil {
+					t.Fatalf("withdraw estimate: %v", err)
+				}
+				if tc.gateWhilst {
+					setOriginGate(t, s, f.ID, "A1")
+				}
+			})
+			poll(func() {
+				setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(time.Duration(tc.restoredMin)*time.Minute))
+			})
+			if delays != tc.wantDelays {
+				t.Errorf("delay alerts = %d, want %d", delays, tc.wantDelays)
+			}
+		})
+	}
+}
+
+// TestSignatureCarryingDelay pins the carry rule: a state with no published
+// delay takes the last alerted delay from the stored signature, and a state
+// with a delay, or a cancellation, ignores it.
+func TestSignatureCarryingDelay(t *testing.T) {
+	cases := []struct {
+		name string
+		st   alertState
+		last string
+		want string
+	}{
+		{"no delay carries the last one", alertState{originGate: "A1"}, "delay:40", "delay:40|ogate:A1"},
+		{"no delay and nothing to carry", alertState{originGate: "A1"}, "ogate:B2", "ogate:A1"},
+		{"a malformed delay is not carried", alertState{originGate: "A1"}, "delay:x|ogate:A1", "ogate:A1"},
+		{"a published delay wins", alertState{hasDelay: true, delayMin: 70}, "delay:40", "delay:70"},
+		{"a cancellation keys on status", alertState{status: "Cancelled", terminalDV: true}, "delay:40", "status:Cancelled"},
+	}
+	for _, tc := range cases {
+		if got := signatureCarryingDelay(tc.st, tc.last); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

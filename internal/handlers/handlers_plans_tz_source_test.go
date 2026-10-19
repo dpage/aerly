@@ -253,3 +253,165 @@ func TestAnchorFlightEndSkipsZonedEnds(t *testing.T) {
 		t.Error("an unknown end (a true instant) was re-anchored")
 	}
 }
+
+// Editing an unresolved, floating flight's times anchors them in the airports'
+// zones before flight_details is synced, and writes the anchoring back to the
+// part; an end with no airport zone keeps its wall-clock digits.
+func TestUpdateFlightAnchorsFloatingSchedule(t *testing.T) {
+	e := setup(t, nil, nil)
+	owner := e.user(t, "tzsrcsync", false)
+	trip := newTrip(t, e, owner, "Trip")
+	ctx := context.Background()
+	// A floating flight with no airports yet, as a manual add without IATA
+	// codes produces; the codes are set directly to simulate the table hit.
+	create := func(origin, dest string) int64 {
+		t.Helper()
+		w := e.req(t, "POST", "/api/trips/"+itoa(trip)+"/plans", map[string]any{
+			"type": "flight", "title": "XX100", "parts": []map[string]any{{
+				"type":      "flight",
+				"starts_at": time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC), "start_tz_source": "floating",
+				"ends_at": time.Date(2026, 7, 1, 17, 0, 0, 0, time.UTC), "end_tz_source": "floating",
+				"flight": map[string]any{"ident": "XX100"},
+			}},
+		}, owner)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create = %d: %s", w.Code, w.Body.String())
+		}
+		plan := decodeBody[map[string]any](t, w)
+		parts, _ := plan["parts"].([]any)
+		p, _ := parts[0].(map[string]any)
+		id := int64(p["id"].(float64))
+		if _, err := e.store.Pool().Exec(ctx,
+			`UPDATE flight_details SET origin_iata = $2, dest_iata = $3 WHERE plan_part_id = $1`,
+			id, origin, dest); err != nil {
+			t.Fatalf("set airports: %v", err)
+		}
+		return id
+	}
+	patch := func(id int64, body map[string]any) {
+		t.Helper()
+		if w := e.req(t, "PATCH", "/api/plan-parts/"+itoa(id), body, owner); w.Code != http.StatusOK {
+			t.Fatalf("patch = %d: %s", w.Code, w.Body.String())
+		}
+	}
+
+	t.Run("table airports anchor the schedule and the part", func(t *testing.T) {
+		id := create("LHR", "CDG")
+		patch(id, map[string]any{"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC),
+			"ends_at": time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC)})
+		// 09:00 BST is 08:00Z; 11:00 CEST is 09:00Z.
+		wantOut := time.Date(2026, 7, 2, 8, 0, 0, 0, time.UTC)
+		wantIn := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		if !fd.ScheduledOut.Equal(wantOut) || !fd.ScheduledIn.Equal(wantIn) {
+			t.Errorf("schedule = %v / %v, want %v / %v", fd.ScheduledOut.UTC(), fd.ScheduledIn.UTC(), wantOut, wantIn)
+		}
+		part, _ := e.store.PlanPartByID(ctx, id)
+		if part.StartTZ != "Europe/London" || part.StartTZSource != "confirmed" || !part.StartsAt.Equal(wantOut) {
+			t.Errorf("start = %q/%q %v", part.StartTZ, part.StartTZSource, part.StartsAt.UTC())
+		}
+		if part.EndTZ != "Europe/Paris" || part.EndTZSource != "confirmed" || part.EndsAt == nil || !part.EndsAt.Equal(wantIn) {
+			t.Errorf("end = %q/%q %v", part.EndTZ, part.EndTZSource, part.EndsAt)
+		}
+	})
+
+	t.Run("a cleared arrival stays equal to the departure", func(t *testing.T) {
+		id := create("LHR", "CDG")
+		d := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+		patch(id, map[string]any{"starts_at": d, "ends_at": d})
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		want := time.Date(2026, 7, 2, 8, 0, 0, 0, time.UTC)
+		if !fd.ScheduledOut.Equal(want) || !fd.ScheduledIn.Equal(want) {
+			t.Errorf("schedule = %v / %v, want both %v", fd.ScheduledOut.UTC(), fd.ScheduledIn.UTC(), want)
+		}
+	})
+
+	t.Run("a departure-only flight with an unzoned origin stays departure-only", func(t *testing.T) {
+		id := create("", "CDG")
+		d := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+		patch(id, map[string]any{"starts_at": d, "ends_at": d})
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		if !fd.ScheduledOut.Equal(d) || !fd.ScheduledIn.Equal(d) {
+			t.Errorf("schedule = %v / %v, want both %v", fd.ScheduledOut.UTC(), fd.ScheduledIn.UTC(), d)
+		}
+		part, _ := e.store.PlanPartByID(ctx, id)
+		if part.EndsAt == nil || !part.EndsAt.Equal(part.StartsAt) || part.EndTZSource != "floating" {
+			t.Errorf("part = %v / %v (%q), want departure-only, floating", part.StartsAt, part.EndsAt, part.EndTZSource)
+		}
+	})
+
+	t.Run("a time and route edit anchors in the new airports' zones", func(t *testing.T) {
+		id := create("LHR", "CDG")
+		patch(id, map[string]any{
+			"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC),
+			"ends_at":   time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC),
+			"flight":    map[string]any{"origin_iata": "jfk", "dest_iata": "LAX"},
+		})
+		// 09:00 EDT is 13:00Z; 11:00 PDT is 18:00Z.
+		wantOut := time.Date(2026, 7, 2, 13, 0, 0, 0, time.UTC)
+		wantIn := time.Date(2026, 7, 2, 18, 0, 0, 0, time.UTC)
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		if fd.OriginIATA != "JFK" || fd.DestIATA != "LAX" {
+			t.Fatalf("route = %s-%s, want JFK-LAX", fd.OriginIATA, fd.DestIATA)
+		}
+		if !fd.ScheduledOut.Equal(wantOut) || !fd.ScheduledIn.Equal(wantIn) {
+			t.Errorf("schedule = %v / %v, want %v / %v", fd.ScheduledOut.UTC(), fd.ScheduledIn.UTC(), wantOut, wantIn)
+		}
+		part, _ := e.store.PlanPartByID(ctx, id)
+		if part.StartTZ != "America/New_York" || part.StartTZSource != "confirmed" || !part.StartsAt.Equal(wantOut) {
+			t.Errorf("start = %q/%q %v", part.StartTZ, part.StartTZSource, part.StartsAt.UTC())
+		}
+		if part.EndTZ != "America/Los_Angeles" || part.EndTZSource != "confirmed" || part.EndsAt == nil || !part.EndsAt.Equal(wantIn) {
+			t.Errorf("end = %q/%q %v", part.EndTZ, part.EndTZSource, part.EndsAt)
+		}
+	})
+
+	t.Run("a new ident keeps the old airports, as its re-resolve ignores the codes", func(t *testing.T) {
+		id := create("LHR", "CDG")
+		patch(id, map[string]any{
+			"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC),
+			"ends_at":   time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC),
+			"flight":    map[string]any{"ident": "XX101", "origin_iata": "JFK"},
+		})
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		if fd.OriginIATA != "LHR" {
+			t.Fatalf("origin = %s, want LHR kept", fd.OriginIATA)
+		}
+		// 09:00 BST is 08:00Z.
+		if want := time.Date(2026, 7, 2, 8, 0, 0, 0, time.UTC); !fd.ScheduledOut.Equal(want) {
+			t.Errorf("departure = %v, want %v", fd.ScheduledOut.UTC(), want)
+		}
+	})
+
+	t.Run("a confirmed flight is left untouched", func(t *testing.T) {
+		id := create("LHR", "CDG")
+		patch(id, map[string]any{"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)})
+		before, _ := e.store.PlanPartByID(ctx, id)
+		fdBefore, _ := e.store.FlightDetailFor(ctx, id)
+		patch(id, map[string]any{"start_label": "Heathrow"})
+		patch(id, map[string]any{"starts_at": before.StartsAt})
+		after, _ := e.store.PlanPartByID(ctx, id)
+		fdAfter, _ := e.store.FlightDetailFor(ctx, id)
+		if !after.StartsAt.Equal(before.StartsAt) || after.StartTZ != before.StartTZ || after.StartTZSource != "confirmed" {
+			t.Errorf("part changed: %v %q -> %v %q", before.StartsAt, before.StartTZ, after.StartsAt, after.StartTZ)
+		}
+		if !fdAfter.ScheduledOut.Equal(fdBefore.ScheduledOut) || !fdAfter.ScheduledIn.Equal(fdBefore.ScheduledIn) {
+			t.Errorf("schedule changed: %v -> %v", fdBefore.ScheduledOut, fdAfter.ScheduledOut)
+		}
+	})
+
+	t.Run("an airport with no known zone keeps the digits", func(t *testing.T) {
+		id := create("", "")
+		patch(id, map[string]any{"starts_at": time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC),
+			"ends_at": time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC)})
+		fd, _ := e.store.FlightDetailFor(ctx, id)
+		if !fd.ScheduledOut.Equal(time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)) ||
+			!fd.ScheduledIn.Equal(time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC)) {
+			t.Errorf("schedule = %v / %v, want the typed digits", fd.ScheduledOut.UTC(), fd.ScheduledIn.UTC())
+		}
+		part, _ := e.store.PlanPartByID(ctx, id)
+		if part.StartTZ != "" || part.StartTZSource != "floating" || part.EndTZSource != "floating" {
+			t.Errorf("part = %q/%q, %q, want left floating", part.StartTZ, part.StartTZSource, part.EndTZSource)
+		}
+	})
+}

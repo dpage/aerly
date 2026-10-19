@@ -86,11 +86,21 @@ func TestDepartureSummaryHeadline(t *testing.T) {
 
 	// Under the threshold still counts as on time.
 	in.DepartsAt = in.ScheduledOut.Add(4 * time.Minute)
+	in.DepartureDelay = 4 * time.Minute
 	if !strings.Contains(DepartureSummaryHeadline(in), "is on time") {
 		t.Errorf("4 min late should be on time")
 	}
 
+	// Wheels-off a taxi-time after the timetable, with no off-block estimate,
+	// is not a delay: the delay field decides, not DepartsAt.
+	in.DepartsAt = in.ScheduledOut.Add(12 * time.Minute)
+	in.DepartureDelay = 0
+	if got := DepartureSummaryHeadline(in); !strings.Contains(got, "is on time, departing") {
+		t.Errorf("wheels-off without an estimate should be on time, got %q", got)
+	}
+
 	in.DepartsAt = in.ScheduledOut.Add(80 * time.Minute)
+	in.DepartureDelay = 80 * time.Minute
 	if got, want := DepartureSummaryHeadline(in),
 		"BA171 (LHR → ORD) is delayed by 1 h 20 min, now departing terminal 5, gate B32 at Thu 15 Oct, 12:30 BST."; got != want {
 		t.Errorf("delayed:\n got %q\nwant %q", got, want)
