@@ -28,11 +28,20 @@ type TimeBlockDTO struct {
 // end's timetable times are never given a zone either, whatever the caller
 // supplied: a scheduled time is wall-clock digits written as UTC, and a derived
 // one is those digits moved by the delay, so a zone beside either would label
-// the wrong moment. A provider estimate or actual is a true instant whatever
-// the timetable beside it, so it keeps the zone. The source stays "floating".
+// the wrong moment, and they stay "floating". A provider estimate or actual is
+// a true instant whatever the timetable beside it, so it is not floating: with
+// the airport zone the caller found it is "confirmed", and without one it is
+// "unknown" (shown in the viewer's zone), as the poller's departureZone does.
 func newTimeBlock(end timing.End, tz, src, iata string) TimeBlockDTO {
-	if src == "floating" && (end.Kind == timing.Scheduled || end.Kind == timing.Derived) {
-		tz = ""
+	if src == string(timing.Floating) {
+		switch {
+		case end.Kind == timing.Scheduled || end.Kind == timing.Derived:
+			tz = ""
+		case tz != "":
+			src = string(timing.Confirmed)
+		default:
+			src = string(timing.Unknown)
+		}
 	}
 	place := ""
 	if tz != "" {
@@ -951,10 +960,11 @@ func ToTripMemberDTO(m *store.TripMember) TripMemberDTO {
 
 // providerZone is the zone a flight end's blocks are built with. A floating
 // end stores no zone, yet a provider estimate or actual on it is a true
-// instant, so it is quoted at the end's own airport (timing.AirportZone);
-// newTimeBlock keeps that zone off the end's scheduled and derived times,
-// which are wall-clock digits, and the source stays floating. Any other end
-// uses the zone it stored.
+// instant, so it is quoted at the end's own airport (timing.AirportZone) and
+// newTimeBlock marks it confirmed, or unknown when the airport cannot be
+// placed. newTimeBlock keeps that zone off the end's scheduled and derived
+// times, which are wall-clock digits and stay floating. Any other end uses
+// the zone it stored.
 func providerZone(tz, src, iata string, lat, lon *float64) string {
 	if tz != "" || src != string(timing.Floating) {
 		return tz

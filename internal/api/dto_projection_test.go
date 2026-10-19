@@ -288,7 +288,7 @@ func TestPlanPartTimeBlocks_FloatingFlightEndHasNoZone(t *testing.T) {
 // Only a floating end's timetable-based times (the scheduled ones)
 // are wall-clock digits; a provider estimate or actual on the
 // same part is a true instant, so it is quoted at the end's airport even
-// though the end stores no zone.
+// though the end stores no zone, and is confirmed rather than floating.
 func TestPlanPartTimeBlocks_FloatingFlightProviderTimesKeepZone(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	in := out.Add(7 * time.Hour)
@@ -301,11 +301,12 @@ func TestPlanPartTimeBlocks_FloatingFlightProviderTimesKeepZone(t *testing.T) {
 	lhr, _ := airports.LookupCity("LHR")
 	jfk, _ := airports.LookupCity("JFK")
 	if dto.Start.Kind != "estimated" || dto.Start.TZ != "Europe/London" || dto.Start.Place != lhr ||
-		dto.Start.TZSource != "floating" {
-		t.Errorf("start = %+v, want the estimate quoted at %s, still floating", dto.Start, lhr)
+		dto.Start.TZSource != "confirmed" {
+		t.Errorf("start = %+v, want the estimate quoted at %s, confirmed", dto.Start, lhr)
 	}
-	if dto.End == nil || dto.End.Kind != "actual" || dto.End.TZ != "America/New_York" || dto.End.Place != jfk {
-		t.Errorf("end = %+v, want the actual quoted at %s", dto.End, jfk)
+	if dto.End == nil || dto.End.Kind != "actual" || dto.End.TZ != "America/New_York" || dto.End.Place != jfk ||
+		dto.End.TZSource != "confirmed" {
+		t.Errorf("end = %+v, want the actual quoted at %s, confirmed", dto.End, jfk)
 	}
 	// The raw part fields show the zone as stored: none.
 	if dto.StartTZ != "" || dto.EndTZ != "" {
@@ -322,6 +323,28 @@ func TestPlanPartTimeBlocks_FloatingFlightProviderTimesKeepZone(t *testing.T) {
 	}
 	if dto.Start.DelayMin != 0 {
 		t.Errorf("start delay = %d, want 0 for a floating departure", dto.Start.DelayMin)
+	}
+	if dto.End.TZSource != "floating" {
+		t.Errorf("end source = %q, want the timetable still floating", dto.End.TZSource)
+	}
+}
+
+// A provider time on a floating end at an airport that cannot be placed is
+// still a true instant: it carries no zone and is unknown, so the client shows
+// it in the viewer's zone rather than as wall-clock digits.
+func TestPlanPartTimeBlocks_FloatingFlightOffTableProviderTimeUnknown(t *testing.T) {
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	in := out.Add(7 * time.Hour)
+	estOut := out.Add(time.Hour)
+	part := &store.PlanPart{Type: "flight", StartsAt: out, EndsAt: &in, StartTZSource: "floating", EndTZSource: "floating"}
+	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "ZZZ", DestIATA: "ZZY",
+		ScheduledOut: out, ScheduledIn: in, EstimatedOut: &estOut}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if dto.Start.Kind != "estimated" || dto.Start.TZ != "" || dto.Start.Place != "" || dto.Start.TZSource != "unknown" {
+		t.Errorf("start = %+v, want the estimate with no zone, unknown", dto.Start)
+	}
+	if dto.End == nil || dto.End.Kind != "scheduled" || dto.End.TZSource != "floating" {
+		t.Errorf("end = %+v, want the timetable still floating", dto.End)
 	}
 }
 
