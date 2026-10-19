@@ -69,9 +69,12 @@ func SuggestHotelTimes(stay *store.PlanPart, detail *store.HotelDetail, flanking
 	if flanking.Inbound != nil {
 		arrival := partEffectiveEnd(flanking.Inbound)
 		earliest := arrival.Add(1 * time.Hour).Add(airportTravel(flanking.Inbound, stay, true))
-		standard := standardTimeOnDate(stay.StartsAt, stay.StartTZ, defaultCheckinHour, detailCheckin(detail))
-		ci := laterOf(standard, earliest)
-		out.Checkin = &ci
+		// With no zone the property's local time cannot be placed, so no
+		// check-in is suggested and the stored time stands.
+		if standard, ok := standardTimeOnDate(stay.StartsAt, stay.StartTZ, defaultCheckinHour, detailCheckin(detail)); ok {
+			ci := laterOf(standard, earliest)
+			out.Checkin = &ci
+		}
 	}
 
 	// Check-out: earlier of the property's standard check-out (default 11:00
@@ -93,9 +96,10 @@ func SuggestHotelTimes(stay *store.PlanPart, detail *store.HotelDetail, flanking
 		if checkoutTZ == "" {
 			checkoutTZ = stay.StartTZ
 		}
-		standard := standardTimeOnDate(checkoutDate, checkoutTZ, defaultCheckoutHour, detailCheckout(detail))
-		co := earlierOf(standard, latest)
-		out.Checkout = &co
+		if standard, ok := standardTimeOnDate(checkoutDate, checkoutTZ, defaultCheckoutHour, detailCheckout(detail)); ok {
+			co := earlierOf(standard, latest)
+			out.Checkout = &co
+		}
 	}
 	return out
 }
@@ -149,16 +153,16 @@ func airportTravel(flight, hotel *store.PlanPart, toHotel bool) time.Duration {
 // published "HH:MM" (or the default hour) on `date`'s calendar day, in the
 // property's timezone `tz`. Plan-part instants are stored/loaded as UTC, so
 // without `tz` the standard time would land at e.g. 15:00 UTC rather than 15:00
-// local — wrong by the property's offset. When `tz` is empty or unloadable we
-// fall back to the instant's own location (UTC), preserving prior behaviour.
-// The calendar day is taken in `tz` too, so a stay near local midnight anchors
-// to the intended local date.
-func standardTimeOnDate(date time.Time, tz string, defaultHour int, hhmm *string) time.Time {
-	loc := date.Location()
-	if tz != "" {
-		if l, err := time.LoadLocation(tz); err == nil {
-			loc = l
-		}
+// local, wrong by the property's offset; so when `tz` is empty or unloadable
+// ok is false and the caller skips the suggestion. The calendar day is taken in
+// `tz` too, so a stay near local midnight anchors to the intended local date.
+func standardTimeOnDate(date time.Time, tz string, defaultHour int, hhmm *string) (t time.Time, ok bool) {
+	if tz == "" {
+		return time.Time{}, false
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.Time{}, false
 	}
 	y, m, d := date.In(loc).Date()
 	hour, min := defaultHour, 0
@@ -167,7 +171,7 @@ func standardTimeOnDate(date time.Time, tz string, defaultHour int, hhmm *string
 			hour, min = h, mi
 		}
 	}
-	return time.Date(y, m, d, hour, min, 0, 0, loc)
+	return time.Date(y, m, d, hour, min, 0, 0, loc), true
 }
 
 func detailCheckin(d *store.HotelDetail) *string {

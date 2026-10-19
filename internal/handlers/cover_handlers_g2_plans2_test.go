@@ -156,6 +156,8 @@ func TestCreateFlightPlanNoDetailG2(t *testing.T) {
 		"parts": []map[string]any{{
 			"type": "flight", "starts_at": g2planOut, "ends_at": g2planOut.Add(2 * time.Hour),
 			"start_label": "LHR", "end_label": "JFK",
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}, owner)
 	if w.Code != http.StatusCreated {

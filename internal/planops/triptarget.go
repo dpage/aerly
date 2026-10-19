@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // adjacencyTolerance is the gap within which a plan's date span is treated as
@@ -81,14 +82,12 @@ func PlanDateSpan(parts []ProposedPart) (start, end time.Time) {
 		if p.StartsAt.IsZero() {
 			continue
 		}
-		s := localDateMidnight(p.StartsAt, p.StartTZ)
+		s := timing.Day(timing.Block{At: p.StartsAt, TZ: p.StartTZ, Source: timing.Source(p.StartTZSource)}, "")
 		e := s
 		if p.EndsAt != nil && !p.EndsAt.IsZero() {
-			endTZ := p.EndTZ
-			if endTZ == "" {
-				endTZ = p.StartTZ
-			}
-			e = localDateMidnight(*p.EndsAt, endTZ)
+			// The end is read by its own zone and source: a blank end zone
+			// does not borrow the start's.
+			e = timing.Day(timing.Block{At: *p.EndsAt, TZ: p.EndTZ, Source: timing.Source(p.EndTZSource)}, "")
 		}
 		if start.IsZero() || s.Before(start) {
 			start = s
@@ -98,17 +97,6 @@ func PlanDateSpan(parts []ProposedPart) (start, end time.Time) {
 		}
 	}
 	return start, end
-}
-
-// localDateMidnight returns midnight UTC on the calendar day instant t falls on
-// in timezone tz, so storing it into a DATE column yields that exact local day.
-// Reuses localDate's tz handling (empty/unloadable tz → UTC).
-func localDateMidnight(t time.Time, tz string) time.Time {
-	d, err := time.Parse("2006-01-02", localDate(t, tz))
-	if err != nil {
-		return t.UTC().Truncate(24 * time.Hour)
-	}
-	return d
 }
 
 // TripCandidate is a trip considered for email auto-attach, with its effective

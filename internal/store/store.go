@@ -77,6 +77,7 @@ func (f *Flight) Times() timing.FlightTimes {
 		EstimatedIn:  f.EstimatedIn,
 		ActualOut:    f.ActualOut,
 		ActualIn:     f.ActualIn,
+		StartSource:  timing.Source(f.StartTZSource),
 	}
 }
 
@@ -108,6 +109,9 @@ type Flight struct {
 	LastResolvedAt *time.Time
 	CreatedBy      *int64
 	Notes          string
+	// StartTZSource is the part's stored start_tz_source, which tells
+	// timing.Effective whether the timetable is floating digits.
+	StartTZSource string
 	// Gate / terminal as last resolved from the airline-data provider. Gate is
 	// UPDATABLE (it changes; a change to a new non-empty value drives a
 	// gate-change alert); terminal is only-fill-empty backfilled metadata.

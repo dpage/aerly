@@ -19,8 +19,9 @@ func TestHotelDetailKindRoundTrip(t *testing.T) {
 	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "hotel", Title: "Test Campsite",
 		Parts: []CreatePlanPartPayload{{
-			StartsAt: start,
-			Hotel:    &HotelDetail{PropertyName: "Test Campsite", Kind: "Campsite"},
+			StartsAt:      start,
+			Hotel:         &HotelDetail{PropertyName: "Test Campsite", Kind: "Campsite"},
+			StartTZSource: "floating",
 		}},
 	}, owner)
 	if err != nil {

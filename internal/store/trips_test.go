@@ -322,17 +322,20 @@ func TestListTripsCarriesEdgeZones(t *testing.T) {
 		if tr.ID != trip {
 			continue
 		}
-		if tr.FirstTZ != "Europe/London" || tr.LastTZ != "Asia/Tashkent" {
-			t.Errorf("edge zones = %q .. %q", tr.FirstTZ, tr.LastTZ)
+		// The last item is the hotel, whose end has no zone of its own: it
+		// is blank and unknown, not the hotel's start zone.
+		if tr.FirstTZ != "Europe/London" || tr.FirstTZSource != "confirmed" || tr.LastTZ != "" || tr.LastTZSource != "floating" {
+			t.Errorf("edge zones = %q %q .. %q %q", tr.FirstTZ, tr.FirstTZSource, tr.LastTZ, tr.LastTZSource)
 		}
 		return
 	}
 	t.Fatal("trip not listed")
 }
 
-// The last item's zone is its end zone, else its start zone: a later-ending
-// part with no end zone lends its own start zone, not an earlier part's.
-func TestListTripsLastZoneFallsBackToStartZone(t *testing.T) {
+// The last item's zone is its own end zone, never borrowed from its start,
+// and its start zone only when it has no end at all (so its instant is its
+// start).
+func TestListTripsLastZoneIsItsOwnEnd(t *testing.T) {
 	s := newStore(t)
 	uid := mkUser(t, s)
 	trip := seedTrip(t, s, uid)
@@ -343,18 +346,27 @@ func TestListTripsLastZoneFallsBackToStartZone(t *testing.T) {
 	out := time.Date(2026, 10, 21, 6, 0, 0, 0, time.UTC)
 	mkPart(t, s, hotel, time.Date(2026, 10, 18, 14, 0, 0, 0, time.UTC), &out, "Asia/Samarkand", "", "Test Hotel")
 
-	trips, err := s.ListTrips(ctx, uid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tr := range trips {
-		if tr.ID != trip {
-			continue
+	lastZone := func() (string, string) {
+		trips, err := s.ListTrips(ctx, uid)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if tr.FirstTZ != "Europe/London" || tr.LastTZ != "Asia/Samarkand" {
-			t.Errorf("edge zones = %q .. %q, want Europe/London .. Asia/Samarkand", tr.FirstTZ, tr.LastTZ)
+		for _, tr := range trips {
+			if tr.ID == trip {
+				return tr.LastTZ, tr.LastTZSource
+			}
 		}
-		return
+		t.Fatal("trip not listed")
+		return "", ""
 	}
-	t.Fatal("trip not listed")
+	if tz, src := lastZone(); tz != "" || src != "floating" {
+		t.Errorf("last zone = %q %q, want a blank floating end and no borrowed start zone", tz, src)
+	}
+
+	// A later part with no end reads in its own start zone.
+	dinner := mkTypedPlan(t, s, trip, uid, "dining", "Test Bistro", "", "")
+	mkPart(t, s, dinner, time.Date(2026, 10, 22, 18, 0, 0, 0, time.UTC), nil, "Europe/Paris", "", "Test Bistro")
+	if tz, src := lastZone(); tz != "Europe/Paris" || src != "confirmed" {
+		t.Errorf("last zone = %q %q, want Europe/Paris confirmed", tz, src)
+	}
 }

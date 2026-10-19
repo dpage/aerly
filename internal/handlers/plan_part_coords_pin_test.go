@@ -33,8 +33,10 @@ func TestPinnedCoordsSurviveAddressEdit(t *testing.T) {
 		TripID: trip.ID, Type: "hotel", Title: "Lake hire",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: checkin, EndsAt: &checkout,
-			StartLabel:   "Lake",
-			StartAddress: "10170 Droupt-Saint-Basle, France",
+			StartLabel:    "Lake",
+			StartAddress:  "10170 Droupt-Saint-Basle, France",
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid)
 	if err != nil {
@@ -115,6 +117,8 @@ func TestPinRederivesZoneKeepingWallClock(t *testing.T) {
 		StartsAt: checkin, EndsAt: &checkout,
 		StartTZ: "Europe/Madrid", EndTZ: "Europe/Madrid",
 		StartLat: pinF(40.4168), StartLon: pinF(-3.7038),
+		StartTZSource: "confirmed",
+		EndTZSource:   "confirmed",
 	})
 
 	// Coordinates in Tashkent (UTC+5, no DST).
@@ -153,6 +157,8 @@ func TestPinZoneRules(t *testing.T) {
 	madrid := store.CreatePlanPartPayload{
 		StartsAt: checkin, EndsAt: &checkout,
 		StartTZ: "Europe/Madrid", EndTZ: "Europe/Madrid",
+		StartTZSource: "confirmed",
+		EndTZSource:   "confirmed",
 	}
 
 	t.Run("explicit starts_at is kept but the zone still moves", func(t *testing.T) {
@@ -172,7 +178,7 @@ func TestPinZoneRules(t *testing.T) {
 	t.Run("explicit start_tz wins", func(t *testing.T) {
 		path, id := pinHotel(t, e, uid, madrid)
 		body := map[string]any{"start_lat": 41.3, "start_lon": 69.24, "start_coords_pinned": true,
-			"start_tz": "Europe/London"}
+			"start_tz": "Europe/London", "start_tz_source": "confirmed"}
 		if w := e.req(t, "PATCH", path, body, uid); w.Code != http.StatusOK {
 			t.Fatalf("PATCH = %d, body %s", w.Code, w.Body.String())
 		}
@@ -187,6 +193,8 @@ func TestPinZoneRules(t *testing.T) {
 		path, id := pinHotel(t, e, uid, store.CreatePlanPartPayload{
 			StartsAt: checkin, EndsAt: &checkout,
 			StartTZ: "Europe/London", EndTZ: "Europe/Paris",
+			StartTZSource: "confirmed",
+			EndTZSource:   "confirmed",
 		})
 		body := map[string]any{"start_lat": 51.5074, "start_lon": -0.1278, "start_coords_pinned": true}
 		if w := e.req(t, "PATCH", path, body, uid); w.Code != http.StatusOK {
@@ -202,6 +210,8 @@ func TestPinZoneRules(t *testing.T) {
 		path, id := pinHotel(t, e, uid, store.CreatePlanPartPayload{
 			StartsAt: checkin, EndsAt: &checkout,
 			StartTZ: "Europe/Madrid", EndTZ: "Europe/Madrid",
+			StartTZSource: "confirmed",
+			EndTZSource:   "confirmed",
 		})
 		body := map[string]any{"start_lat": 51.5074, "start_lon": -0.1278, "start_coords_pinned": true}
 		if w := e.req(t, "PATCH", path, body, uid); w.Code != http.StatusOK {

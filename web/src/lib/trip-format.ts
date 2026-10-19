@@ -215,6 +215,22 @@ export interface ExternalDay {
   events: ExternalEvent[];
 }
 
+/** An external event's start block: an all-day event is a date, so it is
+ * floating; any other keeps the zone and source the server sent, so a blank
+ * zone reads as unknown rather than as UTC digits. */
+export function externalStartBlock(e: ExternalEvent): TimeBlock {
+  return e.all_day
+    ? blockFor(e.starts_at, '', 'floating')
+    : blockFor(e.starts_at, e.start_tz ?? '', e.start_tz_source);
+}
+
+/** An external event's end block. The feed gives one zone per event, for its
+ * start, so the end has none of its own and is an unknown instant, shown in
+ * the viewer's zone, rather than borrowing the start's. */
+export function externalEndBlock(e: ExternalEvent): TimeBlock | undefined {
+  return e.ends_at ? blockFor(e.ends_at, '', 'unknown') : undefined;
+}
+
 /** Group external feed events by local calendar day, chronologically, using the
  * same day-keying as buildTimeline so a day's events line up with the bookings
  * on that day when the two lists are merged. All-day events are keyed in UTC
@@ -223,8 +239,7 @@ export function buildExternalDays(events: ExternalEvent[]): ExternalDay[] {
   const sorted = [...events].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const days = new Map<string, ExternalDay>();
   for (const e of sorted) {
-    const tz = e.all_day ? 'UTC' : e.start_tz || '';
-    const b = blockFor(e.starts_at, tz);
+    const b = externalStartBlock(e);
     const key = dayKey(b);
     let day = days.get(key);
     if (!day) {
@@ -351,23 +366,14 @@ function tzOffsetMs(tz: string, utcMs: number): number {
   return asUTC - utcMs;
 }
 
-/** A part's start block: the server's, or for a response that predates blocks
- * (a stale cache) a scheduled one built from starts_at, start_tz and
- * start_tz_source the way the server would: a floating time gets no zone,
- * whatever airport fallback the raw zone carries, and a blank zone no label. */
+/** A part's start block: the server always sends one. */
 export function startBlockOf(part: PlanPart): TimeBlock {
-  return part.start ?? fallbackBlock(part.starts_at, part.start_tz, part.start_tz_source);
+  return part.start;
 }
 
-/** A part's end block, as startBlockOf from the end's own zone and source;
- * absent when the part has no end. */
+/** A part's end block; absent when the part has no end. */
 export function endBlockOf(part: PlanPart): TimeBlock | undefined {
-  if (part.end) return part.end;
-  return part.ends_at ? fallbackBlock(part.ends_at, part.end_tz, part.end_tz_source) : undefined;
-}
-
-function fallbackBlock(at: string, tz?: string, src?: TZSource): TimeBlock {
-  return blockFor(at, src === 'floating' ? '' : tz || '', src);
+  return part.end;
 }
 
 /** A part's current times: "14:00 UTC+5", or "14:00 UTC+5 → ≈18:05 UTC+1" with
@@ -378,17 +384,40 @@ export function fmtPartTimeRange(part: PlanPart): string {
   return end ? `${start} → ${fmtCompact(end)}` : start;
 }
 
-/** The zone an end's timetable (starts_at/ends_at, scheduled_out/in) reads in:
- * the block's, but blank for a floating end, whose timetable is wall-clock
- * digits even when a provider estimate gives its block the airport's zone
- * (newTimeBlock in internal/api/dto.go does the same). '' with no block. */
-export function timetableZone(b: TimeBlock | undefined): string {
-  return !b || b.tz_source === 'floating' ? '' : b.tz;
+/** How an end's timetable (starts_at/ends_at, scheduled_out/in) is zoned: the
+ * part's stored source, never the block's. A floating end's block can carry a
+ * provider estimate or actual quoted at the airport as confirmed, or as unknown
+ * when the airport cannot be placed (newTimeBlock in internal/api/dto.go), yet
+ * its timetable digits are still wall-clock time with no zone. */
+export function timetableSource(part: PlanPart, which: 'start' | 'end'): TZSource {
+  return which === 'start' ? part.start_tz_source : part.end_tz_source;
 }
 
-// The timetable time behind a revised block, in its timetable zone.
-function timetableBlock(b: TimeBlock, at: string): TimeBlock {
-  return { ...b, at, tz: timetableZone(b), kind: 'scheduled', delay_min: 0 };
+/** The zone an end's timetable reads in: the part's stored zone, so blank for
+ * a floating or unknown end (see timetableSource). */
+export function timetableZone(part: PlanPart, which: 'start' | 'end'): string {
+  if (timetableSource(part, which) === 'floating') return '';
+  return (which === 'start' ? part.start_tz : part.end_tz) ?? '';
+}
+
+// The timetable time behind a revised block, in the end's timetable zone and
+// source rather than the block's.
+function timetableBlock(
+  part: PlanPart,
+  which: 'start' | 'end',
+  b: TimeBlock,
+  at: string,
+): TimeBlock {
+  const tz = timetableZone(part, which);
+  return {
+    ...b,
+    at,
+    tz,
+    tz_source: timetableSource(part, which),
+    place: tz === b.tz ? b.place : '',
+    kind: 'scheduled',
+    delay_min: 0,
+  };
 }
 
 /** The timetable range, when either end is running to a reported or worked-out
@@ -398,10 +427,10 @@ export function fmtPartScheduledRange(part: PlanPart): string | null {
   const eb = endBlockOf(part);
   if (!isRevised(sb) && !isRevised(eb)) return null;
   const f = part.flight;
-  const start = fmtCompact(timetableBlock(sb, f?.scheduled_out ?? part.starts_at));
+  const start = fmtCompact(timetableBlock(part, 'start', sb, f?.scheduled_out ?? part.starts_at));
   const endAt = f?.scheduled_in ?? part.ends_at;
   if (!eb || !endAt) return start;
-  return `${start} → ${fmtCompact(timetableBlock(eb, endAt))}`;
+  return `${start} → ${fmtCompact(timetableBlock(part, 'end', eb, endAt))}`;
 }
 
 /** A part's local date(s) for the share text, e.g. "Sun, 18 Oct 2026", or a
@@ -573,15 +602,19 @@ export function planTypeLabel(type: PlanType): string {
  * is a real instant, is never moved), so the wall-clock time is kept and the
  * instant moves: a guessed zone was a guess about where, not about when. A
  * floating end's digits are already wall-clock. An unknown end's time is a
- * true instant, so only its zone is sent and the server keeps the instant. */
+ * true instant, so only its zone is sent and the server keeps the instant.
+ *
+ * Choosing a zone for a non-floating end re-anchors it on purpose: the spec's
+ * pinning rule "keeps the wall-clock time and marks the source confirmed", so
+ * the instant moves with the zone. The server's pinZones/keepWallClock apply
+ * the same rule. */
 export function zoneConfirmPatch(
   part: PlanPart,
   which: 'start' | 'end',
   tz: string,
 ): UpdatePlanPartInput {
-  const b = which === 'start' ? startBlockOf(part) : endBlockOf(part);
-  const shown = timetableZone(b);
-  const keepInstant = b?.tz_source === 'unknown';
+  const shown = timetableZone(part, which);
+  const keepInstant = timetableSource(part, which) === 'unknown';
   if (which === 'start') {
     const patch: UpdatePlanPartInput = { start_tz: tz, start_tz_source: 'confirmed' };
     if (tz !== shown && !keepInstant) {

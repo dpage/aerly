@@ -946,6 +946,13 @@ func pinsNewPlace(in updatePlanPartReq) bool {
 // end is unknown (already a true instant, so it keeps the instant). An end
 // with no coordinates of its own (a hotel's checkout) follows the start, as
 // in geocode.ResolvePartTZ.
+//
+// Moving the instant of an end that is not floating (a confirmed or inferred
+// zone) is deliberate, not an oversight: the spec's pinning rule is that
+// pinning a place "keeps the wall-clock time and marks the source confirmed",
+// so the time the user entered stays on the clock and the new zone moves the
+// instant beneath it. Only an unknown end, whose instant is already true,
+// keeps its instant.
 func pinZones(cur *store.PlanPart, in updatePlanPartReq, pl *store.UpdatePlanPartPayload) {
 	if startPinned(in) && in.StartTZ == nil && in.StartTZSource == nil {
 		if tz, _ := timing.Infer(timing.Hints{Lat: in.StartLat, Lon: in.StartLon}); tz != "" {
@@ -996,6 +1003,10 @@ func rezone(tz string) (*string, *string) {
 // time as t does in oldTZ (UTC when oldTZ is empty). A time that newTZ skips
 // for a daylight-saving change falls back to timing.Anchor's normalised
 // instant, since the part must land somewhere.
+//
+// It re-anchors a non-floating end on purpose: pinZones calls it under the
+// spec's pinning rule ("keeps the wall-clock time and marks the source
+// confirmed"), which puts the wall-clock reading ahead of the old instant.
 func keepWallClock(t time.Time, oldTZ, newTZ string) time.Time {
 	loc := time.UTC
 	if oldTZ != "" {
@@ -1188,7 +1199,13 @@ func (a *API) applyFlightEdit(ctx context.Context, partID int64, part *store.Pla
 	}
 
 	if newIdent, ok := changedIdent(fd, in); ok {
-		return a.reresolveFlightPart(ctx, partID, newIdent, localDeparture(fd))
+		date, ok := localDeparture(fd)
+		if !ok {
+			// No known origin airport: the date is the part's own start day,
+			// by its zone and source (the digits' date when floating).
+			date = timing.Day(timing.Block{At: part.StartsAt, TZ: part.StartTZ, Source: timing.Source(part.StartTZSource)}, "")
+		}
+		return a.reresolveFlightPart(ctx, partID, newIdent, date)
 	}
 
 	// IATA edits are only meaningful on an unresolved flight; for a tracked
@@ -1244,14 +1261,18 @@ func routeAfterEdit(fd *store.FlightDetail, part *store.PlanPart, edit *flightEd
 }
 
 // localDeparture is the flight's scheduled departure in its origin airport's
-// zone, the date the provider matches on; UTC when the airport isn't known.
-func localDeparture(fd *store.FlightDetail) time.Time {
-	if tz, ok := airports.LookupTZ(fd.OriginIATA); ok {
-		if loc, err := time.LoadLocation(tz); err == nil {
-			return fd.ScheduledOut.In(loc)
-		}
+// zone, the date the provider matches on. ok is false when the airport is not
+// known, because the date is then a guess.
+func localDeparture(fd *store.FlightDetail) (t time.Time, ok bool) {
+	tz, found := airports.LookupTZ(fd.OriginIATA)
+	if !found {
+		return time.Time{}, false
 	}
-	return fd.ScheduledOut.UTC()
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return fd.ScheduledOut.In(loc), true
 }
 
 // reresolveFlightPart re-resolves a flight against a new ident and writes the

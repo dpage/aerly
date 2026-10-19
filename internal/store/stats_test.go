@@ -27,6 +27,8 @@ func TestMyFlightsRebuildsFromPlanModel(t *testing.T) {
 				Ident: "BA286", ScheduledOut: out, ScheduledIn: in,
 				OriginIATA: "LHR", DestIATA: "SFO",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {

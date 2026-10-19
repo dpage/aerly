@@ -19,6 +19,8 @@ func seedVehicleHirePart(t *testing.T, s *Store, tripID int64, owner int64) int6
 				Transmission: "Automatic", FuelPolicy: "Same to same",
 				Mileage: "Unlimited",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -52,6 +54,8 @@ func TestCreatePlanWritesVehicleHireDetail(t *testing.T) {
 				Mileage: "Unlimited", ExcessAmount: &excess, ExcessCurrency: "EUR",
 				DepositAmount: &deposit, DepositCurrency: "EUR",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -91,7 +95,8 @@ func TestCreatePlanWritesVehicleHireDetailNilDefaults(t *testing.T) {
 	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "vehicle_hire", Title: "Test Rentals Ltd",
 		Parts: []CreatePlanPartPayload{{
-			StartsAt: time.Date(2026, 9, 9, 15, 30, 0, 0, time.UTC),
+			StartsAt:      time.Date(2026, 9, 9, 15, 30, 0, 0, time.UTC),
+			StartTZSource: "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -158,7 +163,7 @@ func TestUpdateVehicleHireDetailUpsertsWithoutExistingRow(t *testing.T) {
 	trip := mkTrip(t, s, owner)
 	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "vehicle_hire", Title: "Test Rentals Ltd",
-		Parts: []CreatePlanPartPayload{{StartsAt: time.Now()}},
+		Parts: []CreatePlanPartPayload{{StartTZSource: "floating", StartsAt: time.Now()}},
 	}, owner)
 	if err != nil {
 		t.Fatalf("CreatePlan: %v", err)

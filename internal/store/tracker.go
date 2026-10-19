@@ -41,6 +41,7 @@ const flightPartColumns = `part.id, fd.ident, fd.scheduled_out, fd.scheduled_in,
 	COALESCE(fd.dest_baggage_belt, ''),
 	fd.resolved,
 	FALSE,
+	part.start_tz_source,
 	part.created_at, part.updated_at`
 
 const flightPartFrom = `FROM plan_parts part
@@ -64,6 +65,7 @@ func scanFlightPart(row pgx.Row) (*Flight, error) {
 		&f.DestBaggageBelt,
 		&f.Resolved,
 		&f.IsPublic,
+		&f.StartTZSource,
 		&f.CreatedAt, &f.UpdatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

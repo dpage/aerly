@@ -136,6 +136,14 @@ describe('TimeRow', () => {
     useStore.setState({ me: null });
   });
 
+  it("renders an unknown end in the viewer's zone with its offset", () => {
+    setViewerZone('Asia/Tokyo');
+    render(<TimeRow label="Scheduled in" iso="2026-07-01T14:00:00Z" tz="" source="unknown" />);
+    expect(screen.getByText('Wed 1 Jul, 23:00 UTC+9')).toBeInTheDocument();
+    expect(screen.queryByText(/Your time/)).not.toBeInTheDocument();
+    setViewerZone(null);
+  });
+
   it('renders no caption without a tz', () => {
     render(<TimeRow label="Scheduled out" iso="2026-07-01T14:00:00Z" />);
     expect(screen.getByText('Wed 1 Jul, 14:00')).toBeInTheDocument();

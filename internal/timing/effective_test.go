@@ -320,3 +320,31 @@ func TestDuration(t *testing.T) {
 		})
 	}
 }
+
+// A floating departure's timetable is wall-clock digits, so a real estimate
+// must not be measured against it: no delay, no derived arrival, but the
+// estimate is still returned as the instant it is.
+func TestEffectiveFloatingDeparture(t *testing.T) {
+	out := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	in := out.Add(2 * time.Hour)
+	est := out.Add(-5 * time.Hour) // a real instant, nothing like the digits
+	got := Effective(FlightTimes{ScheduledOut: out, ScheduledIn: in, EstimatedOut: &est, StartSource: Floating})
+	if got.Revised || got.Departure.Delay != 0 || got.Departure.Kind != Estimated || !got.Departure.At.Equal(est) {
+		t.Errorf("departure = %+v revised=%v", got.Departure, got.Revised)
+	}
+	if got.Arrival == nil || got.Arrival.Kind != Scheduled || !got.Arrival.At.Equal(in) {
+		t.Errorf("arrival = %+v, want the timetable and no derived time", got.Arrival)
+	}
+
+	estIn := in.Add(time.Hour)
+	got = Effective(FlightTimes{ScheduledOut: out, ScheduledIn: in, EstimatedIn: &estIn, StartSource: Floating})
+	if got.Arrival == nil || got.Arrival.Kind != Estimated || got.Arrival.Delay != 0 {
+		t.Errorf("estimated arrival = %+v, want delay 0", got.Arrival)
+	}
+
+	// The zero source is not floating, so the delay is still measured.
+	got = Effective(FlightTimes{ScheduledOut: out, ScheduledIn: in, EstimatedOut: &est})
+	if !got.Revised || got.Departure.Delay != -5*time.Hour {
+		t.Errorf("non-floating = %+v", got.Departure)
+	}
+}

@@ -21,16 +21,21 @@ func mkTypedPlan(t *testing.T, s *Store, tripID, createdBy int64, typ, title, co
 	return id
 }
 
+// fixtureSource names the source a fixture's zone stands for: a zone is the
+// part's own (confirmed), and no zone leaves floating wall-clock digits.
+func fixtureSource(tz string) string {
+	if tz != "" {
+		return "confirmed"
+	}
+	return "floating"
+}
+
 // mkPart inserts a fully-specified plan_part and returns its id.
 func mkPart(t *testing.T, s *Store, planID int64, startsAt time.Time, endsAt *time.Time, startTZ, endTZ, startLabel string) int64 {
 	t.Helper()
-	startSrc, err := ResolveSource(startTZ, "")
-	if err != nil {
-		t.Fatalf("start source: %v", err)
-	}
-	endSrc, err := resolveEndSource(endsAt != nil, endTZ, "")
-	if err != nil {
-		t.Fatalf("end source: %v", err)
+	startSrc, endSrc := fixtureSource(startTZ), fixtureSource(endTZ)
+	if endsAt == nil && endTZ == "" {
+		endSrc = "unknown"
 	}
 	var id int64
 	if err := s.pool.QueryRow(ctx,

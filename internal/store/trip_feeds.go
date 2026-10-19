@@ -3,10 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
-	"github.com/dpage/aerly/internal/timing"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // TripFeed is a registered iCalendar feed URL on a trip. The server refreshes
@@ -41,7 +43,8 @@ type TripFeedEvent struct {
 	EndsAt      *time.Time
 	StartTZ     string
 	// StartTZSource is a timing.Source name: confirmed or inferred when StartTZ
-	// is set, otherwise unknown. Empty is stored as inferred when StartTZ is set, else unknown.
+	// is set, otherwise unknown (the column has no floating). It is required:
+	// ReplaceFeedEvents refuses an empty one with ErrInvalidZone.
 	StartTZSource string
 	AllDay        bool
 	// FeedName is the owning feed's display name. Populated only on the read
@@ -179,13 +182,17 @@ func (s *Store) ReplaceFeedEvents(ctx context.Context, feedID int64, events []Tr
 		return err
 	}
 	for _, e := range events {
-		source := e.StartTZSource
-		if source == "" {
-			// A zone with no recorded source is a guess; no zone is unknown.
-			source = string(timing.Unknown)
-			if e.StartTZ != "" {
-				source = string(timing.Inferred)
-			}
+		// The parser names every event's source; an empty or contradictory
+		// one is refused rather than guessed from the zone. A feed event is
+		// always a true instant, so floating is refused too (the column's
+		// CHECK has no floating), as ErrInvalidZone rather than a raw
+		// constraint violation.
+		source, err := ResolveSource(e.StartTZ, e.StartTZSource)
+		if err == nil && source == string(timing.Floating) {
+			err = ErrInvalidZone
+		}
+		if err != nil {
+			return fmt.Errorf("feed event %q: %w", e.UID, err)
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO trip_feed_events

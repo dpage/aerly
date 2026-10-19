@@ -11,8 +11,11 @@ func TestResolveSource(t *testing.T) {
 		tz, src, want string
 		err           bool
 	}{
-		{"Europe/Paris", "", "confirmed", false},
-		{"", "", "floating", false}, // today's meaning, for callers not yet passing a source
+		// Every writer names its source, so an empty one is refused rather
+		// than guessed from the zone.
+		{"Europe/Paris", "", "", true},
+		{"", "", "", true},
+		{"", "floating", "floating", false},
 		{"Europe/Paris", "inferred", "inferred", false},
 		{"", "unknown", "unknown", false},
 		{"", "confirmed", "", true},
@@ -62,13 +65,15 @@ func TestCreatePlanPartTZSource(t *testing.T) {
 	start := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
 	end := start.Add(48 * time.Hour)
 
-	p, _ := mkTZPart(t, s, CreatePlanPartPayload{StartsAt: start, EndsAt: &end, StartTZ: "Europe/Paris"})
+	p, _ := mkTZPart(t, s, CreatePlanPartPayload{StartsAt: start, EndsAt: &end, StartTZ: "Europe/Paris",
+		StartTZSource: "confirmed", EndTZSource: "floating"})
 	if p.StartTZSource != "confirmed" || p.EndTZSource != "floating" {
 		t.Errorf("sources = %q/%q, want confirmed/floating", p.StartTZSource, p.EndTZSource)
 	}
 
-	// No end at all: the end source is unknown rather than floating.
-	p, _ = mkTZPart(t, s, CreatePlanPartPayload{StartsAt: start})
+	// No end at all: with no source sent the end is unknown, the one source
+	// the store still fills, since there is no time for it to describe.
+	p, _ = mkTZPart(t, s, CreatePlanPartPayload{StartsAt: start, StartTZSource: "floating"})
 	if p.StartTZSource != "floating" || p.EndTZSource != "unknown" {
 		t.Errorf("no-end sources = %q/%q, want floating/unknown", p.StartTZSource, p.EndTZSource)
 	}
@@ -101,8 +106,13 @@ func TestCreatePlanPartTZSource(t *testing.T) {
 	owner := mkUser(t, s)
 	trip := mkTrip(t, s, owner)
 	for _, bad := range []CreatePlanPartPayload{
-		{StartsAt: start, StartTZ: "Nope/Nope"},
-		{StartsAt: start, EndsAt: &end, EndTZSource: "confirmed"},
+		{StartsAt: start, StartTZ: "Nope/Nope", StartTZSource: "confirmed"},
+		{StartsAt: start, StartTZSource: "floating", EndsAt: &end, EndTZSource: "confirmed"},
+		// No source: refused, with or without a zone, at either end.
+		{StartsAt: start, StartTZ: "Europe/Paris"},
+		{StartsAt: start},
+		{StartsAt: start, StartTZSource: "floating", EndsAt: &end, EndTZ: "Europe/Paris"},
+		{StartsAt: start, StartTZSource: "floating", EndsAt: &end},
 	} {
 		bad.Hotel = &HotelDetail{}
 		if _, err := s.CreatePlan(ctx, CreatePlanPayload{TripID: trip, Type: "hotel",
@@ -120,7 +130,7 @@ func TestUpdatePlanPartTZSource(t *testing.T) {
 	start := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
 	end := start.Add(48 * time.Hour)
 	p, _ := mkTZPart(t, s, CreatePlanPartPayload{StartsAt: start, EndsAt: &end,
-		StartTZ: "Europe/Paris", EndTZ: "Europe/Paris"})
+		StartTZ: "Europe/Paris", EndTZ: "Europe/Paris", StartTZSource: "confirmed", EndTZSource: "confirmed"})
 
 	upd, err := s.UpdatePlanPart(ctx, p.ID, UpdatePlanPartPayload{StartTZ: strp(""), StartTZSource: strp("unknown")})
 	if err != nil {
@@ -141,7 +151,11 @@ func TestUpdatePlanPartTZSource(t *testing.T) {
 		t.Errorf("contradicting source = %v, want ErrInvalidZone", err)
 	}
 
-	upd, err = s.UpdatePlanPart(ctx, p.ID, UpdatePlanPartPayload{StartTZ: strp("Asia/Tokyo")})
+	// A new zone with no source is refused rather than given the old one.
+	if _, err := s.UpdatePlanPart(ctx, p.ID, UpdatePlanPartPayload{StartTZ: strp("Asia/Tokyo")}); !errors.Is(err, ErrInvalidZone) {
+		t.Errorf("zone with no source = %v, want ErrInvalidZone", err)
+	}
+	upd, err = s.UpdatePlanPart(ctx, p.ID, UpdatePlanPartPayload{StartTZ: strp("Asia/Tokyo"), StartTZSource: strp("confirmed")})
 	if err != nil {
 		t.Fatalf("set zone: %v", err)
 	}
@@ -157,8 +171,12 @@ func TestUpdatePlanPartTZSource(t *testing.T) {
 		t.Errorf("source-only = %q/%q, want Asia/Tokyo/inferred", upd.StartTZ, upd.StartTZSource)
 	}
 
-	// Clearing the end zone with no source keeps the legacy floating meaning.
-	upd, err = s.UpdatePlanPart(ctx, p.ID, UpdatePlanPartPayload{EndTZ: strp("")})
+	// Clearing the end zone needs a source too: the instant could be floating
+	// digits or a true instant, and only the caller knows which.
+	if _, err := s.UpdatePlanPart(ctx, p.ID, UpdatePlanPartPayload{EndTZ: strp("")}); !errors.Is(err, ErrInvalidZone) {
+		t.Errorf("cleared zone with no source = %v, want ErrInvalidZone", err)
+	}
+	upd, err = s.UpdatePlanPart(ctx, p.ID, UpdatePlanPartPayload{EndTZ: strp(""), EndTZSource: strp("floating")})
 	if err != nil {
 		t.Fatalf("clear end: %v", err)
 	}
@@ -167,7 +185,7 @@ func TestUpdatePlanPartTZSource(t *testing.T) {
 	}
 
 	// A zone edit on a missing part reports not found.
-	if _, err := s.UpdatePlanPart(ctx, 999999, UpdatePlanPartPayload{StartTZ: strp("Asia/Tokyo")}); !errors.Is(err, ErrNotFound) {
+	if _, err := s.UpdatePlanPart(ctx, 999999, UpdatePlanPartPayload{StartTZ: strp("Asia/Tokyo"), StartTZSource: strp("confirmed")}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing part = %v, want ErrNotFound", err)
 	}
 	if !(UpdatePlanPartPayload{}).IsEmpty() || (UpdatePlanPartPayload{EndTZSource: strp("unknown")}).IsEmpty() {
@@ -188,6 +206,7 @@ func TestUpdateFlightPartRouteTZSource(t *testing.T) {
 		TripID: trip, Type: "flight", Title: "ZZ100",
 		Parts: []CreatePlanPartPayload{{
 			StartsAt: out, EndsAt: &in, StartLabel: "AAA", EndLabel: "BBB",
+			StartTZSource: "floating", EndTZSource: "floating",
 			Flight: &FlightDetail{Ident: "ZZ100", ScheduledOut: out, ScheduledIn: in},
 		}},
 	}, owner)
@@ -202,7 +221,7 @@ func TestUpdateFlightPartRouteTZSource(t *testing.T) {
 	// covers an update with no time for a floating end).
 	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
 		StartsAt: &out, EndsAt: &in,
-		StartTZ: strp("Europe/London"), EndTZ: strp(""), EndTZSource: strp("unknown"),
+		StartTZ: strp("Europe/London"), StartTZSource: strp("confirmed"), EndTZ: strp(""), EndTZSource: strp("unknown"),
 	}); err != nil {
 		t.Fatalf("UpdateFlightPartRoute: %v", err)
 	}
@@ -221,14 +240,17 @@ func TestUpdateFlightPartRouteTZSource(t *testing.T) {
 	}
 
 	for _, bad := range []FlightRouteUpdate{
-		{StartTZ: strp("Nope/Nope")},
+		{StartTZ: strp("Nope/Nope"), StartTZSource: strp("confirmed")},
 		{EndTZSource: strp("confirmed")},
+		// A new zone with no source, on an end that is not floating.
+		{StartTZ: strp("Asia/Tokyo")},
+		{StartsAt: &out, StartTZ: strp("Asia/Tokyo")},
 	} {
 		if err := s.UpdateFlightPartRoute(ctx, pid, bad); !errors.Is(err, ErrInvalidZone) {
 			t.Errorf("UpdateFlightPartRoute(%+v) = %v, want ErrInvalidZone", bad, err)
 		}
 	}
-	if err := s.UpdateFlightPartRoute(ctx, 999999, FlightRouteUpdate{StartTZ: strp("Europe/London")}); !errors.Is(err, ErrNotFound) {
+	if err := s.UpdateFlightPartRoute(ctx, 999999, FlightRouteUpdate{StartTZ: strp("Europe/London"), StartTZSource: strp("confirmed")}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing part = %v, want ErrNotFound", err)
 	}
 }
@@ -253,6 +275,7 @@ func TestUpdateFlightPartRouteAnchorsFloating(t *testing.T) {
 			TripID: trip, Type: "flight", Title: ident,
 			Parts: []CreatePlanPartPayload{{
 				StartsAt: out, EndsAt: &in, StartLabel: "AAA", EndLabel: "BBB",
+				StartTZSource: "floating", EndTZSource: "floating",
 				Flight: &FlightDetail{Ident: ident, ScheduledOut: out, ScheduledIn: in},
 			}},
 		}, owner)
@@ -293,7 +316,8 @@ func TestUpdateFlightPartRouteAnchorsFloating(t *testing.T) {
 
 	// Now neither end is floating: a further zone change keeps the instants.
 	if err := s.UpdateFlightPartRoute(ctx, pid, FlightRouteUpdate{
-		StartTZ: strp("America/New_York"), EndTZ: strp("Asia/Tokyo"),
+		StartTZ: strp("America/New_York"), StartTZSource: strp("confirmed"),
+		EndTZ: strp("Asia/Tokyo"), EndTZSource: strp("confirmed"),
 	}); err != nil {
 		t.Fatalf("UpdateFlightPartRoute (not floating): %v", err)
 	}

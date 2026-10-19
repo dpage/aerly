@@ -67,10 +67,50 @@ describe('fmtFull and fmtCompact', () => {
   it('gives the offset alone with no place', () => {
     expect(fmtFull(block('2026-10-18T09:00:00Z', 'Asia/Kolkata'))).toBe('Sun 18 Oct, 14:30 UTC+5:30');
   });
-  it('renders the UTC digits with no label when the zone is unknown', () => {
+  it('renders the UTC digits with no label when the time is floating', () => {
     const b = block('2026-10-18T14:00:00Z', '');
+    setViewerZone('Asia/Tokyo');
     expect(fmtFull(b)).toBe('Sun 18 Oct, 14:00');
     expect(fmtCompact(b)).toBe('14:00');
+    expect(fmtTime(b)).toBe('14:00');
+    expect(fmtDate(b)).toBe('Sun 18 Oct');
+  });
+  // The unknown cases mirror internal/timing/label_test.go (TestLabels).
+  describe('an unknown block', () => {
+    const unknown = (over = {}) =>
+      block('2026-10-18T09:00:00Z', '', { tz_source: 'unknown', place: 'Ignored', ...over });
+    it('reads in the viewer zone, with an offset', () => {
+      setViewerZone('Asia/Tokyo');
+      expect(fmtFull(unknown())).toBe('Sun 18 Oct, 18:00 UTC+9');
+      expect(fmtCompact(unknown())).toBe('18:00 UTC+9');
+      expect(fmtTime(unknown())).toBe('18:00');
+      expect(fmtDate(unknown({ at: '2026-10-18T22:30:00Z' }))).toBe('Mon 19 Oct');
+      expect(fmtDayHeading(unknown({ at: '2026-10-18T22:30:00Z' }))).toBe('Mon, 19 Oct 2026');
+    });
+    it('ignores the place', () => {
+      setViewerZone('Europe/London');
+      expect(fmtFull(unknown())).toBe('Sun 18 Oct, 10:00 UTC+1');
+    });
+    it('reads in UTC with an offset when the viewer zone is not a zone', () => {
+      setViewerZone('Mars/Olympus');
+      expect(fmtFull(unknown())).toBe('Sun 18 Oct, 09:00 UTC');
+      expect(fmtCompact(unknown())).toBe('09:00 UTC');
+    });
+    it('marks a derived time and treats a blank source the same', () => {
+      setViewerZone('Europe/London');
+      expect(fmtCompact(unknown({ kind: 'derived' }))).toBe('≈10:00 UTC+1');
+      expect(fmtCompact(unknown({ tz_source: 'confirmed' }))).toBe('10:00 UTC+1');
+    });
+    it('has no separate viewer time', () => {
+      setViewerZone('Asia/Tokyo');
+      expect(fmtViewer(unknown(), 'Asia/Tokyo')).toBeNull();
+    });
+    it('keys its day in the viewer zone', () => {
+      setViewerZone('Asia/Tokyo');
+      expect(dayKey(unknown({ at: '2026-10-18T22:30:00Z' }))).toBe('2026-10-19');
+      setViewerZone('Europe/London');
+      expect(dayKey(unknown({ at: '2026-10-18T22:30:00Z' }))).toBe('2026-10-18');
+    });
   });
   it('marks a derived time as approximate', () => {
     const b = block('2026-10-18T11:07:00Z', 'Asia/Tashkent', { kind: 'derived', delay_min: 22 });

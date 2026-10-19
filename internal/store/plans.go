@@ -259,9 +259,9 @@ type CreatePlanPartPayload struct {
 	EndsAt   *time.Time
 	StartTZ  string
 	EndTZ    string
-	// Zone sources (timing.Source values). Empty derives one via ResolveSource:
-	// confirmed for a zone, floating for none, and unknown for an end with no
-	// time at all.
+	// Zone sources (timing.Source values), required with every time: an empty
+	// one is refused with ErrInvalidZone. The one exception is an end with no
+	// time, no zone and no source, which is unknown.
 	StartTZSource string
 	EndTZSource   string
 	StartLabel    string
@@ -315,8 +315,9 @@ type UpdatePlanPartPayload struct {
 	EndsAt   *time.Time
 	StartTZ  *string
 	EndTZ    *string
-	// Zone sources: nil keeps the current source, unless the matching zone is
-	// set, in which case ResolveSource derives one for the new zone.
+	// Zone sources: nil keeps the current source. A new zone needs its source
+	// sent with it (ErrInvalidZone otherwise), except where a zone anchors a
+	// floating end's digits, which confirms it.
 	StartTZSource *string
 	EndTZSource   *string
 	StartLabel    *string
@@ -343,18 +344,12 @@ func (p UpdatePlanPartPayload) IsEmpty() bool {
 		p.StartTZSource == nil && p.EndTZSource == nil
 }
 
-// ResolveSource validates a zone and its source and fills a missing source:
-// a zone with no source is the caller's explicit choice (confirmed); no zone
-// and no source keeps the legacy meaning of ” (floating).
+// ResolveSource validates a zone and its source. Every writer names the
+// source explicitly, so an empty one is refused (ErrInvalidZone) rather than
+// guessed from the zone, as is a source that contradicts the zone.
 func ResolveSource(tz, src string) (string, error) {
 	if tz != "" && !timing.ValidZone(tz) {
 		return "", ErrInvalidZone
-	}
-	if src == "" {
-		if tz != "" {
-			return string(timing.Confirmed), nil
-		}
-		return string(timing.Floating), nil
 	}
 	s := timing.Source(src)
 	if !s.Valid() {
@@ -387,7 +382,7 @@ type tzEdit struct {
 func (e tzEdit) set() bool { return e.tz != nil || e.src != nil }
 
 // resolve returns the source to write, or nil to leave the column alone. A new
-// zone with no source derives a fresh one rather than inheriting the old. For
+// zone with no source is refused rather than inheriting the old source. For
 // the start pass hasEnd=true, so it resolves exactly as ResolveSource does.
 func (e tzEdit) resolve(hasEnd bool) (*string, error) {
 	if !e.set() {
@@ -1073,7 +1068,9 @@ func (s *Store) PartsByPlan(ctx context.Context, planID int64) ([]*PlanPart, err
 
 // PartsNeedingTZ returns non-dismissed parts that have a coordinate but an end
 // whose zone source is still floating or unknown: the candidates for anchoring
-// rows ingested before coordinate-based tz resolution existed.
+// rows ingested before coordinate-based tz resolution existed. A flight with
+// a floating or unknown end is a candidate with or without coordinates, since
+// its zone can come from its airport code.
 func (s *Store) PartsNeedingTZ(ctx context.Context) ([]*PlanPart, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+planPartColumns+`
@@ -1082,7 +1079,9 @@ func (s *Store) PartsNeedingTZ(ctx context.Context) ([]*PlanPart, error) {
 		WHERE part.dismissed_at IS NULL
 		  AND ((part.start_tz_source IN ('floating','unknown') AND part.start_lat IS NOT NULL)
 		    OR (part.end_tz_source IN ('floating','unknown') AND part.ends_at IS NOT NULL
-		        AND (part.end_lat IS NOT NULL OR part.start_lat IS NOT NULL)))
+		        AND (part.end_lat IS NOT NULL OR part.start_lat IS NOT NULL))
+		    OR (pl.type = 'flight' AND (part.start_tz_source IN ('floating','unknown')
+		        OR (part.end_tz_source IN ('floating','unknown') AND part.ends_at IS NOT NULL))))
 		ORDER BY part.id`)
 	if err != nil {
 		return nil, err

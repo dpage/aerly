@@ -8,22 +8,26 @@ import (
 )
 
 // TestPlanDateSpanSkipsZeroStart: a part with a zero StartsAt contributes
-// nothing, and the end timezone falls back to the start timezone when EndTZ is
-// blank.
+// nothing, and a blank end zone does not borrow the start zone.
 func TestPlanDateSpanSkipsZeroStart(t *testing.T) {
 	dep := time.Date(2026, 6, 1, 20, 0, 0, 0, time.UTC)
 	arr := time.Date(2026, 6, 1, 22, 30, 0, 0, time.UTC) // 01:30 next day in Istanbul (+3)
 	parts := []ProposedPart{
 		{Type: "dining"}, // zero StartsAt → skipped
-		{Type: "flight", StartsAt: dep, EndsAt: &arr, StartTZ: "Europe/Istanbul"}, // no EndTZ → falls back
+		{Type: "flight", StartsAt: dep, EndsAt: &arr, StartTZ: "Europe/Istanbul", StartTZSource: "confirmed", EndTZSource: "unknown"}, // no EndTZ → read in UTC
 	}
 	start, end := PlanDateSpan(parts)
 	if got := start.Format("2006-01-02"); got != "2026-06-01" {
 		t.Errorf("start = %s, want 2026-06-01", got)
 	}
-	// With EndTZ falling back to Istanbul (+3), the arrival lands on the 2nd.
-	if got := end.Format("2006-01-02"); got != "2026-06-02" {
-		t.Errorf("end = %s, want 2026-06-02 (EndTZ falls back to StartTZ)", got)
+	// An unknown end is read in UTC, not Istanbul (+3, where it is the 2nd).
+	if got := end.Format("2006-01-02"); got != "2026-06-01" {
+		t.Errorf("end = %s, want 2026-06-01 (an unknown end does not borrow the start zone)", got)
+	}
+	// A floating end reads its digits.
+	parts[1].EndTZSource = "floating"
+	if _, end = PlanDateSpan(parts); end.Format("2006-01-02") != "2026-06-01" {
+		t.Errorf("floating end = %s, want 2026-06-01", end.Format("2006-01-02"))
 	}
 }
 

@@ -35,6 +35,8 @@ func TestPlanCRUDEndpoints(t *testing.T) {
 				"ident": "BA286", "scheduled_out": out, "scheduled_in": in,
 				"origin_iata": "LHR", "dest_iata": "SFO",
 			},
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", tid), body, owner)
@@ -105,7 +107,7 @@ func TestPlanPassengerCanOpenTripScoped(t *testing.T) {
 	tid := newTrip(t, e, owner, "Trip")
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", tid), map[string]any{
 		"type": "dining", "title": "Dinner",
-		"parts": []map[string]any{{"type": "dining", "starts_at": time.Now()}},
+		"parts": []map[string]any{{"type": "dining", "starts_at": time.Now(), "start_tz_source": "floating"}},
 	}, owner)
 	pid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
 
@@ -171,7 +173,7 @@ func TestPlanVisibilityFilteringEndpoint(t *testing.T) {
 	mkPlan := func(title string) int64 {
 		w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", tid), map[string]any{
 			"type": "dining", "title": title,
-			"parts": []map[string]any{{"type": "dining", "starts_at": time.Now()}},
+			"parts": []map[string]any{{"type": "dining", "starts_at": time.Now(), "start_tz_source": "floating"}},
 		}, owner)
 		if w.Code != http.StatusCreated {
 			t.Fatalf("create plan %s: %d %s", title, w.Code, w.Body.String())
@@ -262,7 +264,7 @@ func TestMovePlanEndpointRecomputesVisibility(t *testing.T) {
 
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", src), map[string]any{
 		"type": "dining", "title": "Secret dinner",
-		"parts": []map[string]any{{"type": "dining", "starts_at": time.Now()}},
+		"parts": []map[string]any{{"type": "dining", "starts_at": time.Now(), "start_tz_source": "floating"}},
 	}, owner)
 	pid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
 	if w := e.req(t, "PUT", fmt.Sprintf("/api/plans/%d/visibility", pid),
@@ -314,7 +316,7 @@ func TestMovePlanRequiresEditorOnDestination(t *testing.T) {
 
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", src), map[string]any{
 		"type": "dining", "title": "D",
-		"parts": []map[string]any{{"type": "dining", "starts_at": time.Now()}},
+		"parts": []map[string]any{{"type": "dining", "starts_at": time.Now(), "start_tz_source": "floating"}},
 	}, owner)
 	pid := int64(decodeBody[map[string]any](t, w)["id"].(float64))
 
@@ -338,6 +340,8 @@ func newFlightPlan(t *testing.T, e *testEnv, tid, uid int64, ident string, out t
 				"ident": ident, "scheduled_out": out, "scheduled_in": in,
 				"origin_iata": "LHR", "dest_iata": "HEL",
 			},
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}, uid)
 	if w.Code != http.StatusCreated {
@@ -468,6 +472,8 @@ func TestCreateFlightPlanNormalisesIdent(t *testing.T) {
 				"ident": "ba 286", "scheduled_out": out, "scheduled_in": in,
 				"origin_iata": "LHR", "dest_iata": "LIS",
 			},
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}, owner)
 	if w.Code != http.StatusCreated {
@@ -554,7 +560,8 @@ func TestUpdatePlanPartSyncsFlightScheduleNoArrival(t *testing.T) {
 		"type": "flight", "title": "G31850",
 		"parts": []map[string]any{{
 			"type": "flight", "starts_at": out,
-			"flight": map[string]any{"ident": "G31850", "scheduled_out": out, "scheduled_in": out},
+			"flight":          map[string]any{"ident": "G31850", "scheduled_out": out, "scheduled_in": out},
+			"start_tz_source": "floating",
 		}},
 	}, owner)
 	if w.Code != http.StatusCreated {

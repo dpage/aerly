@@ -27,7 +27,9 @@ func TestCommitSupersedeMissingPartErrors(t *testing.T) {
 		Type: "flight", Title: "X", SupersedesPartID: &missing,
 		Parts: []ConfirmPartInput{{
 			Type: "flight", StartsAt: out, EndsAt: &in,
-			Flight: &store.FlightDetail{Ident: "ZZ1", ScheduledOut: out, ScheduledIn: in, OriginIATA: "LHR", DestIATA: "JFK"},
+			Flight:        &store.FlightDetail{Ident: "ZZ1", ScheduledOut: out, ScheduledIn: in, OriginIATA: "LHR", DestIATA: "JFK"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}}
 	if _, err := Commit(ctx, Deps{Store: e.s}, trip, owner, plans); err == nil {
@@ -45,7 +47,7 @@ func TestCommitRejectsNonFriendPassenger(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	plans := []ConfirmPlanInput{{
 		Type: "dining", Title: "Dinner", PassengerIDs: []int64{stranger},
-		Parts: []ConfirmPartInput{{Type: "dining", StartsAt: out}},
+		Parts: []ConfirmPartInput{{StartTZSource: "floating", Type: "dining", StartsAt: out}},
 	}}
 	if _, err := Commit(ctx, Deps{Store: e.s}, trip, owner, plans); err == nil {
 		t.Error("a non-friend passenger should be rejected")
@@ -83,7 +85,7 @@ func TestCommitWithSelfPassengerAndVisibility(t *testing.T) {
 		Source:       "", // exercises the default "paste" source
 		PassengerIDs: []int64{owner, friend},
 		Visibility:   &ConfirmVisibility{Mode: "everyone"}, // normalised to ""
-		Parts:        []ConfirmPartInput{{Type: "dining", Seq: 0, StartsAt: out}},
+		Parts:        []ConfirmPartInput{{StartTZSource: "floating", Type: "dining", Seq: 0, StartsAt: out}},
 	}}
 	created, err := Commit(ctx, Deps{Store: e.s}, trip, owner, plans)
 	if err != nil {
@@ -119,7 +121,7 @@ func TestCommitRollsBackOnExtrasFailure(t *testing.T) {
 		Title: "Doomed Dinner",
 		// A user id that does not exist → the visibility members insert FK-fails.
 		Visibility: &ConfirmVisibility{Mode: "hidden_from", UserIDs: []int64{999999999}},
-		Parts:      []ConfirmPartInput{{Type: "dining", StartsAt: out}},
+		Parts:      []ConfirmPartInput{{StartTZSource: "floating", Type: "dining", StartsAt: out}},
 	}}
 	if _, err := Commit(ctx, Deps{Store: e.s}, trip, owner, plans); err == nil {
 		t.Fatal("a visibility override on a non-existent user should fail the commit")
@@ -145,7 +147,7 @@ func TestCommitHiddenFromVisibility(t *testing.T) {
 		Type:       "dining",
 		Title:      "Secret Dinner",
 		Visibility: &ConfirmVisibility{Mode: "hidden_from", UserIDs: []int64{other}},
-		Parts:      []ConfirmPartInput{{Type: "dining", StartsAt: out}},
+		Parts:      []ConfirmPartInput{{StartTZSource: "floating", Type: "dining", StartsAt: out}},
 	}}
 	created, err := Commit(ctx, Deps{Store: e.s}, trip, owner, plans)
 	if err != nil {

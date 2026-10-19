@@ -30,11 +30,9 @@ import { coordsFromText, isMapsUrl } from '../lib/maps-url';
 import { MAPS_NO_COORDS, resolveCoordsFromInput } from '../lib/resolve-coords';
 import {
   ACCOMMODATION_KINDS,
-  endBlockOf,
   isTransferType,
   planTypeLabel,
   splitLocal,
-  startBlockOf,
   timetableZone,
   typeHasEnd,
   zonedTimeToUtc,
@@ -152,14 +150,11 @@ function endForm(
 }
 
 function partForm(part: PlanPart): PartForm {
-  // The form edits the stored timetable digits, so each end's zone is its
-  // timetable zone, from the block: blank for floating digits even where the
-  // raw start_tz/end_tz carry an airport fallback.
-  const startTz = timetableZone(startBlockOf(part));
-  const eb = endBlockOf(part);
-  // An end with no zone of its own borrows the start's, unless its digits are
-  // floating and would be misread in it.
-  const endTz = timetableZone(eb) || (eb?.tz_source === 'floating' ? '' : startTz);
+  // The form edits the stored timetable digits, so each end's zone is its own
+  // stored zone (timetableZone), never its block's: blank for floating or
+  // unknown digits. An end never borrows the start's zone.
+  const startTz = timetableZone(part, 'start');
+  const endTz = timetableZone(part, 'end');
   return {
     start: endForm(
       part.start_label ?? '',
@@ -275,19 +270,18 @@ function hasEnd(part: PlanPart): boolean {
 /** The source to send with a zone being written. A blank zone is floating (the
  * digits are wall-clock time). A zone the user changed is their own choice, so
  * confirmed. A zone left as it was keeps a confirmed or inferred source, so a
- * guessed zone is not silently upgraded to confirmed. Otherwise it is inferred
- * when the form's zone differs from the stored one (an end borrowing the
- * start's), and undefined when there is no source worth keeping (an older part
- * with none, or a floating or unknown one); timePatch settles that case. */
+ * guessed zone is not silently upgraded to confirmed. Otherwise it is
+ * undefined, as there is no source worth keeping (an older part with none, or
+ * a floating or unknown one); timePatch settles that case. An unedited zone is
+ * always the stored one, since partForm seeds it from part.*_tz through
+ * timetableZone. */
 function zoneSource(
   tz: string,
   edited: boolean,
-  origTz: string,
   origSource?: TZSource,
 ): TZSource | undefined {
   if (tz === '') return 'floating';
   if (edited) return 'confirmed';
-  if (tz !== origTz) return 'inferred';
   return origSource === 'confirmed' || origSource === 'inferred' ? origSource : undefined;
 }
 
@@ -301,13 +295,12 @@ function timePatch(
   which: 'start' | 'end',
   f: EndForm,
   init: EndForm,
-  origTz: string,
   origSource?: TZSource,
 ): UpdatePlanPartInput {
   if (f.date === init.date && f.time === init.time && f.tz === init.tz) return {};
   const local = f.date && f.time ? `${f.date}T${f.time}` : undefined;
   if (f.tz === init.tz && !local) return {};
-  const src = zoneSource(f.tz, f.tz !== init.tz, origTz, origSource);
+  const src = zoneSource(f.tz, f.tz !== init.tz, origSource);
   // With digits being sent a source is mandatory, so an unchanged zone with
   // no usable source is a guess made on the part's behalf: inferred. Floating
   // and unknown both say there is no zone, which a zone being sent contradicts
@@ -330,7 +323,7 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
   const si = init.start;
   if (s.label !== si.label) patch.start_label = s.label.trim();
   if (s.address !== si.address) patch.start_address = s.address.trim();
-  Object.assign(patch, timePatch('start', s, si, part.start_tz ?? '', part.start_tz_source));
+  Object.assign(patch, timePatch('start', s, si, part.start_tz_source));
   // A changed coordinate override: a valid "lat, lng" pins the location (the
   // geocoder won't touch it); clearing it unpins, reverting to the address.
   // Invalid input is left for handleSave to reject before we get here.
@@ -350,7 +343,7 @@ function buildPatch(part: PlanPart, form: PartForm, init: PartForm): UpdatePlanP
     const ei = init.end;
     if (e.label !== ei.label) patch.end_label = e.label.trim();
     if (e.address !== ei.address) patch.end_address = e.address.trim();
-    Object.assign(patch, timePatch('end', e, ei, part.end_tz ?? '', part.end_tz_source));
+    Object.assign(patch, timePatch('end', e, ei, part.end_tz_source));
     if (e.coords !== ei.coords) {
       const c = coordsFromText(e.coords);
       if (c) {

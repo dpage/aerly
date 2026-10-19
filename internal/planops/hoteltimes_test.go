@@ -12,7 +12,7 @@ func tp(t time.Time) *time.Time { return &t }
 func TestSuggestHotelTimesNoFlights(t *testing.T) {
 	ci := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
 	co := time.Date(2026, 6, 5, 11, 0, 0, 0, time.UTC)
-	stay := &store.PlanPart{StartsAt: ci, EndsAt: tp(co)}
+	stay := &store.PlanPart{StartTZ: "UTC", StartsAt: ci, EndsAt: tp(co)}
 
 	res := SuggestHotelTimes(stay, &store.HotelDetail{}, HotelTimeFlights{})
 	if res.Checkin != nil || res.Checkout != nil {
@@ -25,7 +25,7 @@ func TestSuggestHotelTimesLateArrivalPushesCheckin(t *testing.T) {
 	// + 1h (23:00) is later, so the suggested check-in is 23:00.
 	arrival := time.Date(2026, 6, 1, 22, 0, 0, 0, time.UTC)
 	stayStart := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
-	stay := &store.PlanPart{StartsAt: stayStart}
+	stay := &store.PlanPart{StartTZ: "UTC", StartsAt: stayStart}
 	inbound := &store.PlanPart{
 		StartsAt: arrival.Add(-2 * time.Hour), EndsAt: tp(arrival),
 	}
@@ -61,7 +61,7 @@ func TestSuggestHotelTimesEarlyArrivalKeepsStandard(t *testing.T) {
 	// the suggested check-in stays at 15:00.
 	arrival := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	stayStart := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	stay := &store.PlanPart{StartsAt: stayStart}
+	stay := &store.PlanPart{StartTZ: "UTC", StartsAt: stayStart}
 	inbound := &store.PlanPart{StartsAt: arrival.Add(-time.Hour), EndsAt: tp(arrival)}
 
 	res := SuggestHotelTimes(stay, &store.HotelDetail{}, HotelTimeFlights{Inbound: inbound})
@@ -77,6 +77,7 @@ func TestSuggestHotelTimesShortHaulCheckout(t *testing.T) {
 	dep := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
 	outbound := &store.PlanPart{StartsAt: dep, EndsAt: tp(dep.Add(2 * time.Hour))}
 	stay := &store.PlanPart{
+		StartTZ:  "UTC",
 		StartsAt: time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
 		EndsAt:   tp(time.Date(2026, 6, 5, 11, 0, 0, 0, time.UTC)),
 	}
@@ -97,6 +98,7 @@ func TestSuggestHotelTimesLongHaulLead(t *testing.T) {
 	dep := time.Date(2026, 6, 5, 14, 0, 0, 0, time.UTC)
 	outbound := &store.PlanPart{StartsAt: dep, EndsAt: tp(dep.Add(8 * time.Hour))}
 	stay := &store.PlanPart{
+		StartTZ:  "UTC",
 		StartsAt: time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
 		EndsAt:   tp(time.Date(2026, 6, 5, 11, 0, 0, 0, time.UTC)),
 	}
@@ -118,6 +120,7 @@ func TestSuggestHotelTimesAirportTravelAddsTime(t *testing.T) {
 		EndLat: &jfkLat, EndLon: &jfkLon,
 	}
 	stay := &store.PlanPart{
+		StartTZ:  "UTC",
 		StartsAt: time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
 		StartLat: &hotelLat, StartLon: &hotelLon,
 	}

@@ -111,7 +111,7 @@ func (p *Poller) departureInput(ctx context.Context, d store.DueDepartureSummary
 		DestLabel:      destLabel,
 		DestIATA:       f.DestIATA,
 		ScheduledOut:   f.ScheduledOut,
-		Departs:        instantBlock(departs, t.Departure.Kind, startZone(d.StartTZ, d.StartTZSource, f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
+		Departs:        instantBlock(departs, t.Departure.Kind, departureZone(t.Departure.Kind, d.StartTZ, d.StartTZSource, f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
 		DepartureDelay: t.Departure.Delay,
 		Arrives:        arrivalBlock(t, dest, f.DestIATA),
 		HomeTZ:         d.HomeTZ,
@@ -159,8 +159,7 @@ func (p *Poller) departureForecast(ctx context.Context, f *store.Flight, destTZ 
 		}
 		lat, lon = *f.DestLat, *f.DestLon
 	}
-	local := inZone(landing, destTZ)
-	from := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	from := timing.Day(instantBlock(landing, timing.Scheduled, endZone{TZ: destTZ, Source: timing.Confirmed}, f.DestIATA), "")
 	fctx, cancel := context.WithTimeout(ctx, forecastTimeout)
 	defer cancel()
 	days, err := p.Weather.Forecast(fctx, lat, lon, destTZ, from, forecastDays)

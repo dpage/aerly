@@ -39,6 +39,8 @@ func flightPlanBody() map[string]any {
 				"ident": "BA286", "scheduled_out": out, "scheduled_in": in,
 				"origin_iata": "LHR", "dest_iata": "SFO",
 			},
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}
 }

@@ -6,7 +6,6 @@ package api
 import (
 	"time"
 
-	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/store"
 	"github.com/dpage/aerly/internal/timing"
 )
@@ -29,11 +28,20 @@ type TimeBlockDTO struct {
 // end's timetable times are never given a zone either, whatever the caller
 // supplied: a scheduled time is wall-clock digits written as UTC, and a derived
 // one is those digits moved by the delay, so a zone beside either would label
-// the wrong moment. A provider estimate or actual is a true instant whatever
-// the timetable beside it, so it keeps the zone. The source stays "floating".
+// the wrong moment, and they stay "floating". A provider estimate or actual is
+// a true instant whatever the timetable beside it, so it is not floating: with
+// the airport zone the caller found it is "confirmed", and without one it is
+// "unknown" (shown in the viewer's zone), as the poller's departureZone does.
 func newTimeBlock(end timing.End, tz, src, iata string) TimeBlockDTO {
-	if src == "floating" && (end.Kind == timing.Scheduled || end.Kind == timing.Derived) {
-		tz = ""
+	if src == string(timing.Floating) {
+		switch {
+		case end.Kind == timing.Scheduled || end.Kind == timing.Derived:
+			tz = ""
+		case tz != "":
+			src = string(timing.Confirmed)
+		default:
+			src = string(timing.Unknown)
+		}
 	}
 	place := ""
 	if tz != "" {
@@ -263,15 +271,9 @@ type FlightDTO struct {
 	OriginIATA   string     `json:"origin_iata"`
 	OriginLat    *float64   `json:"origin_lat,omitempty"`
 	OriginLon    *float64   `json:"origin_lon,omitempty"`
-	// OriginTZ / DestTZ are IANA timezone strings looked up from the
-	// embedded airports table; empty when the IATA is unknown. The
-	// frontend uses them to render scheduled times in airport-local
-	// time on both ends of the trip.
-	OriginTZ     string     `json:"origin_tz,omitempty"`
 	DestIATA     string     `json:"dest_iata"`
 	DestLat      *float64   `json:"dest_lat,omitempty"`
 	DestLon      *float64   `json:"dest_lon,omitempty"`
-	DestTZ       string     `json:"dest_tz,omitempty"`
 	Status       string     `json:"status"`
 	Notes        string     `json:"notes"`
 	LastPolledAt *time.Time `json:"last_polled_at,omitempty"`
@@ -301,8 +303,6 @@ func ToFlightDTO(
 	if sharedUserIDs == nil {
 		sharedUserIDs = []int64{}
 	}
-	originTZ, _ := airports.LookupTZ(f.OriginIATA)
-	destTZ, _ := airports.LookupTZ(f.DestIATA)
 	dto := FlightDTO{
 		ID:            f.ID,
 		Ident:         f.Ident,
@@ -316,11 +316,9 @@ func ToFlightDTO(
 		OriginIATA:    f.OriginIATA,
 		OriginLat:     f.OriginLat,
 		OriginLon:     f.OriginLon,
-		OriginTZ:      originTZ,
 		DestIATA:      f.DestIATA,
 		DestLat:       f.DestLat,
 		DestLon:       f.DestLon,
-		DestTZ:        destTZ,
 		Status:        f.Status,
 		Notes:         f.Notes,
 		LastPolledAt:  f.LastPolledAt,
@@ -942,11 +940,13 @@ func ToTripDTO(t *store.Trip, myRole string, members []TripMemberDTO, tags []str
 		dto.EndsOn = &s
 	}
 	if t.EffectiveStart != nil {
-		s := t.EffectiveStart.In(tripZone(t.FirstTZ)).Format("2006-01-02")
+		day, _ := tripEdgeDate(*t.EffectiveStart, t.FirstTZ, t.FirstTZSource)
+		s := day.Format("2006-01-02")
 		dto.EffectiveStart = &s
 	}
 	if t.EffectiveEnd != nil {
-		s := t.EffectiveEnd.In(tripZone(t.LastTZ)).Format("2006-01-02")
+		day, _ := tripEdgeDate(*t.EffectiveEnd, t.LastTZ, t.LastTZSource)
+		s := day.Format("2006-01-02")
 		dto.EffectiveEnd = &s
 	}
 	dto.SpanStart, dto.SpanEnd = tripSpanEdges(t)
@@ -958,20 +958,27 @@ func ToTripMemberDTO(m *store.TripMember) TripMemberDTO {
 	return TripMemberDTO{UserID: m.UserID, Role: m.Role}
 }
 
-// airportFallbackSource is the zone source shown with an airport zone the
-// DTO supplies for a flight end that stored none: confirmed for a true instant
-// (an unknown or legacy blank source), but floating stays floating.
-func airportFallbackSource(stored string) string {
-	if stored == "floating" {
-		return stored
+// providerZone is the zone a flight end's blocks are built with. A floating
+// end stores no zone, yet a provider estimate or actual on it is a true
+// instant, so it is quoted at the end's own airport (timing.AirportZone) and
+// newTimeBlock marks it confirmed, or unknown when the airport cannot be
+// placed. newTimeBlock keeps that zone off the end's scheduled and derived
+// times, which are wall-clock digits and stay floating. Any other end uses
+// the zone it stored.
+func providerZone(tz, src, iata string, lat, lon *float64) string {
+	if tz != "" || src != string(timing.Floating) {
+		return tz
 	}
-	return "confirmed"
+	zone, _ := timing.AirportZone(iata, lat, lon)
+	return zone
 }
 
 // ToPlanPartDTO renders a part with its type-specific detail. The detail is
-// passed in (already loaded by the store) as exactly one non-nil pointer; the
-// TZ-lookup convenience that lived in ToFlightDTO now happens here, filling
-// start_tz/end_tz from the airports table when the part left them blank.
+// passed in (already loaded by the store) as exactly one non-nil pointer. A
+// flight's ends carry the zone and source as stored: there is no read-time
+// airport fallback, since the startup pass (BackfillPartTimezones) writes an
+// unknown flight end's airport zone as confirmed. The one airport lookup left
+// is providerZone's, for a floating end's provider times.
 //
 // effective_at: for flight parts it is the effective departure from the timing
 // package; for every other type it is StartsAt.
@@ -1016,22 +1023,9 @@ func ToPlanPartDTO(
 	}
 	switch {
 	case flight != nil:
-		// Fall back to airport TZ when the part didn't store one. A floating
-		// time keeps its floating source: its digits are wall-clock time, not
-		// yet an instant in that zone, so it must not be labelled confirmed.
-		if startTZ == "" {
-			if tz, ok := airports.LookupTZ(flight.OriginIATA); ok {
-				startTZ = tz
-				startSrc = airportFallbackSource(startSrc)
-			}
-		}
-		if endTZ == "" {
-			if tz, ok := airports.LookupTZ(flight.DestIATA); ok {
-				endTZ = tz
-				endSrc = airportFallbackSource(endSrc)
-			}
-		}
-		dto.Flight = ToFlightDetailDTO(flight, latest, track, startTZ, startSrc, endTZ, endSrc)
+		dto.Flight = ToFlightDetailDTO(flight, latest, track,
+			providerZone(startTZ, startSrc, flight.OriginIATA, p.StartLat, p.StartLon), startSrc,
+			providerZone(endTZ, endSrc, flight.DestIATA, p.EndLat, p.EndLon), endSrc)
 		dto.EffectiveAt = dto.Flight.Departure.At
 		dto.Start = dto.Flight.Departure
 		if dto.Flight.Arrival != nil {
@@ -1074,7 +1068,11 @@ func ToPlanPartDTO(
 // ToFlightDetailDTO mirrors the old ToFlightDTO position handling and adds the
 // per-end time blocks, quoted in the zones the caller supplies.
 func ToFlightDetailDTO(d *store.FlightDetail, latest *store.Position, track []*store.Position, originTZ, originSrc, destTZ, destSrc string) *FlightDetailDTO {
-	t := timing.Effective(d.Times())
+	ft := d.Times()
+	// A floating departure is not measured against provider times; the part's
+	// stored source is the departure's, not the airport fallback's.
+	ft.StartSource = timing.Source(originSrc)
+	t := timing.Effective(ft)
 	callsign := ""
 	if d.Callsign != nil {
 		callsign = *d.Callsign

@@ -40,12 +40,13 @@ vi.mock('../api/client', () => ({
 
 import type { PlanPart } from '../api/types';
 import PlanEditDialog from './PlanEditDialog';
+import { partBlocks } from '../test/blocks';
 
 // The edit dialog's date/time picker, as a plain input (see the mock's notes).
 vi.mock('@mui/x-date-pickers/DateTimePicker', () => import('../test/date-time-picker-mock'));
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 100,
     plan_id: 42,
     type: 'flight',
@@ -58,8 +59,8 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
     end_label: 'IAD',
     status: 'planned',
     effective_at: '2026-10-12T11:35:00Z',
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function trip(over: Partial<Trip> = {}): Trip {

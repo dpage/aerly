@@ -207,6 +207,7 @@ func TestFlightAlertInsertListMarkRead(t *testing.T) {
 				ScheduledOut: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC),
 				ScheduledIn:  time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
 			},
+			StartTZSource: "floating",
 		}},
 	}, owner)
 	if err != nil {

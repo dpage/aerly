@@ -12,11 +12,23 @@ import (
 
 // createTZPlan posts a one-part dining plan and returns the plan and part ids
 // plus the response status and body, so a case can assert on failures too.
+// Each time goes with a source, as the web sends one: the one the case names,
+// else confirmed for a zone and floating for none.
 func createTZPlan(t *testing.T, e *testEnv, trip, owner int64, part map[string]any) (int64, int64, *httptest.ResponseRecorder) {
 	t.Helper()
 	part["type"] = "dining"
 	if _, ok := part["starts_at"]; !ok {
 		part["starts_at"] = time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
+	}
+	for _, end := range []string{"start", "end"} {
+		_, timed := part[end+"s_at"]
+		if _, ok := part[end+"_tz_source"]; ok || !timed {
+			continue
+		}
+		part[end+"_tz_source"] = "floating"
+		if tz, _ := part[end+"_tz"].(string); tz != "" {
+			part[end+"_tz_source"] = "confirmed"
+		}
 	}
 	w := e.req(t, "POST", "/api/trips/"+itoa(trip)+"/plans", map[string]any{
 		"type": "dining", "title": "Test Bistro", "parts": []map[string]any{part},
@@ -63,17 +75,35 @@ func TestCreatePlanAcceptsTZSource(t *testing.T) {
 	}
 }
 
-func TestCreatePlanDefaultsTZSourceToFloating(t *testing.T) {
+// A time sent with no source is refused rather than given one guessed from
+// the zone, with or without a zone, at either end, on create and on confirm.
+func TestCreatePlanRejectsEmptyTZSource(t *testing.T) {
 	e := setup(t, nil, nil)
-	owner := e.user(t, "tzsrcfloat", false)
+	owner := e.user(t, "tzsrcempty", false)
 	trip := newTrip(t, e, owner, "Trip")
-
-	_, _, w := createTZPlan(t, e, trip, owner, map[string]any{})
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create = %d: %s", w.Code, w.Body.String())
-	}
-	if got := tripPartField(t, e, trip, owner, "start_tz_source"); got != "floating" {
-		t.Errorf("start_tz_source = %v, want floating", got)
+	at := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
+	for name, part := range map[string]map[string]any{
+		"start, no zone": {"starts_at": at},
+		"start, zone":    {"starts_at": at, "start_tz": "Europe/Paris"},
+		"start_local":    {"start_local": "2026-07-01T15:00", "start_tz": "Europe/Paris"},
+		"end, no zone":   {"starts_at": at, "start_tz_source": "floating", "ends_at": at.Add(time.Hour)},
+		"end, zone":      {"starts_at": at, "start_tz_source": "floating", "ends_at": at.Add(time.Hour), "end_tz": "Europe/Paris"},
+	} {
+		part["type"] = "dining"
+		plan := map[string]any{"type": "dining", "title": "Test Bistro", "parts": []map[string]any{part}}
+		// Both create paths name the zone as the problem.
+		for _, c := range []struct {
+			path string
+			body any
+		}{
+			{"/plans", plan},
+			{"/ingest/confirm", map[string]any{"plans": []map[string]any{plan}}},
+		} {
+			w := e.req(t, "POST", "/api/trips/"+itoa(trip)+c.path, c.body, owner)
+			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Invalid time zone.") {
+				t.Errorf("%s via %s = %d, want 400 Invalid time zone.: %s", name, c.path, w.Code, w.Body.String())
+			}
+		}
 	}
 }
 
@@ -114,6 +144,14 @@ func TestUpdatePlanPartTZSource(t *testing.T) {
 	})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create = %d: %s", w.Code, w.Body.String())
+	}
+	// A new zone, or a cleared one, with no source is refused: the edit
+	// must say what the time now means.
+	for _, patch := range []map[string]any{{"start_tz": "Asia/Tokyo"}, {"start_tz": ""}} {
+		w = e.req(t, "PATCH", fmt.Sprintf("/api/plan-parts/%d", zonedID), patch, owner)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Invalid time zone.") {
+			t.Errorf("PATCH %v = %d, want 400 Invalid time zone.: %s", patch, w.Code, w.Body.String())
+		}
 	}
 	w = e.req(t, "PATCH", fmt.Sprintf("/api/plan-parts/%d", zonedID),
 		map[string]any{"start_tz": "", "start_tz_source": "unknown"}, owner)

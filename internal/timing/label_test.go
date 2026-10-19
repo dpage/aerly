@@ -97,3 +97,35 @@ func TestLabels(t *testing.T) {
 		}
 	}
 }
+
+func TestDay(t *testing.T) {
+	// 22:30 UTC on 18 Oct is already the 19th in Tokyo, and still the 18th in
+	// London (BST until 25 Oct) and in UTC.
+	late := time.Date(2026, 10, 18, 22, 30, 0, 0, time.UTC)
+	// 00:30 UTC on 19 Oct is the 19th in London (01:30 BST) and in Tokyo.
+	early := time.Date(2026, 10, 19, 0, 30, 0, 0, time.UTC)
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 0, 0, 0, 0, time.UTC) }
+	cases := []struct {
+		name string
+		b    Block
+		home string
+		want time.Time
+	}{
+		{"zone Tokyo", Block{At: late, TZ: "Asia/Tokyo", Source: Confirmed}, "", day(19)},
+		{"zone London", Block{At: late, TZ: "Europe/London", Source: Confirmed}, "", day(18)},
+		{"zone London past local midnight", Block{At: time.Date(2026, 10, 18, 23, 30, 0, 0, time.UTC), TZ: "Europe/London", Source: Confirmed}, "", day(19)},
+		{"zone London after midnight", Block{At: early, TZ: "Europe/London", Source: Confirmed}, "", day(19)},
+		{"zone London summer boundary", Block{At: time.Date(2026, 7, 1, 23, 30, 0, 0, time.UTC), TZ: "Europe/London", Source: Confirmed}, "", time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)},
+		{"zone ignores home", Block{At: late, TZ: "Europe/London", Source: Confirmed}, "Asia/Tokyo", day(18)},
+		{"floating uses UTC digits", Block{At: late, Source: Floating}, "Asia/Tokyo", day(18)},
+		{"unknown uses home", Block{At: late, Source: Unknown}, "Asia/Tokyo", day(19)},
+		{"unknown blank home", Block{At: late, Source: Unknown}, "", day(18)},
+		{"unknown invalid home", Block{At: late, Source: Unknown}, "Mars/Olympus", day(18)},
+		{"invalid zone reads as UTC", Block{At: late, TZ: "Mars/Olympus", Source: Confirmed}, "", day(18)},
+	}
+	for _, c := range cases {
+		if got := Day(c.b, c.home); !got.Equal(c.want) || got.Location() != time.UTC {
+			t.Errorf("%s: got %v want %v", c.name, got, c.want)
+		}
+	}
+}

@@ -123,6 +123,8 @@ func (e env) mkFlightPlan(t *testing.T, tripID, userID int64, ident, ref string,
 				Ident: ident, ScheduledOut: out, ScheduledIn: in,
 				OriginIATA: "LHR", DestIATA: "JFK",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, userID)
 	if err != nil {
@@ -281,6 +283,8 @@ func TestCommit_SupersessionCancelsOldPart(t *testing.T) {
 				Ident: "BA286", ScheduledOut: newOut, ScheduledIn: newIn,
 				OriginIATA: "LHR", DestIATA: "JFK",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}}
 	created, err := Commit(ctx, Deps{Store: s}, trip, owner, plans)
@@ -333,6 +337,8 @@ func TestCommit_SupersedeRejectsForeignPart(t *testing.T) {
 				Ident: "BA286", ScheduledOut: out, ScheduledIn: in,
 				OriginIATA: "LHR", DestIATA: "JFK",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}}
 	if _, err := Commit(ctx, Deps{Store: s}, tripA, owner, plans); err == nil {
@@ -364,9 +370,13 @@ func TestCommit_SupersedeRejectsMultiPart(t *testing.T) {
 		SupersedesPartID: &oldPart,
 		Parts: []ConfirmPartInput{
 			{Type: "flight", StartsAt: out.AddDate(0, 0, 1), EndsAt: &in,
-				Flight: &store.FlightDetail{Ident: "BA286", ScheduledOut: out, ScheduledIn: in, OriginIATA: "LHR", DestIATA: "JFK"}},
+				Flight:        &store.FlightDetail{Ident: "BA286", ScheduledOut: out, ScheduledIn: in, OriginIATA: "LHR", DestIATA: "JFK"},
+				StartTZSource: "floating",
+				EndTZSource:   "floating"},
 			{Type: "flight", StartsAt: out.AddDate(0, 0, 2), EndsAt: &in,
-				Flight: &store.FlightDetail{Ident: "BA287", ScheduledOut: out, ScheduledIn: in, OriginIATA: "JFK", DestIATA: "LHR"}},
+				Flight:        &store.FlightDetail{Ident: "BA287", ScheduledOut: out, ScheduledIn: in, OriginIATA: "JFK", DestIATA: "LHR"},
+				StartTZSource: "floating",
+				EndTZSource:   "floating"},
 		},
 	}}
 	if _, err := Commit(ctx, Deps{Store: s}, trip, owner, plans); err == nil {

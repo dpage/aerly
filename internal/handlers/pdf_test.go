@@ -516,15 +516,46 @@ func TestOneLine(t *testing.T) {
 	}
 }
 
-func TestEventLoc(t *testing.T) {
-	if eventLoc("") != time.UTC {
-		t.Errorf("empty tz should be UTC")
+// An unknown end on a day boundary is read in UTC (a PDF has no home zone),
+// not in the start's zone: 23:30 UTC is 08:30 the next day in Tokyo, but the
+// end here is on the start's UTC day, so it prints without a date and the part
+// is not banded.
+func TestPDFUnknownEndFollowsTimingDay(t *testing.T) {
+	start := timing.Block{At: mustTime(t, "2026-06-11T01:00:00Z"), TZ: "Asia/Tokyo", Source: timing.Confirmed}
+	end := timing.Block{At: mustTime(t, "2026-06-11T23:30:00Z"), Source: timing.Unknown}
+	if got := timeRange(start, &end); strings.Contains(got, "Fri 12") || strings.Contains(got, "Sat 12") || !strings.Contains(got, "23:30 UTC") {
+		t.Errorf("timeRange = %q, want the end on the same UTC day", got)
 	}
-	if eventLoc("Not/AZone") != time.UTC {
-		t.Errorf("bad tz should fall back to UTC")
+	pt := &api.PlanPartDTO{
+		Start: api.TimeBlockDTO{At: start.At, TZ: "Asia/Tokyo", TZSource: "confirmed"},
+		End:   &api.TimeBlockDTO{At: end.At, TZSource: "unknown"},
 	}
-	if loc := eventLoc("Europe/Paris"); loc == nil || loc.String() != "Europe/Paris" {
-		t.Errorf("valid tz not loaded: %v", loc)
+	if bandedPart("hotel", pt) {
+		t.Error("an unknown end on the same UTC day must not band by the start zone")
+	}
+	// A floating end reads its UTC digits: the same instant, but local time.
+	pt.End.TZSource = "floating"
+	if bandedPart("hotel", pt) {
+		t.Error("a floating end on the same digit day must not band")
+	}
+	pt.End.At = mustTime(t, "2026-06-12T00:30:00Z")
+	if !bandedPart("hotel", pt) {
+		t.Error("an end on the next UTC day must band")
+	}
+}
+
+// A row's day heading follows timing.Day: an unknown start is in UTC and a
+// floating one in its digits, whatever zone the row before it used.
+func TestPDFDayHeadingForUnknownAndFloatingStart(t *testing.T) {
+	plans := []api.PlanDTO{{Type: "dining", Title: "Test Bistro", Parts: []api.PlanPartDTO{
+		{Start: api.TimeBlockDTO{At: mustTime(t, "2026-06-11T23:30:00Z"), TZSource: "unknown"}},
+		{Start: api.TimeBlockDTO{At: mustTime(t, "2026-06-12T00:30:00Z"), TZSource: "floating"}},
+	}}}
+	runs := pdfText(plans)
+	for _, want := range []string{"Thursday, 11 June 2026", "Friday, 12 June 2026"} {
+		if !hasRun(runs, want) {
+			t.Errorf("missing heading %q in %q", want, runs)
+		}
 	}
 }
 

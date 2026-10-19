@@ -20,7 +20,7 @@ func TestSuggestHotelTimesNilStay(t *testing.T) {
 // 22:00 + 1h = 23:00 beats the 15:00 standard check-in.
 func TestSuggestHotelTimesInboundNoEndsAt(t *testing.T) {
 	arrival := time.Date(2026, 6, 1, 22, 0, 0, 0, time.UTC)
-	stay := &store.PlanPart{StartsAt: time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)}
+	stay := &store.PlanPart{StartTZ: "UTC", StartsAt: time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)}
 	inbound := &store.PlanPart{StartsAt: arrival} // no EndsAt
 
 	res := SuggestHotelTimes(stay, &store.HotelDetail{}, HotelTimeFlights{Inbound: inbound})
@@ -37,6 +37,7 @@ func TestSuggestHotelTimesOutboundNoEndsAt(t *testing.T) {
 	dep := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
 	outbound := &store.PlanPart{StartsAt: dep} // no EndsAt → short-haul
 	stay := &store.PlanPart{
+		StartTZ:  "UTC",
 		StartsAt: time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
 		EndsAt:   tp(time.Date(2026, 6, 5, 11, 0, 0, 0, time.UTC)),
 	}
@@ -82,6 +83,7 @@ func TestSuggestHotelTimesPropertyPublishedTimes(t *testing.T) {
 	dep := time.Date(2026, 6, 5, 22, 0, 0, 0, time.UTC)
 	outbound := &store.PlanPart{StartsAt: dep, EndsAt: tp(dep.Add(2 * time.Hour))}
 	stay := &store.PlanPart{
+		StartTZ:  "UTC",
 		StartsAt: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
 		EndsAt:   tp(time.Date(2026, 6, 5, 11, 0, 0, 0, time.UTC)),
 	}
@@ -104,7 +106,7 @@ func TestStandardTimeOnDateMalformedPublishedTime(t *testing.T) {
 	detail := &store.HotelDetail{StandardCheckin: &bad}
 	arrival := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	inbound := &store.PlanPart{StartsAt: arrival.Add(-time.Hour), EndsAt: tp(arrival)}
-	stay := &store.PlanPart{StartsAt: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)}
+	stay := &store.PlanPart{StartTZ: "UTC", StartsAt: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)}
 
 	res := SuggestHotelTimes(stay, detail, HotelTimeFlights{Inbound: inbound})
 	want := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC) // default 15:00
@@ -123,6 +125,7 @@ func TestAirportTravelZeroDistance(t *testing.T) {
 		EndLat: &lat, EndLon: &lon,
 	}
 	stay := &store.PlanPart{
+		StartTZ:  "UTC",
 		StartsAt: time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
 		StartLat: &lat, StartLon: &lon,
 	}
@@ -130,5 +133,25 @@ func TestAirportTravelZeroDistance(t *testing.T) {
 	want := arrival.Add(1 * time.Hour) // no travel term added
 	if res.Checkin == nil || !res.Checkin.Equal(want) {
 		t.Errorf("checkin = %v, want %v (zero travel for coincident points)", res.Checkin, want)
+	}
+}
+
+// With no zone for the property the standard time cannot be placed, so no
+// suggestion is made (and the stored time stands), rather than reading the
+// standard hour as UTC.
+func TestSuggestHotelTimesSkipsWithoutZone(t *testing.T) {
+	arrival := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	inbound := &store.PlanPart{StartsAt: arrival.Add(-time.Hour), EndsAt: tp(arrival)}
+	dep := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
+	outbound := &store.PlanPart{StartsAt: dep, EndsAt: tp(dep.Add(2 * time.Hour))}
+	stay := &store.PlanPart{StartsAt: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), EndsAt: tp(dep)}
+	res := SuggestHotelTimes(stay, &store.HotelDetail{}, HotelTimeFlights{Inbound: inbound, Outbound: outbound})
+	if res.Checkin != nil || res.Checkout != nil {
+		t.Errorf("a stay with no zone got suggestions %+v, want none", res)
+	}
+	stay.StartTZ = "Not/AZone"
+	res = SuggestHotelTimes(stay, &store.HotelDetail{}, HotelTimeFlights{Inbound: inbound, Outbound: outbound})
+	if res.Checkin != nil || res.Checkout != nil {
+		t.Errorf("a stay with an unloadable zone got suggestions %+v, want none", res)
 	}
 }

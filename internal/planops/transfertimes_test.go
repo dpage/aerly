@@ -228,3 +228,47 @@ func TestApplyTransferTimes_RetimedSources(t *testing.T) {
 		t.Errorf("hotel to airport sources = %q/%q, want confirmed/confirmed", got.StartTZSource, got.EndTZSource)
 	}
 }
+
+// A flight end is matched to a transfer's day by timing.Day: in its own zone
+// when it has one, in UTC when unknown, and by its digits when floating. An
+// arrival at 23:30Z is on the 15th in UTC (unknown) and in a floating reading,
+// but on the 16th in Madrid.
+func TestApplyTransferTimes_DayBoundary(t *testing.T) {
+	dep := time.Date(2026, 1, 15, 20, 0, 0, 0, time.UTC)
+	arr := time.Date(2026, 1, 15, 23, 30, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, tz, source string
+		wantRetimed      bool
+		wantSource       string
+	}{
+		{"unknown", "", "unknown", true, "unknown"},
+		{"floating", "", "floating", true, "floating"},
+		{"zoned", "Europe/Madrid", "confirmed", false, ""},
+	} {
+		fp := flightPlan("LGW", "ALC", dep, arr, "", tc.tz)
+		fp.Parts[0].EndTZSource = tc.source
+		plans := []ProposedPlan{fp, transferPlan("Alicante Airport", "Test Hotel", "2026-01-15")}
+		def := plans[1].Parts[0].StartsAt
+		applyTransferTimes(plans)
+		got := plans[1].Parts[0]
+		if retimed := !got.StartsAt.Equal(def); retimed != tc.wantRetimed {
+			t.Errorf("%s: retimed = %v, want %v", tc.name, retimed, tc.wantRetimed)
+		}
+		if tc.wantRetimed && got.StartTZSource != tc.wantSource {
+			t.Errorf("%s: transfer source = %q, want %q", tc.name, got.StartTZSource, tc.wantSource)
+		}
+	}
+
+	// A floating flight end shifts a transfer's blank end into floating digits too.
+	fp := flightPlan("LGW", "ALC", dep, arr, "", "")
+	fp.Parts[0].EndTZSource = "floating"
+	tr := transferPlan("Alicante Airport", "Test Hotel", "2026-01-15")
+	end := tr.Parts[0].StartsAt.Add(time.Hour)
+	tr.Parts[0].EndsAt = &end
+	tr.Parts[0].EndTZSource = "floating"
+	plans := []ProposedPlan{fp, tr}
+	applyTransferTimes(plans)
+	if got := plans[1].Parts[0]; got.EndTZSource != "floating" {
+		t.Errorf("end source = %q, want floating", got.EndTZSource)
+	}
+}

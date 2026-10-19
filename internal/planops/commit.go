@@ -18,8 +18,9 @@ type ConfirmPartInput struct {
 	EndsAt   *time.Time
 	StartTZ  string
 	EndTZ    string
-	// StartTZSource and EndTZSource are optional; empty derives the source
-	// from whether the zone is set.
+	// StartTZSource and EndTZSource are required with each time: the store
+	// refuses an empty one (store.ErrInvalidZone) rather than guessing it from
+	// the zone. An end with no time may leave its source empty (unknown).
 	StartTZSource string
 	EndTZSource   string
 	StartLabel    string

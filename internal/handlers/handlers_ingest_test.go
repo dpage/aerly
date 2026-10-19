@@ -71,8 +71,10 @@ func TestIngestProposeAndConfirm(t *testing.T) {
 			"type": "hotel", "title": "Hotel Plaza", "confirmation_ref": "H1", "source": "paste",
 			"parts": []map[string]any{{
 				"type": "hotel", "starts_at": checkin, "ends_at": checkout,
-				"start_label": "Hotel Plaza",
-				"hotel":       map[string]any{"property_name": "Hotel Plaza", "address": "1 Main St"},
+				"start_label":     "Hotel Plaza",
+				"hotel":           map[string]any{"property_name": "Hotel Plaza", "address": "1 Main St"},
+				"start_tz_source": "floating",
+				"end_tz_source":   "floating",
 			}},
 		}},
 	}
@@ -144,6 +146,8 @@ func TestIngestConfirm_AppliesSupersession(t *testing.T) {
 				"ident": "BA286", "scheduled_out": out, "scheduled_in": in,
 				"origin_iata": "LHR", "dest_iata": "JFK",
 			},
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", tid), create, owner)
@@ -166,6 +170,8 @@ func TestIngestConfirm_AppliesSupersession(t *testing.T) {
 					"ident": "BA286", "scheduled_out": newOut, "scheduled_in": newIn,
 					"origin_iata": "LHR", "dest_iata": "JFK",
 				},
+				"start_tz_source": "floating",
+				"end_tz_source":   "floating",
 			}},
 		}},
 	}

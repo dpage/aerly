@@ -46,6 +46,7 @@ vi.mock('../state/store', () => ({
 }));
 
 import AddToTripDialog from './AddToTripDialog';
+import { setViewerZone } from '../lib/time';
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
   return {
@@ -347,6 +348,41 @@ describe('AddToTripDialog - upload tab', () => {
     expect(screen.getByText(/Check out/)).toBeInTheDocument();
     // Two proposals → "Add 2 plans".
     expect(screen.getByRole('button', { name: /Add 2 plans/ })).toBeInTheDocument();
+  });
+
+  it('reads a check-out with no zone of its own in the viewer zone, not the check-in zone', async () => {
+    setViewerZone('Europe/London');
+    try {
+      h.state.ingest.mockImplementation(async () => {
+        h.state.ingestProposals = [
+          proposal({
+            type: 'hotel',
+            title: 'Test Hotel',
+            parts: [
+              part({
+                type: 'hotel',
+                start_label: 'Test Hotel',
+                end_label: '',
+                starts_at: '2026-10-12T14:00:00Z',
+                ends_at: '2026-10-15T22:30:00Z',
+                start_tz: 'Asia/Tokyo',
+                start_tz_source: 'confirmed',
+                end_tz: '',
+                end_tz_source: 'unknown',
+              }),
+            ],
+          }),
+        ];
+      });
+      render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+      await userEvent.click(screen.getByRole('tab', { name: 'Paste text' }));
+      await userEvent.type(screen.getByLabelText('Confirmation text'), 'hotel');
+      await userEvent.click(screen.getByRole('button', { name: 'Extract plan' }));
+      // 22:30 UTC is 23:30 on the 15th in London, but the 16th in Tokyo.
+      expect(screen.getByText(/Check out Thu 15 Oct/)).toBeInTheDocument();
+    } finally {
+      setViewerZone(null);
+    }
   });
 
   it('cancels the confirm step back to the input tabs', async () => {

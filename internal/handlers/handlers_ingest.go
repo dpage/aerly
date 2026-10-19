@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log/slog"
 	"mime"
@@ -310,6 +311,12 @@ func (a *API) ingestTripConfirm(w http.ResponseWriter, r *http.Request) {
 	deps := planops.Deps{Store: a.Store, Extractor: a.Extractor, Resolver: a.Resolver}
 	created, err := planops.Commit(r.Context(), deps, tripID, me.ID, plans)
 	if err != nil {
+		// A zone and source that do not fit together is the sender's to fix,
+		// so it is named as POST /plans names it.
+		if errors.Is(err, store.ErrInvalidZone) {
+			writeError(w, http.StatusBadRequest, "Invalid time zone.")
+			return
+		}
 		// Commit wraps store/DB detail in its errors; log the specifics and
 		// return a generic message. The FE already validates the inputs it
 		// sends, so a failure here is not normally user-actionable.

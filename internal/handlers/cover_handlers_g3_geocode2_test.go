@@ -95,6 +95,8 @@ func TestG3TripAwayZeroDurationFloor(t *testing.T) {
 			Parts: []store.CreatePlanPartPayload{{
 				StartsAt: ts, EndsAt: &ts,
 				StartLabel: "Marker", StartLat: p(c[0]), StartLon: p(c[1]),
+				StartTZSource: "floating",
+				EndTZSource:   "floating",
 			}},
 		}, uid); err != nil {
 			t.Fatal(err)
@@ -128,6 +130,8 @@ func TestG3TripAwayUnresolvableEndpoints(t *testing.T) {
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: at, EndsAt: &end,
 			StartLabel: "Marker", StartLat: p(12.34), StartLon: p(56.78),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)

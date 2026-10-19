@@ -19,6 +19,8 @@ func g2makePlanOfType(t *testing.T, e *testEnv, uid int64, planType string, deta
 	part := map[string]any{
 		"type": planType, "starts_at": g2planOut, "ends_at": g2planOut.Add(2 * time.Hour),
 		"start_label": "Start", "end_label": "End",
+		"start_tz_source": "floating",
+		"end_tz_source":   "floating",
 	}
 	if detail != nil {
 		part[planType] = detail
@@ -157,6 +159,8 @@ func TestUpdatePlanPartFlightManualRouteAnchorsFloating(t *testing.T) {
 				"ident": "XX100", "scheduled_out": out, "scheduled_in": in,
 				"origin_iata": "ZZZ", "dest_iata": "QQQ",
 			},
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}, owner)
 	if w.Code != http.StatusCreated {
@@ -228,6 +232,8 @@ func TestUpdatePlanPartFlightReresolveNoArrivalAnchorsFloating(t *testing.T) {
 				"ident": "XX200", "scheduled_out": out, "scheduled_in": in,
 				"origin_iata": "ZZZ", "dest_iata": "QQQ",
 			},
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}, owner)
 	if w.Code != http.StatusCreated {

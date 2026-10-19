@@ -29,7 +29,9 @@ func TestHotelEffectiveAtUsesSmartCheckin(t *testing.T) {
 		TripID: trip.ID, Type: "flight", Title: "BA2656",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: dep, EndsAt: &arr,
-			Flight: &store.FlightDetail{Ident: "BA2656", ScheduledOut: dep, ScheduledIn: arr, OriginIATA: "LGW", DestIATA: "ALC"},
+			Flight:        &store.FlightDetail{Ident: "BA2656", ScheduledOut: dep, ScheduledIn: arr, OriginIATA: "LGW", DestIATA: "ALC"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -37,12 +39,15 @@ func TestHotelEffectiveAtUsesSmartCheckin(t *testing.T) {
 
 	// Hotel with the default 15:00 check-in — earlier than the flight's 18:00
 	// arrival, which is exactly what mis-ordered the timeline.
-	checkin := time.Date(2026, 3, 6, 15, 0, 0, 0, time.UTC)
+	checkin := time.Date(2026, 3, 6, 15, 0, 0, 0, time.UTC) // 15:00 GMT in March
 	checkout := time.Date(2026, 3, 9, 11, 0, 0, 0, time.UTC)
 	hotelPlan, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
 		TripID: trip.ID, Type: "hotel", Title: "Melia Benidorm",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: checkin, EndsAt: &checkout,
+			// The property's zone places the standard check-in; a hotel
+			// with none gets no suggestion.
+			StartTZ: "Europe/London", StartTZSource: "confirmed", EndTZSource: "floating",
 			Hotel: &store.HotelDetail{PropertyName: "Melia Benidorm"},
 		}},
 	}, uid)

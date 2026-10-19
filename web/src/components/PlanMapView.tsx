@@ -47,6 +47,7 @@ import {
   endBlockOf,
   isTransferType,
   planTypeLabel,
+  timetableSource,
   timetableZone,
 } from '../lib/trip-format';
 import FlightDetailCard from './FlightDetailCard';
@@ -619,8 +620,10 @@ function PartRow({
           {part.type === 'flight' && part.flight ? (
             <FlightDetailCard
               flight={part.flight}
-              startTz={timetableZone(startBlockOf(part))}
-              endTz={timetableZone(endBlockOf(part))}
+              startTz={timetableZone(part, 'start')}
+              startSource={timetableSource(part, 'start')}
+              endTz={timetableZone(part, 'end')}
+              endSource={timetableSource(part, 'end')}
             />
           ) : (
             <PartDetailBlock part={part} />

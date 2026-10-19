@@ -193,13 +193,19 @@ func run(configPath string) error {
 	} else {
 		slog.Warn("POI resolver: none (GEOAPIFY_API_KEY unset) — Explore is disabled")
 	}
-	// One-off, best-effort, idempotent startup backfills: geocode any addressed
-	// parts still missing coordinates (e.g. ingested before address geocoding),
-	// then anchor any parts that have coordinates but no timezone to their real
-	// zone. Geocode first so newly-filled coordinates can drive tz resolution.
+	// One-off, best-effort, idempotent startup backfills. The time zone pass
+	// runs here, before the server listens, so the first requests after a
+	// deploy never see an end it would have filled: it gives zone-less flight
+	// ends their airports' zones (with or without coordinates) and other
+	// zone-less ends the zone of their coordinates. It needs only the airport
+	// table and the offline zone lookup, so it is quick. In the background,
+	// addressed parts still missing coordinates are then geocoded (a network
+	// call per part, too slow to hold startup for); geocode.PlanParts resolves
+	// the zones of the parts it places, so the time zone pass need not run
+	// again.
+	api.BackfillPartTimezones(context.Background())
 	go func() {
 		api.BackfillPartCoordinates(context.Background())
-		api.BackfillPartTimezones(context.Background())
 		api.BackfillTripCountries(context.Background())
 		// After coordinates exist, fill a destination (and flag) for trips that
 		// lack one — notably calendar imports, whose feeds carry no destination.

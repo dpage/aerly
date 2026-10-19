@@ -2,7 +2,8 @@ package handlers
 
 import (
 	"strings"
-	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Banding is the rule that turns one ranged booking into two itinerary entries:
@@ -86,18 +87,12 @@ func bandUIDSuffix(planType string, last bool) string {
 
 // bandsToLaterDay reports whether a booking closes on a later local calendar day
 // than it opens, which is the condition (alongside a banding type) that makes it
-// render as two entries. Each instant is resolved in its own zone, since a
-// booking can close somewhere other than where it opened: a car collected in
-// Geneva and dropped in Lyon is still one hire.
-//
-// This date-only comparison replaced the itinerary's older
-// "end.After(start) && !sameDay(start, end)" guard when the two renderers were
-// unified. The two predicates are not equivalent in general: they are
-// identical whenever the effective end zone equals the start zone, which
-// covers every hotel (hence the golden tests staying byte-for-byte), and they
-// can differ only when the two ends sit in different zones whose offset gap
-// exceeds the booking's elapsed time, reversing the ordering of their local
-// dates.
-func bandsToLaterDay(startsAt time.Time, startTZ string, endsAt time.Time, endTZ string) bool {
-	return localDate(endsAt, endTZ).After(localDate(startsAt, startTZ))
+// render as two entries. Each end is read by timing.Day by its own zone and
+// source, since a booking can close somewhere other than where it opened (a car
+// collected in Geneva and dropped in Lyon is still one hire): in its zone when
+// it has one, its UTC digits when floating, and UTC when unknown, as no
+// viewer's home zone is in scope here. An end with no zone of its own is never
+// read in the start's zone.
+func bandsToLaterDay(start, end timing.Block) bool {
+	return timing.Day(end, "").After(timing.Day(start, ""))
 }

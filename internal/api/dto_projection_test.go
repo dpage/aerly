@@ -10,32 +10,37 @@ import (
 	"github.com/dpage/aerly/internal/store"
 )
 
-func TestToPlanPartDTO_FlightTZFallbackAndEffectiveAt(t *testing.T) {
+// A flight end with no stored zone is not given its airport's zone at read
+// time: the startup pass writes that zone (BackfillPartTimezones), so the DTO
+// shows exactly what is stored.
+func TestToPlanPartDTO_FlightNoReadTimeAirportZoneAndEffectiveAt(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	in := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	est := out.Add(30 * time.Minute)
-	part := &store.PlanPart{ID: 1, PlanID: 2, Type: "flight", StartsAt: out, EndsAt: &in}
+	part := &store.PlanPart{
+		ID: 1, PlanID: 2, Type: "flight", StartsAt: out, EndsAt: &in,
+		StartTZSource: "unknown", EndTZSource: "unknown",
+	}
 	flight := &store.FlightDetail{
-		Ident: "BA117", OriginIATA: "LHR", DestIATA: "JFK",
+		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK",
 		ScheduledOut: out, ScheduledIn: in, EstimatedOut: &est,
 	}
 	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	// Empty part TZs fall back to the airport zones. (arg order: flight,hotel,train,ground,dining,excursion,iceCream,meeting,event,latest,track)
-	if dto.StartTZ != "Europe/London" {
-		t.Errorf("start_tz = %q, want Europe/London", dto.StartTZ)
+	if dto.StartTZ != "" || dto.EndTZ != "" {
+		t.Errorf("zones = %q/%q, want none at read time", dto.StartTZ, dto.EndTZ)
 	}
-	if dto.EndTZ != "America/New_York" {
-		t.Errorf("end_tz = %q, want America/New_York", dto.EndTZ)
+	if dto.StartTZSource != "unknown" || dto.EndTZSource != "unknown" {
+		t.Errorf("sources = %q/%q, want unknown/unknown as stored", dto.StartTZSource, dto.EndTZSource)
 	}
-	if dto.StartTZSource != "confirmed" || dto.EndTZSource != "confirmed" {
-		t.Errorf("fallback sources = %q/%q, want confirmed/confirmed", dto.StartTZSource, dto.EndTZSource)
+	if dto.Start.TZ != "" || dto.Start.Place != "" || dto.Start.TZSource != "unknown" {
+		t.Errorf("start block = %+v, want no zone or place and unknown", dto.Start)
 	}
 	// effective_at uses the flight's effective departure (estimated over scheduled).
 	if !dto.EffectiveAt.Equal(est) {
 		t.Errorf("effective_at = %v, want %v (estimated out)", dto.EffectiveAt, est)
 	}
-	if dto.Flight == nil || dto.Flight.Ident != "BA117" {
+	if dto.Flight == nil || dto.Flight.Ident != "XX100" {
 		t.Errorf("flight detail not projected: %+v", dto.Flight)
 	}
 }
@@ -181,9 +186,10 @@ func TestToFlightAlertDTO(t *testing.T) {
 	}
 }
 
-// A floating flight time shown with an airport zone keeps its floating
-// source, since its digits have not been anchored in that zone.
-func TestToPlanPartDTO_FlightTZFallbackKeepsFloating(t *testing.T) {
+// Neither a floating nor an unknown flight end is relabelled: a floating end
+// stays floating with no zone, and an unknown one is not promoted to
+// confirmed at read time.
+func TestToPlanPartDTO_FlightZonelessEndsKeepStoredSource(t *testing.T) {
 	at := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	part := &store.PlanPart{
 		Type: "flight", StartsAt: at, EndsAt: &at,
@@ -191,11 +197,11 @@ func TestToPlanPartDTO_FlightTZFallbackKeepsFloating(t *testing.T) {
 	}
 	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK"}
 	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	if dto.StartTZ != "Europe/London" || dto.StartTZSource != "floating" {
-		t.Errorf("start = %q/%q, want Europe/London/floating", dto.StartTZ, dto.StartTZSource)
+	if dto.StartTZ != "" || dto.StartTZSource != "floating" {
+		t.Errorf("start = %q/%q, want no zone, floating", dto.StartTZ, dto.StartTZSource)
 	}
-	if dto.EndTZ != "America/New_York" || dto.EndTZSource != "confirmed" {
-		t.Errorf("end = %q/%q, want America/New_York/confirmed", dto.EndTZ, dto.EndTZSource)
+	if dto.EndTZ != "" || dto.EndTZSource != "unknown" {
+		t.Errorf("end = %q/%q, want no zone, unknown", dto.EndTZ, dto.EndTZSource)
 	}
 }
 
@@ -203,7 +209,12 @@ func TestPlanPartTimeBlocks_FlightWithLateDeparture(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	in := time.Date(2026, 6, 1, 17, 0, 0, 0, time.UTC)
 	est := out.Add(40 * time.Minute)
-	part := &store.PlanPart{ID: 1, PlanID: 2, Type: "flight", StartsAt: out, EndsAt: &in}
+	// The zones as the startup pass writes them from the airports.
+	part := &store.PlanPart{
+		ID: 1, PlanID: 2, Type: "flight", StartsAt: out, EndsAt: &in,
+		StartTZ: "Europe/London", StartTZSource: "confirmed",
+		EndTZ: "America/New_York", EndTZSource: "confirmed",
+	}
 	flight := &store.FlightDetail{
 		Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK",
 		ScheduledOut: out, ScheduledIn: in, EstimatedOut: &est,
@@ -268,15 +279,16 @@ func TestPlanPartTimeBlocks_FloatingFlightEndHasNoZone(t *testing.T) {
 	if dto.Start.TZ != "" || dto.Start.Place != "" || dto.Start.TZSource != "floating" {
 		t.Errorf("start = %+v, want no zone or place and floating source", dto.Start)
 	}
-	// The part-level raw fields keep their airport fallback.
-	if dto.StartTZ != "Europe/London" || dto.StartTZSource != "floating" {
+	// The part-level raw fields carry no airport zone either.
+	if dto.StartTZ != "" || dto.StartTZSource != "floating" {
 		t.Errorf("raw start zone = %q/%q", dto.StartTZ, dto.StartTZSource)
 	}
 }
 
-// Only a floating end's timetable-based times (scheduled, and derived from
-// the timetable) are wall-clock digits; a provider estimate or actual on the
-// same part is a true instant, so it keeps the airport's zone and place.
+// Only a floating end's timetable-based times (the scheduled ones)
+// are wall-clock digits; a provider estimate or actual on the
+// same part is a true instant, so it is quoted at the end's airport even
+// though the end stores no zone, and is confirmed rather than floating.
 func TestPlanPartTimeBlocks_FloatingFlightProviderTimesKeepZone(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	in := out.Add(7 * time.Hour)
@@ -288,25 +300,58 @@ func TestPlanPartTimeBlocks_FloatingFlightProviderTimesKeepZone(t *testing.T) {
 	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	lhr, _ := airports.LookupCity("LHR")
 	jfk, _ := airports.LookupCity("JFK")
-	if dto.Start.Kind != "estimated" || dto.Start.TZ != "Europe/London" || dto.Start.Place != lhr {
-		t.Errorf("start = %+v, want the estimate quoted at %s", dto.Start, lhr)
+	if dto.Start.Kind != "estimated" || dto.Start.TZ != "Europe/London" || dto.Start.Place != lhr ||
+		dto.Start.TZSource != "confirmed" {
+		t.Errorf("start = %+v, want the estimate quoted at %s, confirmed", dto.Start, lhr)
 	}
-	if dto.End == nil || dto.End.Kind != "actual" || dto.End.TZ != "America/New_York" || dto.End.Place != jfk {
-		t.Errorf("end = %+v, want the actual quoted at %s", dto.End, jfk)
+	if dto.End == nil || dto.End.Kind != "actual" || dto.End.TZ != "America/New_York" || dto.End.Place != jfk ||
+		dto.End.TZSource != "confirmed" {
+		t.Errorf("end = %+v, want the actual quoted at %s, confirmed", dto.End, jfk)
+	}
+	// The raw part fields show the zone as stored: none.
+	if dto.StartTZ != "" || dto.EndTZ != "" {
+		t.Errorf("raw zones = %q/%q, want none", dto.StartTZ, dto.EndTZ)
 	}
 
-	// The same part with only a departure estimate derives its arrival from
-	// the timetable, so that end is digits again and gets no zone.
+	// The same part with only a departure estimate keeps its timetabled
+	// arrival: a floating departure has no delay to move it by, because its
+	// digits are not an instant, so that end is digits again and gets no zone.
 	flight.ActualIn = nil
 	dto = ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	if dto.End == nil || dto.End.Kind != "derived" || dto.End.TZ != "" || dto.End.Place != "" {
-		t.Errorf("derived end = %+v, want no zone or place", dto.End)
+	if dto.End == nil || dto.End.Kind != "scheduled" || dto.End.TZ != "" || dto.End.Place != "" || !dto.End.At.Equal(in) {
+		t.Errorf("end = %+v, want the timetable, no zone or place", dto.End)
+	}
+	if dto.Start.DelayMin != 0 {
+		t.Errorf("start delay = %d, want 0 for a floating departure", dto.Start.DelayMin)
+	}
+	if dto.End.TZSource != "floating" {
+		t.Errorf("end source = %q, want the timetable still floating", dto.End.TZSource)
 	}
 }
 
-func TestPlanPartTimeBlocks_FlightEndWithBlankZoneUsesAirport(t *testing.T) {
+// A provider time on a floating end at an airport that cannot be placed is
+// still a true instant: it carries no zone and is unknown, so the client shows
+// it in the viewer's zone rather than as wall-clock digits.
+func TestPlanPartTimeBlocks_FloatingFlightOffTableProviderTimeUnknown(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	part := &store.PlanPart{Type: "flight", StartsAt: out}
+	in := out.Add(7 * time.Hour)
+	estOut := out.Add(time.Hour)
+	part := &store.PlanPart{Type: "flight", StartsAt: out, EndsAt: &in, StartTZSource: "floating", EndTZSource: "floating"}
+	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "ZZZ", DestIATA: "ZZY",
+		ScheduledOut: out, ScheduledIn: in, EstimatedOut: &estOut}
+	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	if dto.Start.Kind != "estimated" || dto.Start.TZ != "" || dto.Start.Place != "" || dto.Start.TZSource != "unknown" {
+		t.Errorf("start = %+v, want the estimate with no zone, unknown", dto.Start)
+	}
+	if dto.End == nil || dto.End.Kind != "scheduled" || dto.End.TZSource != "floating" {
+		t.Errorf("end = %+v, want the timetable still floating", dto.End)
+	}
+}
+
+// A flight end with a stored airport zone is quoted at the airport's city.
+func TestPlanPartTimeBlocks_FlightEndWithStoredZoneNamesAirport(t *testing.T) {
+	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	part := &store.PlanPart{Type: "flight", StartsAt: out, StartTZ: "Europe/London", StartTZSource: "confirmed"}
 	flight := &store.FlightDetail{Ident: "XX100", OriginIATA: "LHR", DestIATA: "JFK", ScheduledOut: out}
 	dto := ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	lhr, _ := airports.LookupCity("LHR")

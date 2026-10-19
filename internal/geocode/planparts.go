@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/dpage/aerly/internal/airports"
 	"github.com/dpage/aerly/internal/geotz"
@@ -75,12 +76,29 @@ func PlanParts(ctx context.Context, st *store.Store, r *Resolver, planID int64) 
 
 		// Give zone-less ends the zone of their coordinates; a floating time
 		// is re-anchored so its wall-clock is kept, an unknown one keeps its
-		// instant.
-		ResolvePartTZ(p, &payload, startLat, startLon, endLat, endLon)
+		// instant. A flight's ends take their own airports' zones first, so
+		// coordinates on one end cannot give the other end that zone.
+		view := p
+		var fd *store.FlightDetail
+		if p.Type == "flight" {
+			var ferr error
+			if fd, ferr = st.FlightDetailFor(ctx, p.ID); ferr != nil {
+				slog.Warn("geocode: flight detail lookup failed", "err", ferr, "part", p.ID)
+				continue
+			}
+			placed := *p
+			placed.StartLat, placed.StartLon = startLat, startLon
+			placed.EndLat, placed.EndLon = endLat, endLon
+			view = ResolveFlightTZ(&placed, fd, &payload)
+		}
+		ResolvePartTZ(view, &payload, startLat, startLon, endLat, endLon)
 
 		if !payload.IsEmpty() {
-			if _, uerr := st.UpdatePlanPart(ctx, p.ID, payload); uerr == nil {
+			if updated, uerr := st.UpdatePlanPart(ctx, p.ID, payload); uerr == nil {
 				changed = true
+				if serr := SyncFlightSchedule(ctx, st, fd, payload, updated); serr != nil {
+					slog.Warn("geocode: flight schedule sync failed", "err", serr, "part", p.ID)
+				}
 			}
 		}
 	}
@@ -413,6 +431,101 @@ func ResolvePartTZ(
 			}
 		}
 	}
+}
+
+// ResolveFlightTZ gives each zone-less flight end its own airport's zone,
+// confirmed. The airport table comes first and the end's own coordinates
+// second (timing.AirportZone), so a flight with no coordinates is still
+// filled. An unknown end is already a true instant, so it keeps it and the
+// zone only labels it. A floating end's UTC digits are wall-clock time at
+// that airport, so they are re-anchored in its zone (the spec's re-anchoring
+// of floating times), as anchorFlightEnd in the handlers does when a flight
+// is created or edited. An end whose airport cannot be placed keeps its
+// source. A floating arrival equal to the departure is the stored form of "no
+// arrival known" and takes the departure's anchoring, so it keeps that shape.
+//
+// It returns the part as ResolvePartTZ should then see it: every zone-less
+// end is marked settled, filled or not, so the coordinate pass cannot give a
+// flight's arrival its departure's zone (a flight's two ends are different
+// places, often in different zones). A nil detail returns the part unchanged.
+func ResolveFlightTZ(p *store.PlanPart, fd *store.FlightDetail, payload *store.UpdatePlanPartPayload) *store.PlanPart {
+	if fd == nil {
+		return p
+	}
+	settled := string(timing.Confirmed)
+	view := *p
+	var startTZ string
+	var startAt *time.Time
+	startOK := false
+	if zoneless(p.StartTZSource) {
+		startTZ, startAt, startOK = flightEndZone(p.StartsAt, p.StartTZSource, fd.OriginIATA, p.StartLat, p.StartLon)
+		if startOK {
+			payload.StartTZ, payload.StartTZSource, payload.StartsAt = &startTZ, &settled, startAt
+		}
+		view.StartTZSource = settled
+	}
+	if zoneless(p.EndTZSource) && p.EndsAt != nil {
+		var tz string
+		var at *time.Time
+		var ok bool
+		if p.EndTZSource == string(timing.Floating) && p.EndsAt.Equal(p.StartsAt) {
+			tz, ok = startTZ, startOK && startAt != nil
+			if ok {
+				e := *startAt
+				at = &e
+			}
+		} else {
+			tz, at, ok = flightEndZone(*p.EndsAt, p.EndTZSource, fd.DestIATA, p.EndLat, p.EndLon)
+		}
+		if ok {
+			payload.EndTZ, payload.EndTZSource, payload.EndsAt = &tz, &settled, at
+		}
+		view.EndTZSource = settled
+	}
+	return &view
+}
+
+// flightEndZone finds a zone-less flight end's airport zone. For a floating
+// end it also returns the digits re-anchored in that zone; an unknown end's
+// instant is returned as nil, since it must not move. ok is false when the
+// airport cannot be placed.
+func flightEndZone(at time.Time, src, iata string, lat, lon *float64) (string, *time.Time, bool) {
+	tz, ok := timing.AirportZone(iata, lat, lon)
+	if !ok {
+		return "", nil, false
+	}
+	if src != string(timing.Floating) {
+		return tz, nil, true
+	}
+	anchored, ok := timing.Anchor(at, tz)
+	if !ok {
+		return "", nil, false
+	}
+	return tz, &anchored, true
+}
+
+// SyncFlightSchedule brings an unresolved flight's scheduled_out and
+// scheduled_in into line with its part after ResolveFlightTZ re-anchored a
+// floating end. The poller and alerts read the schedule as true instants, so
+// leaving the old wall-clock digits there would show the flight an offset
+// away from its part. updated is the part as written. The arrival is the
+// part's own when it is not before the departure, else the old block time
+// is carried across, as the flight edit's schedule sync does. A provider
+// resolved flight is left alone, since its schedule is the delay baseline.
+func SyncFlightSchedule(ctx context.Context, st *store.Store, fd *store.FlightDetail,
+	payload store.UpdatePlanPartPayload, updated *store.PlanPart) error {
+	if fd == nil || fd.Resolved || updated == nil || (payload.StartsAt == nil && payload.EndsAt == nil) {
+		return nil
+	}
+	out := updated.StartsAt
+	in := out.Add(fd.ScheduledIn.Sub(fd.ScheduledOut))
+	if updated.EndsAt != nil && !updated.EndsAt.Before(out) {
+		in = *updated.EndsAt
+	}
+	if out.Equal(fd.ScheduledOut) && in.Equal(fd.ScheduledIn) {
+		return nil
+	}
+	return st.SyncFlightDetailSchedule(ctx, updated.ID, out, in)
 }
 
 // zoneless reports whether a part end's source means it has no zone yet.

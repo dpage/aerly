@@ -251,3 +251,124 @@ func mustTrip(t *testing.T, e *testEnv, ctx context.Context, uid int64) int64 {
 	}
 	return trip.ID
 }
+
+// TestG3BackfillPartTimezonesFlightAirport: a flight whose ends are true
+// instants (source unknown) with no zone and no coordinates is given each
+// end's own airport zone as confirmed, without moving the instant. This is
+// what replaced the DTO's read-time airport fallback, so a resolved flight
+// with a blank zone does not regress to "needs a time zone". A floating
+// flight with coordinates on its departure only has each end's digits
+// anchored at its own airport (LHR then JFK), never the arrival at the
+// departure's zone, and its schedule follows. An arrival at an airport that
+// cannot be placed stays floating. The pass is idempotent.
+func TestG3BackfillPartTimezonesFlightAirport(t *testing.T) {
+	e := setup(t, nil, nil)
+	ctx := context.Background()
+	uid := e.user(t, "g3bptzap", false)
+	trip := mustTrip(t, e, ctx, uid)
+	out := time.Date(2026, 6, 1, 18, 50, 0, 0, time.UTC)
+	in := out.Add(8 * time.Hour)
+	lat, lon := 51.47, -0.4543
+	mk := func(src, dest string, resolved, coords bool) int64 {
+		t.Helper()
+		part := store.CreatePlanPartPayload{
+			StartsAt: out, EndsAt: &in,
+			StartTZSource: src, EndTZSource: src,
+			StartLabel: "LHR", EndLabel: dest,
+			Flight: &store.FlightDetail{
+				Ident: "XX100", ScheduledOut: out, ScheduledIn: in,
+				OriginIATA: "LHR", DestIATA: dest, Resolved: resolved,
+			},
+		}
+		if coords {
+			part.StartLat, part.StartLon = &lat, &lon
+		}
+		plan, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+			TripID: trip, Type: "flight", Title: "XX100",
+			Parts: []store.CreatePlanPartPayload{part},
+		}, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan.ID
+	}
+	unknownPlan := mk("unknown", "JFK", true, false)
+	floatingPlan := mk("floating", "JFK", false, true)
+	offTablePlan := mk("floating", "ZZZ", false, true)
+	// 18:50 in London (BST) is 17:50Z; 02:50 in New York (EDT) is 06:50Z.
+	wantOut := out.Add(-time.Hour)
+	wantIn := in.Add(4 * time.Hour)
+
+	for pass := 1; pass <= 2; pass++ {
+		e.api.BackfillPartTimezones(ctx)
+
+		parts, _ := e.store.PartsByPlan(ctx, unknownPlan)
+		got := parts[0]
+		if got.StartTZ != "Europe/London" || got.EndTZ != "America/New_York" {
+			t.Errorf("pass %d: zones = %q/%q, want Europe/London/America/New_York", pass, got.StartTZ, got.EndTZ)
+		}
+		if got.StartTZSource != "confirmed" || got.EndTZSource != "confirmed" {
+			t.Errorf("pass %d: sources = %q/%q, want confirmed", pass, got.StartTZSource, got.EndTZSource)
+		}
+		if !got.StartsAt.Equal(out) || got.EndsAt == nil || !got.EndsAt.Equal(in) {
+			t.Errorf("pass %d: instants moved: start=%v end=%v", pass, got.StartsAt, got.EndsAt)
+		}
+
+		parts, _ = e.store.PartsByPlan(ctx, floatingPlan)
+		fl := parts[0]
+		if fl.StartTZ != "Europe/London" || fl.EndTZ != "America/New_York" ||
+			fl.StartTZSource != "confirmed" || fl.EndTZSource != "confirmed" {
+			t.Errorf("pass %d: floating flight = %q/%q %q/%q, want each airport's zone confirmed",
+				pass, fl.StartTZ, fl.EndTZ, fl.StartTZSource, fl.EndTZSource)
+		}
+		if !fl.StartsAt.Equal(wantOut) || fl.EndsAt == nil || !fl.EndsAt.Equal(wantIn) {
+			t.Errorf("pass %d: floating digits anchored to %v/%v, want %v/%v", pass, fl.StartsAt, fl.EndsAt, wantOut, wantIn)
+		}
+		fd, err := e.store.FlightDetailFor(ctx, fl.ID)
+		if err != nil || fd == nil || !fd.ScheduledOut.Equal(wantOut) || !fd.ScheduledIn.Equal(wantIn) {
+			t.Errorf("pass %d: schedule did not follow: %+v %v", pass, fd, err)
+		}
+
+		parts, _ = e.store.PartsByPlan(ctx, offTablePlan)
+		ot := parts[0]
+		if ot.StartTZ != "Europe/London" || !ot.StartsAt.Equal(wantOut) {
+			t.Errorf("pass %d: off-table flight start = %q %v, want Europe/London %v", pass, ot.StartTZ, ot.StartsAt, wantOut)
+		}
+		if ot.EndTZ != "" || ot.EndTZSource != "floating" || ot.EndsAt == nil || !ot.EndsAt.Equal(in) {
+			t.Errorf("pass %d: off-table arrival = %q/%q %v, want floating and unmoved", pass, ot.EndTZ, ot.EndTZSource, ot.EndsAt)
+		}
+	}
+}
+
+// TestG3BackfillPartTimezonesFlightDetailErr: when a flight's detail cannot be
+// read the part is skipped, so the coordinate pass cannot give its arrival
+// the departure's zone.
+func TestG3BackfillPartTimezonesFlightDetailErr(t *testing.T) {
+	e := setup(t, nil, nil)
+	ctx := context.Background()
+	uid := e.user(t, "g3bptzfe", false)
+	out := time.Date(2026, 6, 1, 18, 50, 0, 0, time.UTC)
+	in := out.Add(8 * time.Hour)
+	lat, lon := 51.47, -0.4543
+	plan, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: mustTrip(t, e, ctx, uid), Type: "flight", Title: "XX100",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: out, EndsAt: &in, StartTZSource: "floating", EndTZSource: "floating",
+			StartLabel: "LHR", EndLabel: "JFK", StartLat: &lat, StartLon: &lon,
+			Flight: &store.FlightDetail{
+				Ident: "XX100", ScheduledOut: out, ScheduledIn: in, OriginIATA: "LHR", DestIATA: "JFK",
+			},
+		}},
+	}, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g1dropColumn(t, e, "flight_details", "aircraft_type")
+
+	e.api.BackfillPartTimezones(ctx)
+
+	parts, _ := e.store.PartsByPlan(ctx, plan.ID)
+	if got := parts[0]; got.StartTZSource != "floating" || got.EndTZSource != "floating" {
+		t.Errorf("sources = %q/%q, want both left floating", got.StartTZSource, got.EndTZSource)
+	}
+}
