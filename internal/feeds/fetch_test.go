@@ -336,7 +336,7 @@ func TestMapEventsOutlookFixture(t *testing.T) {
 // floating end settle with timing.Anchor, the end in its start's TZID.
 func TestMapEventsAnchorsLikeTheMappers(t *testing.T) {
 	gap := time.Date(2026, 3, 29, 1, 30, 0, 0, time.UTC)
-	want, _ := timing.Anchor(gap, "Europe/London")
+	want := time.Date(2026, 3, 29, 1, 30, 0, 0, time.UTC) // the pre-gap offset (GMT)
 	out := mapEvents([]importics.Event{{UID: "g", Summary: "Test Event",
 		Start: importics.DateTime{Time: gap, HasTime: true, Floating: true}}}, "Europe/London", "")
 	if !out[0].StartsAt.Equal(want) || out[0].StartTZSource != string(timing.Inferred) {

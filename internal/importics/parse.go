@@ -165,6 +165,10 @@ func Parse(r io.Reader) (*Calendar, error) {
 		case "X-WR-TIMEZONE":
 			if cur == nil {
 				cal.Timezone = strings.TrimSpace(p.Value)
+				// A Windows zone name here maps to its IANA zone like a TZID.
+				if tz, known := resolveTZID(cal.Timezone); known && tz != "" {
+					cal.Timezone = tz
+				}
 			}
 			continue
 		}
@@ -246,7 +250,7 @@ func resolveTZID(raw string) (tz string, known bool) {
 	case timing.ValidZone(raw):
 		return raw, true
 	}
-	if tz, ok := WindowsToIANA(raw); ok {
+	if tz, ok := WindowsToIANA(raw); ok && timing.ValidZone(tz) {
 		return tz, true
 	}
 	return "", false

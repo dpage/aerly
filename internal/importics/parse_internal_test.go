@@ -86,3 +86,34 @@ func TestParseKeepsUnterminatedVEVENT(t *testing.T) {
 		t.Errorf("unexpected event: %+v", cal.Events[0])
 	}
 }
+
+// TestResolveTZIDWindowsMappingMustLoad: a Windows name whose mapped IANA zone
+// does not load is unknown, so a nil location can never reach ParseInLocation.
+func TestResolveTZIDWindowsMappingMustLoad(t *testing.T) {
+	windowsZones["Test Bogus Standard Time"] = "Nowhere/Nonexistent"
+	defer delete(windowsZones, "Test Bogus Standard Time")
+	if tz, known := resolveTZID("Test Bogus Standard Time"); known || tz != "" {
+		t.Errorf("resolveTZID = %q, %v, want unknown", tz, known)
+	}
+	if tz, known := resolveTZID("GMT Standard Time"); !known || tz != "Europe/London" {
+		t.Errorf("resolveTZID(GMT Standard Time) = %q, %v, want Europe/London", tz, known)
+	}
+}
+
+// TestParseXWRTimezoneWindowsName: a Windows zone name in X-WR-TIMEZONE maps to
+// its IANA zone; an IANA name and an unrecognised one pass through unchanged.
+func TestParseXWRTimezoneWindowsName(t *testing.T) {
+	for in, want := range map[string]string{
+		"GMT Standard Time": "Europe/London",
+		"Asia/Tashkent":     "Asia/Tashkent",
+		"Not A Zone":        "Not A Zone",
+	} {
+		cal, err := Parse(strings.NewReader("BEGIN:VCALENDAR\nX-WR-TIMEZONE:" + in + "\nEND:VCALENDAR\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cal.Timezone != want {
+			t.Errorf("X-WR-TIMEZONE:%s -> %q, want %q", in, cal.Timezone, want)
+		}
+	}
+}

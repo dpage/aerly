@@ -14,7 +14,6 @@ var londonGap = time.Date(2026, 3, 29, 1, 30, 0, 0, time.UTC)
 func TestResolve(t *testing.T) {
 	outlook := parseFixture(t, "outlook_windows_tz.ics")
 	custom := parseFixture(t, "custom_vtimezone.ics")
-	gapAt, _ := timing.Anchor(londonGap, "Europe/London")
 	paris := Context{LocationTZ: "Europe/Paris"}
 	cases := []struct {
 		name   string
@@ -54,14 +53,14 @@ func TestResolve(t *testing.T) {
 		{"floating with location", *floatingDT(), Context{LocationTZ: "Europe/Paris", CalendarTZ: "Asia/Tashkent"},
 			"2026-07-01T13:00:00Z", "Europe/Paris", timing.Confirmed, false},
 		{"London gap with location", DateTime{HasTime: true, Floating: true, Time: londonGap},
-			Context{LocationTZ: "Europe/London"}, gapAt.UTC().Format(time.RFC3339), "Europe/London", timing.Confirmed, false},
+			Context{LocationTZ: "Europe/London"}, "2026-03-29T01:30:00Z", "Europe/London", timing.Confirmed, false},
 		// Rule 7: floating digits anchored in the calendar zone, then the fallback.
 		{"floating with calendar zone", *floatingDT(), Context{CalendarTZ: "Asia/Tashkent", FallbackTZ: "Europe/London"},
 			"2026-07-01T10:00:00Z", "Asia/Tashkent", timing.Inferred, false},
 		{"floating with fallback zone", *floatingDT(), Context{CalendarTZ: "Local", FallbackTZ: "Europe/London"},
 			"2026-07-01T14:00:00Z", "Europe/London", timing.Inferred, false},
 		{"London gap with calendar zone", DateTime{HasTime: true, Floating: true, Time: londonGap},
-			Context{CalendarTZ: "Europe/London"}, gapAt.UTC().Format(time.RFC3339), "Europe/London", timing.Inferred, false},
+			Context{CalendarTZ: "Europe/London"}, "2026-03-29T01:30:00Z", "Europe/London", timing.Inferred, false},
 		// Rule 8: floating and nothing known: the digits stay as they are.
 		{"floating alone", *floatingDT(), Context{}, "2026-07-01T15:00:00Z", "", timing.Floating, false},
 		{"TZID=Local alone", outlook.Events[1].Start, Context{}, "2026-07-02T09:00:00Z", "", timing.Floating, false},
@@ -82,16 +81,14 @@ func TestResolve(t *testing.T) {
 	}
 }
 
-// TestResolveLondonGapMatchesAnchor pins the gap time itself: 01:30 does not
-// exist in London that night, and Resolve settles it exactly as Anchor does.
-func TestResolveLondonGapMatchesAnchor(t *testing.T) {
-	want, ok := timing.Anchor(londonGap, "Europe/London")
-	if !ok {
-		t.Fatal("Anchor refused Europe/London")
-	}
+// TestResolveLondonGap pins the gap time itself: 01:30 does not
+// exist in London that night, and Resolve settles it at 01:30 UTC (the offset from before the gap, so
+// 01:30 GMT).
+func TestResolveLondonGap(t *testing.T) {
+	want := time.Date(2026, 3, 29, 1, 30, 0, 0, time.UTC)
 	r, _ := Resolve(DateTime{HasTime: true, Floating: true, Time: londonGap}, Context{CalendarTZ: "Europe/London"})
 	if !r.At.Equal(want) {
-		t.Errorf("Resolve = %s, Anchor = %s", r.At, want)
+		t.Errorf("Resolve = %s, want %s", r.At, want)
 	}
 }
 

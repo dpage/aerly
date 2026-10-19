@@ -136,23 +136,13 @@ func tzWindow(instants []time.Time) (time.Time, time.Time) {
 
 // findTransitions scans loc's UTC offset across [start,end] and returns each
 // offset change, refined to the (UTC) second it occurs. It steps day-by-day to
-// spot a change, then binary-searches the day to pin the exact transition. The
-// zone's standard (smallest) offset over the window is used to classify each
-// target offset as daylight or standard.
+// spot a change, then binary-searches the day to pin the exact transition. A
+// transition is daylight only where the zone itself observes DST at that
+// instant, so a permanent change of standard offset stays STANDARD.
 func findTransitions(loc *time.Location, start, end time.Time) []tzTransition {
 	offsetAt := func(t time.Time) (int, string) {
 		abbr, off := t.In(loc).Zone()
 		return off, abbr
-	}
-
-	// First pass: determine the standard (minimum) offset over the window so we
-	// can label DST observances.
-	stdOffset := 1 << 30
-	for t := start; !t.After(end); t = t.AddDate(0, 0, 1) {
-		off, _ := offsetAt(t)
-		if off < stdOffset {
-			stdOffset = off
-		}
 	}
 
 	var out []tzTransition
@@ -179,7 +169,7 @@ func findTransitions(loc *time.Location, start, end time.Time) []tzTransition {
 			OffsetFrom: prevOff,
 			OffsetTo:   newOff,
 			Abbr:       newAbbr,
-			IsDST:      newOff > stdOffset,
+			IsDST:      hi.In(loc).IsDST(),
 		})
 		prevOff = newOff
 	}
@@ -203,16 +193,18 @@ func writeVTimezone(b *strings.Builder, tz string, loc *time.Location, instants 
 	writeLine(b, "BEGIN:VTIMEZONE")
 	writeLine(b, "TZID:"+tz)
 
-	if len(transitions) == 0 {
-		// No change in the window: one STANDARD observance with the fixed
-		// offset from the window start (RFC 5545 requires at least one).
-		abbr, off := start.In(loc).Zone()
-		writeObservance(b, "STANDARD", start.In(loc), off, off, tzName(abbr, start, tz))
-		writeLine(b, "END:VTIMEZONE")
-		return
+	// An opening observance at the window start carries the offset in force
+	// there (FROM = TO), so an instant before the first change still resolves
+	// (RFC 5545 requires at least one observance). It is the whole VTIMEZONE
+	// when the zone does not change in the window.
+	abbr, off := start.In(loc).Zone()
+	opening := "STANDARD"
+	if start.In(loc).IsDST() {
+		opening = "DAYLIGHT"
 	}
+	writeObservance(b, opening, start.In(loc), off, off, tzName(abbr, start, tz))
 
-	// One observance per change. Its DTSTART is the local time just before
+	// Then one observance per change. Its DTSTART is the local time just before
 	// the change, read in the offset being left (RFC 5545 section 3.6.5).
 	for _, tr := range transitions {
 		comp := "STANDARD"

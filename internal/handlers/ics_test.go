@@ -633,15 +633,16 @@ func TestICSVTimezoneOneBlockPerChange(t *testing.T) {
 			StartTZ: "Europe/London", StartTZSource: "confirmed"},
 	}
 	vtz := vTimezoneBlock(t, renderICS("Aerly", events, false), "Europe/London")
-	// 20 Oct 2025 to 3 Nov 2027 holds five changes: Oct 2025, Mar and Oct 2026,
-	// Mar and Oct 2027.
-	if n := strings.Count(vtz, "BEGIN:STANDARD") + strings.Count(vtz, "BEGIN:DAYLIGHT"); n != 5 {
-		t.Errorf("observances = %d, want 5\n%s", n, vtz)
+	// 20 Oct 2025 to 3 Nov 2027 holds five changes (Oct 2025, Mar and Oct 2026,
+	// Mar and Oct 2027), after an opening observance at the window start.
+	if n := strings.Count(vtz, "BEGIN:STANDARD") + strings.Count(vtz, "BEGIN:DAYLIGHT"); n != 6 {
+		t.Errorf("observances = %d, want 6\n%s", n, vtz)
 	}
 	if strings.Contains(vtz, "RRULE") {
 		t.Errorf("observances must not recur:\n%s", vtz)
 	}
 	for _, want := range []string{
+		"BEGIN:DAYLIGHT\r\nDTSTART:20251020T130000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0100\r\nTZNAME:BST\r\nEND:DAYLIGHT",
 		"BEGIN:STANDARD\r\nDTSTART:20251026T020000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0000\r\nTZNAME:GMT\r\nEND:STANDARD",
 		"BEGIN:DAYLIGHT\r\nDTSTART:20260329T010000\r\nTZOFFSETFROM:+0000\r\nTZOFFSETTO:+0100\r\nTZNAME:BST\r\nEND:DAYLIGHT",
 		"BEGIN:STANDARD\r\nDTSTART:20261025T020000\r\n",
@@ -788,5 +789,56 @@ func TestICSRoundTripKeepsZonesAndSources(t *testing.T) {
 	}
 	if events[1].StartTZSource != string(timing.Inferred) {
 		t.Fatal("the fixture must export an inferred part for the round trip to test it")
+	}
+}
+
+// icsOffsetAt exports one event in tz, re-parses the calendar with importics and
+// returns the VTIMEZONE's offset for the event's DTSTART wall clock.
+func icsOffsetAt(t *testing.T, tz string, at time.Time) (time.Duration, bool) {
+	t.Helper()
+	ev := &store.CalendarEvent{PartID: 1, Type: "flight", Title: "XX100", StartsAt: at,
+		StartTZ: tz, StartTZSource: "confirmed", UpdatedAt: at}
+	cal, err := importics.Parse(strings.NewReader(renderICS("Aerly", []*store.CalendarEvent{ev}, false)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	z := cal.Zones[tz]
+	if z == nil {
+		t.Fatalf("no VTIMEZONE for %s", tz)
+	}
+	loc, _ := time.LoadLocation(tz)
+	l := at.In(loc)
+	return z.Offset(time.Date(l.Year(), l.Month(), l.Day(), l.Hour(), l.Minute(), l.Second(), 0, time.UTC))
+}
+
+// TestICSVTimezoneCoversInstantsBeforeFirstChange: a zone with one offset
+// change in the window (or none) still resolves an instant before that change,
+// because an opening observance starts at the window start.
+func TestICSVTimezoneCoversInstantsBeforeFirstChange(t *testing.T) {
+	for _, tc := range []struct {
+		tz   string
+		at   time.Time
+		want time.Duration
+	}{
+		// Almaty moved from +06 to +05 on 2024-03-01.
+		{"Asia/Almaty", time.Date(2024, 2, 10, 6, 0, 0, 0, time.UTC), 6 * time.Hour},
+		// Pyongyang was on +0830 until it moved to +09 on 2018-05-05.
+		{"Asia/Pyongyang", time.Date(2018, 4, 10, 3, 0, 0, 0, time.UTC), 8*time.Hour + 30*time.Minute},
+	} {
+		off, ok := icsOffsetAt(t, tc.tz, tc.at)
+		if !ok || off != tc.want {
+			t.Errorf("%s: Offset = %v, %v, want %v, true", tc.tz, off, ok, tc.want)
+		}
+	}
+}
+
+// TestICSVTimezonePermanentChangeIsStandard: a one-way change of standard time
+// (Pyongyang +0830 to +09) is a STANDARD observance, not DAYLIGHT.
+func TestICSVTimezonePermanentChangeIsStandard(t *testing.T) {
+	ev := xx100("Asia/Pyongyang", timing.Confirmed, "", timing.Unknown)
+	ev.StartsAt = time.Date(2018, 4, 10, 3, 0, 0, 0, time.UTC)
+	vtz := vTimezoneBlock(t, renderICS("Aerly", []*store.CalendarEvent{ev}, false), "Asia/Pyongyang")
+	if strings.Contains(vtz, "DAYLIGHT") || !strings.Contains(vtz, "TZOFFSETFROM:+0830\r\nTZOFFSETTO:+0900") {
+		t.Errorf("permanent change must be STANDARD:\n%s", vtz)
 	}
 }
