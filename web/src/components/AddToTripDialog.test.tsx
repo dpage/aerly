@@ -176,6 +176,22 @@ describe('AddToTripDialog - manual tab', () => {
     expect(part.end_tz_source).toBe('floating');
   });
 
+  it("guesses a stay's check-out zone from the zone picked for its check-in", async () => {
+    h.state.createPlan.mockResolvedValue(undefined);
+    render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText('Type'));
+    await userEvent.click(await screen.findByRole('option', { name: /accommodation/i }));
+    await userEvent.type(screen.getByLabelText(/^Title/), 'Test Hotel');
+    fireEvent.change(screen.getByLabelText('Check-out'), { target: { value: '2026-07-03T10:00' } });
+    const zones = screen.getAllByRole('combobox', { name: 'Time zone' });
+    await userEvent.type(zones[0], 'Europe/Lisbon');
+    expect(zones[1]).toHaveValue('Europe/Lisbon');
+    await userEvent.click(screen.getByRole('button', { name: 'Add plan' }));
+    const part = h.state.createPlan.mock.calls[0][1].parts[0];
+    expect(part.end_tz).toBe('Europe/Lisbon');
+    expect(part.end_tz_source).toBe('inferred');
+  });
+
   it('carries the ticket number and cost (with currency) into the CreatePlanInput', async () => {
     h.state.createPlan.mockResolvedValue(undefined);
     render(<AddToTripDialog open tripId={1} onClose={vi.fn()} />);

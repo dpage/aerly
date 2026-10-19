@@ -31,6 +31,7 @@ import {
   ACCOMMODATION_KINDS,
   bandEdgeLabels,
   fmtPartPlaces,
+  isTransferType,
   neighbourZone,
   PLAN_TYPES,
   planTypeLabel,
@@ -299,9 +300,16 @@ function ManualTab({ disabled, onCreate, prefill, tripStartsOn, tripPlans }: Man
     () => neighbourZone(tripPlans ?? [], startsAt?.getTime() ?? Number.NaN),
     [tripPlans, startsAt],
   );
+  // A single-place type (a stay, a hire) usually ends where it started, so its
+  // end takes the start's zone, picked or guessed; a transfer's end is
+  // somewhere else, so it looks at the trip around the end time instead.
+  const endSharesStartZone = !isTransferType(type);
   const endTzGuess = useMemo(
-    () => neighbourZone(tripPlans ?? [], endsAt?.getTime() ?? Number.NaN),
-    [tripPlans, endsAt],
+    () =>
+      endSharesStartZone
+        ? (startTzPicked ?? startTzGuess)
+        : neighbourZone(tripPlans ?? [], endsAt?.getTime() ?? Number.NaN),
+    [endSharesStartZone, startTzPicked, startTzGuess, tripPlans, endsAt],
   );
 
   // Re-seed if a fresh prefill arrives while the tab is already mounted (the
@@ -595,7 +603,13 @@ function ManualTab({ disabled, onCreate, prefill, tripStartsOn, tripPlans }: Man
                 value={endTzPicked ?? endTzGuess}
                 onChange={setEndTzPicked}
                 placeholder="Not known"
-                helperText={endTzPicked === null && endTzGuess ? 'Guessed from the trip' : undefined}
+                helperText={
+                  endTzPicked === null && endTzGuess
+                    ? endSharesStartZone && startTzPicked !== null
+                      ? 'Same as the start'
+                      : 'Guessed from the trip'
+                    : undefined
+                }
               />
             )}
           </Stack>
