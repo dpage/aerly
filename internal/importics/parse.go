@@ -71,7 +71,8 @@ type DateTime struct {
 	// is an IANA name, or the IANA zone a Windows name maps to. Empty when
 	// there was no TZID, it was "Local", or it named no zone we know.
 	TZID string
-	// RawTZID is the TZID param exactly as the file gave it (quotes trimmed).
+	// RawTZID is the TZID param as the file gave it, with quotes and
+	// surrounding spaces trimmed.
 	RawTZID string
 	Time    time.Time // best-effort; zero if unparseable
 	HasTime bool      // false for date-only values
@@ -114,6 +115,11 @@ func Parse(r io.Reader) (*Calendar, error) {
 			continue
 		}
 		name := strings.ToUpper(p.Name)
+		if zone != nil && endsUnterminatedZone(name, p.Value) {
+			// A VTIMEZONE missing its END must not swallow what follows:
+			// drop it as incomplete and read this line normally.
+			zone = nil
+		}
 		if zone != nil {
 			if z, done := zone.add(name, p); done {
 				if z != nil {
@@ -194,6 +200,13 @@ func Parse(r io.Reader) (*Calendar, error) {
 		settleByVTimezone(&cal.Events[i].End, cal.Zones)
 	}
 	return cal, nil
+}
+
+// endsUnterminatedZone reports a line that cannot belong inside a VTIMEZONE,
+// so one still open there was never closed.
+func endsUnterminatedZone(name, value string) bool {
+	return (name == "BEGIN" && strings.EqualFold(value, "VEVENT")) ||
+		(name == "END" && strings.EqualFold(value, "VCALENDAR"))
 }
 
 // settleByVTimezone turns a floating time with an unknown TZID into a true
@@ -301,7 +314,7 @@ func parseLine(line string) (Property, bool) {
 // no TZID, and anything else leaves the time floating and flagged unknown.
 func parseDateTime(p Property) DateTime {
 	v := strings.TrimSpace(p.Value)
-	raw := p.Params["TZID"]
+	raw := strings.TrimSpace(p.Params["TZID"])
 	tz, known := resolveTZID(raw)
 	dt := DateTime{Raw: v, TZID: tz, RawTZID: raw, UnknownTZID: !known}
 	if strings.EqualFold(p.Params["VALUE"], "DATE") || len(v) == 8 {

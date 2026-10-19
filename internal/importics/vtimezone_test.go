@@ -288,6 +288,10 @@ func TestOffsetRuleForms(t *testing.T) {
 		{"fifth Sunday missing", "FREQ=YEARLY;BYMONTH=6;BYDAY=5SU", "2000-01-01T00:00:00Z", "2026-07-10T09:00:00Z", 0},
 		{"plus-signed ordinal", "FREQ=YEARLY;BYMONTH=6;BYDAY=+1SU", "2000-01-01T00:00:00Z", "2026-07-01T09:00:00Z", hours(1)},
 		{"date-only UNTIL in the past", "FREQ=YEARLY;BYMONTH=6;BYDAY=1SU;UNTIL=20200101", "2000-01-01T00:00:00Z", "2026-07-01T09:00:00Z", 0},
+		// COUNT=3 from 2020 gives onsets in 2020-2022 only, so by 2026 the
+		// January reset is the latest; ignoring COUNT would give +01:00.
+		{"COUNT expired", "FREQ=YEARLY;BYMONTH=6;BYDAY=1SU;COUNT=3", "2020-06-07T00:00:00Z", "2026-07-01T09:00:00Z", 0},
+		{"COUNT not yet reached", "FREQ=YEARLY;BYMONTH=6;BYDAY=1SU;COUNT=10", "2020-06-07T00:00:00Z", "2026-07-01T09:00:00Z", hours(1)},
 		{"INTERVAL=1 is every year", "FREQ=YEARLY;INTERVAL=1;BYMONTH=6;BYDAY=1SU", "2000-01-01T00:00:00Z", "2026-07-01T09:00:00Z", hours(1)},
 	}
 	for _, c := range cases {
@@ -320,6 +324,10 @@ func TestParseOffsetValue(t *testing.T) {
 		{"+01", 0, false},
 		{"+01xx", 0, false},
 		{"+0160", 0, false},
+		{"+010060", 0, false},
+		{"+2300", hours(23), true},
+		{"+2400", 0, false},
+		{"+9900", 0, false},
 	}
 	for _, c := range cases {
 		got, ok := parseUTCOffset(c.in)
@@ -348,5 +356,61 @@ func TestParseObservanceRDates(t *testing.T) {
 	}
 	if got := obs[0].RDates[1].Format(utcStamp); got != "2028-04-01T00:00:00Z" {
 		t.Errorf("date-only RDATE = %s, want midnight 2028-04-01", got)
+	}
+}
+
+func TestParseUnterminatedVTimezoneKeepsEvents(t *testing.T) {
+	// A VTIMEZONE missing its END must not swallow the events after it: it
+	// is dropped as incomplete and the VEVENT imports as before.
+	const ics = "BEGIN:VCALENDAR\r\n" +
+		"BEGIN:VTIMEZONE\r\nTZID:Example Zone\r\n" +
+		"BEGIN:STANDARD\r\nDTSTART:19700101T000000\r\nTZOFFSETFROM:+0530\r\nTZOFFSETTO:+0530\r\nEND:STANDARD\r\n" +
+		"BEGIN:VEVENT\r\nUID:after-zone@example.com\r\nSUMMARY:XX100\r\n" +
+		"DTSTART;TZID=Example Zone:20260701T090000\r\nEND:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+	cal, err := Parse(strings.NewReader(ics))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cal.Events) != 1 || cal.Events[0].UID != "after-zone@example.com" {
+		t.Fatalf("events = %+v, want the one VEVENT", cal.Events)
+	}
+	if len(cal.Zones) != 0 {
+		t.Errorf("zones = %+v, want the incomplete VTIMEZONE dropped", cal.Zones)
+	}
+	if st := cal.Events[0].Start; !st.Floating || st.Time.Format(utcStamp) != "2026-07-01T09:00:00Z" {
+		t.Errorf("start = %+v, want floating digits untouched", st)
+	}
+
+	// The same holds when the calendar simply ends inside the zone.
+	cal, err = Parse(strings.NewReader("BEGIN:VCALENDAR\r\nBEGIN:VTIMEZONE\r\nTZID:Example Zone\r\nEND:VCALENDAR\r\n" +
+		"BEGIN:VCALENDAR\r\nPRODID:-//Example//Second//EN\r\nEND:VCALENDAR\r\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cal.Zones) != 0 || cal.ProdID != "-//Example//Second//EN" {
+		t.Errorf("zones = %+v, ProdID = %q; want no zones and the later header read", cal.Zones, cal.ProdID)
+	}
+}
+
+func TestParseTZIDWhitespaceMatchesVTimezone(t *testing.T) {
+	// Stray spaces around the VTIMEZONE's TZID and inside the event's quoted
+	// TZID param must not stop the two matching.
+	const ics = "BEGIN:VCALENDAR\r\n" +
+		"BEGIN:VTIMEZONE\r\nTZID: Example Zone \r\n" +
+		"BEGIN:STANDARD\r\nDTSTART:19700101T000000\r\nTZOFFSETFROM:+0530\r\nTZOFFSETTO:+0530\r\nEND:STANDARD\r\n" +
+		"END:VTIMEZONE\r\n" +
+		"BEGIN:VEVENT\r\nDTSTART;TZID=\" Example Zone\":20260701T090000\r\nEND:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+	cal, err := Parse(strings.NewReader(ics))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cal.Zones["Example Zone"] == nil {
+		t.Fatalf("zones = %+v, want the TZID trimmed to Example Zone", cal.Zones)
+	}
+	st := cal.Events[0].Start
+	if st.RawTZID != "Example Zone" || st.Floating || st.Time.UTC().Format(utcStamp) != "2026-07-01T03:30:00Z" {
+		t.Errorf("start = %+v, want 03:30Z from the trimmed Example Zone", st)
 	}
 }

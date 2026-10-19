@@ -273,7 +273,7 @@ func (b *zoneBuilder) add(name string, p Property) (z *VTimezone, done bool) {
 		return nil, false
 	case "TZID":
 		if b.obs == nil {
-			b.zone.TZID = p.Value
+			b.zone.TZID = strings.TrimSpace(p.Value)
 		}
 		return nil, false
 	}
@@ -321,7 +321,8 @@ func parseLocalDigits(v string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// parseUTCOffset reads a UTC-OFFSET value: a sign, then HHMM with optional SS.
+// parseUTCOffset reads a UTC-OFFSET value: a sign, then HHMM with optional SS,
+// with hours 00-23 and minutes and seconds 00-59 as RFC 5545 allows.
 func parseUTCOffset(v string) (time.Duration, bool) {
 	if (len(v) != 5 && len(v) != 7) || (v[0] != '+' && v[0] != '-') {
 		return 0, false
@@ -329,7 +330,7 @@ func parseUTCOffset(v string) (time.Duration, bool) {
 	var parts [3]int
 	for i := 0; i*2+1 < len(v); i++ {
 		n, err := strconv.Atoi(v[i*2+1 : i*2+3])
-		if err != nil || (i > 0 && n > 59) {
+		if err != nil || (i == 0 && n > 23) || (i > 0 && n > 59) {
 			return 0, false
 		}
 		parts[i] = n
