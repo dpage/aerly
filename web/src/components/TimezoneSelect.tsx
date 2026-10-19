@@ -1,23 +1,7 @@
 import { useMemo } from 'react';
 import { Autocomplete, TextField } from '@mui/material';
 
-/** All IANA timezone names the runtime knows about, with 'UTC' guaranteed to be
- * present. Computed once — the list is static for the life of the page. */
-function loadZones(): string[] {
-  let zones: string[] = [];
-  try {
-    const supported = (
-      Intl as unknown as { supportedValuesOf?: (k: string) => string[] }
-    ).supportedValuesOf?.('timeZone');
-    if (Array.isArray(supported)) zones = supported;
-  } catch {
-    zones = [];
-  }
-  if (!zones.includes('UTC')) zones = ['UTC', ...zones];
-  return zones;
-}
-
-const ZONES = loadZones();
+import { ZONES } from '../lib/zones';
 
 /** Fold a zone name (or query) to a comparable form: lower-cased with the IANA
  * separators flattened to spaces, so "New York" matches "America/New_York" and

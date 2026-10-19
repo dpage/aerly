@@ -50,7 +50,7 @@ func (a *API) updateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.HomeTZ != nil && *in.HomeTZ != "" && !timing.ValidZone(*in.HomeTZ) {
-		writeError(w, http.StatusBadRequest, "invalid home_tz")
+		writeError(w, http.StatusBadRequest, "Home time zone is not a recognised time zone.")
 		return
 	}
 	var homeLat, homeLon *float64

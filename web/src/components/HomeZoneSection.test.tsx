@@ -19,8 +19,15 @@ import HomeZoneSection from './HomeZoneSection';
 
 function user(over: Partial<User> = {}): User {
   return {
-    id: 1, username: 'octocat', name: 'Octo Cat', avatar_url: '',
-    is_superuser: false, is_active: true, has_logged_in: true, home_address: '', ...over,
+    id: 1,
+    username: 'octocat',
+    name: 'Octo Cat',
+    avatar_url: '',
+    is_superuser: false,
+    is_active: true,
+    has_logged_in: true,
+    home_address: '',
+    ...over,
   };
 }
 
@@ -77,6 +84,26 @@ describe('HomeZoneSection', () => {
     expect(box).toHaveValue('Asia/Tashkent');
   });
 
+  it('saves a typed zone in its IANA spelling', async () => {
+    render(<HomeZoneSection />);
+    const box = screen.getByRole('combobox');
+    await userEvent.type(box, 'europe/london');
+    await userEvent.tab();
+    await waitFor(() => expect(h.setHomeTz).toHaveBeenCalledWith('Europe/London'));
+    expect(h.setHomeTz).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not save the saved zone again in another case', async () => {
+    h.state.me = user({ home_tz: 'Europe/London' });
+    render(<HomeZoneSection />);
+    const box = screen.getByRole('combobox');
+    await userEvent.clear(box);
+    await userEvent.type(box, 'EUROPE/LONDON');
+    await userEvent.tab();
+    expect(h.setHomeTz).not.toHaveBeenCalled();
+    expect(box).toHaveValue('Europe/London');
+  });
+
   it('saves an empty string when cleared', async () => {
     h.state.me = user({ home_tz: 'Asia/Tashkent' });
     render(<HomeZoneSection />);
@@ -87,7 +114,9 @@ describe('HomeZoneSection', () => {
 
   it('saves the device zone from the button', async () => {
     render(<HomeZoneSection />);
-    await userEvent.click(screen.getByRole('button', { name: `Use this device's zone (${device})` }));
+    await userEvent.click(
+      screen.getByRole('button', { name: `Use this device's zone (${device})` }),
+    );
     await waitFor(() => expect(h.setHomeTz).toHaveBeenCalledWith(device));
   });
 

@@ -156,6 +156,9 @@ func TestUpdateMeHomeTZ(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("bad home_tz = %d, want 400", w.Code)
 	}
+	if body := decodeBody[map[string]string](t, w); body["error"] != "Home time zone is not a recognised time zone." {
+		t.Errorf("bad home_tz error = %q", body["error"])
+	}
 	w = e.req(t, "GET", "/api/me", nil, uid)
 	if me := decodeBody[map[string]any](t, w); me["home_tz"] != "Asia/Tashkent" {
 		t.Errorf("rejected update changed home_tz to %v", me["home_tz"])
