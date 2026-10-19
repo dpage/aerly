@@ -70,6 +70,28 @@ type supplementalData struct {
 	} `xml:"windowsZones>mapTimezones"`
 }
 
+// legacyIDs maps the IANA backward links CLDR still uses as territory 001
+// targets to the zones they now link to (from tzdata's "L" lines), so a
+// Windows TZID is labelled Kyiv rather than Kiev. Extend it when a
+// regeneration brings a new link; TestWindowsZonesAreCanonical catches one.
+var legacyIDs = map[string]string{
+	"America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+	"America/Godthab":      "America/Nuuk",
+	"America/Indianapolis": "America/Indiana/Indianapolis",
+	"Asia/Calcutta":        "Asia/Kolkata",
+	"Asia/Katmandu":        "Asia/Kathmandu",
+	"Asia/Rangoon":         "Asia/Yangon",
+	"Europe/Kiev":          "Europe/Kyiv",
+}
+
+// ianaName is the current IANA name for a CLDR zone ID.
+func ianaName(id string) string {
+	if to, ok := legacyIDs[id]; ok {
+		return to
+	}
+	return id
+}
+
 // generate reads windowsZones.xml and returns the formatted Go source of the
 // table, sorted by Windows name so a regeneration gives a stable diff.
 func generate(r io.Reader) ([]byte, error) {
@@ -82,9 +104,10 @@ func generate(r io.Reader) ([]byte, error) {
 		if z.Territory != "001" {
 			continue
 		}
-		// A type can list several IANA names; the first is the canonical one.
+		// A type can list several IDs; the first is CLDR's choice, which can be
+		// an IANA backward link kept for stability.
 		if fields := strings.Fields(z.Type); len(fields) > 0 && z.Other != "" {
-			zones[z.Other] = fields[0]
+			zones[z.Other] = ianaName(fields[0])
 		}
 	}
 	if len(zones) == 0 {

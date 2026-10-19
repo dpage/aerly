@@ -10,7 +10,8 @@ import (
 
 // tinyXML is a cut-down windowsZones.xml: two zones with a territory 001
 // default, one regional mapping that must be ignored, and a 001 entry whose
-// type lists more than one IANA name (only the first is kept).
+// type lists more than one IANA name (only the first is kept), and one whose
+// type is an IANA backward link (written as the zone it links to).
 const tinyXML = `<?xml version="1.0" encoding="UTF-8" ?>
 <supplementalData>
 	<version number="$Revision$"/>
@@ -19,6 +20,7 @@ const tinyXML = `<?xml version="1.0" encoding="UTF-8" ?>
 			<mapZone other="W. Europe Standard Time" territory="001" type="Europe/Berlin"/>
 			<mapZone other="W. Europe Standard Time" territory="NL" type="Europe/Amsterdam"/>
 			<mapZone other="AUS Eastern Standard Time" territory="001" type="Australia/Sydney Australia/Melbourne"/>
+			<mapZone other="FLE Standard Time" territory="001" type="Europe/Kiev"/>
 		</mapTimezones>
 	</windowsZones>
 </supplementalData>
@@ -39,6 +41,9 @@ func TestGenerate(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Errorf("output lacks %q:\n%s", want, src)
 		}
+	}
+	if !strings.Contains(src, `"Europe/Kyiv",`) || strings.Contains(src, "Kiev") {
+		t.Errorf("a backward link was not replaced by its target:\n%s", src)
 	}
 	if strings.Contains(src, "Amsterdam") {
 		t.Errorf("a regional mapping leaked into the output:\n%s", src)
