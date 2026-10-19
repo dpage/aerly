@@ -946,6 +946,13 @@ func pinsNewPlace(in updatePlanPartReq) bool {
 // end is unknown (already a true instant, so it keeps the instant). An end
 // with no coordinates of its own (a hotel's checkout) follows the start, as
 // in geocode.ResolvePartTZ.
+//
+// Moving the instant of an end that is not floating (a confirmed or inferred
+// zone) is deliberate, not an oversight: the spec's pinning rule is that
+// pinning a place "keeps the wall-clock time and marks the source confirmed",
+// so the time the user entered stays on the clock and the new zone moves the
+// instant beneath it. Only an unknown end, whose instant is already true,
+// keeps its instant.
 func pinZones(cur *store.PlanPart, in updatePlanPartReq, pl *store.UpdatePlanPartPayload) {
 	if startPinned(in) && in.StartTZ == nil && in.StartTZSource == nil {
 		if tz, _ := timing.Infer(timing.Hints{Lat: in.StartLat, Lon: in.StartLon}); tz != "" {
@@ -996,6 +1003,10 @@ func rezone(tz string) (*string, *string) {
 // time as t does in oldTZ (UTC when oldTZ is empty). A time that newTZ skips
 // for a daylight-saving change falls back to timing.Anchor's normalised
 // instant, since the part must land somewhere.
+//
+// It re-anchors a non-floating end on purpose: pinZones calls it under the
+// spec's pinning rule ("keeps the wall-clock time and marks the source
+// confirmed"), which puts the wall-clock reading ahead of the old instant.
 func keepWallClock(t time.Time, oldTZ, newTZ string) time.Time {
 	loc := time.UTC
 	if oldTZ != "" {
