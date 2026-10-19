@@ -138,7 +138,7 @@ func (e *errBackfiller) BackfillFlightPart(context.Context, int64, store.Backfil
 func TestFill_ResolverFillsOffTableOriginLeg(t *testing.T) {
 	st := &fakeBackfiller{}
 	r := &fakeResolver{rf: &providers.ResolvedFlight{
-		OriginIATA: "AAA", OriginLat: 10.5, OriginLon: 20.5, OriginName: "Alpha",
+		OriginIATA: "XCC", OriginLat: 10.5, OriginLon: 20.5, OriginName: "Alpha",
 		DestIATA: "BRS",
 	}}
 	// Origin ZZZ is off-table (needs the resolver); dest BRS is table-known.
@@ -151,8 +151,8 @@ func TestFill_ResolverFillsOffTableOriginLeg(t *testing.T) {
 	if !changed || st.backfilled == nil || st.backfilled.OriginLat != 10.5 {
 		t.Errorf("expected resolver origin coords, got %+v", st.backfilled)
 	}
-	if st.startLabel != "Alpha (AAA)" {
-		t.Errorf("origin label = %q, want Alpha (AAA)", st.startLabel)
+	if st.startLabel != "Alpha (XCC)" {
+		t.Errorf("origin label = %q, want Alpha (XCC)", st.startLabel)
 	}
 }
 

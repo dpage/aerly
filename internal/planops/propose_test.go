@@ -71,7 +71,7 @@ func TestProposePart_FlightLabelAndResolved(t *testing.T) {
 	in := time.Date(2026, 6, 1, 11, 0, 0, 0, time.UTC)
 	resolver := &fakeFlightResolver{rf: &providers.ResolvedFlight{
 		Ident: "TP123", ScheduledOut: out, ScheduledIn: in,
-		OriginIATA: "LHR", DestIATA: "FAO", DestName: "Faro",
+		OriginIATA: "LHR", DestIATA: "XDD", DestName: "Test Field",
 	}}
 	deps := Deps{Resolver: resolver}
 	part := ExtractedPart{Type: "flight", Flight: FlightFields{Ident: "TP123", Date: "2026-06-01"}}
@@ -80,8 +80,8 @@ func TestProposePart_FlightLabelAndResolved(t *testing.T) {
 	if got.StartLabel != "London Heathrow (LHR)" {
 		t.Errorf("origin label: got %q, want %q", got.StartLabel, "London Heathrow (LHR)")
 	}
-	if got.EndLabel != "Faro (FAO)" {
-		t.Errorf("dest label (off-table, provider name): got %q, want %q", got.EndLabel, "Faro (FAO)")
+	if got.EndLabel != "Test Field (XDD)" {
+		t.Errorf("dest label (off-table, provider name): got %q, want %q", got.EndLabel, "Test Field (XDD)")
 	}
 	if got.Flight == nil || !got.Flight.Resolved {
 		t.Errorf("a resolved leg should have Flight.Resolved=true, got %+v", got.Flight)
@@ -90,12 +90,12 @@ func TestProposePart_FlightLabelAndResolved(t *testing.T) {
 	// Resolver can't find it → fall back, Resolved=false, bare-code labels.
 	deps.Resolver = &fakeFlightResolver{err: errors.New("not found")}
 	part2 := ExtractedPart{Type: "flight", Flight: FlightFields{
-		Ident: "ZZ999", Date: "2026-06-01", OriginIATA: "AAA", DestIATA: "BBB"}}
+		Ident: "ZZ999", Date: "2026-06-01", OriginIATA: "XCC", DestIATA: "XDD"}}
 	got2, _ := proposePart(ctx, deps, part2)
 	if got2.Flight == nil || got2.Flight.Resolved {
 		t.Errorf("an unresolved leg should have Flight.Resolved=false, got %+v", got2.Flight)
 	}
-	if got2.StartLabel != "AAA" {
+	if got2.StartLabel != "XCC" {
 		t.Errorf("unresolved off-table origin should be bare code, got %q", got2.StartLabel)
 	}
 }

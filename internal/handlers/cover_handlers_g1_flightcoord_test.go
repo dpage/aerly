@@ -11,7 +11,7 @@ import (
 )
 
 // g1OffTableFlightPlan creates a flight plan whose origin/dest airports are not
-// in the embedded coordinate table (NQY, FAO), so the part is left without
+// in the embedded coordinate table (XCC, XDD), so the part is left without
 // coordinates at commit time and surfaces from FlightPartsByPlanMissingCoords.
 //
 // Plan creation itself fires the production resolveFlightCoordsAsync backfill;
@@ -29,10 +29,10 @@ func g1OffTableFlightPlan(t *testing.T, e *testEnv, tripID, uid int64) int64 {
 		"type": "flight", "title": "G1OFF", "confirmation_ref": "PNR",
 		"parts": []map[string]any{{
 			"type": "flight", "starts_at": out, "ends_at": in,
-			"start_label": "NQY", "end_label": "FAO",
+			"start_label": "XCC", "end_label": "XDD",
 			"flight": map[string]any{
 				"ident": "G1OFF", "scheduled_out": out, "scheduled_in": in,
-				"origin_iata": "NQY", "dest_iata": "FAO",
+				"origin_iata": "XCC", "dest_iata": "XDD",
 			},
 			"start_tz_source": "floating",
 			"end_tz_source":   "floating",
@@ -62,7 +62,7 @@ func TestResolveFlightCoordsAsyncNilResolverG1(t *testing.T) {
 func TestResolveFlightCoordsAsyncFillsG1(t *testing.T) {
 	rf := &providers.ResolvedFlight{
 		Ident:      "G1OFF",
-		OriginIATA: "NQY", DestIATA: "FAO",
+		OriginIATA: "XCC", DestIATA: "XDD",
 		OriginLat: 50.44, OriginLon: -4.99,
 		DestLat: 37.01, DestLon: -7.97,
 		ScheduledOut: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC),
@@ -137,7 +137,7 @@ func TestResolveFlightCoordsAsyncQueryErrG1(t *testing.T) {
 	// A non-nil ResolvedFlight so the plan-creation backfill (which also runs
 	// resolveFlightCoordsAsync) doesn't nil-panic before we drop the table.
 	rf := &providers.ResolvedFlight{
-		Ident: "G1OFF", OriginIATA: "NQY", DestIATA: "FAO",
+		Ident: "G1OFF", OriginIATA: "XCC", DestIATA: "XDD",
 		OriginLat: 50.44, OriginLon: -4.99, DestLat: 37.01, DestLon: -7.97,
 		ScheduledOut: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC),
 		ScheduledIn:  time.Date(2026, 6, 1, 11, 0, 0, 0, time.UTC),
@@ -161,7 +161,7 @@ func TestResolveFlightCoordsAsyncQueryErrG1(t *testing.T) {
 func TestResolveFlightCoordsAsyncFillErrG1(t *testing.T) {
 	rf := &providers.ResolvedFlight{
 		Ident:      "G1OFF",
-		OriginIATA: "NQY", DestIATA: "FAO",
+		OriginIATA: "XCC", DestIATA: "XDD",
 		OriginLat: 50.44, OriginLon: -4.99,
 		DestLat: 37.01, DestLon: -7.97,
 		ScheduledOut: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC),

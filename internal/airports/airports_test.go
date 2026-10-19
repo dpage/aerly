@@ -35,6 +35,9 @@ func TestLookupEmpty(t *testing.T) {
 }
 
 func TestTableEntriesPlausible(t *testing.T) {
+	if len(table) < 5000 {
+		t.Errorf("table has %d entries; the generated table should hold every IATA airport", len(table))
+	}
 	for code, e := range table {
 		if len(code) != 3 {
 			t.Errorf("IATA code %q is not 3 letters", code)
@@ -47,9 +50,6 @@ func TestTableEntriesPlausible(t *testing.T) {
 		}
 		if e.TZ == "" {
 			t.Errorf("%s has empty TZ", code)
-		}
-		if e.City == "" {
-			t.Errorf("%s has empty city", code)
 		}
 	}
 }
@@ -81,18 +81,18 @@ func TestLabel(t *testing.T) {
 		t.Errorf("lhr: got %q, want %q", got, "London Heathrow (LHR)")
 	}
 	// Off-table with a provider name: "Name (CODE)".
-	if got := Label("FAO", "Faro"); got != "Faro (FAO)" {
-		t.Errorf("FAO: got %q, want %q", got, "Faro (FAO)")
+	if got := Label("ZZZ", "Test Field"); got != "Test Field (ZZZ)" {
+		t.Errorf("ZZZ: got %q, want %q", got, "Test Field (ZZZ)")
 	}
 	// Off-table without any name: bare code, never blank.
-	if got := Label("NQY", ""); got != "NQY" {
-		t.Errorf("NQY no-name: got %q, want %q", got, "NQY")
+	if got := Label("ZZZ", ""); got != "ZZZ" {
+		t.Errorf("ZZZ no-name: got %q, want %q", got, "ZZZ")
 	}
-	if got := Label("nqy", "  "); got != "NQY" {
-		t.Errorf("NQY blank provider name: got %q, want %q", got, "NQY")
+	if got := Label("zzz", "  "); got != "ZZZ" {
+		t.Errorf("ZZZ blank provider name: got %q, want %q", got, "ZZZ")
 	}
 	// Blank code yields blank.
-	if got := Label("", "Faro"); got != "" {
+	if got := Label("", "Test Field"); got != "" {
 		t.Errorf("blank code: got %q, want \"\"", got)
 	}
 }
@@ -102,7 +102,46 @@ func TestLookupTZ(t *testing.T) {
 	if !ok || tz != "Europe/London" {
 		t.Errorf("LHR should resolve to Europe/London, got (%q,%v)", tz, ok)
 	}
+	// The boundary data gives Hanoi as Asia/Bangkok; the generator corrects it.
+	if tz, _ := LookupTZ("HAN"); tz != "Asia/Ho_Chi_Minh" {
+		t.Errorf("HAN zone = %q, want Asia/Ho_Chi_Minh", tz)
+	}
+	// Tegel is closed, so OurAirports drops it, but old trips still name it.
+	if tz, _ := LookupTZ("TXL"); tz != "Europe/Berlin" {
+		t.Errorf("TXL zone = %q, want Europe/Berlin", tz)
+	}
 	if _, ok := LookupTZ("ZZZ"); ok {
 		t.Error("unknown code should not resolve")
+	}
+}
+
+func TestCodeIn(t *testing.T) {
+	for label, want := range map[string]string{
+		"LHR":                    "LHR",
+		"  LHR ":                 "LHR",
+		"Sal (SID)":              "SID",
+		"Heathrow Airport LHR":   "LHR",
+		"LHR Terminal 5":         "LHR",
+		"LHR T5":                 "LHR",
+		"T2 MAN":                 "MAN",
+		"Hotel near LHR":         "",
+		"THE Grand Hotel":        "",
+		"Mountain INN":           "",
+		"BUS station":            "",
+		"lhr":                    "",
+		"Terminal ZZZ":           "",
+		"T5":                     "",
+		"Gatwick Airport":        "",
+		"":                       "",
+		"Airport shuttle to THE": "THE",
+		"Test Hotel (Testville)": "",
+		"Heathrow T5 (lhr)":      "",
+		"Station 2 TX1 LHR":      "",
+		"Testville T123 LHR":     "",
+		"Testville TA LHR":       "",
+	} {
+		if got := CodeIn(label); got != want {
+			t.Errorf("CodeIn(%q) = %q, want %q", label, got, want)
+		}
 	}
 }

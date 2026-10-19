@@ -84,8 +84,8 @@ func retimeTransfer(part *ProposedPart, flights []flightInfo) {
 	if !part.startTimeDefaulted || part.StartsAt.IsZero() {
 		return
 	}
-	startCode := airportCode(part.StartLabel)
-	endCode := airportCode(part.EndLabel)
+	startCode := airports.CodeIn(part.StartLabel)
+	endCode := airports.CodeIn(part.EndLabel)
 	startIsAirport := startCode != "" || looksLikeAirport(part.StartLabel)
 	endIsAirport := endCode != "" || looksLikeAirport(part.EndLabel)
 	// Only the clear airport→place / place→airport shapes; an airport→airport or
@@ -208,22 +208,4 @@ func flightEndSource(tz, source string) string {
 // looksLikeAirport reports whether a free-text label names an airport.
 func looksLikeAirport(label string) bool {
 	return strings.Contains(strings.ToLower(label), "airport")
-}
-
-// airportCode extracts an IATA code from a label when one is present and known
-// (e.g. "SID", "Sal Airport (SID)"), else "". Used to match a transfer endpoint
-// to a specific flight; matching falls back to date-only when no code is found.
-func airportCode(label string) string {
-	for _, tok := range strings.FieldsFunc(label, func(r rune) bool {
-		return !(r >= 'A' && r <= 'Z') && !(r >= 'a' && r <= 'z')
-	}) {
-		if len(tok) != 3 {
-			continue
-		}
-		code := strings.ToUpper(tok)
-		if _, ok := airports.LookupTZ(code); ok {
-			return code
-		}
-	}
-	return ""
 }

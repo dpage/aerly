@@ -282,7 +282,7 @@ func TestSweep_MixedBatchPerRowIsolation(t *testing.T) {
 func TestSweep_PartiallyUnknownPreservesTableFilledLeg(t *testing.T) {
 	p, s, _ := newPoller(t, &mockTracker{}, time.Minute)
 	// Resolver returns DELIBERATELY-WRONG origin coords (99.0) — if the
-	// merge clobbered the table-derived BRS value (51.3827), we'd see
+	// merge clobbered the table-derived BRS value (51.382326), we'd see
 	// 99.0 in the result. The fix must skip overwriting the leg that
 	// the table already satisfied.
 	resolver := &fakeResolver{rf: &providers.ResolvedFlight{
@@ -312,10 +312,10 @@ func TestSweep_PartiallyUnknownPreservesTableFilledLeg(t *testing.T) {
 
 	got, _ := s.FlightPartByID(ctx, f.ID)
 	if got.OriginLat == nil {
-		t.Fatalf("origin_lat should be table-filled (51.3827), got nil")
+		t.Fatalf("origin_lat should be table-filled (51.382326), got nil")
 	}
-	if *got.OriginLat != 51.3827 {
-		t.Errorf("origin_lat = %v, want 51.3827 (BRS table value, NOT resolver's 99.0)", *got.OriginLat)
+	if *got.OriginLat != 51.382326 {
+		t.Errorf("origin_lat = %v, want 51.382326 (BRS table value, NOT resolver's 99.0)", *got.OriginLat)
 	}
 	if got.DestLat == nil || *got.DestLat != 12.3456 {
 		t.Errorf("dest_lat = %v, want 12.3456 (resolver-supplied)", got.DestLat)

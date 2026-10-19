@@ -585,7 +585,7 @@ func TestAlert_CancellationAlwaysAlertsRegardlessOfThreshold(t *testing.T) {
 	// The email names the route and both times so a traveller with several
 	// flights booked can tell which one this is (issue #144).
 	for _, want := range []string{
-		"Flight from London Heathrow (LHR) to New York JFK (JFK)",
+		"Flight from London Heathrow (LHR) to John F. Kennedy International (JFK)",
 		"departing " + timing.Full(timing.Block{At: f.ScheduledOut, TZ: "Europe/London", Place: "London"}, ""),
 		"arriving " + timing.Full(timing.Block{At: f.ScheduledIn, TZ: "America/New_York", Place: "New York"}, ""),
 	} {
