@@ -323,45 +323,62 @@ func TestG1PartsNeedingTZ(t *testing.T) {
 		plan, now).Scan(&settledID); err != nil {
 		t.Fatalf("insert settled part: %v", err)
 	}
-	// A flight end that is a true instant with no zone is a candidate even
-	// without coordinates (its airport supplies the zone); a floating flight
-	// with no coordinates is not.
+	// A zone-less flight end is a candidate even without coordinates, since
+	// its airport supplies the zone: an unknown start, a floating start, and
+	// an unknown end behind a confirmed start. A flight whose only zone-less
+	// end is a missing ends_at is not, and nor is a coordinate-less non-flight.
 	flight := mkPlanType(t, s, trip, owner, "flight")
-	var unknownFlightID, floatingFlightID int64
-	if err := s.pool.QueryRow(ctx, `
-		INSERT INTO plan_parts (plan_id, starts_at, start_tz, start_tz_source, status)
-		VALUES ($1, $2, '', 'unknown', 'confirmed') RETURNING id`,
-		flight, now).Scan(&unknownFlightID); err != nil {
-		t.Fatalf("insert unknown flight part: %v", err)
+	end := now.Add(8 * time.Hour)
+	insert := func(name, q string, args ...any) int64 {
+		t.Helper()
+		var id int64
+		if err := s.pool.QueryRow(ctx, q, args...).Scan(&id); err != nil {
+			t.Fatalf("insert %s: %v", name, err)
+		}
+		return id
 	}
-	if err := s.pool.QueryRow(ctx, `
+	unknownFlightID := insert("unknown flight", `
 		INSERT INTO plan_parts (plan_id, starts_at, start_tz, start_tz_source, status)
-		VALUES ($1, $2, '', 'floating', 'confirmed') RETURNING id`,
-		flight, now).Scan(&floatingFlightID); err != nil {
-		t.Fatalf("insert floating flight part: %v", err)
-	}
+		VALUES ($1, $2, '', 'unknown', 'confirmed') RETURNING id`, flight, now)
+	floatingFlightID := insert("floating flight", `
+		INSERT INTO plan_parts (plan_id, starts_at, start_tz, start_tz_source, status)
+		VALUES ($1, $2, '', 'floating', 'confirmed') RETURNING id`, flight, now)
+	unknownEndID := insert("unknown-end flight", `
+		INSERT INTO plan_parts (plan_id, starts_at, start_tz, start_tz_source,
+			ends_at, end_tz, end_tz_source, status)
+		VALUES ($1, $2, 'Europe/London', 'confirmed', $3, '', 'unknown', 'confirmed')
+		RETURNING id`, flight, now, end)
+	noEndID := insert("endless flight", `
+		INSERT INTO plan_parts (plan_id, starts_at, start_tz, start_tz_source,
+			end_tz, end_tz_source, status)
+		VALUES ($1, $2, 'Europe/London', 'confirmed', '', 'unknown', 'confirmed')
+		RETURNING id`, flight, now)
+	bareHotelID := insert("coordinate-less hotel", `
+		INSERT INTO plan_parts (plan_id, starts_at, start_tz, start_tz_source, status)
+		VALUES ($1, $2, '', 'floating', 'confirmed') RETURNING id`, plan, now)
+
 	parts, err := s.PartsNeedingTZ(ctx)
 	if err != nil {
 		t.Fatalf("PartsNeedingTZ: %v", err)
 	}
-	var found, foundFlight bool
+	got := map[int64]bool{}
 	for _, p := range parts {
-		switch p.ID {
-		case partID:
-			found = true
-		case unknownFlightID:
-			foundFlight = true
-		case settledID:
-			t.Errorf("confirmed part %d returned as needing tz", settledID)
-		case floatingFlightID:
-			t.Errorf("floating flight %d with no coordinates returned as needing tz", floatingFlightID)
+		got[p.ID] = true
+	}
+	for name, id := range map[string]int64{
+		"hotel with coordinates": partID, "unknown flight": unknownFlightID,
+		"floating flight": floatingFlightID, "unknown-end flight": unknownEndID,
+	} {
+		if !got[id] {
+			t.Errorf("%s (part %d) not returned as needing tz", name, id)
 		}
 	}
-	if !found {
-		t.Fatalf("part %d needing tz not returned", partID)
-	}
-	if !foundFlight {
-		t.Fatalf("unknown flight part %d not returned", unknownFlightID)
+	for name, id := range map[string]int64{
+		"confirmed part": settledID, "endless flight": noEndID, "coordinate-less hotel": bareHotelID,
+	} {
+		if got[id] {
+			t.Errorf("%s (part %d) returned as needing tz", name, id)
+		}
 	}
 }
 

@@ -260,3 +260,119 @@ func TestPlanParts_HomeSubstitution(t *testing.T) {
 		t.Error("home substitution should mark the endpoint pinned")
 	}
 }
+
+// TestPlanParts_FlightOwnAirports: the post-save run routes a flight through
+// ResolveFlightTZ, so a floating flight with coordinates on its departure only
+// has each end anchored at its own airport (LHR, then JFK) rather than the
+// arrival taking the departure's zone. A failed flight-detail lookup skips
+// the part rather than falling back to the coordinate pass.
+func TestPlanParts_FlightOwnAirports(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	if pool == nil {
+		return
+	}
+	st := store.New(pool)
+	ctx := context.Background()
+	owner := testsupport.InsertUser(t, pool, "planparts-flight", false, true)
+	trip := mkTripDB(t, pool, owner)
+
+	out := time.Date(2026, 6, 1, 18, 50, 0, 0, time.UTC)
+	in := out.Add(8 * time.Hour)
+	mk := func() int64 {
+		t.Helper()
+		plan, err := st.CreatePlan(ctx, store.CreatePlanPayload{
+			TripID: trip, Type: "flight", Title: "XX100",
+			Parts: []store.CreatePlanPartPayload{{
+				StartsAt: out, EndsAt: &in,
+				StartTZSource: "floating", EndTZSource: "floating",
+				StartLabel: "LHR", EndLabel: "JFK",
+				StartLat: fptr(londonLat), StartLon: fptr(londonLon),
+				Flight: &store.FlightDetail{
+					Ident: "XX100", ScheduledOut: out, ScheduledIn: in,
+					OriginIATA: "LHR", DestIATA: "JFK",
+				},
+			}},
+		}, owner)
+		if err != nil {
+			t.Fatalf("CreatePlan: %v", err)
+		}
+		return plan.ID
+	}
+	planID := mk()
+	g := stubGeo{resolves: map[string][2]float64{}}
+	changed, err := PlanParts(ctx, st, testResolver(g, nil), planID)
+	if err != nil || !changed {
+		t.Fatalf("PlanParts = %v, %v; want changed", changed, err)
+	}
+	parts, _ := st.PartsByPlan(ctx, planID)
+	p := parts[0]
+	if p.StartTZ != "Europe/London" || p.EndTZ != "America/New_York" ||
+		p.StartTZSource != "confirmed" || p.EndTZSource != "confirmed" {
+		t.Errorf("zones = %q/%q %q/%q, want each airport's zone confirmed",
+			p.StartTZ, p.EndTZ, p.StartTZSource, p.EndTZSource)
+	}
+	if !p.StartsAt.Equal(out.Add(-time.Hour)) || p.EndsAt == nil || !p.EndsAt.Equal(in.Add(4*time.Hour)) {
+		t.Errorf("anchored to %v/%v, want 17:50Z/06:50Z", p.StartsAt, p.EndsAt)
+	}
+
+	// Break the detail lookup: the part is skipped, not given a coordinate zone.
+	broken := mk()
+	if _, err := pool.Exec(ctx, `ALTER TABLE flight_details DROP COLUMN aircraft_type`); err != nil {
+		t.Fatalf("drop column: %v", err)
+	}
+	if changed, err := PlanParts(ctx, st, testResolver(g, nil), broken); err != nil || changed {
+		t.Errorf("PlanParts with a failing detail lookup = %v, %v; want unchanged", changed, err)
+	}
+	parts, _ = st.PartsByPlan(ctx, broken)
+	if parts[0].EndTZ != "" || parts[0].EndTZSource != "floating" {
+		t.Errorf("arrival given %q/%q, want left floating", parts[0].EndTZ, parts[0].EndTZSource)
+	}
+}
+
+// TestSyncFlightScheduleWrites: an anchored part's times are copied to the
+// schedule, and an arrival before the departure (an off-table arrival left as
+// digits behind an anchored departure) carries the old block time instead.
+func TestSyncFlightScheduleWrites(t *testing.T) {
+	pool := testsupport.NewPool(t)
+	if pool == nil {
+		return
+	}
+	st := store.New(pool)
+	ctx := context.Background()
+	owner := testsupport.InsertUser(t, pool, "planparts-sched", false, true)
+	trip := mkTripDB(t, pool, owner)
+	digits := time.Date(2026, 6, 1, 18, 50, 0, 0, time.UTC)
+	block := 8 * time.Hour
+	arr := digits.Add(block)
+	plan, err := st.CreatePlan(ctx, store.CreatePlanPayload{
+		TripID: trip, Type: "flight", Title: "XX100",
+		Parts: []store.CreatePlanPartPayload{{
+			StartsAt: digits, EndsAt: &arr, StartTZSource: "floating", EndTZSource: "floating",
+			StartLabel: "JFK", EndLabel: "ZZZ",
+			Flight: &store.FlightDetail{
+				Ident: "XX100", ScheduledOut: digits, ScheduledIn: arr, OriginIATA: "JFK", DestIATA: "ZZZ",
+			},
+		}},
+	}, owner)
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	parts, _ := st.PartsByPlan(ctx, plan.ID)
+	fd, err := st.FlightDetailFor(ctx, parts[0].ID)
+	if err != nil || fd == nil {
+		t.Fatalf("FlightDetailFor: %v", err)
+	}
+	// The departure is anchored in New York (22:50Z) and the arrival, which
+	// could not be placed, is written as an instant before it.
+	anchored := digits.Add(4 * time.Hour)
+	early := digits.Add(-16 * time.Hour)
+	updated := *parts[0]
+	updated.StartsAt, updated.EndsAt = anchored, &early
+	if err := SyncFlightSchedule(ctx, st, fd, store.UpdatePlanPartPayload{StartsAt: &anchored}, &updated); err != nil {
+		t.Fatalf("SyncFlightSchedule: %v", err)
+	}
+	got, _ := st.FlightDetailFor(ctx, parts[0].ID)
+	if !got.ScheduledOut.Equal(anchored) || !got.ScheduledIn.Equal(anchored.Add(block)) {
+		t.Errorf("schedule = %v/%v, want %v/%v", got.ScheduledOut, got.ScheduledIn, anchored, anchored.Add(block))
+	}
+}

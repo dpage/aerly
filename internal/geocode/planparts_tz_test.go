@@ -1,6 +1,7 @@
 package geocode
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -282,12 +283,122 @@ func TestResolveFlightTZ(t *testing.T) {
 		}
 	})
 
-	t.Run("floating ends and a missing end are left alone", func(t *testing.T) {
-		p := &store.PlanPart{StartsAt: out, StartTZSource: floating, EndTZSource: unknown}
+	t.Run("floating ends are anchored at their own airports, not the departure's coordinates", func(t *testing.T) {
+		// Coordinates on the departure only: the arrival must take JFK's zone,
+		// not London's from the start coordinate.
+		p := &store.PlanPart{
+			StartsAt: out, EndsAt: &in, StartTZSource: floating, EndTZSource: floating,
+			StartLat: fptr(londonLat), StartLon: fptr(londonLon),
+		}
 		var pl store.UpdatePlanPartPayload
 		view := ResolveFlightTZ(p, fd, &pl)
-		if !pl.IsEmpty() || view.StartTZSource != floating || view.EndTZSource != unknown {
-			t.Errorf("touched a floating or absent end: %+v %+v", pl, view)
+		ResolvePartTZ(view, &pl, p.StartLat, p.StartLon, p.EndLat, p.EndLon)
+		if pl.StartTZ == nil || *pl.StartTZ != "Europe/London" || *pl.StartTZSource != confirmed {
+			t.Errorf("start = %v/%v, want Europe/London confirmed", pl.StartTZ, pl.StartTZSource)
+		}
+		if pl.EndTZ == nil || *pl.EndTZ != "America/New_York" || *pl.EndTZSource != confirmed {
+			t.Errorf("end = %v/%v, want America/New_York confirmed", pl.EndTZ, pl.EndTZSource)
+		}
+		// 18:50 BST is 17:50Z; 02:50 EDT is 06:50Z.
+		if pl.StartsAt == nil || !pl.StartsAt.Equal(out.Add(-time.Hour)) {
+			t.Errorf("StartsAt = %v, want %v", pl.StartsAt, out.Add(-time.Hour))
+		}
+		if pl.EndsAt == nil || !pl.EndsAt.Equal(in.Add(4*time.Hour)) {
+			t.Errorf("EndsAt = %v, want %v", pl.EndsAt, in.Add(4*time.Hour))
+		}
+
+		// A second pass sees confirmed ends and changes nothing.
+		next := *p
+		next.StartsAt, next.EndsAt = *pl.StartsAt, pl.EndsAt
+		next.StartTZ, next.EndTZ = *pl.StartTZ, *pl.EndTZ
+		next.StartTZSource, next.EndTZSource = confirmed, confirmed
+		var again store.UpdatePlanPartPayload
+		ResolvePartTZ(ResolveFlightTZ(&next, fd, &again), &again, next.StartLat, next.StartLon, nil, nil)
+		if !again.IsEmpty() {
+			t.Errorf("second pass changed something: %+v", again)
 		}
 	})
+
+	t.Run("a floating end at an airport that cannot be placed stays floating", func(t *testing.T) {
+		p := &store.PlanPart{
+			StartsAt: out, EndsAt: &in, StartTZSource: floating, EndTZSource: floating,
+			StartLat: fptr(londonLat), StartLon: fptr(londonLon),
+		}
+		var pl store.UpdatePlanPartPayload
+		view := ResolveFlightTZ(p, &store.FlightDetail{OriginIATA: "LHR", DestIATA: "ZZZ"}, &pl)
+		ResolvePartTZ(view, &pl, p.StartLat, p.StartLon, p.EndLat, p.EndLon)
+		if pl.StartTZ == nil || *pl.StartTZ != "Europe/London" {
+			t.Errorf("StartTZ = %v, want Europe/London", pl.StartTZ)
+		}
+		if pl.EndTZ != nil || pl.EndTZSource != nil || pl.EndsAt != nil {
+			t.Errorf("off-table arrival touched: %v %v %v", pl.EndTZ, pl.EndTZSource, pl.EndsAt)
+		}
+		if view.EndTZSource != confirmed || p.EndTZSource != floating {
+			t.Errorf("arrival not settled for the coordinate pass, or the stored part mutated")
+		}
+	})
+
+	t.Run("a floating no-arrival end takes the departure's anchoring", func(t *testing.T) {
+		same := out
+		p := &store.PlanPart{StartsAt: out, EndsAt: &same, StartTZSource: floating, EndTZSource: floating}
+		var pl store.UpdatePlanPartPayload
+		ResolveFlightTZ(p, fd, &pl)
+		if pl.EndTZ == nil || *pl.EndTZ != "Europe/London" || pl.EndsAt == nil || !pl.EndsAt.Equal(*pl.StartsAt) {
+			t.Errorf("end = %v %v, want the departure's Europe/London %v", pl.EndTZ, pl.EndsAt, pl.StartsAt)
+		}
+		if pl.EndsAt == pl.StartsAt {
+			t.Error("end shares the start's pointer")
+		}
+
+		// When the departure cannot be placed the arrival stays floating too,
+		// rather than being pulled to the destination's zone.
+		var off store.UpdatePlanPartPayload
+		ResolveFlightTZ(p, &store.FlightDetail{OriginIATA: "ZZZ", DestIATA: "JFK"}, &off)
+		if !off.IsEmpty() {
+			t.Errorf("unplaced departure: %+v, want nothing written", off)
+		}
+	})
+
+	t.Run("a missing end is left alone", func(t *testing.T) {
+		p := &store.PlanPart{StartsAt: out, StartTZSource: confirmed, StartTZ: "Europe/London", EndTZSource: unknown}
+		var pl store.UpdatePlanPartPayload
+		view := ResolveFlightTZ(p, fd, &pl)
+		if !pl.IsEmpty() || view.EndTZSource != unknown {
+			t.Errorf("touched an absent end: %+v %+v", pl, view)
+		}
+	})
+}
+
+// TestFlightEndZoneUnplaced: an airport neither the table nor coordinates can
+// place gives no zone.
+func TestFlightEndZoneUnplaced(t *testing.T) {
+	if _, _, ok := flightEndZone(time.Now(), floating, "ZZZ", nil, nil); ok {
+		t.Error("flightEndZone placed an unknown airport")
+	}
+}
+
+// TestSyncFlightScheduleSkips covers the cases that write nothing, which need
+// no store: no detail, a provider resolved flight, no re-anchored time, no
+// written part, and a schedule already in line.
+func TestSyncFlightScheduleSkips(t *testing.T) {
+	out := time.Date(2026, 6, 1, 17, 50, 0, 0, time.UTC)
+	in := out.Add(9 * time.Hour)
+	moved := store.UpdatePlanPartPayload{StartsAt: &out}
+	part := &store.PlanPart{ID: 1, StartsAt: out, EndsAt: &in}
+	inLine := &store.FlightDetail{ScheduledOut: out, ScheduledIn: in}
+	for name, c := range map[string]struct {
+		fd      *store.FlightDetail
+		payload store.UpdatePlanPartPayload
+		part    *store.PlanPart
+	}{
+		"no detail":        {nil, moved, part},
+		"resolved":         {&store.FlightDetail{Resolved: true}, moved, part},
+		"nothing anchored": {inLine, store.UpdatePlanPartPayload{}, part},
+		"no written part":  {inLine, moved, nil},
+		"schedule in line": {inLine, moved, part},
+	} {
+		if err := SyncFlightSchedule(context.Background(), nil, c.fd, c.payload, c.part); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
 }

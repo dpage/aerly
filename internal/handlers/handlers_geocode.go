@@ -410,10 +410,11 @@ func (a *API) BackfillPartCoordinates(ctx context.Context) {
 	}
 }
 
-// BackfillPartTimezones gives zone-less part ends a zone at startup. A flight
-// end that is a true instant with no zone (source unknown) takes its own
-// airport's zone as confirmed and keeps its instant (geocode.ResolveFlightTZ);
-// this replaced the DTO's read-time airport fallback. Any other zone-less end
+// BackfillPartTimezones gives zone-less part ends a zone at startup. A
+// zone-less flight end takes its own airport's zone as confirmed
+// (geocode.ResolveFlightTZ): an unknown end keeps its instant, and a floating
+// one has its wall-clock digits anchored at that airport. This replaced the
+// DTO's read-time airport fallback. Any other zone-less end
 // with coordinates takes their zone (geocode.ResolvePartTZ), a floating one
 // being re-anchored so its wall-clock time is preserved. Best-effort and
 // idempotent: once an end has a zone it is skipped. Logs a summary; never
@@ -428,18 +429,28 @@ func (a *API) BackfillPartTimezones(ctx context.Context) {
 	for _, p := range parts {
 		payload := store.UpdatePlanPartPayload{}
 		view := p
+		var fd *store.FlightDetail
 		if p.Type == "flight" {
 			// A flight part with no detail row has no airports to read; its
 			// ends are left to the coordinate pass as before.
-			fd, _ := a.Store.FlightDetailFor(ctx, p.ID)
+			var ferr error
+			if fd, ferr = a.Store.FlightDetailFor(ctx, p.ID); ferr != nil {
+				slog.Warn("tz backfill: flight detail lookup failed", "err", ferr, "part", p.ID)
+				continue
+			}
 			view = geocode.ResolveFlightTZ(p, fd, &payload)
 		}
 		geocode.ResolvePartTZ(view, &payload, p.StartLat, p.StartLon, p.EndLat, p.EndLon)
 		if payload.IsEmpty() {
 			continue
 		}
-		if _, uerr := a.Store.UpdatePlanPart(ctx, p.ID, payload); uerr == nil {
-			fixed++
+		updated, uerr := a.Store.UpdatePlanPart(ctx, p.ID, payload)
+		if uerr != nil {
+			continue
+		}
+		fixed++
+		if serr := geocode.SyncFlightSchedule(ctx, a.Store, fd, payload, updated); serr != nil {
+			slog.Warn("tz backfill: flight schedule sync failed", "err", serr, "part", p.ID)
 		}
 	}
 	if fixed > 0 {
