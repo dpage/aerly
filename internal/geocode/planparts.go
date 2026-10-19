@@ -415,6 +415,39 @@ func ResolvePartTZ(
 	}
 }
 
+// ResolveFlightTZ gives a flight end whose source is unknown its own airport's
+// zone, confirmed. An unknown end is already a true instant, so it keeps it;
+// the zone only labels it. The airport table comes first and the end's own
+// coordinates second (timing.AirportZone), so a flight with no coordinates is
+// still filled. A floating end is not touched: it keeps its existing
+// coordinate handling in ResolvePartTZ.
+//
+// It returns the part as ResolvePartTZ should then see it: every unknown end
+// is marked settled, filled or not, so the coordinate pass cannot give a
+// flight's arrival its departure's zone (a flight's two ends are different
+// places). A nil detail returns the part unchanged.
+func ResolveFlightTZ(p *store.PlanPart, fd *store.FlightDetail, payload *store.UpdatePlanPartPayload) *store.PlanPart {
+	if fd == nil {
+		return p
+	}
+	unknown := string(timing.Unknown)
+	settled := string(timing.Confirmed)
+	view := *p
+	if p.StartTZSource == unknown {
+		if tz, ok := timing.AirportZone(fd.OriginIATA, p.StartLat, p.StartLon); ok {
+			payload.StartTZ, payload.StartTZSource = &tz, &settled
+		}
+		view.StartTZSource = settled
+	}
+	if p.EndTZSource == unknown && p.EndsAt != nil {
+		if tz, ok := timing.AirportZone(fd.DestIATA, p.EndLat, p.EndLon); ok {
+			payload.EndTZ, payload.EndTZSource = &tz, &settled
+		}
+		view.EndTZSource = settled
+	}
+	return &view
+}
+
 // zoneless reports whether a part end's source means it has no zone yet.
 func zoneless(src string) bool {
 	return src == string(timing.Floating) || src == string(timing.Unknown)

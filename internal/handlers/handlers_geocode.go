@@ -410,11 +410,14 @@ func (a *API) BackfillPartCoordinates(ctx context.Context) {
 	}
 }
 
-// BackfillPartTimezones anchors any historical parts that have coordinates but
-// no timezone (ingested before coordinate-based tz resolution existed) to their
-// real zone, shifting the stored instant so the local wall-clock is preserved.
-// Best-effort and idempotent — once a part has a tz it is skipped. Logs a
-// summary; never fatal.
+// BackfillPartTimezones gives zone-less part ends a zone at startup. A flight
+// end that is a true instant with no zone (source unknown) takes its own
+// airport's zone as confirmed and keeps its instant (geocode.ResolveFlightTZ);
+// this replaced the DTO's read-time airport fallback. Any other zone-less end
+// with coordinates takes their zone (geocode.ResolvePartTZ), a floating one
+// being re-anchored so its wall-clock time is preserved. Best-effort and
+// idempotent: once an end has a zone it is skipped. Logs a summary; never
+// fatal.
 func (a *API) BackfillPartTimezones(ctx context.Context) {
 	parts, err := a.Store.PartsNeedingTZ(ctx)
 	if err != nil {
@@ -424,7 +427,14 @@ func (a *API) BackfillPartTimezones(ctx context.Context) {
 	var fixed int
 	for _, p := range parts {
 		payload := store.UpdatePlanPartPayload{}
-		geocode.ResolvePartTZ(p, &payload, p.StartLat, p.StartLon, p.EndLat, p.EndLon)
+		view := p
+		if p.Type == "flight" {
+			// A flight part with no detail row has no airports to read; its
+			// ends are left to the coordinate pass as before.
+			fd, _ := a.Store.FlightDetailFor(ctx, p.ID)
+			view = geocode.ResolveFlightTZ(p, fd, &payload)
+		}
+		geocode.ResolvePartTZ(view, &payload, p.StartLat, p.StartLon, p.EndLat, p.EndLon)
 		if payload.IsEmpty() {
 			continue
 		}

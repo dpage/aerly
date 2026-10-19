@@ -1073,7 +1073,9 @@ func (s *Store) PartsByPlan(ctx context.Context, planID int64) ([]*PlanPart, err
 
 // PartsNeedingTZ returns non-dismissed parts that have a coordinate but an end
 // whose zone source is still floating or unknown: the candidates for anchoring
-// rows ingested before coordinate-based tz resolution existed.
+// rows ingested before coordinate-based tz resolution existed. A flight with
+// an unknown end is a candidate with or without coordinates, since its zone
+// can come from its airport code.
 func (s *Store) PartsNeedingTZ(ctx context.Context) ([]*PlanPart, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+planPartColumns+`
@@ -1082,7 +1084,9 @@ func (s *Store) PartsNeedingTZ(ctx context.Context) ([]*PlanPart, error) {
 		WHERE part.dismissed_at IS NULL
 		  AND ((part.start_tz_source IN ('floating','unknown') AND part.start_lat IS NOT NULL)
 		    OR (part.end_tz_source IN ('floating','unknown') AND part.ends_at IS NOT NULL
-		        AND (part.end_lat IS NOT NULL OR part.start_lat IS NOT NULL)))
+		        AND (part.end_lat IS NOT NULL OR part.start_lat IS NOT NULL))
+		    OR (pl.type = 'flight' AND (part.start_tz_source = 'unknown'
+		        OR (part.end_tz_source = 'unknown' AND part.ends_at IS NOT NULL))))
 		ORDER BY part.id`)
 	if err != nil {
 		return nil, err

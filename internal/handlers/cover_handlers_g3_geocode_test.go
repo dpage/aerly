@@ -251,3 +251,65 @@ func mustTrip(t *testing.T, e *testEnv, ctx context.Context, uid int64) int64 {
 	}
 	return trip.ID
 }
+
+// TestG3BackfillPartTimezonesFlightAirport: a flight whose ends are true
+// instants (source unknown) with no zone and no coordinates is given each
+// end's own airport zone as confirmed, without moving the instant. This is
+// what replaced the DTO's read-time airport fallback, so a resolved flight
+// with a blank zone does not regress to "needs a time zone". A floating
+// flight is left to its existing handling (it has no coordinates here, so it
+// stays floating), and the pass is idempotent.
+func TestG3BackfillPartTimezonesFlightAirport(t *testing.T) {
+	e := setup(t, nil, nil)
+	ctx := context.Background()
+	uid := e.user(t, "g3bptzap", false)
+	trip := mustTrip(t, e, ctx, uid)
+	out := time.Date(2026, 6, 1, 18, 50, 0, 0, time.UTC)
+	in := out.Add(8 * time.Hour)
+	mk := func(src string, resolved bool) int64 {
+		t.Helper()
+		plan, err := e.store.CreatePlan(ctx, store.CreatePlanPayload{
+			TripID: trip, Type: "flight", Title: "XX100",
+			Parts: []store.CreatePlanPartPayload{{
+				StartsAt: out, EndsAt: &in,
+				StartTZSource: src, EndTZSource: src,
+				StartLabel: "LHR", EndLabel: "JFK",
+				Flight: &store.FlightDetail{
+					Ident: "XX100", ScheduledOut: out, ScheduledIn: in,
+					OriginIATA: "LHR", DestIATA: "JFK", Resolved: resolved,
+				},
+			}},
+		}, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan.ID
+	}
+	unknownPlan := mk("unknown", true)
+	floatingPlan := mk("floating", false)
+
+	for pass := 1; pass <= 2; pass++ {
+		e.api.BackfillPartTimezones(ctx)
+
+		parts, _ := e.store.PartsByPlan(ctx, unknownPlan)
+		got := parts[0]
+		if got.StartTZ != "Europe/London" || got.EndTZ != "America/New_York" {
+			t.Errorf("pass %d: zones = %q/%q, want Europe/London/America/New_York", pass, got.StartTZ, got.EndTZ)
+		}
+		if got.StartTZSource != "confirmed" || got.EndTZSource != "confirmed" {
+			t.Errorf("pass %d: sources = %q/%q, want confirmed", pass, got.StartTZSource, got.EndTZSource)
+		}
+		if !got.StartsAt.Equal(out) || got.EndsAt == nil || !got.EndsAt.Equal(in) {
+			t.Errorf("pass %d: instants moved: start=%v end=%v", pass, got.StartsAt, got.EndsAt)
+		}
+
+		parts, _ = e.store.PartsByPlan(ctx, floatingPlan)
+		fl := parts[0]
+		if fl.StartTZ != "" || fl.EndTZ != "" || fl.StartTZSource != "floating" || fl.EndTZSource != "floating" {
+			t.Errorf("pass %d: floating flight touched: %q/%q %q/%q", pass, fl.StartTZ, fl.EndTZ, fl.StartTZSource, fl.EndTZSource)
+		}
+		if !fl.StartsAt.Equal(out) || !fl.EndsAt.Equal(in) {
+			t.Errorf("pass %d: floating digits moved: %v/%v", pass, fl.StartsAt, fl.EndsAt)
+		}
+	}
+}

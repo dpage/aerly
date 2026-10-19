@@ -322,21 +322,45 @@ func TestG1PartsNeedingTZ(t *testing.T) {
 		plan, now).Scan(&settledID); err != nil {
 		t.Fatalf("insert settled part: %v", err)
 	}
+	// A flight end that is a true instant with no zone is a candidate even
+	// without coordinates (its airport supplies the zone); a floating flight
+	// with no coordinates is not.
+	flight := mkPlanType(t, s, trip, owner, "flight")
+	var unknownFlightID, floatingFlightID int64
+	if err := s.pool.QueryRow(ctx, `
+		INSERT INTO plan_parts (plan_id, starts_at, start_tz, start_tz_source, status)
+		VALUES ($1, $2, '', 'unknown', 'confirmed') RETURNING id`,
+		flight, now).Scan(&unknownFlightID); err != nil {
+		t.Fatalf("insert unknown flight part: %v", err)
+	}
+	if err := s.pool.QueryRow(ctx, `
+		INSERT INTO plan_parts (plan_id, starts_at, start_tz, start_tz_source, status)
+		VALUES ($1, $2, '', 'floating', 'confirmed') RETURNING id`,
+		flight, now).Scan(&floatingFlightID); err != nil {
+		t.Fatalf("insert floating flight part: %v", err)
+	}
 	parts, err := s.PartsNeedingTZ(ctx)
 	if err != nil {
 		t.Fatalf("PartsNeedingTZ: %v", err)
 	}
-	var found bool
+	var found, foundFlight bool
 	for _, p := range parts {
-		if p.ID == partID {
+		switch p.ID {
+		case partID:
 			found = true
-		}
-		if p.ID == settledID {
+		case unknownFlightID:
+			foundFlight = true
+		case settledID:
 			t.Errorf("confirmed part %d returned as needing tz", settledID)
+		case floatingFlightID:
+			t.Errorf("floating flight %d with no coordinates returned as needing tz", floatingFlightID)
 		}
 	}
 	if !found {
 		t.Fatalf("part %d needing tz not returned", partID)
+	}
+	if !foundFlight {
+		t.Fatalf("unknown flight part %d not returned", unknownFlightID)
 	}
 }
 

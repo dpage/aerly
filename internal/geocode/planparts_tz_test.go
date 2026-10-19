@@ -233,3 +233,61 @@ func TestIsAllDigitsEmpty(t *testing.T) {
 		t.Error("isAllDigits(\"\") = true, want false")
 	}
 }
+
+func TestResolveFlightTZ(t *testing.T) {
+	out := time.Date(2026, 6, 1, 18, 50, 0, 0, time.UTC)
+	in := out.Add(8 * time.Hour)
+	fd := &store.FlightDetail{OriginIATA: "LHR", DestIATA: "JFK"}
+
+	t.Run("nil detail leaves the part to the coordinate pass", func(t *testing.T) {
+		p := &store.PlanPart{StartsAt: out, EndsAt: &in, StartTZSource: unknown, EndTZSource: unknown}
+		var pl store.UpdatePlanPartPayload
+		if got := ResolveFlightTZ(p, nil, &pl); got != p || !pl.IsEmpty() {
+			t.Errorf("nil detail changed something: %+v %+v", got, pl)
+		}
+	})
+
+	t.Run("unknown ends take their own airport zone, confirmed, instant kept", func(t *testing.T) {
+		p := &store.PlanPart{StartsAt: out, EndsAt: &in, StartTZSource: unknown, EndTZSource: unknown}
+		var pl store.UpdatePlanPartPayload
+		view := ResolveFlightTZ(p, fd, &pl)
+		if pl.StartTZ == nil || *pl.StartTZ != "Europe/London" || *pl.StartTZSource != confirmed {
+			t.Errorf("start = %v/%v, want Europe/London confirmed", pl.StartTZ, pl.StartTZSource)
+		}
+		if pl.EndTZ == nil || *pl.EndTZ != "America/New_York" || *pl.EndTZSource != confirmed {
+			t.Errorf("end = %v/%v, want America/New_York confirmed", pl.EndTZ, pl.EndTZSource)
+		}
+		if pl.StartsAt != nil || pl.EndsAt != nil {
+			t.Errorf("a true instant was re-anchored: %v %v", pl.StartsAt, pl.EndsAt)
+		}
+		if view.StartTZSource != confirmed || view.EndTZSource != confirmed || p.StartTZSource != unknown {
+			t.Errorf("view not settled, or the stored part mutated: %+v / %+v", view, p)
+		}
+	})
+
+	t.Run("an off-table arrival is not given the departure's coordinate zone", func(t *testing.T) {
+		p := &store.PlanPart{
+			StartsAt: out, EndsAt: &in, StartTZSource: unknown, EndTZSource: unknown,
+			StartLat: fptr(londonLat), StartLon: fptr(londonLon),
+		}
+		var pl store.UpdatePlanPartPayload
+		view := ResolveFlightTZ(p, &store.FlightDetail{OriginIATA: "ZZZ", DestIATA: "ZZY"}, &pl)
+		// The start falls back to its own coordinates.
+		if pl.StartTZ == nil || *pl.StartTZ != "Europe/London" {
+			t.Errorf("StartTZ = %v, want Europe/London from its coordinates", pl.StartTZ)
+		}
+		ResolvePartTZ(view, &pl, p.StartLat, p.StartLon, p.EndLat, p.EndLon)
+		if pl.EndTZ != nil {
+			t.Errorf("arrival given %q, want left unknown", *pl.EndTZ)
+		}
+	})
+
+	t.Run("floating ends and a missing end are left alone", func(t *testing.T) {
+		p := &store.PlanPart{StartsAt: out, StartTZSource: floating, EndTZSource: unknown}
+		var pl store.UpdatePlanPartPayload
+		view := ResolveFlightTZ(p, fd, &pl)
+		if !pl.IsEmpty() || view.StartTZSource != floating || view.EndTZSource != unknown {
+			t.Errorf("touched a floating or absent end: %+v %+v", pl, view)
+		}
+	})
+}
