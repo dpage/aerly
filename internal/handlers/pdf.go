@@ -9,6 +9,7 @@ import (
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Hand-rolled PDF itinerary renderer. No external deps — like the iCal renderer
@@ -156,27 +157,40 @@ type itinRow struct {
 	ev   *api.ExternalEventDTO
 }
 
-// start returns the row's start instant and its display timezone, for sorting
-// and day grouping. The closing row of a banded booking places by its closing
-// instant (in the part's end zone) so it lands on the last day, not the first.
-func (r itinRow) start() (time.Time, string) {
+// start returns the block the row is placed by, for sorting and day grouping.
+// The closing row of a banded booking places by its closing block so it lands
+// on the last day, not the first.
+func (r itinRow) start() timing.Block {
 	if r.part != nil {
-		if r.part.edge == edgeLast && r.part.part.EndsAt != nil {
-			return *r.part.part.EndsAt, partEndTZ(r.part.part)
+		if r.part.edge == edgeLast && r.part.part.End != nil {
+			return blockOf(*r.part.part.End)
 		}
-		return r.part.part.StartsAt, r.part.part.StartTZ
+		return blockOf(r.part.part.Start)
 	}
-	return r.ev.StartsAt, r.ev.StartTZ
+	return eventBlock(r.ev)
 }
 
-// partEndTZ is a part's closing timezone: its end zone, falling back to the
-// start zone (a hotel stay's two ends are the same property, so end_tz is
-// usually blank, whilst a one-way car hire does set it).
-func partEndTZ(pt *api.PlanPartDTO) string {
-	if pt.EndTZ != "" {
-		return pt.EndTZ
+// blockOf converts a part's time block from the DTO into the form the label
+// formatters take. The PDF never reads the raw start_tz and end_tz columns:
+// the block already carries the zone, how sure it is, and the place.
+func blockOf(b api.TimeBlockDTO) timing.Block {
+	return timing.Block{
+		At:     b.At,
+		TZ:     b.TZ,
+		Source: timing.Source(b.TZSource),
+		Place:  b.Place,
+		Kind:   timing.Kind(b.Kind),
 	}
-	return pt.StartTZ
+}
+
+// eventBlock is an external event's start: it keeps its own zone, confirmed
+// when the feed gave one and unknown (a true instant) when it did not.
+func eventBlock(ev *api.ExternalEventDTO) timing.Block {
+	b := timing.Block{At: ev.StartsAt, TZ: ev.StartTZ, Source: timing.Unknown}
+	if ev.StartTZ != "" {
+		b.Source = timing.Confirmed
+	}
+	return b
 }
 
 // flattenItinerary expands the trip's plans (one row per non-dismissed part)
@@ -207,8 +221,7 @@ func flattenItinerary(plans []api.PlanDTO, externals []api.ExternalEventDTO) []i
 		rows = append(rows, itinRow{ev: &externals[i]})
 	}
 	sort.SliceStable(rows, func(a, b int) bool {
-		as, _ := rows[a].start()
-		bs, _ := rows[b].start()
+		as, bs := rows[a].start().At, rows[b].start().At
 		if !as.Equal(bs) {
 			return as.Before(bs)
 		}
@@ -277,12 +290,15 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 		l.y -= 16
 	}
 
-	bodyX := l.margin + 64
+	clocks := make([]string, len(rows))
+	for i, row := range rows {
+		clocks[i] = rowClock(row)
+	}
+	bodyX := l.margin + timeColumnWidth(clocks)
 	var lastDay string
-	for _, row := range rows {
-		startsAt, tz := row.start()
-		start := startsAt.In(eventLoc(tz))
-		day := start.Format("Monday, 2 January 2006")
+	for i, row := range rows {
+		sb := row.start()
+		day := sb.At.In(eventLoc(sb.TZ)).Format("Monday, 2 January 2006")
 		if day != lastDay {
 			l.ensure(34)
 			l.y -= 6
@@ -296,18 +312,13 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 		l.ensure(28)
 		var title string
 		var details []string
+		l.text(l.margin, l.y, "F2", 10, 0.1, clocks[i])
 		if row.part != nil {
-			l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
 			title = typeLabel(row.part.plan.Type) + ": " +
 				nonEmpty(row.part.plan.Title, typeLabel(row.part.plan.Type)) +
 				edgeSuffix(row.part.plan.Type, row.part.edge)
 			details = partDetails(*row.part)
 		} else {
-			if row.ev.AllDay {
-				l.text(l.margin, l.y, "F2", 10, 0.1, "all day")
-			} else {
-				l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
-			}
 			title = "Event: " + nonEmpty(row.ev.Title, "Event")
 			details = externalEventDetails(row.ev)
 		}
@@ -321,6 +332,27 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 	}
 }
 
+// rowClock is the bold time in a row's left column: the start in its own zone
+// with its offset, or "all day" for an all-day feed event.
+func rowClock(row itinRow) string {
+	if row.ev != nil && row.ev.AllDay {
+		return "all day"
+	}
+	return timing.Compact(row.start(), "")
+}
+
+// timeColumnWidth is the left column's width for these clocks: the original
+// 64pt, or wider when the widest clock at 10pt bold would otherwise run into
+// the title, as "≈14:00 UTC+12:45" does.
+func timeColumnWidth(clocks []string) float64 {
+	const minWidth, gap = 64.0, 10.0
+	w := minWidth
+	for _, c := range clocks {
+		w = max(w, helveticaBoldTextWidth(c, 10)+gap)
+	}
+	return w
+}
+
 // externalEventDetails builds the indented detail lines under an external feed
 // event: its location, time span, and notes. Empty fields are skipped.
 func externalEventDetails(ev *api.ExternalEventDTO) []string {
@@ -329,7 +361,7 @@ func externalEventDetails(ev *api.ExternalEventDTO) []string {
 		out = append(out, oneLine(ev.Location))
 	}
 	if !ev.AllDay {
-		out = append(out, timeRange(ev.StartsAt, ev.EndsAt, ev.StartTZ, ev.StartTZ))
+		out = append(out, timeRange(eventBlock(ev), eventEnd(ev)))
 	}
 	if ev.Description != "" {
 		out = append(out, oneLine(ev.Description))
@@ -422,15 +454,15 @@ func partDetails(it itinPart) []string {
 	// opening row. Every other row shows the part's full span.
 	switch it.edge {
 	case edgeFirst:
-		out = append(out, bandEdgeLabel(pl.Type, false)+": "+timeRange(pt.StartsAt, nil, pt.StartTZ, ""))
+		out = append(out, bandEdgeLabel(pl.Type, false)+": "+timeRange(blockOf(pt.Start), nil))
 	case edgeLast:
-		out = append(out, bandEdgeLabel(pl.Type, true)+": "+timeRange(*pt.EndsAt, nil, partEndTZ(pt), ""))
+		out = append(out, bandEdgeLabel(pl.Type, true)+": "+timeRange(blockOf(*pt.End), nil))
 		if pt.Status == "cancelled" {
 			out = append(out, "Status: cancelled")
 		}
 		return out
 	default:
-		out = append(out, timeRange(pt.StartsAt, pt.EndsAt, pt.StartTZ, pt.EndTZ))
+		out = append(out, timeRange(blockOf(pt.Start), partEnd(pt)))
 	}
 
 	if refs := joinNonEmpty("   ", labelled("Confirmation", pl.ConfirmationRef),
@@ -516,10 +548,10 @@ func singleLocation(planType string, pt *api.PlanPartDTO) bool {
 // (trip-format.ts): a booking of a banding type (see banding.go) whose end
 // falls on a later local calendar day than its start.
 func bandedPart(planType string, pt *api.PlanPartDTO) bool {
-	if _, ok := bandLabelsFor(planType); !ok || pt.EndsAt == nil {
+	if _, ok := bandLabelsFor(planType); !ok || pt.End == nil {
 		return false
 	}
-	return bandsToLaterDay(pt.StartsAt, pt.StartTZ, *pt.EndsAt, partEndTZ(pt))
+	return bandsToLaterDay(pt.Start.At, pt.Start.TZ, pt.End.At, pt.End.TZ)
 }
 
 // routeLine joins a start and end label with an arrow, tolerating either being
@@ -537,23 +569,38 @@ func routeLine(from, to string) string {
 	}
 }
 
-// timeRange renders a part's local time span, e.g. "Mon 2 Jan, 14:30 – 16:45"
-// or, across days, with the end's date too. End-less parts show just the start.
-func timeRange(startsAt time.Time, endsAt *time.Time, startTZ, endTZ string) string {
-	start := startsAt.In(eventLoc(startTZ))
-	s := start.Format("Mon 2 Jan, 15:04")
-	if endsAt == nil {
+// partEnd is a part's closing block, or nil when it has no end time.
+func partEnd(pt *api.PlanPartDTO) *timing.Block {
+	if pt.End == nil {
+		return nil
+	}
+	b := blockOf(*pt.End)
+	return &b
+}
+
+// eventEnd is an external event's closing block, in the zone its start uses.
+func eventEnd(ev *api.ExternalEventDTO) *timing.Block {
+	if ev.EndsAt == nil {
+		return nil
+	}
+	b := eventBlock(ev)
+	b.At = *ev.EndsAt
+	return &b
+}
+
+// timeRange renders a part's span, e.g. "Mon 2 Jan, 14:30 Paris (UTC+2) –
+// 16:45 UTC+2". The end drops its date when it falls on the same day as the
+// start, each in its own zone. There is no viewer's home zone in a PDF, so an
+// unknown zone prints in UTC. End-less parts show just the start.
+func timeRange(start timing.Block, end *timing.Block) string {
+	s := timing.Full(start, "")
+	if end == nil {
 		return s
 	}
-	endLoc := eventLoc(startTZ)
-	if endTZ != "" {
-		endLoc = eventLoc(endTZ)
+	if sameDay(start.At.In(eventLoc(start.TZ)), end.At.In(eventLoc(end.TZ))) {
+		return s + " – " + timing.Compact(*end, "")
 	}
-	end := endsAt.In(endLoc)
-	if sameDay(start, end) {
-		return s + " – " + end.Format("15:04")
-	}
-	return s + " – " + end.Format("Mon 2 Jan, 15:04")
+	return s + " – " + timing.Full(*end, "")
 }
 
 func sameDay(a, b time.Time) bool {
@@ -702,6 +749,8 @@ func winAnsiByte(r rune) byte {
 		return '*'
 	case '→': // →
 		return '>'
+	case '≈': // ≈, a derived time; WinAnsi has no approximately-equal sign
+		return '~'
 	default:
 		return '?'
 	}
@@ -769,6 +818,20 @@ func helveticaTextWidth(s string, size float64) float64 {
 	return float64(units) * size / 1000
 }
 
+// helveticaBoldTextWidth is helveticaTextWidth for Helvetica-Bold (F2).
+func helveticaBoldTextWidth(s string, size float64) float64 {
+	var units int
+	for _, r := range s {
+		b := winAnsiByte(r)
+		if b >= 32 && b <= 126 {
+			units += helvBoldASCII[b-32]
+		} else {
+			units += 556
+		}
+	}
+	return float64(units) * size / 1000
+}
+
 // helveticaWidth is the advance width (per 1000 em) of one WinAnsi byte in
 // Helvetica. The table covers printable ASCII (the bulk of itinerary text);
 // other bytes fall back to a representative average so wrapping stays sane.
@@ -788,4 +851,15 @@ var helvAscii = [95]int{
 	667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
 	333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
 	556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+}
+
+// helvBoldASCII holds the Helvetica-Bold advance widths for ASCII codes 32
+// through 126 in WinAnsi, in 1000-em units (from the Adobe AFM).
+var helvBoldASCII = [95]int{
+	278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278,
+	556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
+	975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778,
+	667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
+	333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
+	611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584,
 }

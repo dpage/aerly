@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 func intp(v int) *int { return &v }
@@ -27,8 +29,8 @@ func decodedHTML(t *testing.T, msg string) string {
 }
 
 func depInput() DepartureSummaryInput {
-	sched := time.Date(2026, 10, 15, 10, 10, 0, 0, time.UTC) // 11:10 BST
-	arr := time.Date(2026, 10, 15, 18, 50, 0, 0, time.UTC)   // 13:50 CDT
+	sched := time.Date(2026, 10, 15, 10, 10, 0, 0, time.UTC) // 11:10 in London
+	arr := time.Date(2026, 10, 15, 18, 50, 0, 0, time.UTC)   // 13:50 in Chicago
 	return DepartureSummaryInput{
 		FromAddr:      "aerly@example.com",
 		ToAddr:        "alice@example.com",
@@ -39,10 +41,8 @@ func depInput() DepartureSummaryInput {
 		DestLabel:     "Chicago",
 		DestIATA:      "ORD",
 		ScheduledOut:  sched,
-		DepartsAt:     sched,
-		OriginTZ:      "Europe/London",
-		ArrivesAt:     &arr,
-		DestTZ:        "America/Chicago",
+		Departs:       timing.Block{At: sched, TZ: "Europe/London", Source: timing.Confirmed, Place: "London"},
+		Arrives:       &timing.Block{At: arr, TZ: "America/Chicago", Source: timing.Confirmed, Place: "Chicago"},
 		Terminal:      "5",
 		Gate:          "B32",
 		SupplierName:  "Example Airways",
@@ -80,30 +80,50 @@ func TestFormatDuration(t *testing.T) {
 func TestDepartureSummaryHeadline(t *testing.T) {
 	in := depInput()
 	if got, want := DepartureSummaryHeadline(in),
-		"BA171 (LHR → ORD) is on time, departing terminal 5, gate B32 at Thu 15 Oct, 11:10 BST."; got != want {
+		"BA171 (LHR → ORD) is on time, departing terminal 5, gate B32 at Thu 15 Oct, 11:10 London (UTC+1)."; got != want {
 		t.Errorf("on time:\n got %q\nwant %q", got, want)
 	}
 
 	// Under the threshold still counts as on time.
-	in.DepartsAt = in.ScheduledOut.Add(4 * time.Minute)
+	in.Departs.At = in.ScheduledOut.Add(4 * time.Minute)
 	in.DepartureDelay = 4 * time.Minute
 	if !strings.Contains(DepartureSummaryHeadline(in), "is on time") {
 		t.Errorf("4 min late should be on time")
 	}
 
 	// Wheels-off a taxi-time after the timetable, with no off-block estimate,
-	// is not a delay: the delay field decides, not DepartsAt.
-	in.DepartsAt = in.ScheduledOut.Add(12 * time.Minute)
+	// is not a delay: the delay field decides, not the departure time.
+	in.Departs.At = in.ScheduledOut.Add(12 * time.Minute)
 	in.DepartureDelay = 0
 	if got := DepartureSummaryHeadline(in); !strings.Contains(got, "is on time, departing") {
 		t.Errorf("wheels-off without an estimate should be on time, got %q", got)
 	}
 
-	in.DepartsAt = in.ScheduledOut.Add(80 * time.Minute)
+	in.Departs.At = in.ScheduledOut.Add(80 * time.Minute)
 	in.DepartureDelay = 80 * time.Minute
 	if got, want := DepartureSummaryHeadline(in),
-		"BA171 (LHR → ORD) is delayed by 1 h 20 min, now departing terminal 5, gate B32 at Thu 15 Oct, 12:30 BST."; got != want {
+		"BA171 (LHR → ORD) is delayed by 1 h 20 min, now departing terminal 5, gate B32 at Thu 15 Oct, 12:30 London (UTC+1)."; got != want {
 		t.Errorf("delayed:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestDepartureSummaryHeadline_HomeZone: a recipient at home in another zone
+// gets their own time after each end's; without a home zone they get none.
+// A derived arrival keeps its ≈ and the web's wording on the airport's clock only.
+func TestDepartureSummaryHeadline_HomeZone(t *testing.T) {
+	in := depInput()
+	in.HomeTZ = "America/New_York"
+	in.Arrives.Kind = timing.Derived
+	if got, want := DepartureSummaryHeadline(in),
+		"BA171 (LHR → ORD) is on time, departing terminal 5, gate B32 at Thu 15 Oct, 11:10 London (UTC+1) (06:10 your time)."; got != want {
+		t.Errorf("headline:\n got %q\nwant %q", got, want)
+	}
+	if got, want := arrivalLine(in), "Arrival at ORD is Thu 15 Oct, ≈13:50 Chicago (UTC-5) (based on departure delay) (14:50 your time)."; got != want {
+		t.Errorf("arrival:\n got %q\nwant %q", got, want)
+	}
+	in.HomeTZ = ""
+	if got := DepartureSummaryHeadline(in) + arrivalLine(in); strings.Contains(got, "your time") {
+		t.Errorf("no home zone should give no second time, got %q", got)
 	}
 }
 
@@ -111,7 +131,7 @@ func TestDepartureSummaryHeadline_Missing(t *testing.T) {
 	in := depInput()
 	in.Route, in.Terminal, in.Gate = "", "", ""
 	if got, want := DepartureSummaryHeadline(in),
-		"BA171 is on time, departing at Thu 15 Oct, 11:10 BST."; got != want {
+		"BA171 is on time, departing at Thu 15 Oct, 11:10 London (UTC+1)."; got != want {
 		t.Errorf("got %q want %q", got, want)
 	}
 	in.Gate = "B32"
@@ -154,8 +174,8 @@ func TestBuildDepartureSummaryEmail(t *testing.T) {
 		"Subject: Departure summary: BA171 to Chicago",
 		"To: alice@example.com",
 		"BA171 (LHR",
-		"is on time, departing terminal 5, gate B32 at Thu 15 Oct, 11:10 BST.",
-		"Arrival at ORD is Thu 15 Oct, 13:50 CDT.",
+		"is on time, departing terminal 5, gate B32 at Thu 15 Oct, 11:10 London (UTC+1).",
+		"Arrival at ORD is Thu 15 Oct, 13:50 Chicago (UTC-5).",
 		"For help or changes, contact Example Airways: +44 20 7946 0000",
 		"https://aerly.test/trips/7",
 		"Weather in Chicago",
@@ -192,7 +212,7 @@ func TestBuildDepartureSummaryEmail_NoForecastNoAttribution(t *testing.T) {
 
 func TestBuildDepartureSummaryEmail_Sparse(t *testing.T) {
 	in := depInput()
-	in.ArrivesAt, in.ContactPhone, in.Forecast = nil, "", nil
+	in.Arrives, in.ContactPhone, in.Forecast = nil, "", nil
 	in.DestLabel, in.DestIATA = "", ""
 	msg := BuildDepartureSummaryEmail(in)
 	if !strings.Contains(msg, "Subject: Departure summary: BA171\r\n") {

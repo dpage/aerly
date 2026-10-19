@@ -3,6 +3,7 @@ import { Children, isValidElement } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
 import { blockFor, fmtFull, fmtViewer } from '../lib/time';
+import { useViewerZone } from '../state/viewerZone';
 
 // Small presentational primitives shared by FlightDetailCard and PartDetailBlock
 // — a labelled section with label/value rows. A Section/Row renders nothing when
@@ -70,9 +71,10 @@ export function Row({ label, value }: { label: string; value: ReactNode }) {
 /** A schedule row: the time in its own zone, with the viewer's time beneath when
  * it differs. Null when the instant is missing. */
 export function TimeRow({ label, iso, tz }: { label: string; iso?: string; tz?: string }) {
+  const viewer = useViewerZone();
   if (!iso) return null;
   const b = blockFor(iso, tz ?? '');
-  const yours = fmtViewer(b);
+  const yours = fmtViewer(b, viewer);
   return (
     <Row
       label={label}

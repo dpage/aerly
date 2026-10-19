@@ -85,8 +85,10 @@ type UserDTO struct {
 	HideMaps    bool `json:"hide_maps,omitempty"`
 	// HomeLat / HomeLon are the user's pinned home coordinates (nil when unset).
 	// Self-only, like HomeAddress.
-	HomeLat     *float64   `json:"home_lat,omitempty"`
-	HomeLon     *float64   `json:"home_lon,omitempty"`
+	HomeLat *float64 `json:"home_lat,omitempty"`
+	HomeLon *float64 `json:"home_lon,omitempty"`
+	// HomeTZ is the user's home IANA zone. Self-only, like HomeAddress.
+	HomeTZ      string     `json:"home_tz,omitempty"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 }
 
@@ -121,6 +123,7 @@ func ToSelfUserDTO(u *store.User) UserDTO {
 	dto.HideMaps = u.HideMaps
 	dto.HomeLat = u.HomeLat
 	dto.HomeLon = u.HomeLon
+	dto.HomeTZ = u.HomeTZ
 	return dto
 }
 

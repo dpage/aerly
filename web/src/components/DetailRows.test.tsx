@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
+import type { User } from '../api/types';
 import { setViewerZone } from '../lib/time';
+import { useStore } from '../state/store';
 import { Mono, Row, Section, TimeRow } from './DetailRows';
 
 describe('Row', () => {
@@ -118,6 +120,20 @@ describe('TimeRow', () => {
     expect(screen.getByText('Sun 18 Oct, 14:00 UTC+5')).toBeInTheDocument();
     expect(screen.getByText('Your time: Sun 18 Oct, 10:00 (UTC+1)')).toBeInTheDocument();
     setViewerZone(null);
+  });
+
+  it("redraws the viewer's time when the home zone changes", () => {
+    setViewerZone('Europe/London');
+    useStore.setState({ me: { home_tz: 'Europe/London' } as User });
+    render(<TimeRow label="Scheduled out" iso="2026-10-18T09:00:00Z" tz="Asia/Tashkent" />);
+    expect(screen.getByText('Your time: Sun 18 Oct, 10:00 (UTC+1)')).toBeInTheDocument();
+    act(() => {
+      setViewerZone('Asia/Tokyo');
+      useStore.setState({ me: { home_tz: 'Asia/Tokyo' } as User });
+    });
+    expect(screen.getByText('Your time: Sun 18 Oct, 18:00 (UTC+9)')).toBeInTheDocument();
+    setViewerZone(null);
+    useStore.setState({ me: null });
   });
 
   it('renders no caption without a tz', () => {

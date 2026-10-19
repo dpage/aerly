@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Tab, Tabs } from '@mui/material';
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Tab, Tabs } from '@mui/material';
 
 import { useStore } from '../state/store';
 import AlertPrefsSection from './AlertPrefsSection';
 import AutoShareSection from './AutoShareSection';
 import HomeAddressSection from './HomeAddressSection';
+import HomeZoneSection from './HomeZoneSection';
 import PaperSizeSection from './PaperSizeSection';
 import FeaturesSection from './FeaturesSection';
 import EmailsSection from './EmailsSection';
@@ -37,7 +38,13 @@ export default function PreferencesDialog({ open, onClose }: Props) {
     { label: 'Push', render: () => <PushSection /> },
     { label: 'Sharing', render: () => <AutoShareSection /> },
     { label: 'Home', render: () => <HomeAddressSection /> },
-    { label: 'Itinerary', render: () => <PaperSizeSection /> },
+    { label: 'Itinerary', render: () => (
+        <Stack spacing={4}>
+          <HomeZoneSection />
+          <PaperSizeSection />
+        </Stack>
+      ),
+    },
     { label: 'Features', render: () => <FeaturesSection /> },
     ...(emailEnabled ? [{ label: 'Emails', render: () => <EmailsSection /> }] : []),
   ];

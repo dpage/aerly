@@ -129,6 +129,7 @@ type AlertRecipient struct {
 	Email       bool
 	MinDelayMin int
 	EmailAddr   string // newest verified address, "" when none
+	HomeTZ      string // home zone, "" when unset
 }
 
 // AlertRecipientsWithPrefs returns the plan's recipient set (owner + passengers
@@ -148,6 +149,7 @@ func (s *Store) AlertRecipientsWithPrefs(ctx context.Context, planID int64) ([]A
 		       COALESCE(ap.in_app, TRUE),
 		       COALESCE(ap.email, TRUE),
 		       COALESCE(ap.min_delay_min, 15),
+		       u.home_tz,
 		       COALESCE((
 		           SELECT e.address FROM user_emails e
 		           WHERE e.user_id = r.uid AND e.verified = TRUE
@@ -155,6 +157,7 @@ func (s *Store) AlertRecipientsWithPrefs(ctx context.Context, planID int64) ([]A
 		           LIMIT 1
 		       ), '')
 		FROM (SELECT DISTINCT uid FROM recip) r
+		JOIN users u ON u.id = r.uid
 		LEFT JOIN alert_prefs ap ON ap.user_id = r.uid
 		ORDER BY r.uid`, planID)
 	if err != nil {
@@ -164,7 +167,7 @@ func (s *Store) AlertRecipientsWithPrefs(ctx context.Context, planID int64) ([]A
 	var out []AlertRecipient
 	for rows.Next() {
 		var ar AlertRecipient
-		if err := rows.Scan(&ar.UserID, &ar.InApp, &ar.Email, &ar.MinDelayMin, &ar.EmailAddr); err != nil {
+		if err := rows.Scan(&ar.UserID, &ar.InApp, &ar.Email, &ar.MinDelayMin, &ar.HomeTZ, &ar.EmailAddr); err != nil {
 			return nil, err
 		}
 		out = append(out, ar)

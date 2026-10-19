@@ -10,6 +10,7 @@ import (
 
 	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 	"github.com/dpage/aerly/internal/weather"
 )
 
@@ -153,9 +154,8 @@ func TestRemindDepartures_FullSummary(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Subject: Departure summary: BA295 to Chicago",
-		"BA295 (LHR → ORD) is delayed by 1 h 20 min, now departing terminal 5, gate B32 at Thu 15 Oct, 17:20 BST.",
-		"Arrival at ORD is",
-		"CDT",
+		"BA295 (LHR → ORD) is delayed by 1 h 20 min, now departing terminal 5, gate B32 at Thu 15 Oct, 17:20 London (UTC+1).",
+		"Arrival at ORD is Thu 15 Oct, ≈20:20 Chicago (UTC-5) (based on departure delay).",
 		"For help or changes, contact Example Air: +44 20 7946 0000",
 		"/trips/",
 		"Weather in Chicago",
@@ -553,7 +553,7 @@ func TestPushDeparture_NoWeatherBodyIsHeadline(t *testing.T) {
 
 	p.remindDepartures(context.Background(), depOut.Add(-store.DepartureSummaryLead))
 
-	if fp.count() != 1 || !strings.HasSuffix(fp.payloads[0].Body, "BST.") {
+	if fp.count() != 1 || !strings.HasSuffix(fp.payloads[0].Body, "London (UTC+1).") {
 		t.Fatalf("payloads = %+v", fp.payloads)
 	}
 }
@@ -633,32 +633,42 @@ func TestAlertEmailTimes(t *testing.T) {
 		f       store.Flight
 		wantDep time.Time
 		wantArr *time.Time
+		derived bool // the arrival is the timetable moved by the delay
 	}{
-		{"timetable", store.Flight{ScheduledOut: sched, ScheduledIn: in}, sched, &in},
-		{"estimated", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in, EstimatedIn: &estIn}, est, &estIn},
+		{"timetable", store.Flight{ScheduledOut: sched, ScheduledIn: in}, sched, &in, false},
+		{"estimated", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in, EstimatedIn: &estIn}, est, &estIn, false},
 		{"actual", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ActualOut: &act,
-			ScheduledIn: in, EstimatedIn: &estIn, ActualIn: &actIn}, act, &actIn},
-		{"no arrival", store.Flight{ScheduledOut: sched}, sched, nil},
+			ScheduledIn: in, EstimatedIn: &estIn, ActualIn: &actIn}, act, &actIn, false},
+		{"no arrival", store.Flight{ScheduledOut: sched}, sched, nil, false},
 		// A manually added flight stores scheduled_in == scheduled_out: there
 		// is no timetabled arrival, so none is quoted.
-		{"departure-only", store.Flight{ScheduledOut: sched, ScheduledIn: sched}, sched, nil},
-		{"departure delay shifts timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in}, est, &shiftedIn},
+		{"departure-only", store.Flight{ScheduledOut: sched, ScheduledIn: sched}, sched, nil, false},
+		{"departure delay shifts timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ScheduledIn: in}, est, &shiftedIn, true},
 		// Wheels-off runs a taxi-time behind the off-block estimate, so it
 		// shifts the timetable arrival by the estimate's delay, not its own.
-		{"wheels-off does not shift timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ActualOut: &act, ScheduledIn: in}, act, &shiftedIn},
-		{"wheels-off alone leaves timetable arrival", store.Flight{ScheduledOut: sched, ActualOut: &act, ScheduledIn: in}, act, &in},
+		{"wheels-off does not shift timetable arrival", store.Flight{ScheduledOut: sched, EstimatedOut: &est, ActualOut: &act, ScheduledIn: in}, act, &shiftedIn, true},
+		{"wheels-off alone leaves timetable arrival", store.Flight{ScheduledOut: sched, ActualOut: &act, ScheduledIn: in}, act, &in, false},
 		// An arrival estimate before the departure is impossible and dropped.
-		{"impossible arrival estimate dropped", store.Flight{ScheduledOut: sched, ScheduledIn: in, EstimatedIn: &beforeOut}, sched, &in},
+		{"impossible arrival estimate dropped", store.Flight{ScheduledOut: sched, ScheduledIn: in, EstimatedIn: &beforeOut}, sched, &in, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cap := &captureMailer{}
 			p := &Poller{MailFromAddress: "alerts@aerly.test", SendAlertEmail: cap.send}
 			c.f.Ident = "XX100"
-			p.sendAlertEmail(context.Background(), "to@aerly.test", &c.f, "gate", "now departs gate A12")
+			p.sendAlertEmail(context.Background(), "to@aerly.test", "", &c.f, "gate", "now departs gate A12")
 			if cap.count() != 1 {
 				t.Fatalf("want 1 email, got %d", cap.count())
 			}
-			want := mailer.FlightAlertDetails(mailer.FlightAlertInput{DepartsAt: c.wantDep, ArrivesAt: c.wantArr})
+			// No airport to place either end by, so each is a true instant
+			// quoted in UTC, with ≈ on a derived arrival.
+			in := mailer.FlightAlertInput{Departs: timing.Block{At: c.wantDep}}
+			if c.wantArr != nil {
+				in.Arrives = &timing.Block{At: *c.wantArr}
+				if c.derived {
+					in.Arrives.Kind = timing.Derived
+				}
+			}
+			want := mailer.FlightAlertDetails(in)
 			if !strings.Contains(cap.sent[0], want) {
 				t.Errorf("email lacks %q:\n%s", want, cap.sent[0])
 			}
@@ -689,13 +699,13 @@ func TestDepartureInput_EffectiveTimes(t *testing.T) {
 	if !ok {
 		t.Fatal("departureInput failed")
 	}
-	if in.DepartureDelay != 0 || !in.DepartsAt.Equal(depOut.Add(12*time.Minute)) {
-		t.Errorf("delay = %v, departs = %v; want 0 and wheels-off", in.DepartureDelay, in.DepartsAt)
+	if in.DepartureDelay != 0 || !in.Departs.At.Equal(depOut.Add(12*time.Minute)) {
+		t.Errorf("delay = %v, departs = %v; want 0 and wheels-off", in.DepartureDelay, in.Departs.At)
 	}
 	if h := mailer.DepartureSummaryHeadline(in); !strings.Contains(h, "is on time") {
 		t.Errorf("wheels-off without an estimate should be on time, got %q", h)
 	}
-	if in.ArrivesAt == nil {
+	if in.Arrives == nil {
 		t.Error("a timetabled arrival should be quoted")
 	}
 
@@ -710,8 +720,8 @@ func TestDepartureInput_EffectiveTimes(t *testing.T) {
 		WHERE plan_part_id = $1`, partID); err != nil {
 		t.Fatalf("make departure-only: %v", err)
 	}
-	if in, _ = p.departureInput(ctx, due[0]); in.ArrivesAt != nil {
-		t.Errorf("a departure-only flight should have no arrival, got %v", *in.ArrivesAt)
+	if in, _ = p.departureInput(ctx, due[0]); in.Arrives != nil {
+		t.Errorf("a departure-only flight should have no arrival, got %v", *in.Arrives)
 	}
 }
 

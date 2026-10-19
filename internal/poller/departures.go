@@ -87,7 +87,7 @@ func (p *Poller) departureInput(ctx context.Context, d store.DueDepartureSummary
 	if city, ok := airports.LookupCity(f.DestIATA); ok {
 		destLabel = city
 	}
-	destTZ := airportZone(f.DestIATA, f.DestLat, f.DestLon)
+	dest := flightZone(f.DestIATA, f.DestLat, f.DestLon)
 
 	route := ""
 	if f.OriginIATA != "" && f.DestIATA != "" {
@@ -111,18 +111,27 @@ func (p *Poller) departureInput(ctx context.Context, d store.DueDepartureSummary
 		DestLabel:      destLabel,
 		DestIATA:       f.DestIATA,
 		ScheduledOut:   f.ScheduledOut,
-		DepartsAt:      departs,
+		Departs:        instantBlock(departs, t.Departure.Kind, startZone(d.StartTZ, d.StartTZSource, f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA),
 		DepartureDelay: t.Departure.Delay,
-		OriginTZ:       partZone(d.StartTZ, f.OriginIATA, f.OriginLat, f.OriginLon),
-		ArrivesAt:      arrives,
-		DestTZ:         destTZ,
+		Arrives:        arrivalBlock(t, dest, f.DestIATA),
+		HomeTZ:         d.HomeTZ,
 		Terminal:       f.OriginTerminal,
 		Gate:           f.OriginGate,
 		SupplierName:   plan.SupplierName,
 		ContactPhone:   plan.ContactPhone,
-		Forecast:       p.departureForecast(ctx, f, destTZ, landing),
+		Forecast:       p.departureForecast(ctx, f, dest.TZ, landing),
 		ForecastPlace:  destLabel,
 	}, true
+}
+
+// arrivalBlock is the label block for the effective arrival, or nil when none
+// is known. A derived arrival keeps its kind, so the label carries the ≈.
+func arrivalBlock(t timing.Times, z endZone, iata string) *timing.Block {
+	if t.Arrival == nil {
+		return nil
+	}
+	b := instantBlock(t.Arrival.At, t.Arrival.Kind, z, iata)
+	return &b
 }
 
 // arrivalAt is the effective arrival time, or nil when none is known.

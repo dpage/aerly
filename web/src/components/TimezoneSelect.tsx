@@ -1,23 +1,7 @@
 import { useMemo } from 'react';
 import { Autocomplete, TextField } from '@mui/material';
 
-/** All IANA timezone names the runtime knows about, with 'UTC' guaranteed to be
- * present. Computed once — the list is static for the life of the page. */
-function loadZones(): string[] {
-  let zones: string[] = [];
-  try {
-    const supported = (
-      Intl as unknown as { supportedValuesOf?: (k: string) => string[] }
-    ).supportedValuesOf?.('timeZone');
-    if (Array.isArray(supported)) zones = supported;
-  } catch {
-    zones = [];
-  }
-  if (!zones.includes('UTC')) zones = ['UTC', ...zones];
-  return zones;
-}
-
-const ZONES = loadZones();
+import { ZONES } from '../lib/zones';
 
 /** Fold a zone name (or query) to a comparable form: lower-cased with the IANA
  * separators flattened to spaces, so "New York" matches "America/New_York" and
@@ -29,6 +13,9 @@ function fold(s: string): string {
 interface Props {
   value: string;
   onChange: (tz: string) => void;
+  /** Fired with the current text when a choice is made (option picked, or Enter)
+   * or the field loses focus; for callers that must not act on every keystroke. */
+  onCommit?: (tz: string) => void;
   label?: string;
   helperText?: string;
   placeholder?: string;
@@ -45,6 +32,7 @@ interface Props {
 export default function TimezoneSelect({
   value,
   onChange,
+  onCommit,
   label = 'Timezone',
   helperText,
   placeholder,
@@ -69,7 +57,12 @@ export default function TimezoneSelect({
       value={value}
       inputValue={value}
       onInputChange={(_, v) => onChange(v)}
-      onChange={(_, v) => onChange(v ?? '')}
+      onChange={(_, v, reason) => {
+        const text = v ?? '';
+        onChange(text);
+        // Emptying the text reports a 'clear'; the blur that follows commits it.
+        if (reason !== 'clear') onCommit?.(text);
+      }}
       filterOptions={filterOptions}
       fullWidth={fullWidth}
       renderInput={(params) => (
@@ -79,6 +72,9 @@ export default function TimezoneSelect({
           size={size}
           placeholder={placeholder}
           helperText={helperText}
+          onBlur={(e) => {
+            onCommit?.(e.target.value);
+          }}
         />
       )}
     />

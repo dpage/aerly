@@ -39,7 +39,7 @@ func BuildQuotaAlertEmail(in QuotaAlertInput) string {
 
 	var when string
 	if !in.OccurredAt.IsZero() {
-		when = in.OccurredAt.UTC().Format("2006-01-02 15:04 MST")
+		when = in.OccurredAt.UTC().Format("2006-01-02 15:04 UTC")
 	}
 
 	var pb strings.Builder

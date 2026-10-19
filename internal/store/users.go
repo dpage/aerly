@@ -34,14 +34,14 @@ var (
 
 const userColumns = `id, username, name, avatar_url,
 	is_superuser, is_active, last_login_at, created_at, updated_at, home_address, session_version,
-	paper_size, hide_explore, hide_maps, home_lat, home_lon`
+	paper_size, hide_explore, hide_maps, home_lat, home_lon, home_tz`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	if err := row.Scan(
 		&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-		&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon,
+		&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon, &u.HomeTZ,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -163,6 +163,9 @@ type UpdateUserPayload struct {
 	SetHome bool
 	HomeLat *float64
 	HomeLon *float64
+	// HomeTZ, when non-nil, sets the user's home IANA zone; "" clears it.
+	// The handler validates it.
+	HomeTZ *string
 }
 
 func (s *Store) UpdateUser(ctx context.Context, id int64, in UpdateUserPayload) (*User, error) {
@@ -177,11 +180,12 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, in UpdateUserPayload) 
 			hide_maps = COALESCE($8, hide_maps),
 			home_lat = CASE WHEN $9 THEN $10 ELSE home_lat END,
 			home_lon = CASE WHEN $9 THEN $11 ELSE home_lon END,
+			home_tz = COALESCE($12, home_tz),
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING `+userColumns,
 		id, in.Name, in.IsSuperuser, in.IsActive, in.HomeAddress, in.PaperSize,
-		in.HideExplore, in.HideMaps, in.SetHome, in.HomeLat, in.HomeLon))
+		in.HideExplore, in.HideMaps, in.SetHome, in.HomeLat, in.HomeLon, in.HomeTZ))
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
@@ -421,7 +425,7 @@ func (s *Store) LinkLogin(ctx context.Context, p OAuthProfile, bootstrapAsSuperu
 			u.ID, p.Name, p.AvatarURL,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon)
+			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon, &u.HomeTZ)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -518,7 +522,7 @@ func insertNewUserTx(ctx context.Context, tx pgx.Tx, p OAuthProfile, bootstrapAs
 			candidate, p.Name, p.AvatarURL, bootstrapAsSuperuser,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon)
+			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon, &u.HomeTZ)
 		if err == nil {
 			if _, e := tx.Exec(ctx, `RELEASE SAVEPOINT user_insert`); e != nil {
 				return nil, e
@@ -550,7 +554,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 		p.Provider, p.ProviderUserID,
 	).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 		&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-		&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon)
+		&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon, &u.HomeTZ)
 	if err == nil {
 		return u, findStepIdentityMatch, nil
 	}
@@ -570,7 +574,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 			p.Email,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon)
+			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon, &u.HomeTZ)
 		if err == nil {
 			return u, findStepEmailMatch, nil
 		}
@@ -592,7 +596,7 @@ func (s *Store) findUserForLogin(ctx context.Context, tx pgx.Tx, p OAuthProfile)
 			p.Username,
 		).Scan(&u.ID, &u.Username, &u.Name, &u.AvatarURL,
 			&u.IsSuperuser, &u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt, &u.HomeAddress,
-			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon)
+			&u.SessionVersion, &u.PaperSize, &u.HideExplore, &u.HideMaps, &u.HomeLat, &u.HomeLon, &u.HomeTZ)
 		if err == nil {
 			return u, findStepInviteeMatch, nil
 		}

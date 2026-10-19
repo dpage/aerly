@@ -56,4 +56,35 @@ describe('TimezoneSelect', () => {
     const list = screen.getByRole('listbox');
     expect(within(list).getByText('America/New_York')).toBeInTheDocument();
   });
+
+  it('calls onCommit on Enter and blur, but not per keystroke', async () => {
+    const onCommit = vi.fn();
+    render(<TimezoneSelect value="" onChange={() => {}} onCommit={onCommit} />);
+    const input = screen.getByRole('combobox');
+    await userEvent.type(input, 'x');
+    expect(onCommit).not.toHaveBeenCalled();
+    await userEvent.tab();
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onCommit with the chosen option', async () => {
+    const onCommit = vi.fn();
+    function Wrap() {
+      const [tz, setTz] = useState('');
+      return <TimezoneSelect value={tz} onChange={setTz} onCommit={onCommit} />;
+    }
+    render(<Wrap />);
+    await userEvent.type(screen.getByRole('combobox'), 'tashk');
+    await userEvent.keyboard('{Enter}');
+    expect(onCommit).toHaveBeenCalledWith('Asia/Tashkent');
+  });
+
+  it('does not commit when the text is emptied, only on the later blur', async () => {
+    const onCommit = vi.fn();
+    const onChange = vi.fn();
+    render(<TimezoneSelect value="Asia/Tashkent" onChange={onChange} onCommit={onCommit} />);
+    await userEvent.clear(screen.getByRole('combobox'));
+    expect(onChange).toHaveBeenCalledWith('');
+    expect(onCommit).not.toHaveBeenCalled();
+  });
 });

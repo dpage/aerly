@@ -153,6 +153,8 @@ export const api = {
   updateMe: (patch: {
     home_address?: string;
     paper_size?: PaperSize;
+    /** An IANA zone; '' clears it. */
+    home_tz?: string;
     hide_explore?: boolean;
     hide_maps?: boolean;
     /** Present with numeric lat/lon pins the home location; present with null

@@ -55,7 +55,7 @@ func TestRemindCheckins_EmailAndInApp(t *testing.T) {
 		t.Fatalf("verify email: %v", err)
 	}
 	optInToCheckins(t, s, owner)
-	// 09:00 UTC at Heathrow is 10:00 BST, so the reminder must say BST.
+	// 09:00 UTC at Heathrow is 10:00 BST, so the reminder must say 10:00.
 	out := time.Date(2026, 8, 31, 9, 0, 0, 0, time.UTC)
 	partID := seedCheckinFlight(t, s, owner, "BA286", out)
 
@@ -67,7 +67,7 @@ func TestRemindCheckins_EmailAndInApp(t *testing.T) {
 	for _, want := range []string{
 		"Subject: Check-in opens soon: BA286",
 		"Online check-in for Flight BA286 (LHR",
-		"Mon 31 Aug, 10:00 BST",
+		"It departs Mon 31 Aug, 10:00 London (UTC+1).",
 	} {
 		if !strings.Contains(cap.sent[0], want) {
 			t.Errorf("email missing %q\n---\n%s", want, cap.sent[0])

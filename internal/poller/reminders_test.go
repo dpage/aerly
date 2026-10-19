@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // seedReminderPlan inserts a trip (owned by uid) + a plan of planType + one
@@ -151,7 +152,7 @@ func TestDispatchReminder_PublishErrorSkipsMark(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // InsertFlightAlert (in publishReminder) errors → dispatchReminder returns
 
-	p.dispatchReminder(ctx, due[0])
+	p.dispatchReminder(ctx, due[0], time.Now())
 
 	if cap.count() != 0 {
 		t.Fatalf("email should not be sent when the in-app insert fails, got %d", cap.count())
@@ -323,11 +324,15 @@ func TestRemindUpcoming_FlightUsesAirportTime(t *testing.T) {
 	if cap.count() != 1 {
 		t.Fatalf("want 1 reminder email, got %d", cap.count())
 	}
-	if !strings.Contains(cap.sent[0], "Flight BA286 starts Mon 31 Aug, 10:00 BST") {
+	if !strings.Contains(cap.sent[0], "Flight BA286 starts Mon 31 Aug, 10:00 London (UTC+1).") {
 		t.Fatalf("reminder not in airport time:\n%s", cap.sent[0])
 	}
 	if strings.Contains(cap.sent[0], "10:00 UTC") || strings.Contains(cap.sent[0], "09:00 UTC") {
 		t.Fatalf("reminder still quoting UTC:\n%s", cap.sent[0])
+	}
+	// No home zone, so exactly one time (review focus 5).
+	if strings.Contains(cap.sent[0], "your time") {
+		t.Fatalf("a recipient with no home zone got a second time:\n%s", cap.sent[0])
 	}
 }
 
@@ -487,7 +492,7 @@ func TestPushReminder_KindPrefErrorSwallowed(t *testing.T) {
 	cancel() // PushKindEnabled errors → pushReminder returns before Send
 	p.pushReminder(ctx, store.DueReminder{
 		UserID: owner, PlanPartID: partID, TripID: 1, StartsAt: now.Add(2 * time.Hour),
-	}, "Hilton Vienna", "Europe/Vienna")
+	}, "Hilton Vienna", timing.Block{At: now.Add(2 * time.Hour), TZ: "Europe/Vienna"}, now)
 
 	if fp.count() != 0 {
 		t.Fatalf("pushed despite a failed pref lookup: %d", fp.count())

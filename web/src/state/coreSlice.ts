@@ -13,15 +13,20 @@ import type {
   User,
 } from '../api/types';
 import { errorMessage } from './helpers';
+import { setViewerZone } from '../lib/time';
 import { clearOfflineCaches } from '../offline-cache';
 import type { StoreState } from './store';
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
 const SHOW_ALL_KEY = 'ft.show_all';
+// Set once this device has filled an empty home zone, so a zone the user
+// clears afterwards is not filled in again here.
+const HOME_TZ_AUTO_KEY = 'ft.home_tz_auto';
 
 /** The signed-out state the store resets to after any logout flow. */
 function anonymousReset(): Partial<StoreState> {
+  setViewerZone(null);
   return {
     me: null,
     auth: 'anonymous',
@@ -97,6 +102,7 @@ export interface CoreSlice {
   /** Pin the exact home coordinates, or clear the pin by passing null. */
   setHomeCoords: (coords: { lat: number; lon: number } | null) => Promise<void>;
   setPaperSize: (paperSize: PaperSize) => Promise<void>;
+  setHomeTz: (tz: string) => Promise<void>;
   /** Update the feature-hiding preferences (hide_explore / hide_maps). */
   setHiddenFeatures: (patch: { hide_explore?: boolean; hide_maps?: boolean }) => Promise<void>;
   refreshAutoShares: () => Promise<void>;
@@ -132,6 +138,21 @@ function persistShowAll(v: boolean): void {
   }
 }
 
+/** Fill an empty home zone from this device's zone (spec Decision 7), once per
+ * device. Best effort: a failure is silent and is tried again next sign-in. */
+async function autoSetHomeTz(me: User, setHomeTz: (tz: string) => Promise<void>): Promise<void> {
+  if (me.home_tz) return;
+  try {
+    if (window.localStorage.getItem(HOME_TZ_AUTO_KEY)) return;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!tz) return;
+    await setHomeTz(tz);
+    window.localStorage.setItem(HOME_TZ_AUTO_KEY, '1');
+  } catch {
+    // ignore: best effort
+  }
+}
+
 export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set, get) => ({
   auth: 'loading',
   me: null,
@@ -154,9 +175,17 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
   async init() {
     try {
       const [me, capabilities] = await Promise.all([api.getMe(), api.getConfig()]);
+      setViewerZone(me.home_tz || null);
       set({ me, capabilities, auth: 'authenticated' });
-      await Promise.all([get().refreshAll(), get().refreshNotifications(), get().loadAlerts()]);
+      await Promise.all([
+        get().refreshAll(),
+        get().refreshNotifications(),
+        get().loadAlerts(),
+        autoSetHomeTz(me, get().setHomeTz),
+      ]);
     } catch (err) {
+      // Signed out either way, so the previous user's zone must not linger.
+      setViewerZone(null);
       if (err instanceof ApiError && err.status === 401) {
         set({ me: null, auth: 'anonymous' });
       } else {
@@ -227,6 +256,15 @@ export const createCoreSlice: StateCreator<StoreState, [], [], CoreSlice> = (set
 
   async setPaperSize(paperSize) {
     const updated = await api.updateMe({ paper_size: paperSize });
+    set((s) => ({
+      me: updated,
+      users: s.users.map((u) => (u.id === updated.id ? updated : u)),
+    }));
+  },
+
+  async setHomeTz(tz) {
+    const updated = await api.updateMe({ home_tz: tz });
+    setViewerZone(updated.home_tz || null);
     set((s) => ({
       me: updated,
       users: s.users.map((u) => (u.id === updated.id ? updated : u)),

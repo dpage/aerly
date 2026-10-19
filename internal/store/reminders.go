@@ -119,17 +119,21 @@ type DueReminder struct {
 	LeadHours  int
 	StartsAt   time.Time
 	StartTZ    string
-	StartLabel string
-	PlanType   string
-	PlanTitle  string
-	Ident      string // flight ident when the part is a flight, else ""
-	Email      string // newest verified address, "" when none
+	// StartTZSource is the timing.Source name for StartTZ: a floating start
+	// must be quoted as its own digits, never moved into an airport's zone.
+	StartTZSource string
+	StartLabel    string
+	PlanType      string
+	PlanTitle     string
+	Ident         string // flight ident when the part is a flight, else ""
+	Email         string // newest verified address, "" when none
 	// OriginIATA is the departure airport of a flight part, else "". With
 	// StartLat/StartLon it lets the poller render the reminder in the
 	// airport's own zone when the part never stored one (issue #117).
 	OriginIATA string
 	StartLat   *float64
 	StartLon   *float64
+	HomeTZ     string // the recipient's home zone, "" when unset
 }
 
 // DueReminders returns every (plan_part, user) reminder ready to fire at `now`:
@@ -164,7 +168,7 @@ func (s *Store) DueReminders(ctx context.Context, now time.Time) ([]DueReminder,
 		SELECT pp.id, r.plan_id, r.trip_id, r.user_id, r.lead_hours,
 		       pp.starts_at, pp.start_tz, pp.start_label, pl.type, pl.title,
 		       COALESCE(fd.ident, ''), COALESCE(fd.origin_iata, ''),
-		       pp.start_lat, pp.start_lon,
+		       pp.start_lat, pp.start_lon, pp.start_tz_source, u.home_tz,
 		       COALESCE((
 		           SELECT e.address FROM user_emails e
 		           WHERE e.user_id = r.user_id AND e.verified = TRUE
@@ -174,6 +178,7 @@ func (s *Store) DueReminders(ctx context.Context, now time.Time) ([]DueReminder,
 		FROM resolved r
 		JOIN plans pl ON pl.id = r.plan_id
 		JOIN plan_parts pp ON pp.plan_id = r.plan_id
+		JOIN users u ON u.id = r.user_id
 		LEFT JOIN flight_details fd ON fd.plan_part_id = pp.id
 		WHERE r.enabled
 		  AND pp.status <> 'cancelled'
@@ -194,7 +199,8 @@ func (s *Store) DueReminders(ctx context.Context, now time.Time) ([]DueReminder,
 		var d DueReminder
 		if err := rows.Scan(&d.PlanPartID, &d.PlanID, &d.TripID, &d.UserID, &d.LeadHours,
 			&d.StartsAt, &d.StartTZ, &d.StartLabel, &d.PlanType, &d.PlanTitle,
-			&d.Ident, &d.OriginIATA, &d.StartLat, &d.StartLon, &d.Email); err != nil {
+			&d.Ident, &d.OriginIATA, &d.StartLat, &d.StartLon, &d.StartTZSource, &d.HomeTZ,
+			&d.Email); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

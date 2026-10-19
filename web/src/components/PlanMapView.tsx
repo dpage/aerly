@@ -38,6 +38,7 @@ import {
 import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
+import { useViewerZone } from '../state/viewerZone';
 import { personColor } from '../lib/person-color';
 import {
   fmtPartPlaces,
@@ -78,6 +79,7 @@ interface Props {
  * full flight card for flights, address/operator/etc. for everything else). */
 export default function PlanMapView({ parts, loading, controls, initialSelectedPartId }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(initialSelectedPartId ?? null);
+  const viewerTz = useViewerZone();
   const containerRef = useRef<HTMLElement | null>(null);
 
   const theme = useTheme();
@@ -95,7 +97,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
 
   const mapRef = useRef<MlMap | null>(null);
   const readyRef = useRef(false);
-  // One teardrop pin per geocoded endpoint, keyed by part + role + coordinate.
+  // One teardrop pin per geocoded endpoint, keyed by part + role + coordinate + viewer zone.
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
   // The active flight's plane icon — at its live position when airborne, else
   // parked at the origin (not departed) or destination (arrived) and oriented
@@ -314,7 +316,9 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     const live = new Set<string>();
     for (const p of ordered) {
       for (const ep of endpoints(p)) {
-        const key = `${p.id}:${ep.role}:${ep.lon},${ep.lat}`;
+        // The zone is in the key so a changed home zone rebuilds the popup's
+        // 'Your time'.
+        const key = `${p.id}:${ep.role}:${ep.lon},${ep.lat}:${viewerTz}`;
         live.add(key);
         let marker = markersRef.current.get(key);
         if (!marker) {
@@ -399,7 +403,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
 
   useEffect(() => {
     syncRef.current?.();
-  }, [ordered, selectedId, minuteTick, scrubMs]);
+  }, [ordered, selectedId, minuteTick, scrubMs, viewerTz]);
 
   // Fit the map: to the selected item's path/point, else to everything. Each
   // fit runs once per change of *intent* — picking a different item, or the set
@@ -694,6 +698,7 @@ function TimeSlider({
   onScrub: (ms: number) => void;
   onReset: () => void;
 }) {
+  const viewerTz = useViewerZone();
   return (
     <Box
       data-testid="time-slider"
@@ -741,7 +746,7 @@ function TimeSlider({
           data-testid="time-slider-time"
           sx={{ fontVariantNumeric: 'tabular-nums' }}
         >
-          {fmtScrubTime(value)}
+          {fmtScrubTime(value, viewerTz)}
         </Typography>
         {!liveEdge && (
           <Button

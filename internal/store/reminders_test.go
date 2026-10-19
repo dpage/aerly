@@ -193,3 +193,32 @@ func hasReminder(due []DueReminder, partID, userID int64) bool {
 	}
 	return false
 }
+
+// TestDueReminders_ZoneSourceAndHome: a due row carries the part's start zone
+// source and the recipient's home zone, which the reminder's labels need.
+func TestDueReminders_ZoneSourceAndHome(t *testing.T) {
+	s := New(testsupport.NewPool(t))
+	ctx := context.Background()
+	uid := testsupport.InsertUser(t, s.pool, "alice", false, true)
+	tid := seedTrip(t, s, uid)
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	_, part := seedPlanWithPart(t, s, tid, uid, "hotel", now.Add(10*time.Hour))
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE plan_parts SET start_tz = '', start_tz_source = 'floating' WHERE id = $1`, part); err != nil {
+		t.Fatal(err)
+	}
+	home := "America/New_York"
+	if _, err := s.UpdateUser(ctx, uid, UpdateUserPayload{HomeTZ: &home}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTripReminder(ctx, tid, uid, 24); err != nil {
+		t.Fatal(err)
+	}
+	due, err := s.DueReminders(ctx, now)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("DueReminders = %+v, %v", due, err)
+	}
+	if due[0].StartTZSource != "floating" || due[0].HomeTZ != home {
+		t.Errorf("source = %q, home = %q", due[0].StartTZSource, due[0].HomeTZ)
+	}
+}

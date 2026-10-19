@@ -132,6 +132,10 @@ func TestAlertRecipientsWithPrefs_OwnerPassengerOptin(t *testing.T) {
 	if err := s.SetAlertPrefs(ctx, AlertPrefs{UserID: viewer, InApp: true, Email: false, MinDelayMin: 60}); err != nil {
 		t.Fatalf("viewer prefs: %v", err)
 	}
+	home := "Asia/Kolkata"
+	if _, err := s.UpdateUser(ctx, viewer, UpdateUserPayload{HomeTZ: &home}); err != nil {
+		t.Fatalf("viewer home zone: %v", err)
+	}
 
 	recips, err := s.AlertRecipientsWithPrefs(ctx, planID)
 	if err != nil {
@@ -152,6 +156,9 @@ func TestAlertRecipientsWithPrefs_OwnerPassengerOptin(t *testing.T) {
 	}
 	if r := byID[viewer]; r.Email || r.MinDelayMin != 60 {
 		t.Fatalf("viewer prefs not applied: %+v", r)
+	}
+	if byID[viewer].HomeTZ != home || byID[owner].HomeTZ != "" {
+		t.Fatalf("home zones not folded in: viewer %q, owner %q", byID[viewer].HomeTZ, byID[owner].HomeTZ)
 	}
 }
 

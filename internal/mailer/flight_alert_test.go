@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dpage/aerly/internal/timing"
 )
 
 func TestFlightAlertSubject(t *testing.T) {
@@ -32,7 +34,6 @@ func TestBuildFlightAlertEmail_DelayHeadlineAndStructure(t *testing.T) {
 		Ident:     "BA123",
 		Kind:      "delayed",
 		Detail:    "now departing 14:35 UTC",
-		When:      time.Now(),
 	})
 	for _, want := range []string{
 		`From: "Aerly" <alerts@aerly.test>`,
@@ -113,14 +114,23 @@ func TestFlightAlertDetails(t *testing.T) {
 			name: "route and both times, each on its own clock",
 			in: FlightAlertInput{
 				Origin: "London Heathrow (LHR)", Dest: "Sydney (SYD)",
-				DepartsAt: out, OriginTZ: "Europe/London",
-				ArrivesAt: &in, DestTZ: "Australia/Sydney",
+				Departs: timing.Block{At: out, TZ: "Europe/London", Source: timing.Confirmed, Place: "London"},
+				Arrives: &timing.Block{At: in, TZ: "Australia/Sydney", Source: timing.Confirmed, Place: "Sydney"},
 			},
-			want: "Flight from London Heathrow (LHR) to Sydney (SYD), departing Mon 1 Mar, 10:00 GMT, arriving Tue 2 Mar, 19:00 AEDT.",
+			want: "Flight from London Heathrow (LHR) to Sydney (SYD), departing Mon 1 Mar, 10:00 London (UTC), arriving Tue 2 Mar, 19:00 Sydney (UTC+11).",
+		},
+		{
+			name: "a derived arrival and a recipient at home elsewhere",
+			in: FlightAlertInput{
+				Departs: timing.Block{At: out, TZ: "Europe/London", Source: timing.Confirmed, Place: "London"},
+				Arrives: &timing.Block{At: in, TZ: "Australia/Sydney", Source: timing.Confirmed, Place: "Sydney", Kind: timing.Derived},
+				HomeTZ:  "America/New_York",
+			},
+			want: "Flight departing Mon 1 Mar, 10:00 London (UTC) (05:00 your time), arriving Tue 2 Mar, ≈19:00 Sydney (UTC+11) (based on departure delay) (03:00 your time).",
 		},
 		{
 			name: "origin only, no arrival",
-			in:   FlightAlertInput{Origin: "LHR", DepartsAt: out},
+			in:   FlightAlertInput{Origin: "LHR", Departs: timing.Block{At: out}},
 			want: "Flight from LHR, departing Mon 1 Mar, 10:00 UTC.",
 		},
 		{
@@ -130,7 +140,7 @@ func TestFlightAlertDetails(t *testing.T) {
 		},
 		{
 			name: "times without a route",
-			in:   FlightAlertInput{DepartsAt: out},
+			in:   FlightAlertInput{Departs: timing.Block{At: out}},
 			want: "Flight departing Mon 1 Mar, 10:00 UTC.",
 		},
 		{
@@ -157,12 +167,11 @@ func TestBuildFlightAlertEmail_TerminalChangeNamesTheFlight(t *testing.T) {
 		Detail:    "now arrives at terminal 1",
 		Origin:    "London Heathrow (LHR)",
 		Dest:      "Sydney (SYD)",
-		DepartsAt: out,
-		OriginTZ:  "Europe/London",
+		Departs:   timing.Block{At: out, TZ: "Europe/London", Source: timing.Confirmed, Place: "London"},
 	})
 	for _, want := range []string{
 		"Terminal change: BA15",
-		"Flight from London Heathrow (LHR) to Sydney (SYD), departing Mon 1 Mar, 10:00 GMT.",
+		"Flight from London Heathrow (LHR) to Sydney (SYD), departing Mon 1 Mar, 10:00 London (UTC).",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("terminal-change email missing %q:\n%s", want, msg)

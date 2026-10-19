@@ -401,3 +401,26 @@ func TestLinkLoginGoogleBootstrap(t *testing.T) {
 		t.Errorf("username should default to email local-part, got %q", u.Username)
 	}
 }
+
+func TestUpdateUserHomeTZ(t *testing.T) {
+	s := newStore(t)
+	u, _ := s.InviteUser(ctx, InvitePayload{Username: "hometz", Name: "Test User"})
+	if u.HomeTZ != "" {
+		t.Fatalf("default HomeTZ = %q, want empty", u.HomeTZ)
+	}
+	tz := "Asia/Tashkent"
+	upd, err := s.UpdateUser(ctx, u.ID, UpdateUserPayload{HomeTZ: &tz})
+	if err != nil || upd.HomeTZ != tz {
+		t.Fatalf("set HomeTZ: %+v, %v", upd, err)
+	}
+	name := "Renamed"
+	upd, _ = s.UpdateUser(ctx, u.ID, UpdateUserPayload{Name: &name})
+	if upd.HomeTZ != tz {
+		t.Errorf("unrelated update changed HomeTZ to %q", upd.HomeTZ)
+	}
+	empty := ""
+	upd, _ = s.UpdateUser(ctx, u.ID, UpdateUserPayload{HomeTZ: &empty})
+	if upd.HomeTZ != "" {
+		t.Errorf("clear HomeTZ = %q", upd.HomeTZ)
+	}
+}

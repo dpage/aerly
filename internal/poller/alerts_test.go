@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/dpage/aerly/internal/api"
-	"github.com/dpage/aerly/internal/mailer"
 	"github.com/dpage/aerly/internal/providers"
 	"github.com/dpage/aerly/internal/sse"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // captureMailer records the messages a poller's email channel would have sent.
@@ -236,14 +236,20 @@ func TestChangeDetail_DelayQuotedInAirportTime(t *testing.T) {
 	out := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
 	eff := out.Add(35 * time.Minute)
 	jfk := &store.Flight{OriginIATA: "JFK", ScheduledOut: out, EstimatedOut: &eff}
-	if got := changeDetail("delayed", alertState{}, alertState{}, jfk); got != "now departing 08:35 EDT" {
-		t.Errorf("JFK delay detail = %q, want 'now departing 08:35 EDT'", got)
+	if got := changeDetail("delayed", alertState{}, alertState{}, jfk); got != "now departing 08:35 New York (UTC-4)" {
+		t.Errorf("JFK delay detail = %q, want 'now departing 08:35 New York (UTC-4)'", got)
 	}
 
 	// Nothing to place the airport by → UTC, as before.
 	unknown := &store.Flight{OriginIATA: "ZZZ", ScheduledOut: out, EstimatedOut: &eff}
 	if got := changeDetail("delayed", alertState{}, alertState{}, unknown); got != "now departing 12:35 UTC" {
 		t.Errorf("unplaceable delay detail = %q, want 'now departing 12:35 UTC'", got)
+	}
+
+	// A recipient with a home zone sees the unplaceable time on their own
+	// clock, labelled, and with no second "your time" to compare it against.
+	if got := recipientDetail("delayed", "", unknown, "Europe/London"); got != "now departing 13:35 UTC+1" {
+		t.Errorf("unplaceable delay detail at home = %q, want 'now departing 13:35 UTC+1'", got)
 	}
 }
 
@@ -420,14 +426,14 @@ func TestSendAlertEmail_Branches(t *testing.T) {
 
 	// (a) No MailFromAddress configured → early return, nothing sent.
 	p1, _, _ := newPoller(t, &mockTracker{}, time.Minute)
-	p1.sendAlertEmail(ctx, "to@aerly.test", &store.Flight{Ident: "BA900"}, "delayed", "now delayed") // no-op
+	p1.sendAlertEmail(ctx, "to@aerly.test", "", &store.Flight{Ident: "BA900"}, "delayed", "now delayed") // no-op
 
 	// (b) Send==nil → defaults to mailer.Send with a no-op sendmail (/bin/true).
 	p2, _, _ := newPoller(t, &mockTracker{}, time.Minute)
 	p2.MailFromAddress = "alerts@aerly.test"
 	p2.SendmailPath = "/bin/true"
 	p2.PublicURL = "http://localhost:8080"
-	p2.sendAlertEmail(ctx, "to@aerly.test", &store.Flight{Ident: "BA901"}, "cancelled", "") // default mailer
+	p2.sendAlertEmail(ctx, "to@aerly.test", "", &store.Flight{Ident: "BA901"}, "cancelled", "") // default mailer
 
 	// (c) A failing Send is logged and swallowed (no panic, no propagation).
 	p3, _, _ := newPoller(t, &mockTracker{}, time.Minute)
@@ -436,7 +442,7 @@ func TestSendAlertEmail_Branches(t *testing.T) {
 	p3.SendAlertEmail = func(context.Context, string, string, string) error {
 		return errors.New("sendmail pipe broke")
 	}
-	p3.sendAlertEmail(ctx, "to@aerly.test", &store.Flight{Ident: "BA902"}, "gate", "now departs gate B32")
+	p3.sendAlertEmail(ctx, "to@aerly.test", "", &store.Flight{Ident: "BA902"}, "gate", "now departs gate B32")
 }
 
 func TestAlert_DelayBelowThresholdDoesNotAlert(t *testing.T) {
@@ -580,8 +586,8 @@ func TestAlert_CancellationAlwaysAlertsRegardlessOfThreshold(t *testing.T) {
 	// flights booked can tell which one this is (issue #144).
 	for _, want := range []string{
 		"Flight from London Heathrow (LHR) to New York JFK (JFK)",
-		"departing " + mailer.LocalTime(f.ScheduledOut, "Europe/London"),
-		"arriving " + mailer.LocalTime(f.ScheduledIn, "America/New_York"),
+		"departing " + timing.Full(timing.Block{At: f.ScheduledOut, TZ: "Europe/London", Place: "London"}, ""),
+		"arriving " + timing.Full(timing.Block{At: f.ScheduledIn, TZ: "America/New_York", Place: "New York"}, ""),
 	} {
 		if !strings.Contains(cap.sent[0], want) {
 			t.Errorf("cancellation email missing %q:\n%s", want, cap.sent[0])
