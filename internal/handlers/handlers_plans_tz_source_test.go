@@ -91,17 +91,17 @@ func TestCreatePlanRejectsEmptyTZSource(t *testing.T) {
 	} {
 		part["type"] = "dining"
 		plan := map[string]any{"type": "dining", "title": "Test Bistro", "parts": []map[string]any{part}}
-		// The confirm endpoint reports any failed save with one message.
+		// Both create paths name the zone as the problem.
 		for _, c := range []struct {
-			path, want string
-			body       any
+			path string
+			body any
 		}{
-			{"/plans", "Invalid time zone.", plan},
-			{"/ingest/confirm", "Could not save those bookings.", map[string]any{"plans": []map[string]any{plan}}},
+			{"/plans", plan},
+			{"/ingest/confirm", map[string]any{"plans": []map[string]any{plan}}},
 		} {
 			w := e.req(t, "POST", "/api/trips/"+itoa(trip)+c.path, c.body, owner)
-			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), c.want) {
-				t.Errorf("%s via %s = %d, want 400 %s: %s", name, c.path, w.Code, c.want, w.Body.String())
+			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Invalid time zone.") {
+				t.Errorf("%s via %s = %d, want 400 Invalid time zone.: %s", name, c.path, w.Code, w.Body.String())
 			}
 		}
 	}
