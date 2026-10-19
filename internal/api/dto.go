@@ -949,12 +949,26 @@ func ToTripMemberDTO(m *store.TripMember) TripMemberDTO {
 	return TripMemberDTO{UserID: m.UserID, Role: m.Role}
 }
 
+// providerZone is the zone a flight end's blocks are built with. A floating
+// end stores no zone, yet a provider estimate or actual on it is a true
+// instant, so it is quoted at the end's own airport (timing.AirportZone);
+// newTimeBlock keeps that zone off the end's scheduled and derived times,
+// which are wall-clock digits, and the source stays floating. Any other end
+// uses the zone it stored.
+func providerZone(tz, src, iata string, lat, lon *float64) string {
+	if tz != "" || src != string(timing.Floating) {
+		return tz
+	}
+	zone, _ := timing.AirportZone(iata, lat, lon)
+	return zone
+}
+
 // ToPlanPartDTO renders a part with its type-specific detail. The detail is
 // passed in (already loaded by the store) as exactly one non-nil pointer. A
 // flight's ends carry the zone and source as stored: there is no read-time
 // airport fallback, since the startup pass (BackfillPartTimezones) writes an
-// unknown flight end's airport zone as confirmed, and a floating end's digits
-// must not be labelled with a zone they were never anchored in.
+// unknown flight end's airport zone as confirmed. The one airport lookup left
+// is providerZone's, for a floating end's provider times.
 //
 // effective_at: for flight parts it is the effective departure from the timing
 // package; for every other type it is StartsAt.
@@ -999,7 +1013,9 @@ func ToPlanPartDTO(
 	}
 	switch {
 	case flight != nil:
-		dto.Flight = ToFlightDetailDTO(flight, latest, track, startTZ, startSrc, endTZ, endSrc)
+		dto.Flight = ToFlightDetailDTO(flight, latest, track,
+			providerZone(startTZ, startSrc, flight.OriginIATA, p.StartLat, p.StartLon), startSrc,
+			providerZone(endTZ, endSrc, flight.DestIATA, p.EndLat, p.EndLon), endSrc)
 		dto.EffectiveAt = dto.Flight.Departure.At
 		dto.Start = dto.Flight.Departure
 		if dto.Flight.Arrival != nil {
