@@ -8,6 +8,7 @@ import (
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // mustTime parses an RFC3339 instant for fixtures.
@@ -30,7 +31,7 @@ func TestRenderItineraryPDFStructure(t *testing.T) {
 			SupplierName: "British Airways", ContactPhone: "+44 20 1234", ContactEmail: "help@ba.com",
 			Website: "https://ba.com", Notes: "Seat 14A,\nwindow.",
 			Parts: []api.PlanPartDTO{{
-				StartsAt: start, EndsAt: &end, StartTZ: "Europe/London", EndTZ: "Europe/Paris",
+				StartsAt: start, EndsAt: &end, StartTZ: "Europe/London", EndTZ: "Europe/Paris", Start: blk(start, "Europe/London"), End: blkp(end, "Europe/Paris"),
 				StartLabel: "London Heathrow T5", EndLabel: "Paris CDG",
 				StartAddress: "Heathrow Airport, Longford TW6 1QG",
 				EndAddress:   "95731 Roissy-en-France, France", Status: "confirmed",
@@ -84,7 +85,7 @@ func TestRenderItineraryPDFSingleAddress(t *testing.T) {
 	plans := []api.PlanDTO{{
 		Type: "hotel", Title: name, ConfirmationRef: "97703742",
 		Parts: []api.PlanPartDTO{{
-			StartsAt: in, EndsAt: &out, StartTZ: "America/New_York", EndTZ: "America/New_York",
+			StartsAt: in, EndsAt: &out, StartTZ: "America/New_York", EndTZ: "America/New_York", Start: blk(in, "America/New_York"), End: blkp(out, "America/New_York"),
 			StartLabel: name, EndLabel: name, StartAddress: addr, EndAddress: addr,
 		}},
 	}}
@@ -120,7 +121,7 @@ func TestRenderItineraryPDFHotelCheckOut(t *testing.T) {
 	plans := []api.PlanDTO{{
 		Type: "hotel", Title: "Radisson Blu", ConfirmationRef: "3BD48BMG",
 		Parts: []api.PlanPartDTO{{
-			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London",
+			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London", Start: blk(in, "Europe/London"), End: blkp(out, "Europe/London"),
 		}},
 	}}
 	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
@@ -128,8 +129,8 @@ func TestRenderItineraryPDFHotelCheckOut(t *testing.T) {
 	for _, want := range []string{
 		`Accommodation: Radisson Blu \(Check-in\)`,
 		`Accommodation: Radisson Blu \(Check-out\)`,
-		"Check-in: Mon 7 Sep, 15:00",
-		"Check-out: Wed 9 Sep, 12:00",
+		"Check-in: Mon 7 Sep, 15:00 UTC+1",
+		"Check-out: Wed 9 Sep, 12:00 UTC+1",
 		"Monday, 7 September 2026",
 		"Wednesday, 9 September 2026",
 	} {
@@ -152,14 +153,14 @@ func TestRenderItineraryPDFHotelSameDay(t *testing.T) {
 	trip := &store.Trip{Name: "Day room"}
 	plans := []api.PlanDTO{{
 		Type: "hotel", Title: "Yotel",
-		Parts: []api.PlanPartDTO{{StartsAt: in, EndsAt: &out, StartTZ: "Europe/London"}},
+		Parts: []api.PlanPartDTO{{StartsAt: in, EndsAt: &out, StartTZ: "Europe/London", Start: blk(in, "Europe/London"), End: blkp(out, "Europe/London")}},
 	}}
 	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
 	if strings.Contains(s, "Check-in)") || strings.Contains(s, "Check-out)") {
 		t.Errorf("a same-day hotel should not split into check-in/check-out rows:\n%s", s)
 	}
 	// The en-dash in the span is folded to ASCII "-" in the content stream.
-	if !strings.Contains(s, "Mon 7 Sep, 10:00 - 18:00") {
+	if !strings.Contains(s, "Mon 7 Sep, 10:00 UTC+1 - 18:00 UTC+1") {
 		t.Errorf("a same-day hotel should show its full span:\n%s", s)
 	}
 }
@@ -172,7 +173,7 @@ func TestRenderItineraryPDFSingleLocationLabel(t *testing.T) {
 	plans := []api.PlanDTO{{
 		Type: "dining", Title: "Anniversary dinner",
 		Parts: []api.PlanPartDTO{{
-			StartsAt: at, StartTZ: "America/Los_Angeles",
+			StartsAt: at, StartTZ: "America/Los_Angeles", Start: blk(at, "America/Los_Angeles"),
 			StartLabel: "The French Laundry", StartAddress: "6640 Washington St, Yountville, CA",
 		}},
 	}}
@@ -204,7 +205,7 @@ func TestRenderItineraryPDFFallbacks(t *testing.T) {
 	trip := &store.Trip{} // no name, no destination, no dates
 	plans := []api.PlanDTO{{
 		Type: "", Title: "",
-		Parts: []api.PlanPartDTO{{StartsAt: at, StartTZ: "", Status: "cancelled"}},
+		Parts: []api.PlanPartDTO{{StartsAt: at, StartTZ: "", Start: blk(at, ""), Status: "cancelled"}},
 	}}
 	s := string(renderItineraryPDF(trip, plans, nil, ""))
 	if !strings.Contains(s, "Plan: Plan") {
@@ -225,7 +226,7 @@ func TestRenderItineraryPDFPaginates(t *testing.T) {
 		plans = append(plans, api.PlanDTO{
 			Type: "hotel", Title: "Stay",
 			Notes: strings.Repeat("A long note that should wrap across the body column width. ", 4),
-			Parts: []api.PlanPartDTO{{StartsAt: ts, StartTZ: "UTC"}},
+			Parts: []api.PlanPartDTO{{StartsAt: ts, StartTZ: "UTC", Start: blk(ts, "UTC")}},
 		})
 	}
 	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
@@ -242,7 +243,7 @@ func TestRenderItineraryPDFPaginates(t *testing.T) {
 // two pages), and the page-size preference is honoured.
 func TestRenderItinerariesPDF(t *testing.T) {
 	at := mustTime(t, "2026-06-15T12:30:00Z")
-	parts := []api.PlanPartDTO{{StartsAt: at, StartTZ: "UTC", StartLabel: "Gate"}}
+	parts := []api.PlanPartDTO{{StartsAt: at, StartTZ: "UTC", Start: blk(at, "UTC"), StartLabel: "Gate"}}
 	sections := []tripItinerary{
 		{
 			trip:  &store.Trip{Name: "Paris (2026)", Destination: "Paris"},
@@ -291,10 +292,10 @@ func TestFlattenItinerary(t *testing.T) {
 	dismissed := t2
 	plans := []api.PlanDTO{
 		{Type: "hotel", Parts: []api.PlanPartDTO{
-			{ID: 3, StartsAt: t3},
-			{ID: 2, StartsAt: t2, DismissedAt: &dismissed}, // tidied away → skipped
+			{ID: 3, StartsAt: t3, Start: blk(t3, "")},
+			{ID: 2, StartsAt: t2, Start: blk(t2, ""), DismissedAt: &dismissed}, // tidied away → skipped
 		}},
-		{Type: "flight", Parts: []api.PlanPartDTO{{ID: 1, StartsAt: t1}}},
+		{Type: "flight", Parts: []api.PlanPartDTO{{ID: 1, StartsAt: t1, Start: blk(t1, "")}}},
 	}
 	rows := flattenItinerary(plans, nil)
 	if len(rows) != 2 {
@@ -311,7 +312,7 @@ func TestFlattenItineraryExternals(t *testing.T) {
 	t1 := mustTime(t, "2026-03-01T09:00:00Z")
 	t2 := mustTime(t, "2026-03-01T12:00:00Z")
 	plans := []api.PlanDTO{
-		{Type: "flight", Parts: []api.PlanPartDTO{{ID: 1, StartsAt: t1}}},
+		{Type: "flight", Parts: []api.PlanPartDTO{{ID: 1, StartsAt: t1, Start: blk(t1, "")}}},
 	}
 	externals := []api.ExternalEventDTO{
 		{ID: 7, Title: "Keynote", StartsAt: t2},
@@ -405,19 +406,91 @@ func TestRouteLine(t *testing.T) {
 	}
 }
 
-func TestTimeRange(t *testing.T) {
-	start := mustTime(t, "2026-06-15T08:00:00Z")
-	endSame := mustTime(t, "2026-06-15T10:30:00Z")
-	endNext := mustTime(t, "2026-06-16T07:00:00Z")
+// blk is a part's time block as the API builds it: confirmed in the zone, or
+// an unknown true instant when there is none.
+func blk(at time.Time, tz string) api.TimeBlockDTO {
+	src := "confirmed"
+	if tz == "" {
+		src = "unknown"
+	}
+	return api.TimeBlockDTO{At: at, TZ: tz, TZSource: src}
+}
 
-	if got := timeRange(start, nil, "UTC", ""); got != "Mon 15 Jun, 08:00" {
+func blkp(at time.Time, tz string) *api.TimeBlockDTO {
+	b := blk(at, tz)
+	return &b
+}
+
+func tzBlock(at, tz string, src timing.Source, place string) timing.Block {
+	t, _ := time.Parse(time.RFC3339, at)
+	return timing.Block{At: t, TZ: tz, Source: src, Place: place}
+}
+
+func TestTimeRange(t *testing.T) {
+	start := tzBlock("2026-06-15T08:00:00Z", "UTC", timing.Confirmed, "")
+	endSame := tzBlock("2026-06-15T10:30:00Z", "UTC", timing.Confirmed, "")
+	endNext := tzBlock("2026-06-16T07:00:00Z", "UTC", timing.Confirmed, "")
+
+	if got := timeRange(start, nil); got != "Mon 15 Jun, 08:00 UTC" {
 		t.Errorf("no end = %q", got)
 	}
-	if got := timeRange(start, &endSame, "UTC", ""); got != "Mon 15 Jun, 08:00 – 10:30" {
+	if got := timeRange(start, &endSame); got != "Mon 15 Jun, 08:00 UTC – 10:30 UTC" {
 		t.Errorf("same day = %q", got)
 	}
-	if got := timeRange(start, &endNext, "UTC", "UTC"); got != "Mon 15 Jun, 08:00 – Tue 16 Jun, 07:00" {
+	if got := timeRange(start, &endNext); got != "Mon 15 Jun, 08:00 UTC – Tue 16 Jun, 07:00 UTC" {
 		t.Errorf("cross day = %q", got)
+	}
+}
+
+func TestTimeRangeLabels(t *testing.T) {
+	tas := tzBlock("2026-10-18T09:00:00Z", "Asia/Tashkent", timing.Confirmed, "Tashkent")
+	if got := timeRange(tas, nil); got != "Sun 18 Oct, 14:00 Tashkent (UTC+5)" {
+		t.Errorf("flight = %q", got)
+	}
+	ist := tzBlock("2026-10-18T15:50:00Z", "Europe/Istanbul", timing.Confirmed, "Istanbul")
+	if got := timeRange(tas, &ist); got != "Sun 18 Oct, 14:00 Tashkent (UTC+5) – 18:50 UTC+3" {
+		t.Errorf("same day, own zones = %q", got)
+	}
+	// Same UTC day, but the end is already tomorrow where it lands.
+	late := tzBlock("2026-10-18T20:30:00Z", "Asia/Tashkent", timing.Confirmed, "Tashkent")
+	if got := timeRange(tas, &late); got != "Sun 18 Oct, 14:00 Tashkent (UTC+5) – Mon 19 Oct, 01:30 Tashkent (UTC+5)" {
+		t.Errorf("next day in own zone = %q", got)
+	}
+	flo := tzBlock("2026-10-18T14:00:00Z", "", timing.Floating, "")
+	if got := timeRange(flo, nil); got != "Sun 18 Oct, 14:00" {
+		t.Errorf("floating = %q", got)
+	}
+	unk := tzBlock("2026-10-18T14:00:00Z", "", timing.Unknown, "")
+	if got := timeRange(unk, nil); got != "Sun 18 Oct, 14:00 UTC" {
+		t.Errorf("unknown = %q", got)
+	}
+}
+
+func TestItineraryLabelsAndHeadings(t *testing.T) {
+	at := mustTime(t, "2026-10-17T23:30:00Z")
+	tas := api.TimeBlockDTO{At: at, TZ: "Asia/Tashkent", TZSource: "confirmed", Place: "Tashkent"}
+	plans := []api.PlanDTO{{Type: "flight", Title: "XX100", Parts: []api.PlanPartDTO{{Start: tas}}}}
+	row := flattenItinerary(plans, nil)[0]
+	if got := row.start(); got.TZ != "Asia/Tashkent" || !got.At.Equal(at) || got.Source != timing.Confirmed {
+		t.Errorf("start block = %+v", got)
+	}
+	l := newPDFLayout("a4")
+	l.renderTrip(&store.Trip{Name: "Test"}, plans, []api.ExternalEventDTO{{ID: 1, Title: "Talk", StartsAt: at, StartTZ: "Asia/Tashkent"}})
+	out := string(l.encode())
+	for _, want := range []string{"Sunday, 18 October 2026", "04:30 UTC+5"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("PDF missing %q", want)
+		}
+	}
+}
+
+func TestEventBlock(t *testing.T) {
+	at := mustTime(t, "2026-10-18T09:00:00Z")
+	if b := eventBlock(&api.ExternalEventDTO{StartsAt: at, StartTZ: "Asia/Tashkent"}); b.Source != timing.Confirmed {
+		t.Errorf("zoned event source = %q", b.Source)
+	}
+	if b := eventBlock(&api.ExternalEventDTO{StartsAt: at}); b.Source != timing.Unknown || b.TZ != "" {
+		t.Errorf("zoneless event = %+v", b)
 	}
 }
 
@@ -528,7 +601,8 @@ func TestAssemblePDFOffsets(t *testing.T) {
 }
 
 // TestPDFHotelOutputUnchangedByBandingRefactor is the golden test for the
-// banding unification on the PDF side: a two-night hotel stay must keep
+// banding unification on the PDF side (row clocks and time lines now carry
+// an offset label): a two-night hotel stay must keep
 // producing exactly the same ordered run of drawn text (day headers, times, row
 // titles and detail lines) that it produced before the refactor, since those
 // labels are user-visible on a printed itinerary.
@@ -540,7 +614,7 @@ func TestPDFHotelOutputUnchangedByBandingRefactor(t *testing.T) {
 		Type: "hotel", Title: "Test Hotel", ConfirmationRef: "TESTREF1",
 		SupplierName: "Test Bookings", ContactPhone: "+44 20 7946 0100",
 		Parts: []api.PlanPartDTO{{
-			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London",
+			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London", Start: blk(in, "Europe/London"), End: blkp(out, "Europe/London"),
 			StartLabel: "Test Hotel", EndLabel: "Test Hotel",
 			StartAddress: "1 Test Street, Testville TE1 1ST",
 		}},
@@ -550,17 +624,17 @@ func TestPDFHotelOutputUnchangedByBandingRefactor(t *testing.T) {
 	want := strings.Join([]string{
 		"Test Trip",
 		"Monday, 7 September 2026",
-		"15:00",
+		"15:00 UTC+1",
 		`Accommodation: Test Hotel \(Check-in\)`,
 		"Address: 1 Test Street, Testville TE1 1ST",
-		"Check-in: Mon 7 Sep, 15:00",
+		"Check-in: Mon 7 Sep, 15:00 UTC+1",
 		"Confirmation: TESTREF1",
 		"Booked with: Test Bookings Tel: +44 20 7946 0100",
 		"Wednesday, 9 September 2026",
-		"12:00",
+		"12:00 UTC+1",
 		`Accommodation: Test Hotel \(Check-out\)`,
 		"Address: 1 Test Street, Testville TE1 1ST",
-		"Check-out: Wed 9 Sep, 12:00",
+		"Check-out: Wed 9 Sep, 12:00 UTC+1",
 		"Aerly itinerary  \xb7  Page 1 of 1",
 	}, "\n")
 	if got != want {
@@ -591,7 +665,7 @@ func TestRenderItineraryPDFVehicleHireBands(t *testing.T) {
 	plans := []api.PlanDTO{{
 		Type: "vehicle_hire", Title: "Test Car Hire", ConfirmationRef: "TESTREF2",
 		Parts: []api.PlanPartDTO{{
-			StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London",
+			StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London", Start: blk(pickup, "Europe/London"), End: blkp(dropoff, "Europe/London"),
 			StartLabel: "Testport Terminal 1", EndLabel: "Testville Central",
 		}},
 	}}
@@ -600,8 +674,8 @@ func TestRenderItineraryPDFVehicleHireBands(t *testing.T) {
 	for _, want := range []string{
 		`\(Pickup\)`,
 		`\(Return\)`,
-		"Pickup: Wed 9 Sep, 09:00",
-		"Return: Fri 11 Sep, 10:00",
+		"Pickup: Wed 9 Sep, 09:00 UTC+1",
+		"Return: Fri 11 Sep, 10:00 UTC+1",
 		"Wednesday, 9 September 2026",
 		"Friday, 11 September 2026",
 	} {
@@ -630,7 +704,7 @@ func TestRenderItineraryPDFOneWayHireEdgesShowOwnEnd(t *testing.T) {
 	plans := []api.PlanDTO{{
 		Type: "vehicle_hire", Title: "Test Car Hire",
 		Parts: []api.PlanPartDTO{{
-			StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London",
+			StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London", Start: blk(pickup, "Europe/London"), End: blkp(dropoff, "Europe/London"),
 			StartLabel:   "Testport Desk",
 			EndLabel:     "Testville Depot",
 			StartAddress: "1 Airport Road, Testport",
@@ -677,7 +751,7 @@ func TestRenderItineraryPDFHotelAddressUnaffectedByOneWayHireFix(t *testing.T) {
 	plans := []api.PlanDTO{{
 		Type: "hotel", Title: "Test Hotel",
 		Parts: []api.PlanPartDTO{{
-			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London",
+			StartsAt: in, EndsAt: &out, StartTZ: "Europe/London", Start: blk(in, "Europe/London"), End: blkp(out, "Europe/London"),
 			StartLabel:   "Test Hotel",
 			EndLabel:     "Test Hotel",
 			StartAddress: "1 Test Street, Testville TE1 1ST",
@@ -697,13 +771,13 @@ func TestRenderItineraryPDFVehicleHireSameDay(t *testing.T) {
 	trip := &store.Trip{Name: "Test Trip"}
 	plans := []api.PlanDTO{{
 		Type: "vehicle_hire", Title: "Test Day Hire",
-		Parts: []api.PlanPartDTO{{StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London"}},
+		Parts: []api.PlanPartDTO{{StartsAt: pickup, EndsAt: &dropoff, StartTZ: "Europe/London", Start: blk(pickup, "Europe/London"), End: blkp(dropoff, "Europe/London")}},
 	}}
 	s := string(renderItineraryPDF(trip, plans, nil, "a4"))
 	if strings.Contains(s, "Pickup)") || strings.Contains(s, "Return)") {
 		t.Errorf("a same-day hire should not split into pickup/return rows:\n%s", s)
 	}
-	if !strings.Contains(s, "Wed 9 Sep, 09:00 - 17:00") {
+	if !strings.Contains(s, "Wed 9 Sep, 09:00 UTC+1 - 17:00 UTC+1") {
 		t.Errorf("a same-day hire should show its full span:\n%s", s)
 	}
 }
@@ -718,7 +792,7 @@ func TestRenderItineraryPDFOvernightJourneyNeverBands(t *testing.T) {
 		plans := []api.PlanDTO{{
 			Type: typ, Title: "Overnight",
 			Parts: []api.PlanPartDTO{{
-				StartsAt: depart, EndsAt: &arrive, StartTZ: "Europe/London",
+				StartsAt: depart, EndsAt: &arrive, StartTZ: "Europe/London", Start: blk(depart, "Europe/London"), End: blkp(arrive, "Europe/London"),
 				StartLabel: "Testville", EndLabel: "Testburg",
 			}},
 		}}
@@ -729,5 +803,19 @@ func TestRenderItineraryPDFOvernightJourneyNeverBands(t *testing.T) {
 		if strings.Count(s, "September 2026") != 1 {
 			t.Errorf("%s: an overnight journey must not open a second day header:\n%s", typ, s)
 		}
+	}
+}
+
+func TestExternalEventSpanKeepsItsOwnZone(t *testing.T) {
+	at := mustTime(t, "2026-10-18T09:00:00Z")
+	end := mustTime(t, "2026-10-18T10:30:00Z")
+	ev := &api.ExternalEventDTO{Title: "Talk", StartsAt: at, EndsAt: &end, StartTZ: "Asia/Tashkent"}
+	lines := externalEventDetails(ev)
+	if len(lines) != 1 || lines[0] != "Sun 18 Oct, 14:00 UTC+5 – 15:30 UTC+5" {
+		t.Errorf("event span = %q", lines)
+	}
+	ev.StartTZ = ""
+	if got := externalEventDetails(ev); got[0] != "Sun 18 Oct, 09:00 UTC – 10:30 UTC" {
+		t.Errorf("zoneless event span = %q", got)
 	}
 }

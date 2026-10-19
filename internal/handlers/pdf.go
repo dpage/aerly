@@ -9,6 +9,7 @@ import (
 
 	"github.com/dpage/aerly/internal/api"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // Hand-rolled PDF itinerary renderer. No external deps — like the iCal renderer
@@ -156,27 +157,40 @@ type itinRow struct {
 	ev   *api.ExternalEventDTO
 }
 
-// start returns the row's start instant and its display timezone, for sorting
-// and day grouping. The closing row of a banded booking places by its closing
-// instant (in the part's end zone) so it lands on the last day, not the first.
-func (r itinRow) start() (time.Time, string) {
+// start returns the block the row is placed by, for sorting and day grouping.
+// The closing row of a banded booking places by its closing block so it lands
+// on the last day, not the first.
+func (r itinRow) start() timing.Block {
 	if r.part != nil {
-		if r.part.edge == edgeLast && r.part.part.EndsAt != nil {
-			return *r.part.part.EndsAt, partEndTZ(r.part.part)
+		if r.part.edge == edgeLast && r.part.part.End != nil {
+			return blockOf(*r.part.part.End)
 		}
-		return r.part.part.StartsAt, r.part.part.StartTZ
+		return blockOf(r.part.part.Start)
 	}
-	return r.ev.StartsAt, r.ev.StartTZ
+	return eventBlock(r.ev)
 }
 
-// partEndTZ is a part's closing timezone: its end zone, falling back to the
-// start zone (a hotel stay's two ends are the same property, so end_tz is
-// usually blank, whilst a one-way car hire does set it).
-func partEndTZ(pt *api.PlanPartDTO) string {
-	if pt.EndTZ != "" {
-		return pt.EndTZ
+// blockOf converts a part's time block from the DTO into the form the label
+// formatters take. The PDF never reads the raw start_tz and end_tz columns:
+// the block already carries the zone, how sure it is, and the place.
+func blockOf(b api.TimeBlockDTO) timing.Block {
+	return timing.Block{
+		At:     b.At,
+		TZ:     b.TZ,
+		Source: timing.Source(b.TZSource),
+		Place:  b.Place,
+		Kind:   timing.Kind(b.Kind),
 	}
-	return pt.StartTZ
+}
+
+// eventBlock is an external event's start: it keeps its own zone, confirmed
+// when the feed gave one and unknown (a true instant) when it did not.
+func eventBlock(ev *api.ExternalEventDTO) timing.Block {
+	b := timing.Block{At: ev.StartsAt, TZ: ev.StartTZ, Source: timing.Unknown}
+	if ev.StartTZ != "" {
+		b.Source = timing.Confirmed
+	}
+	return b
 }
 
 // flattenItinerary expands the trip's plans (one row per non-dismissed part)
@@ -207,8 +221,7 @@ func flattenItinerary(plans []api.PlanDTO, externals []api.ExternalEventDTO) []i
 		rows = append(rows, itinRow{ev: &externals[i]})
 	}
 	sort.SliceStable(rows, func(a, b int) bool {
-		as, _ := rows[a].start()
-		bs, _ := rows[b].start()
+		as, bs := rows[a].start().At, rows[b].start().At
 		if !as.Equal(bs) {
 			return as.Before(bs)
 		}
@@ -280,9 +293,8 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 	bodyX := l.margin + 64
 	var lastDay string
 	for _, row := range rows {
-		startsAt, tz := row.start()
-		start := startsAt.In(eventLoc(tz))
-		day := start.Format("Monday, 2 January 2006")
+		sb := row.start()
+		day := sb.At.In(eventLoc(sb.TZ)).Format("Monday, 2 January 2006")
 		if day != lastDay {
 			l.ensure(34)
 			l.y -= 6
@@ -297,7 +309,7 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 		var title string
 		var details []string
 		if row.part != nil {
-			l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
+			l.text(l.margin, l.y, "F2", 10, 0.1, timing.Compact(sb, ""))
 			title = typeLabel(row.part.plan.Type) + ": " +
 				nonEmpty(row.part.plan.Title, typeLabel(row.part.plan.Type)) +
 				edgeSuffix(row.part.plan.Type, row.part.edge)
@@ -306,7 +318,7 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 			if row.ev.AllDay {
 				l.text(l.margin, l.y, "F2", 10, 0.1, "all day")
 			} else {
-				l.text(l.margin, l.y, "F2", 10, 0.1, start.Format("15:04"))
+				l.text(l.margin, l.y, "F2", 10, 0.1, timing.Compact(sb, ""))
 			}
 			title = "Event: " + nonEmpty(row.ev.Title, "Event")
 			details = externalEventDetails(row.ev)
@@ -329,7 +341,7 @@ func externalEventDetails(ev *api.ExternalEventDTO) []string {
 		out = append(out, oneLine(ev.Location))
 	}
 	if !ev.AllDay {
-		out = append(out, timeRange(ev.StartsAt, ev.EndsAt, ev.StartTZ, ev.StartTZ))
+		out = append(out, timeRange(eventBlock(ev), eventEnd(ev)))
 	}
 	if ev.Description != "" {
 		out = append(out, oneLine(ev.Description))
@@ -422,15 +434,15 @@ func partDetails(it itinPart) []string {
 	// opening row. Every other row shows the part's full span.
 	switch it.edge {
 	case edgeFirst:
-		out = append(out, bandEdgeLabel(pl.Type, false)+": "+timeRange(pt.StartsAt, nil, pt.StartTZ, ""))
+		out = append(out, bandEdgeLabel(pl.Type, false)+": "+timeRange(blockOf(pt.Start), nil))
 	case edgeLast:
-		out = append(out, bandEdgeLabel(pl.Type, true)+": "+timeRange(*pt.EndsAt, nil, partEndTZ(pt), ""))
+		out = append(out, bandEdgeLabel(pl.Type, true)+": "+timeRange(blockOf(*pt.End), nil))
 		if pt.Status == "cancelled" {
 			out = append(out, "Status: cancelled")
 		}
 		return out
 	default:
-		out = append(out, timeRange(pt.StartsAt, pt.EndsAt, pt.StartTZ, pt.EndTZ))
+		out = append(out, timeRange(blockOf(pt.Start), partEnd(pt)))
 	}
 
 	if refs := joinNonEmpty("   ", labelled("Confirmation", pl.ConfirmationRef),
@@ -516,10 +528,10 @@ func singleLocation(planType string, pt *api.PlanPartDTO) bool {
 // (trip-format.ts): a booking of a banding type (see banding.go) whose end
 // falls on a later local calendar day than its start.
 func bandedPart(planType string, pt *api.PlanPartDTO) bool {
-	if _, ok := bandLabelsFor(planType); !ok || pt.EndsAt == nil {
+	if _, ok := bandLabelsFor(planType); !ok || pt.End == nil {
 		return false
 	}
-	return bandsToLaterDay(pt.StartsAt, pt.StartTZ, *pt.EndsAt, partEndTZ(pt))
+	return bandsToLaterDay(pt.Start.At, pt.Start.TZ, pt.End.At, pt.End.TZ)
 }
 
 // routeLine joins a start and end label with an arrow, tolerating either being
@@ -537,23 +549,38 @@ func routeLine(from, to string) string {
 	}
 }
 
-// timeRange renders a part's local time span, e.g. "Mon 2 Jan, 14:30 – 16:45"
-// or, across days, with the end's date too. End-less parts show just the start.
-func timeRange(startsAt time.Time, endsAt *time.Time, startTZ, endTZ string) string {
-	start := startsAt.In(eventLoc(startTZ))
-	s := start.Format("Mon 2 Jan, 15:04")
-	if endsAt == nil {
+// partEnd is a part's closing block, or nil when it has no end time.
+func partEnd(pt *api.PlanPartDTO) *timing.Block {
+	if pt.End == nil {
+		return nil
+	}
+	b := blockOf(*pt.End)
+	return &b
+}
+
+// eventEnd is an external event's closing block, in the zone its start uses.
+func eventEnd(ev *api.ExternalEventDTO) *timing.Block {
+	if ev.EndsAt == nil {
+		return nil
+	}
+	b := eventBlock(ev)
+	b.At = *ev.EndsAt
+	return &b
+}
+
+// timeRange renders a part's span, e.g. "Mon 2 Jan, 14:30 Paris (UTC+2) –
+// 16:45 UTC+2". The end drops its date when it falls on the same day as the
+// start, each in its own zone. There is no viewer's home zone in a PDF, so an
+// unknown zone prints in UTC. End-less parts show just the start.
+func timeRange(start timing.Block, end *timing.Block) string {
+	s := timing.Full(start, "")
+	if end == nil {
 		return s
 	}
-	endLoc := eventLoc(startTZ)
-	if endTZ != "" {
-		endLoc = eventLoc(endTZ)
+	if sameDay(start.At.In(eventLoc(start.TZ)), end.At.In(eventLoc(end.TZ))) {
+		return s + " – " + timing.Compact(*end, "")
 	}
-	end := endsAt.In(endLoc)
-	if sameDay(start, end) {
-		return s + " – " + end.Format("15:04")
-	}
-	return s + " – " + end.Format("Mon 2 Jan, 15:04")
+	return s + " – " + timing.Full(*end, "")
 }
 
 func sameDay(a, b time.Time) bool {
