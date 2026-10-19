@@ -1490,7 +1490,7 @@ function partDatePreview(part: {
   if (labels) {
     const [openLabel, closeLabel] = labels;
     const end = part.ends_at
-      ? blockFor(part.ends_at, part.end_tz || part.start_tz || '', part.end_tz_source)
+      ? blockFor(part.ends_at, part.end_tz ?? '', part.end_tz_source)
       : null;
     return ` · ${openLabel} ${fmtDate(start) || part.starts_at}${
       end ? ` · ${closeLabel} ${fmtDate(end) || part.ends_at}` : ''

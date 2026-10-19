@@ -72,6 +72,7 @@ vi.mock('../components/ExplorePanel', () => ({
 
 import { api } from '../api/client';
 import TripTimeline from './TripTimeline';
+import { setViewerZone } from '../lib/time';
 import { block, partBlocks } from '../test/blocks';
 
 // The edit dialog's date/time picker, as a plain input (see the mock's notes).
@@ -194,28 +195,6 @@ describe('TripTimeline', () => {
     expect(screen.getByText(/Oct.*2026/)).toBeInTheDocument();
     expect(screen.getByText('Flight out')).toBeInTheDocument();
     expect(screen.getByTestId('part-card-1')).toBeInTheDocument();
-  });
-
-  it('renders the scheduled time for a part with no time blocks (a cached pre-deploy response)', () => {
-    state.currentTrip = tripWith([
-      plan(
-        [
-          part({
-            id: 1,
-            plan_id: 1,
-            starts_at: '2026-10-12T09:30:00Z',
-            ends_at: '2026-10-12T11:45:00Z',
-            start: undefined,
-            end: undefined,
-          }),
-        ],
-        { id: 1, title: 'Flight out' },
-      ),
-    ]);
-    expect(() => renderTimeline()).not.toThrow();
-    const card = screen.getByTestId('part-card-1');
-    expect(card).toHaveTextContent('09:30');
-    expect(card).toHaveTextContent('11:45');
   });
 
   it('drops dismissed parts', () => {
@@ -1710,6 +1689,28 @@ describe('TripTimeline external plans', () => {
     expect(within(tile).getByText('Opening talk')).toBeInTheDocument();
     const allDay = await screen.findByTestId('external-event-101');
     expect(within(allDay).getByText(/all day/i)).toBeInTheDocument();
+  });
+
+  it('reads an external event with no zone in the viewer zone, with its end the same', async () => {
+    ext.initial = true;
+    setViewerZone('Asia/Tokyo');
+    try {
+      vi.spyOn(api, 'getTripExternalEvents').mockResolvedValue([
+        externalEvent({
+          id: 103,
+          starts_at: '2026-10-12T08:00:00Z',
+          ends_at: '2026-10-12T09:00:00Z',
+          start_tz: '',
+          start_tz_source: 'unknown',
+        }),
+      ]);
+      state.currentTrip = tripWith([]);
+      renderTimeline();
+      const tile = await screen.findByTestId('external-event-103');
+      expect(tile).toHaveTextContent('17:00 UTC+9 – 18:00 UTC+9');
+    } finally {
+      setViewerZone(null);
+    }
   });
 
   it('toggling "Show external plans" reveals and hides the feed tiles', async () => {

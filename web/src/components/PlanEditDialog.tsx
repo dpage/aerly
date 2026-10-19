@@ -152,14 +152,11 @@ function endForm(
 }
 
 function partForm(part: PlanPart): PartForm {
-  // The form edits the stored timetable digits, so each end's zone is its
-  // timetable zone, from the block: blank for floating digits even where the
-  // raw start_tz/end_tz carry an airport fallback.
+  // The form edits the stored timetable digits, so each end's zone is its own
+  // timetable zone, from its block: blank for floating or unknown digits. An
+  // end never borrows the start's zone.
   const startTz = timetableZone(startBlockOf(part));
-  const eb = endBlockOf(part);
-  // An end with no zone of its own borrows the start's, unless its digits are
-  // floating and would be misread in it.
-  const endTz = timetableZone(eb) || (eb?.tz_source === 'floating' ? '' : startTz);
+  const endTz = timetableZone(endBlockOf(part));
   return {
     start: endForm(
       part.start_label ?? '',
@@ -276,8 +273,7 @@ function hasEnd(part: PlanPart): boolean {
  * digits are wall-clock time). A zone the user changed is their own choice, so
  * confirmed. A zone left as it was keeps a confirmed or inferred source, so a
  * guessed zone is not silently upgraded to confirmed. Otherwise it is inferred
- * when the form's zone differs from the stored one (an end borrowing the
- * start's), and undefined when there is no source worth keeping (an older part
+ * when the form's zone differs from the stored one, and undefined when there is no source worth keeping (an older part
  * with none, or a floating or unknown one); timePatch settles that case. */
 function zoneSource(
   tz: string,

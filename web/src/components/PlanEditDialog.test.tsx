@@ -34,13 +34,13 @@ vi.mock('../api/client', () => ({
 
 import type { PlanPart } from '../api/types';
 import PlanEditDialog from './PlanEditDialog';
-import { block } from '../test/blocks';
+import { block, partBlocks } from '../test/blocks';
 
 // The edit dialog's date/time picker, as a plain input (see the mock's notes).
 vi.mock('@mui/x-date-pickers/DateTimePicker', () => import('../test/date-time-picker-mock'));
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 100,
     plan_id: 42,
     type: 'flight',
@@ -53,8 +53,8 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
     end_label: 'IAD',
     status: 'planned',
     effective_at: '2026-10-12T11:35:00Z',
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function plan(over: Partial<Plan> = {}): Plan {
@@ -431,15 +431,22 @@ describe('PlanEditDialog', () => {
       expect(patch.end_tz_source).toBe('confirmed');
     });
 
-    it('sends inferred for an end whose zone is only borrowed from the start', async () => {
+    it('does not borrow the start zone for an unknown end, so editing its time sends floating', async () => {
       h.updatePlanPart.mockResolvedValue(part());
       render_(plan({ parts: [part({ end_tz: '', end_tz_source: 'unknown' })] }));
       fireEvent.change(screen.getAllByLabelText('Date & time')[1], {
         target: { value: '2026-10-12T20:00' },
       });
       const patch = await save();
-      expect(patch.end_tz).toBe('Europe/London');
-      expect(patch.end_tz_source).toBe('inferred');
+      expect(patch.end_tz).toBe('');
+      expect(patch.end_tz_source).toBe('floating');
+    });
+
+    it('shows an unknown end with no zone rather than the start zone', () => {
+      render_(plan({ parts: [part({ end_tz: '', end_tz_source: 'unknown' })] }));
+      const zones = screen.getAllByRole('combobox', { name: /timezone/i });
+      expect(zones[0]).toHaveValue('Europe/London');
+      expect(zones[1]).toHaveValue('');
     });
 
     // As the server sends a floating flight: the raw zones carry the airport

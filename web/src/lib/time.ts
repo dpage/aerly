@@ -23,9 +23,18 @@ function instant(at: string | Date): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-// A blank zone is a floating or unknown time: its UTC digits are what we show.
+// How a block is shown, the same as internal/timing's Block.view: a block with
+// a zone reads in it, a floating one shows its UTC digits as wall-clock time
+// with no label, and any other block without a zone is a true instant, shown in
+// the viewer's zone (UTC without one) and always with an offset.
 function zoneOf(b: TimeBlock): string {
-  return safeZone(b.tz);
+  if (b.tz) return safeZone(b.tz);
+  return b.tz_source === 'floating' ? 'UTC' : safeZone(viewerZone());
+}
+
+// Whether an offset label goes with the block: everything but floating.
+function labelled(b: TimeBlock): boolean {
+  return Boolean(b.tz) || b.tz_source !== 'floating';
 }
 
 // An unrecognised zone string must never throw out of a render, so it reads as
@@ -97,21 +106,22 @@ export function fmtDate(b: TimeBlock): string {
 }
 
 /** The full form for detail views: "Sun 18 Oct, 14:00 Tashkent (UTC+5)", the
- * offset alone when there is no place, and no label at all with no zone. */
+ * offset alone when there is no place (and always for an unknown block, which
+ * is shown in the viewer's zone), and no label at all for a floating one. */
 export function fmtFull(b: TimeBlock): string {
   const d = instant(b.at);
   if (!d) return '';
   const head = `${dateIn(d, zoneOf(b))}, ${fmtTime(b)}`;
-  if (!b.tz) return head;
-  const off = offsetLabel(d, b.tz);
-  return b.place ? `${head} ${b.place} (${off})` : `${head} ${off}`;
+  if (!labelled(b)) return head;
+  const off = offsetLabel(d, zoneOf(b));
+  return b.tz && b.place ? `${head} ${b.place} (${off})` : `${head} ${off}`;
 }
 
-/** The compact form for tiles: "14:00 UTC+5", or "14:00" with no zone. */
+/** The compact form for tiles: "14:00 UTC+5", or "14:00" when floating. */
 export function fmtCompact(b: TimeBlock): string {
   const d = instant(b.at);
   if (!d) return '';
-  return b.tz ? `${fmtTime(b)} ${offsetLabel(d, b.tz)}` : fmtTime(b);
+  return labelled(b) ? `${fmtTime(b)} ${offsetLabel(d, zoneOf(b))}` : fmtTime(b);
 }
 
 /** The block's moment in the viewer's zone, "Sun 18 Oct, 10:00 (UTC+1)", or

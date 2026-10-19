@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 
 import type { ExternalEvent, Plan, PlanPart, Trip } from '../api/types';
 import {
   buildExternalDays,
+  externalEndBlock,
+  externalStartBlock,
   buildTimeline,
   classifyTrip,
   fmtPartPlaces,
@@ -28,6 +30,7 @@ import {
   countPlansNeedingZone,
   neighbourZone,
 } from './trip-format';
+import { setViewerZone } from './time';
 import { block, partBlocks } from '../test/blocks';
 
 function trip(over: Partial<Trip> = {}): Trip {
@@ -428,6 +431,51 @@ describe('buildTimeline', () => {
   });
 });
 
+describe('external event blocks', () => {
+  const ev = (over: Partial<ExternalEvent>): ExternalEvent => ({
+    id: 1,
+    feed_id: 1,
+    title: 'Session',
+    starts_at: '2026-10-20T09:00:00Z',
+    start_tz_source: 'unknown',
+    all_day: false,
+    ...over,
+  });
+  afterEach(() => setViewerZone(null));
+
+  it('keeps the zone and source the server sent for the start', () => {
+    expect(
+      externalStartBlock(ev({ start_tz: 'Europe/Berlin', start_tz_source: 'confirmed' })),
+    ).toMatchObject({ tz: 'Europe/Berlin', tz_source: 'confirmed' });
+  });
+  it('leaves a start with no zone unknown, not UTC', () => {
+    expect(externalStartBlock(ev({}))).toMatchObject({ tz: '', tz_source: 'unknown' });
+  });
+  it('makes an all-day event floating whatever zone it carries', () => {
+    expect(
+      externalStartBlock(ev({ all_day: true, start_tz: 'Asia/Tokyo', start_tz_source: 'confirmed' })),
+    ).toMatchObject({ tz: '', tz_source: 'floating' });
+  });
+  it('gives the end no zone of its own, never the start zone', () => {
+    expect(
+      externalEndBlock(
+        ev({ ends_at: '2026-10-20T10:00:00Z', start_tz: 'Europe/Berlin', start_tz_source: 'confirmed' }),
+      ),
+    ).toMatchObject({ at: '2026-10-20T10:00:00Z', tz: '', tz_source: 'unknown' });
+    expect(externalEndBlock(ev({}))).toBeUndefined();
+  });
+  it('days an unknown-zone event in the viewer zone', () => {
+    setViewerZone('Asia/Tokyo');
+    const days = buildExternalDays([ev({ starts_at: '2026-10-20T23:30:00Z' })]);
+    expect(days[0].dayKey).toBe('2026-10-21');
+  });
+  it('days an all-day event on its UTC date', () => {
+    setViewerZone('Asia/Tokyo');
+    const days = buildExternalDays([ev({ all_day: true, starts_at: '2026-10-20T00:00:00Z' })]);
+    expect(days[0].dayKey).toBe('2026-10-20');
+  });
+});
+
 describe('buildExternalDays', () => {
   const ev = (over: Partial<ExternalEvent>): ExternalEvent => ({
     id: 1,
@@ -716,46 +764,11 @@ describe('block-based part times', () => {
     expect(fmtPartScheduledRange(p)).toBe('10:00 UTC+1');
   });
 
-  it('reads a part with no blocks from its starts_at and zones', () => {
-    const p = flight({ start: undefined, end: undefined } as unknown as Partial<PlanPart>);
-    expect(startBlockOf(p).at).toBe('2026-10-18T09:00:00Z');
-    expect(fmtPartTimeRange(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
-    expect(fmtPartTimeRangeText(p)).toBe('10:00 UTC+1 → 13:05 UTC-4');
-    expect(fmtPartDateRange(p)).toBe('Sun, 18 Oct 2026');
-    expect(fmtPartDuration(p)).toBe('8h 5m');
-    expect(flightStatusLabel(p)).toBeNull();
-    const noEnd = flight({
-      start: undefined,
-      end: undefined,
-      ends_at: undefined,
-    } as unknown as Partial<PlanPart>);
-    expect(endBlockOf(noEnd)).toBeUndefined();
-  });
-
-  it('builds missing blocks as the server would from the raw zones and sources', () => {
-    const p = flight({
-      start: undefined,
-      end: undefined,
-      start_tz: 'Europe/London',
-      start_tz_source: 'floating',
-      end_tz: '',
-      end_tz_source: 'unknown',
-    } as unknown as Partial<PlanPart>);
-    // A floating start's raw zone is the airport fallback; its digits have none.
-    expect(startBlockOf(p)).toMatchObject({ tz: '', tz_source: 'floating' });
-    // An end with no zone of its own does not borrow the start's.
-    expect(endBlockOf(p)).toMatchObject({ tz: '', tz_source: 'unknown' });
-    const inferred = flight({
-      start: undefined,
-      end: undefined,
-      start_tz_source: 'inferred',
-      end_tz_source: 'confirmed',
-    } as unknown as Partial<PlanPart>);
-    expect(startBlockOf(inferred)).toMatchObject({ tz: 'Europe/London', tz_source: 'inferred' });
-    expect(endBlockOf(inferred)).toMatchObject({
-      tz: 'America/New_York',
-      tz_source: 'confirmed',
-    });
+  it('has the server blocks and no end block for a part without an end', () => {
+    const p = flight();
+    expect(startBlockOf(p)).toBe(p.start);
+    expect(endBlockOf(p)).toBe(p.end);
+    expect(endBlockOf(flight({ end: undefined, ends_at: undefined }))).toBeUndefined();
   });
 
   it('has no duration for a single-place type', () => {
@@ -1272,24 +1285,6 @@ describe('neighbourZone', () => {
       { parts: [dismissed, bad, mk(5, '2026-10-17T00:00:00Z', 'Europe/Paris')] },
     ] as Plan[];
     expect(neighbourZone(withEnd, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Paris');
-  });
-  it('reads a part that predates blocks through its starts_at and start_tz', () => {
-    const old = [
-      {
-        parts: [
-          {
-            id: 6,
-            plan_id: 6,
-            type: 'hotel',
-            seq: 0,
-            status: 'planned',
-            starts_at: '2026-10-17T00:00:00Z',
-            start_tz: 'Europe/Rome',
-          },
-        ],
-      },
-    ] as Plan[];
-    expect(neighbourZone(old, Date.parse('2026-10-20T00:00:00Z'))).toBe('Europe/Rome');
   });
 });
 

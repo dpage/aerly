@@ -55,9 +55,11 @@ import {
   startBlockOf,
   endBlockOf,
   planTypeLabel,
+  externalEndBlock,
+  externalStartBlock,
 } from '../lib/trip-format';
 import type { BandEdge } from '../lib/trip-format';
-import { blockFor, fmtCompact } from '../lib/time';
+import { fmtCompact } from '../lib/time';
 import { fmtGate } from '../lib/gate';
 import { formatCost } from '../lib/format';
 import { isUnlocated } from '../lib/geo';
@@ -492,10 +494,10 @@ export default function TripTimeline() {
  * wrap in full. The description always shows in full. */
 function ExternalEventCard({ event, accent }: { event: ExternalEvent; accent: string }) {
   const [expanded, setExpanded] = useState(false);
+  const end = externalEndBlock(event);
   const when = event.all_day
     ? 'All day'
-    : fmtCompact(blockFor(event.starts_at, event.start_tz || 'UTC')) +
-      (event.ends_at ? ` – ${fmtCompact(blockFor(event.ends_at, event.start_tz || 'UTC'))}` : '');
+    : fmtCompact(externalStartBlock(event)) + (end ? ` – ${fmtCompact(end)}` : '');
   return (
     <Card
       variant="outlined"

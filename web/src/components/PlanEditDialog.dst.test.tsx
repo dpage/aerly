@@ -26,9 +26,10 @@ vi.mock('../api/client', () => ({
 }));
 
 import PlanEditDialog from './PlanEditDialog';
+import { partBlocks } from '../test/blocks';
 
 function part(over: Partial<PlanPart> = {}): PlanPart {
-  return {
+  const base: Partial<PlanPart> = {
     id: 100,
     plan_id: 42,
     type: 'activity',
@@ -38,8 +39,8 @@ function part(over: Partial<PlanPart> = {}): PlanPart {
     start_label: 'Brunch',
     status: 'planned',
     effective_at: '2026-03-29T05:30:00Z',
-    ...over,
   };
+  return { ...base, ...partBlocks(base, over), ...over } as PlanPart;
 }
 
 function plan(parts: PlanPart[]): Plan {
