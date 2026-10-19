@@ -819,3 +819,102 @@ func TestExternalEventSpanKeepsItsOwnZone(t *testing.T) {
 		t.Errorf("zoneless event span = %q", got)
 	}
 }
+
+func pdfText(plans []api.PlanDTO) []string {
+	return pdfTextRuns(string(renderItineraryPDF(&store.Trip{Name: "Test Trip"}, plans, nil, "a4")))
+}
+
+func hasRun(runs []string, want string) bool {
+	for _, r := range runs {
+		if r == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hotelPlan(start api.TimeBlockDTO, end *api.TimeBlockDTO) []api.PlanDTO {
+	return []api.PlanDTO{{Type: "hotel", Title: "Test Hotel", Parts: []api.PlanPartDTO{{Start: start, End: end}}}}
+}
+
+// A non-flight end with a blank zone is an unknown true instant. The PDF does
+// not borrow the start's zone for it: the check-out prints in UTC, labelled,
+// and the banding decision compares that UTC date.
+func TestPDFUnknownEndPrintsInUTC(t *testing.T) {
+	in := mustTime(t, "2026-09-07T14:00:00Z")
+	out := mustTime(t, "2026-09-09T11:00:00Z")
+	runs := pdfText(hotelPlan(blk(in, "Europe/London"), blkp(out, "")))
+	for _, want := range []string{"Check-in: Mon 7 Sep, 15:00 UTC+1", "Check-out: Wed 9 Sep, 11:00 UTC", "Wednesday, 9 September 2026", "11:00 UTC"} {
+		if !hasRun(runs, want) {
+			t.Errorf("missing %q in %q", want, runs)
+		}
+	}
+
+	// 23:30 on the 7th in London; borrowing London for the end would make it
+	// 00:30 on the 8th and split the stay. In UTC it is the same date, so it
+	// stays a single same-day row.
+	in = mustTime(t, "2026-09-07T22:30:00Z")
+	out = mustTime(t, "2026-09-07T23:30:00Z")
+	runs = pdfText(hotelPlan(blk(in, "Europe/London"), blkp(out, "")))
+	for _, r := range runs {
+		if strings.Contains(r, "Check-in") || strings.Contains(r, "Check-out") {
+			t.Errorf("same UTC date should not band, got %q", r)
+		}
+	}
+	if !hasRun(runs, "Mon 7 Sep, 23:30 UTC+1 - 23:30 UTC") {
+		t.Errorf("span = %q", runs)
+	}
+}
+
+func TestPDFFloatingEndIsBareDigits(t *testing.T) {
+	in := mustTime(t, "2026-09-07T09:00:00Z")
+	out := mustTime(t, "2026-09-07T18:00:00Z")
+	end := &api.TimeBlockDTO{At: out, TZSource: "floating"}
+	runs := pdfText(hotelPlan(blk(in, "Europe/London"), end))
+	if !hasRun(runs, "Mon 7 Sep, 10:00 UTC+1 - 18:00") {
+		t.Errorf("floating end should have no offset: %q", runs)
+	}
+}
+
+func TestPDFOrdersByEffectiveStart(t *testing.T) {
+	// XX100 is timetabled first but delayed behind XX200.
+	raw100 := mustTime(t, "2026-10-18T10:00:00Z")
+	eff100 := mustTime(t, "2026-10-18T13:00:00Z")
+	raw200 := mustTime(t, "2026-10-18T11:00:00Z")
+	plans := []api.PlanDTO{
+		{Type: "flight", Title: "XX100", Parts: []api.PlanPartDTO{{StartsAt: raw100, Start: blk(eff100, "Asia/Tashkent")}}},
+		{Type: "flight", Title: "XX200", Parts: []api.PlanPartDTO{{StartsAt: raw200, Start: blk(raw200, "Asia/Tashkent")}}},
+	}
+	rows := flattenItinerary(plans, nil)
+	if rows[0].part.plan.Title != "XX200" || rows[1].part.plan.Title != "XX100" {
+		t.Fatalf("order = %s, %s", rows[0].part.plan.Title, rows[1].part.plan.Title)
+	}
+	runs := pdfText(plans)
+	i200, i100 := -1, -1
+	for i, r := range runs {
+		switch r {
+		case "Flight: XX200":
+			i200 = i
+		case "Flight: XX100":
+			i100 = i
+		}
+	}
+	if i200 < 0 || i100 < 0 || i200 > i100 {
+		t.Errorf("PDF order wrong: XX200 at %d, XX100 at %d", i200, i100)
+	}
+}
+
+func TestPDFHeadingsForFloatingAndUnknown(t *testing.T) {
+	flo := &api.TimeBlockDTO{At: mustTime(t, "2026-10-17T23:30:00Z"), TZSource: "floating"}
+	unk := &api.TimeBlockDTO{At: mustTime(t, "2026-10-18T00:30:00Z"), TZSource: "unknown"}
+	plans := []api.PlanDTO{
+		{Type: "flight", Title: "XX100", Parts: []api.PlanPartDTO{{Start: *flo}}},
+		{Type: "flight", Title: "XX200", Parts: []api.PlanPartDTO{{Start: *unk}}},
+	}
+	runs := pdfText(plans)
+	for _, want := range []string{"Saturday, 17 October 2026", "23:30", "Sunday, 18 October 2026", "00:30 UTC"} {
+		if !hasRun(runs, want) {
+			t.Errorf("missing %q in %q", want, runs)
+		}
+	}
+}
