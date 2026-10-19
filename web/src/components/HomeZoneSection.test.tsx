@@ -44,7 +44,8 @@ describe('HomeZoneSection', () => {
     h.state.me = user({ home_tz: 'Asia/Tashkent' });
     render(<HomeZoneSection />);
     expect(screen.getByRole('heading', { name: 'Home time zone' })).toBeInTheDocument();
-    expect(screen.getByText(/Leave it blank to use this device's zone/)).toBeInTheDocument();
+    expect(screen.getByText(/It starts as this device's zone/)).toBeInTheDocument();
+    expect(screen.queryByText(/Leave it blank/)).toBeNull();
     expect(screen.getByRole('combobox')).toHaveValue('Asia/Tashkent');
     expect(screen.queryByRole('button', { name: /Use this device's zone/ })).toBeNull();
   });

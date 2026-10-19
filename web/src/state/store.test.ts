@@ -103,6 +103,81 @@ describe('init', () => {
   });
 });
 
+describe('init fills an empty home zone from the device', () => {
+  const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  let store: Record<string, string>;
+
+  beforeEach(() => {
+    // A fresh in-memory localStorage per test (see setShowAll below for why).
+    store = {};
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k: string) => (k in store ? store[k] : null),
+        setItem: (k: string, v: string) => {
+          store[k] = String(v);
+        },
+        removeItem: (k: string) => {
+          delete store[k];
+        },
+      },
+    });
+    mockApi.getConfig.mockResolvedValue({});
+    mockApi.getNotifications.mockResolvedValue({
+      friend_requests_pending: 0,
+      unread_alerts: 0,
+      unread_shares: 0,
+    });
+  });
+
+  it('saves the device zone when the home zone is empty', async () => {
+    mockApi.getMe.mockResolvedValue(user());
+    mockApi.updateMe.mockResolvedValue(user({ home_tz: device }));
+    await useStore.getState().init();
+    expect(mockApi.updateMe).toHaveBeenCalledWith({ home_tz: device });
+    expect(useStore.getState().me?.home_tz).toBe(device);
+    expect(store['ft.home_tz_auto']).toBe('1');
+    setViewerZone(null);
+  });
+
+  it('leaves a home zone that is already set', async () => {
+    mockApi.getMe.mockResolvedValue(user({ home_tz: 'Asia/Tashkent' }));
+    await useStore.getState().init();
+    expect(mockApi.updateMe).not.toHaveBeenCalled();
+    expect(store['ft.home_tz_auto']).toBeUndefined();
+    setViewerZone(null);
+  });
+
+  it('does not fill it twice on the same device', async () => {
+    mockApi.getMe.mockResolvedValue(user());
+    mockApi.updateMe.mockResolvedValue(user({ home_tz: device }));
+    await useStore.getState().init();
+    // Cleared since, so empty again: this device has had its turn.
+    await useStore.getState().init();
+    expect(mockApi.updateMe).toHaveBeenCalledTimes(1);
+    setViewerZone(null);
+  });
+
+  it('signs in regardless when the save fails, and tries again next time', async () => {
+    mockApi.getMe.mockResolvedValue(user());
+    mockApi.updateMe.mockRejectedValue(new Error('save boom'));
+    await useStore.getState().init();
+    const s = useStore.getState();
+    expect(s.auth).toBe('authenticated');
+    expect(s.error).toBeNull();
+    expect(store['ft.home_tz_auto']).toBeUndefined();
+  });
+
+  it('resets the viewer zone when the session refresh fails', async () => {
+    for (const err of [new ApiError(401, 'unauth'), new Error('network down')]) {
+      setViewerZone('Asia/Tashkent');
+      mockApi.getMe.mockRejectedValue(err);
+      await useStore.getState().init();
+      expect(viewerZone()).toBe(device);
+    }
+  });
+});
+
 describe('refreshUsers error branches', () => {
   it('refreshUsers sets error on failure (non-Error -> String())', async () => {
     mockApi.listUsers.mockRejectedValue('strerr');
@@ -301,7 +376,11 @@ describe('user mutations', () => {
   it('init feeds the home zone to the viewer zone', async () => {
     mockApi.getMe.mockResolvedValue(user({ home_tz: 'Asia/Tashkent' }));
     mockApi.getConfig.mockResolvedValue({});
-    mockApi.getNotifications.mockResolvedValue({ friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 });
+    mockApi.getNotifications.mockResolvedValue({
+      friend_requests_pending: 0,
+      unread_alerts: 0,
+      unread_shares: 0,
+    });
     await useStore.getState().init();
     expect(viewerZone()).toBe('Asia/Tashkent');
     setViewerZone(null);
@@ -311,7 +390,11 @@ describe('user mutations', () => {
     setViewerZone('Asia/Tashkent');
     mockApi.getMe.mockResolvedValue(user());
     mockApi.getConfig.mockResolvedValue({});
-    mockApi.getNotifications.mockResolvedValue({ friend_requests_pending: 0, unread_alerts: 0, unread_shares: 0 });
+    mockApi.getNotifications.mockResolvedValue({
+      friend_requests_pending: 0,
+      unread_alerts: 0,
+      unread_shares: 0,
+    });
     await useStore.getState().init();
     expect(viewerZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });

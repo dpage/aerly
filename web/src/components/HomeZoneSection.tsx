@@ -61,8 +61,8 @@ export default function HomeZoneSection() {
         Home time zone
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        Emails, notifications and the 'Your time' line use this zone. Leave it blank to use this
-        device's zone on the web and to show one time in emails.
+        Emails, notifications and the 'Your time' line use this zone. It starts as this device's
+        zone; clear it to show a single time in emails.
       </Typography>
       <TimezoneSelect
         value={value}
