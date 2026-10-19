@@ -29,7 +29,9 @@ func TestHotelEffectiveAtUsesSmartCheckin(t *testing.T) {
 		TripID: trip.ID, Type: "flight", Title: "BA2656",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: dep, EndsAt: &arr,
-			Flight: &store.FlightDetail{Ident: "BA2656", ScheduledOut: dep, ScheduledIn: arr, OriginIATA: "LGW", DestIATA: "ALC"},
+			Flight:        &store.FlightDetail{Ident: "BA2656", ScheduledOut: dep, ScheduledIn: arr, OriginIATA: "LGW", DestIATA: "ALC"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)

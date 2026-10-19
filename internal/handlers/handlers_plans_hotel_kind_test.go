@@ -24,7 +24,9 @@ func TestCreateHotelPlanWithKindRoundTrips(t *testing.T) {
 	part := map[string]any{
 		"type": "hotel", "starts_at": g2planOut, "ends_at": g2planOut.Add(2 * time.Hour),
 		"start_label": "Test Campsite", "end_label": "Test Campsite",
-		"hotel": map[string]any{"property_name": "Test Campsite", "kind": "Campsite"},
+		"hotel":           map[string]any{"property_name": "Test Campsite", "kind": "Campsite"},
+		"start_tz_source": "floating",
+		"end_tz_source":   "floating",
 	}
 	w := e.req(t, "POST", "/api/trips/"+itoa(tid)+"/plans", map[string]any{
 		"type": "hotel", "title": "Test Campsite",
@@ -86,8 +88,10 @@ func TestIngestConfirmAccommodationWithKindSucceeds(t *testing.T) {
 			"type": "hotel", "title": "Test Campsite", "confirmation_ref": "H1", "source": "paste",
 			"parts": []map[string]any{{
 				"type": "hotel", "starts_at": checkin, "ends_at": checkout,
-				"start_label": "Test Campsite",
-				"hotel":       map[string]any{"property_name": "Test Campsite", "kind": "Campsite"},
+				"start_label":     "Test Campsite",
+				"hotel":           map[string]any{"property_name": "Test Campsite", "kind": "Campsite"},
+				"start_tz_source": "floating",
+				"end_tz_source":   "floating",
 			}},
 		}},
 	}

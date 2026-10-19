@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -53,8 +54,8 @@ func TestTripFeedsCRUDAndEvents(t *testing.T) {
 	end := start.Add(time.Hour)
 	if err := s.ReplaceFeedEvents(ctx, f1.ID, []TripFeedEvent{
 		{UID: "x", Summary: "Keynote", Location: "Hall", StartsAt: start, EndsAt: &end, StartTZ: "UTC", StartTZSource: "confirmed"},
-		{UID: "y", Summary: "Plain", StartsAt: start.Add(time.Hour)},
-		{UID: "z", Summary: "Zoned", StartsAt: start.Add(2 * time.Hour), StartTZ: "Europe/London"},
+		{UID: "y", Summary: "Plain", StartsAt: start.Add(time.Hour), StartTZSource: "unknown"},
+		{UID: "z", Summary: "Zoned", StartsAt: start.Add(2 * time.Hour), StartTZ: "Europe/London", StartTZSource: "inferred"},
 	}); err != nil {
 		t.Fatalf("ReplaceFeedEvents: %v", err)
 	}
@@ -69,10 +70,26 @@ func TestTripFeedsCRUDAndEvents(t *testing.T) {
 		t.Errorf("source = %q, want confirmed", events[0].StartTZSource)
 	}
 	if events[2].StartTZSource != "inferred" {
-		t.Errorf("zone with empty source stored as %q, want inferred", events[2].StartTZSource)
+		t.Errorf("inferred source stored as %q", events[2].StartTZSource)
 	}
 	if events[1].StartTZSource != "unknown" {
-		t.Errorf("empty source stored as %q, want unknown", events[1].StartTZSource)
+		t.Errorf("unknown source stored as %q", events[1].StartTZSource)
+	}
+
+	// The parser names every event's source, so an empty one is refused
+	// rather than guessed, with or without a zone, as is a source that
+	// contradicts the zone. The refusal rolls back, keeping the prior set.
+	for _, bad := range []TripFeedEvent{
+		{UID: "no-source", Summary: "Plain", StartsAt: start},
+		{UID: "zone-no-source", Summary: "Zoned", StartsAt: start, StartTZ: "Europe/London"},
+		{UID: "contradicts", Summary: "Zoned", StartsAt: start, StartTZ: "Europe/London", StartTZSource: "unknown"},
+	} {
+		if err := s.ReplaceFeedEvents(ctx, f1.ID, []TripFeedEvent{bad}); !errors.Is(err, ErrInvalidZone) {
+			t.Errorf("ReplaceFeedEvents(%s) = %v, want ErrInvalidZone", bad.UID, err)
+		}
+	}
+	if kept, _ := s.TripFeedEventsForTrip(ctx, trip); len(kept) != 3 {
+		t.Errorf("a refused replace changed the events: %d, want 3", len(kept))
 	}
 
 	// Replacing again wipes the prior set (source-of-truth semantics).

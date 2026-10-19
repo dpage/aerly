@@ -84,6 +84,7 @@ func TestG1CreatePlanAllTypes(t *testing.T) {
 		extra.Seq = 0
 		extra.StartsAt = now
 		extra.EndsAt = g1ptr(now.Add(time.Hour))
+		extra.StartTZSource, extra.EndTZSource = "floating", "floating"
 		return extra
 	}
 
@@ -223,14 +224,14 @@ func TestG1CreatePlanNilDetails(t *testing.T) {
 	for _, typ := range []string{"flight", "hotel", "train", "ground", "dining", "excursion", "ice_cream", "meeting", "event"} {
 		if _, err := s.CreatePlan(ctx, CreatePlanPayload{
 			TripID: trip, Type: typ, Title: "Nil " + typ,
-			Parts: []CreatePlanPartPayload{{Seq: 0, StartsAt: now}},
+			Parts: []CreatePlanPartPayload{{StartTZSource: "floating", Seq: 0, StartsAt: now}},
 		}, owner); err != nil {
 			t.Fatalf("create %s with nil detail: %v", typ, err)
 		}
 	}
 	if _, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "spaceship", Title: "Nope",
-		Parts: []CreatePlanPartPayload{{Seq: 0, StartsAt: now}},
+		Parts: []CreatePlanPartPayload{{StartTZSource: "floating", Seq: 0, StartsAt: now}},
 	}, owner); err == nil {
 		t.Fatalf("unknown plan type should error")
 	}
@@ -248,7 +249,7 @@ func TestG1PlanExistsByTripItUID(t *testing.T) {
 
 	if _, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "hotel", Title: "UID hotel", TripItUID: "uid-g1-123",
-		Parts: []CreatePlanPartPayload{{Seq: 0, StartsAt: now}},
+		Parts: []CreatePlanPartPayload{{StartTZSource: "floating", Seq: 0, StartsAt: now}},
 	}, owner); err != nil {
 		t.Fatalf("create plan: %v", err)
 	}
@@ -455,6 +456,7 @@ func TestG1UpdateFlightPartRoute(t *testing.T) {
 		Ident: g1ptr("RT1X"), OriginIATA: g1ptr("CDG"), DestIATA: g1ptr("LAX"),
 		Resolved: g1ptr(true), StartLabel: g1ptr("Paris"), EndLabel: g1ptr("Los Angeles"),
 		StartTZ: g1ptr("Europe/Paris"), EndTZ: g1ptr("America/Los_Angeles"),
+		StartTZSource: g1ptr("confirmed"), EndTZSource: g1ptr("confirmed"),
 		StartsAt: g1ptr(now.Add(90 * time.Minute)), EndsAt: g1ptr(now.Add(3 * time.Hour)),
 		StartLat: g1ptr(49.0), StartLon: g1ptr(2.5),
 		EndLat: g1ptr(33.9), EndLon: g1ptr(-118.4),
@@ -859,9 +861,13 @@ func TestG1SplitPlanPartCopiesAudience(t *testing.T) {
 		TripID: trip, Type: "flight", Title: "Multi-leg",
 		Parts: []CreatePlanPartPayload{
 			{Seq: 0, StartsAt: now, EndsAt: g1ptr(now.Add(time.Hour)),
-				Flight: &FlightDetail{Ident: "LEG1", ScheduledOut: now, ScheduledIn: now.Add(time.Hour), OriginIATA: "LHR", DestIATA: "CDG"}},
+				Flight:        &FlightDetail{Ident: "LEG1", ScheduledOut: now, ScheduledIn: now.Add(time.Hour), OriginIATA: "LHR", DestIATA: "CDG"},
+				StartTZSource: "floating",
+				EndTZSource:   "floating"},
 			{Seq: 1, StartsAt: now.Add(2 * time.Hour), EndsAt: g1ptr(now.Add(3 * time.Hour)),
-				Flight: &FlightDetail{Ident: "LEG2", ScheduledOut: now.Add(2 * time.Hour), ScheduledIn: now.Add(3 * time.Hour), OriginIATA: "CDG", DestIATA: "JFK"}},
+				Flight:        &FlightDetail{Ident: "LEG2", ScheduledOut: now.Add(2 * time.Hour), ScheduledIn: now.Add(3 * time.Hour), OriginIATA: "CDG", DestIATA: "JFK"},
+				StartTZSource: "floating",
+				EndTZSource:   "floating"},
 		},
 	}, owner)
 	if err != nil {
@@ -909,7 +915,7 @@ func TestG1PlanLookupMaps(t *testing.T) {
 
 	titled, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "hotel", Title: "Named Plan",
-		Parts: []CreatePlanPartPayload{{Seq: 0, StartsAt: now}},
+		Parts: []CreatePlanPartPayload{{StartTZSource: "floating", Seq: 0, StartsAt: now}},
 	}, owner)
 	if err != nil {
 		t.Fatalf("create titled plan: %v", err)

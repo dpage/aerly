@@ -67,9 +67,11 @@ func TestPlanParts_Backfills(t *testing.T) {
 		TripID: trip, Type: "hotel", Title: "Test Hotel",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: starts, EndsAt: &ends,
-			StartLabel:   "Test Hotel",
-			StartAddress: "1 Example Street, London, United Kingdom",
-			Hotel:        &store.HotelDetail{PropertyName: "Test Hotel"},
+			StartLabel:    "Test Hotel",
+			StartAddress:  "1 Example Street, London, United Kingdom",
+			Hotel:         &store.HotelDetail{PropertyName: "Test Hotel"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -80,9 +82,10 @@ func TestPlanParts_Backfills(t *testing.T) {
 	pinnedPlan, err := st.CreatePlan(ctx, store.CreatePlanPayload{
 		TripID: trip, Type: "ground", Title: "Pinned Transfer",
 		Parts: []store.CreatePlanPartPayload{{
-			StartsAt:     starts,
-			StartLabel:   "Manual Pin",
-			StartAddress: "1 Example Street, London, United Kingdom",
+			StartsAt:      starts,
+			StartLabel:    "Manual Pin",
+			StartAddress:  "1 Example Street, London, United Kingdom",
+			StartTZSource: "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -165,7 +168,8 @@ func TestPlanParts_NoChange(t *testing.T) {
 			StartTZ:    "Europe/London",
 			StartLabel: "Test Restaurant",
 			StartLat:   fptr(londonLat), StartLon: fptr(londonLon),
-			Dining: &store.DiningDetail{},
+			Dining:        &store.DiningDetail{},
+			StartTZSource: "confirmed",
 		}},
 	}, owner)
 	if err != nil {
@@ -228,7 +232,8 @@ func TestPlanParts_HomeSubstitution(t *testing.T) {
 			StartLabel: "Home",
 			// Differs from the saved home address in case, spacing and trailing
 			// punctuation, to prove normalisation matches it.
-			StartAddress: "  honeysuckle cottage,  exampleton, zz9 9zz.  ",
+			StartAddress:  "  honeysuckle cottage,  exampleton, zz9 9zz.  ",
+			StartTZSource: "floating",
 		}},
 	}, owner)
 	if err != nil {

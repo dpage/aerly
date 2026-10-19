@@ -34,6 +34,8 @@ func g1OffTableFlightPlan(t *testing.T, e *testEnv, tripID, uid int64) int64 {
 				"ident": "G1OFF", "scheduled_out": out, "scheduled_in": in,
 				"origin_iata": "NQY", "dest_iata": "FAO",
 			},
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}, uid)
 	if w.Code != http.StatusCreated {

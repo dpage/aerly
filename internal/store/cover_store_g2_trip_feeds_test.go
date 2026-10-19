@@ -91,8 +91,8 @@ func TestG2FeedRefreshAndEvents(t *testing.T) {
 	end := start.Add(time.Hour)
 	events := []TripFeedEvent{
 		{UID: "evt-1", Summary: "Dinner", Description: "with friends", Location: "Lisbon",
-			StartsAt: start, EndsAt: &end, StartTZ: "Europe/Lisbon", AllDay: false},
-		{UID: "evt-2", Summary: "Conference", StartsAt: start.Add(48 * time.Hour), AllDay: true},
+			StartsAt: start, EndsAt: &end, StartTZ: "Europe/Lisbon", StartTZSource: "confirmed", AllDay: false},
+		{UID: "evt-2", Summary: "Conference", StartsAt: start.Add(48 * time.Hour), StartTZSource: "unknown", AllDay: true},
 	}
 	if err := s.ReplaceFeedEvents(ctx, feed.ID, events); err != nil {
 		t.Fatalf("ReplaceFeedEvents: %v", err)

@@ -65,7 +65,7 @@ func seedHotelPlan(t *testing.T, e *testEnv, tripID, uid int64) int64 {
 	t.Helper()
 	body := map[string]any{
 		"type": "hotel", "title": "Hotel",
-		"parts": []map[string]any{{"type": "hotel", "starts_at": "2026-06-01T15:00:00Z"}},
+		"parts": []map[string]any{{"type": "hotel", "starts_at": "2026-06-01T15:00:00Z", "start_tz_source": "floating"}},
 	}
 	w := e.req(t, "POST", fmt.Sprintf("/api/trips/%d/plans", tripID), body, uid)
 	if w.Code != http.StatusCreated {

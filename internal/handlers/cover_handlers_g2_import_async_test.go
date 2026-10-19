@@ -18,6 +18,8 @@ func g2seedHotelPlan(t *testing.T, e *testEnv, owner int64) (tripID, planID int6
 		"parts": []map[string]any{{
 			"type": "hotel", "starts_at": out, "ends_at": out.Add(24 * time.Hour),
 			"start_label": "Hotel Example", "start_address": "1 Test Street, Example City",
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}, owner)
 	if w.Code != 201 {

@@ -25,6 +25,8 @@ func TestCreatePlanWritesSatellite(t *testing.T) {
 				Ident: "BA286", ScheduledOut: out, ScheduledIn: in,
 				OriginIATA: "LHR", DestIATA: "SFO",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -80,6 +82,8 @@ func TestCreatePlanPersistsTicketAndCost(t *testing.T) {
 				Ident: "BA286", ScheduledOut: out, ScheduledIn: in,
 				OriginIATA: "LHR", DestIATA: "SFO",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -106,7 +110,7 @@ func TestCreatePlanPersistsTicketAndCost(t *testing.T) {
 	// A plan with no cost reads back as nil (unknown), not zero.
 	bare, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "hotel", Title: "Hotel",
-		Parts: []CreatePlanPartPayload{{StartsAt: out, Hotel: &HotelDetail{PropertyName: "Plaza"}}},
+		Parts: []CreatePlanPartPayload{{StartTZSource: "floating", StartsAt: out, Hotel: &HotelDetail{PropertyName: "Plaza"}}},
 	}, owner)
 	if err != nil {
 		t.Fatalf("CreatePlan (bare): %v", err)
@@ -152,6 +156,7 @@ func TestCreatePlanPinsCoords(t *testing.T) {
 			StartLon:          &lon,
 			StartCoordsPinned: true,
 			Excursion:         &ExcursionDetail{},
+			StartTZSource:     "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -190,6 +195,8 @@ func TestFlightDetailForReturnsGateAndTerminal(t *testing.T) {
 				Ident: "BA286", ScheduledOut: out, ScheduledIn: in,
 				OriginIATA: "LHR", DestIATA: "SFO",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -274,12 +281,13 @@ func TestPlanPartAddressesRoundTrip(t *testing.T) {
 	plan, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "ground", Title: "Kev's taxi",
 		Parts: []CreatePlanPartPayload{{
-			StartsAt:     start,
-			StartLabel:   "Honeysuckle Cottage",
-			StartAddress: "Honeysuckle Cottage, Somewhere Lane",
-			EndLabel:     "LHR T5",
-			EndAddress:   "Heathrow Terminal 5, Longford TW6 2GA",
-			Ground:       &GroundDetail{Provider: "Kev's taxi"},
+			StartsAt:      start,
+			StartLabel:    "Honeysuckle Cottage",
+			StartAddress:  "Honeysuckle Cottage, Somewhere Lane",
+			EndLabel:      "LHR T5",
+			EndAddress:    "Heathrow Terminal 5, Longford TW6 2GA",
+			Ground:        &GroundDetail{Provider: "Kev's taxi"},
+			StartTZSource: "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -328,7 +336,9 @@ func TestCreatePlanHotelSatellite(t *testing.T) {
 		TripID: trip, Type: "hotel", Title: "Grand Hotel",
 		Parts: []CreatePlanPartPayload{{
 			StartsAt: ci, EndsAt: &co, StartLabel: "Grand Hotel",
-			Hotel: &HotelDetail{PropertyName: "Grand Hotel", StandardCheckin: &hhmm},
+			Hotel:         &HotelDetail{PropertyName: "Grand Hotel", StandardCheckin: &hhmm},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -358,6 +368,7 @@ func TestPlanCRUDEdit(t *testing.T) {
 		TripID: trip, Type: "dining", Title: "Dinner",
 		Parts: []CreatePlanPartPayload{{
 			StartsAt: time.Now(), Dining: &DiningDetail{ReservationName: "Page"},
+			StartTZSource: "floating",
 		}},
 	}, owner)
 	if err != nil {
@@ -394,6 +405,7 @@ func TestPlanPartEditAndDismiss(t *testing.T) {
 		TripID: trip, Type: "ground", Title: "Taxi",
 		Parts: []CreatePlanPartPayload{{
 			StartsAt: time.Now(), Status: "planned", Ground: &GroundDetail{Provider: "Uber"},
+			StartTZSource: "floating",
 		}},
 	}, owner)
 	parts, _ := s.PartsByPlan(ctx, plan.ID)
@@ -618,14 +630,14 @@ func TestListVisiblePlanPartsFiltersByType(t *testing.T) {
 
 	flight, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "flight", Title: "BA1",
-		Parts: []CreatePlanPartPayload{{StartsAt: start, Flight: &FlightDetail{Ident: "BA1", ScheduledOut: start, ScheduledIn: start}}},
+		Parts: []CreatePlanPartPayload{{StartTZSource: "floating", StartsAt: start, Flight: &FlightDetail{Ident: "BA1", ScheduledOut: start, ScheduledIn: start}}},
 	}, owner)
 	if err != nil {
 		t.Fatalf("CreatePlan flight: %v", err)
 	}
 	hotel, err := s.CreatePlan(ctx, CreatePlanPayload{
 		TripID: trip, Type: "hotel", Title: "Hotel",
-		Parts: []CreatePlanPartPayload{{StartsAt: start, Hotel: &HotelDetail{PropertyName: "Grand"}}},
+		Parts: []CreatePlanPartPayload{{StartTZSource: "floating", StartsAt: start, Hotel: &HotelDetail{PropertyName: "Grand"}}},
 	}, owner)
 	if err != nil {
 		t.Fatalf("CreatePlan hotel: %v", err)

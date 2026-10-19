@@ -485,7 +485,9 @@ func TestIngest_PlanCapture_AttachesToExistingTrip(t *testing.T) {
 		TripID: trip.ID, Type: "flight", Title: "BA1",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: out, EndsAt: &in,
-			Flight: &store.FlightDetail{Ident: "BA1", ScheduledOut: out, ScheduledIn: in, OriginIATA: "LHR", DestIATA: "JFK"},
+			Flight:        &store.FlightDetail{Ident: "BA1", ScheduledOut: out, ScheduledIn: in, OriginIATA: "LHR", DestIATA: "JFK"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, u.ID); err != nil {
 		t.Fatal(err)

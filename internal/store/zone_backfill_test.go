@@ -165,7 +165,7 @@ func TestApplyZoneFixes(t *testing.T) {
 		n, err := s.ApplyZoneFixes(ctx, []ZoneFix{
 			{PartID: hotel, End: "start", TZ: "Europe/London", Source: "confirmed", At: at1, Old: hs},
 			{PartID: hotel, End: "end", TZ: "Europe/London", Source: "confirmed", At: at2, Old: he},
-			{PartID: flight, End: "end", TZ: "Europe/Paris", Source: "", At: at2, Old: fe},
+			{PartID: flight, End: "end", TZ: "Europe/Paris", Source: "confirmed", At: at2, Old: fe},
 		})
 		if err != nil {
 			t.Fatal(err)

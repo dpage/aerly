@@ -42,7 +42,7 @@ func TestCreatePlanStartLocalInZone(t *testing.T) {
 	owner := e.user(t, "localzone", false)
 	trip := newTrip(t, e, owner, "Trip")
 	if code := postLocalPart(t, e, trip, owner, map[string]any{
-		"start_local": "2026-10-18T14:00", "start_tz": "Asia/Tashkent",
+		"start_local": "2026-10-18T14:00", "start_tz": "Asia/Tashkent", "start_tz_source": "confirmed",
 	}); code != http.StatusCreated {
 		t.Fatalf("create = %d", code)
 	}

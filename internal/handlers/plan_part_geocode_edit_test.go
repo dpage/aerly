@@ -36,8 +36,10 @@ func TestEditAddressUsesFallbackChain(t *testing.T) {
 		TripID: trip.ID, Type: "hotel", Title: "Ukino Palmeiras Village",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: checkin, EndsAt: &checkout,
-			StartLabel: "Ukino Palmeiras Village",
-			Hotel:      &store.HotelDetail{PropertyName: "Ukino Palmeiras Village"},
+			StartLabel:    "Ukino Palmeiras Village",
+			Hotel:         &store.HotelDetail{PropertyName: "Ukino Palmeiras Village"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid)
 	if err != nil {

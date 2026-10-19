@@ -13,7 +13,7 @@ func g2dining(t *testing.T, e *testEnv, tid, uid int64) int64 {
 	t.Helper()
 	w := e.req(t, "POST", "/api/trips/"+itoa(tid)+"/plans", map[string]any{
 		"type": "dining", "title": "Dinner",
-		"parts": []map[string]any{{"type": "dining", "starts_at": g2planOut}},
+		"parts": []map[string]any{{"type": "dining", "starts_at": g2planOut, "start_tz_source": "floating"}},
 	}, uid)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("seed dining plan = %d %s", w.Code, w.Body.String())
@@ -93,7 +93,7 @@ func TestCreatePlanPassengerNotFriendG2(t *testing.T) {
 	tid := newTrip(t, e, owner, "Trip")
 	if w := e.req(t, "POST", "/api/trips/"+itoa(tid)+"/plans", map[string]any{
 		"type": "dining", "title": "D", "passenger_ids": []int64{999999},
-		"parts": []map[string]any{{"type": "dining", "starts_at": g2planOut}},
+		"parts": []map[string]any{{"type": "dining", "starts_at": g2planOut, "start_tz_source": "floating"}},
 	}, owner); w.Code != http.StatusForbidden {
 		t.Errorf("create with non-friend pax = %d, want 403; body=%s", w.Code, w.Body.String())
 	}
@@ -110,7 +110,7 @@ func TestCreatePlanWithPassengerAndVisibilityG2(t *testing.T) {
 	w := e.req(t, "POST", "/api/trips/"+itoa(tid)+"/plans", map[string]any{
 		"type": "dining", "title": "D", "passenger_ids": []int64{friend},
 		"visibility": map[string]any{"mode": "everyone", "user_ids": []int64{}},
-		"parts":      []map[string]any{{"type": "dining", "starts_at": g2planOut}},
+		"parts":      []map[string]any{{"type": "dining", "starts_at": g2planOut, "start_tz_source": "floating"}},
 	}, owner)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create = %d %s", w.Code, w.Body.String())
@@ -129,7 +129,7 @@ func TestCreatePlanStoreErrG2(t *testing.T) {
 	g1dropTable(t, e, "plan_parts")
 	if w := e.req(t, "POST", "/api/trips/"+itoa(tid)+"/plans", map[string]any{
 		"type": "dining", "title": "D",
-		"parts": []map[string]any{{"type": "dining", "starts_at": g2planOut}},
+		"parts": []map[string]any{{"type": "dining", "starts_at": g2planOut, "start_tz_source": "floating"}},
 	}, owner); w.Code != http.StatusBadRequest {
 		t.Errorf("create store err = %d, want 400; body=%s", w.Code, w.Body.String())
 	}
@@ -147,7 +147,7 @@ func TestCreatePlanDTOErrG2(t *testing.T) {
 	g1dropTable(t, e, "plan_reminder_optin")
 	if w := e.req(t, "POST", "/api/trips/"+itoa(tid)+"/plans", map[string]any{
 		"type": "dining", "title": "D",
-		"parts": []map[string]any{{"type": "dining", "starts_at": g2planOut}},
+		"parts": []map[string]any{{"type": "dining", "starts_at": g2planOut, "start_tz_source": "floating"}},
 	}, admin); w.Code != http.StatusInternalServerError {
 		t.Errorf("create DTO err = %d, want 500; body=%s", w.Code, w.Body.String())
 	}

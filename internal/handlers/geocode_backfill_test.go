@@ -107,9 +107,11 @@ func TestBackfillPartCoordinates(t *testing.T) {
 		TripID: trip.ID, Type: "hotel", Title: "Brussels Marriott",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: checkin, EndsAt: &checkout,
-			StartLabel:   "Brussels Marriott Hotel Grand Place",
-			StartAddress: "Rue Auguste Orts 3-7, Brussels 1000, Belgium",
-			Hotel:        &store.HotelDetail{PropertyName: "Brussels Marriott"},
+			StartLabel:    "Brussels Marriott Hotel Grand Place",
+			StartAddress:  "Rue Auguste Orts 3-7, Brussels 1000, Belgium",
+			Hotel:         &store.HotelDetail{PropertyName: "Brussels Marriott"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid)
 	if err != nil {
@@ -222,7 +224,9 @@ func TestDeriveTripCountryFromParts(t *testing.T) {
 			StartsAt: at, EndsAt: &end,
 			StartLabel: "Folkestone", StartLat: p(folkLat), StartLon: p(folkLon),
 			EndLabel: "Calais", EndLat: p(calaisLat), EndLon: p(calaisLon),
-			Train: &store.TrainDetail{Operator: "Eurotunnel"},
+			Train:         &store.TrainDetail{Operator: "Eurotunnel"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -233,7 +237,9 @@ func TestDeriveTripCountryFromParts(t *testing.T) {
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: at, EndsAt: &checkout,
 			StartLabel: "Ablacus Naufrage", StartLat: p(hotelLat), StartLon: p(hotelLon),
-			Hotel: &store.HotelDetail{PropertyName: "Ablacus Naufrage"},
+			Hotel:         &store.HotelDetail{PropertyName: "Ablacus Naufrage"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -283,7 +289,9 @@ func TestBackfillTripDestinationsFromDwell(t *testing.T) {
 			StartsAt: at, EndsAt: &end,
 			StartLabel: "Folkestone Terminal", StartLat: p(folkLat), StartLon: p(folkLon),
 			EndLabel: "Calais Terminal", EndLat: p(calaisLat), EndLon: p(calaisLon),
-			Train: &store.TrainDetail{Operator: "LeShuttle"},
+			Train:         &store.TrainDetail{Operator: "LeShuttle"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -295,7 +303,9 @@ func TestBackfillTripDestinationsFromDwell(t *testing.T) {
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: at, EndsAt: &checkout,
 			StartLabel: "Belenos Lake", StartLat: p(hotelLat), StartLon: p(hotelLon),
-			Hotel: &store.HotelDetail{PropertyName: "Belenos Lake"},
+			Hotel:         &store.HotelDetail{PropertyName: "Belenos Lake"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -352,6 +362,8 @@ func TestDeriveTripCountryByDwellTime(t *testing.T) {
 			StartsAt: at, EndsAt: &end,
 			StartLabel: "Home", StartLat: p(homeLat), StartLon: p(homeLon),
 			EndLabel: "LHR T3", EndLat: p(lhrLat), EndLon: p(lhrLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -365,6 +377,8 @@ func TestDeriveTripCountryByDwellTime(t *testing.T) {
 			StartsAt: rb, EndsAt: &rbEnd,
 			StartLabel: "LHR T3", StartLat: p(lhrLat), StartLon: p(lhrLon),
 			EndLabel: "Home", EndLat: p(homeLat), EndLon: p(homeLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -376,7 +390,9 @@ func TestDeriveTripCountryByDwellTime(t *testing.T) {
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: at, EndsAt: &checkout,
 			StartLabel: "Radisson Tallinn", StartLat: p(hotelLat), StartLon: p(hotelLon),
-			Hotel: &store.HotelDetail{PropertyName: "Radisson Tallinn"},
+			Hotel:         &store.HotelDetail{PropertyName: "Radisson Tallinn"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -426,6 +442,8 @@ func TestDeriveTripDestinationAwayEndUnplottedHotel(t *testing.T) {
 			StartsAt: out, EndsAt: &outEnd,
 			StartLabel: "LHR", StartLat: p(lhrLat), StartLon: p(lhrLon),
 			EndLabel: "DUB", EndLat: p(dubLat), EndLon: p(dubLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -440,6 +458,8 @@ func TestDeriveTripDestinationAwayEndUnplottedHotel(t *testing.T) {
 			StartsAt: ret, EndsAt: &retEnd,
 			StartLabel: "DUB", StartLat: p(dubLat), StartLon: p(dubLon),
 			EndLabel: "LHR", EndLat: p(lhrLat), EndLon: p(lhrLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -452,8 +472,10 @@ func TestDeriveTripDestinationAwayEndUnplottedHotel(t *testing.T) {
 		TripID: trip.ID, Type: "hotel", Title: "Conrad Hotels & Resorts",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: checkin, EndsAt: &checkout,
-			StartLabel: "Conrad Hotels & Resorts",
-			Hotel:      &store.HotelDetail{PropertyName: "Conrad Hotels & Resorts"},
+			StartLabel:    "Conrad Hotels & Resorts",
+			Hotel:         &store.HotelDetail{PropertyName: "Conrad Hotels & Resorts"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -507,7 +529,9 @@ func TestDeriveTripCountryHotelBeforeOutboundFlight(t *testing.T) {
 			StartsAt: checkin, EndsAt: &checkout,
 			StartLabel: "Brussels Marriott", StartLat: p(hotLat), StartLon: p(hotLon),
 			EndLabel: "Brussels Marriott", EndLat: p(hotLat), EndLon: p(hotLon),
-			Hotel: &store.HotelDetail{PropertyName: "Brussels Marriott"},
+			Hotel:         &store.HotelDetail{PropertyName: "Brussels Marriott"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -520,6 +544,8 @@ func TestDeriveTripCountryHotelBeforeOutboundFlight(t *testing.T) {
 			StartsAt: out, EndsAt: &outEnd,
 			StartLabel: "LHR", StartLat: p(lhrLat), StartLon: p(lhrLon),
 			EndLabel: "BRU", EndLat: p(bruLat), EndLon: p(bruLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -532,6 +558,8 @@ func TestDeriveTripCountryHotelBeforeOutboundFlight(t *testing.T) {
 			StartsAt: ret, EndsAt: &retEnd,
 			StartLabel: "BRU", StartLat: p(bruLat), StartLon: p(bruLon),
 			EndLabel: "LHR", EndLat: p(lhrLat), EndLon: p(lhrLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -589,6 +617,8 @@ func TestReconcileTripPlacesUnfreezesFlag(t *testing.T) {
 			StartsAt: out, EndsAt: &outEnd,
 			StartLabel: "LHR", StartLat: p(lhrLat), StartLon: p(lhrLon),
 			EndLabel: "EWR", EndLat: p(ewrLat), EndLon: p(ewrLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -600,7 +630,9 @@ func TestReconcileTripPlacesUnfreezesFlag(t *testing.T) {
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: checkin, EndsAt: &checkout,
 			StartLabel: "Marriott", StartLat: p(nycLat), StartLon: p(nycLon),
-			Hotel: &store.HotelDetail{PropertyName: "New York Marriott Downtown"},
+			Hotel:         &store.HotelDetail{PropertyName: "New York Marriott Downtown"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -666,6 +698,8 @@ func TestReconcileTripPlacesRepairsOriginBiasedDestination(t *testing.T) {
 			StartsAt: out, EndsAt: &outEnd,
 			StartLabel: "LHR", StartLat: p(lhrLat), StartLon: p(lhrLon),
 			EndLabel: "DUB", EndLat: p(dubLat), EndLon: p(dubLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -678,6 +712,8 @@ func TestReconcileTripPlacesRepairsOriginBiasedDestination(t *testing.T) {
 			StartsAt: ret, EndsAt: &retEnd,
 			StartLabel: "DUB", StartLat: p(dubLat), StartLon: p(dubLon),
 			EndLabel: "LHR", EndLat: p(lhrLat), EndLon: p(lhrLon),
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)
@@ -688,8 +724,10 @@ func TestReconcileTripPlacesRepairsOriginBiasedDestination(t *testing.T) {
 		TripID: trip.ID, Type: "hotel", Title: "Conrad Hotels & Resorts",
 		Parts: []store.CreatePlanPartPayload{{
 			StartsAt: checkin, EndsAt: &checkout,
-			StartLabel: "Conrad Hotels & Resorts",
-			Hotel:      &store.HotelDetail{PropertyName: "Conrad Hotels & Resorts"},
+			StartLabel:    "Conrad Hotels & Resorts",
+			Hotel:         &store.HotelDetail{PropertyName: "Conrad Hotels & Resorts"},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, uid); err != nil {
 		t.Fatal(err)

@@ -63,7 +63,9 @@ func TestIngestProposeAndConfirm_VehicleHire(t *testing.T) {
 			"type": "vehicle_hire", "title": "Hertz hire", "confirmation_ref": "VH1", "source": "paste",
 			"parts": []map[string]any{{
 				"type": "vehicle_hire", "starts_at": pickup, "ends_at": dropoff,
-				"vehicle_hire": map[string]any{"category": "Standard SUV, distinctive-marker-7f3a"},
+				"vehicle_hire":    map[string]any{"category": "Standard SUV, distinctive-marker-7f3a"},
+				"start_tz_source": "floating",
+				"end_tz_source":   "floating",
 			}},
 		}},
 	}

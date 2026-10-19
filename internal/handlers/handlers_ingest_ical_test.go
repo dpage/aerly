@@ -121,6 +121,9 @@ func TestIngestICalConfirmKeepsArrived(t *testing.T) {
 				"dest_iata":     part.Flight.DestIATA,
 				"flight_status": part.Flight.FlightStatus,
 			},
+			// The web sends the proposal's sources back as they came.
+			"start_tz_source": part.StartTZSource,
+			"end_tz_source":   part.EndTZSource,
 		}},
 	}}}
 	w = e.req(t, "POST", fmt.Sprintf("/api/trips/%d/ingest/confirm", tid), confirm, owner)

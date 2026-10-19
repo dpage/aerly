@@ -330,7 +330,9 @@ func TestNotifyPlanSharesTitleFallbackG1(t *testing.T) {
 		"type": "hotel",
 		"parts": []map[string]any{{
 			"type": "hotel", "starts_at": out, "ends_at": out.Add(24 * time.Hour),
-			"start_label": "Hotel Example",
+			"start_label":     "Hotel Example",
+			"start_tz_source": "floating",
+			"end_tz_source":   "floating",
 		}},
 	}, owner)
 	if w.Code != http.StatusCreated {

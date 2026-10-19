@@ -35,6 +35,8 @@ func TestG3bMyFlightsScanError(t *testing.T) {
 				Ident: "TS100", ScheduledOut: out, ScheduledIn: in,
 				OriginIATA: "AAA", DestIATA: "BBB",
 			},
+			StartTZSource: "floating",
+			EndTZSource:   "floating",
 		}},
 	}, owner)
 	if err != nil {
