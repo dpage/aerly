@@ -3,29 +3,25 @@ package handlers
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
-// Hand-rolled RFC 5545 (iCalendar) renderer. No external deps — the format is
+// Hand-rolled RFC 5545 (iCalendar) renderer. No external deps, as the format is
 // small and well specified. We emit one VCALENDAR with one VEVENT per
-// plan_part, each anchored to a VTIMEZONE for the part's IANA zone so clients
-// show the correct local wall-clock time.
+// plan_part. Each time is written by its zone source: a zoned time (confirmed
+// or inferred) as local time against a VTIMEZONE for its IANA zone, a floating
+// time in the floating form (its digits, no Z and no TZID) so it imports back
+// as floating, and an unknown one as UTC.
 //
-// VTIMEZONE strategy: for each referenced IANA zone we emit proper
-// STANDARD/DAYLIGHT observances carrying RRULE transitions, derived directly
-// from Go's bundled tzdata. We scan the offset transitions in a window around
-// the feed's events (a couple of years either side is plenty for a calendar
-// feed) and group them by the (offsetFrom, offsetTo, abbreviation) they switch
-// to. Each group becomes one observance whose DTSTART is the first transition's
-// local wall-clock time and whose RRULE recurs yearly on the matching
-// month/weekday so clients render correct local times across DST boundaries.
-// Zones with no DST in the window collapse to a single STANDARD observance with
-// no RRULE. This stays dependency-free — Go's time package already carries the
-// tz rules we need.
+// VTIMEZONE strategy: for each referenced IANA zone we scan Go's bundled
+// tzdata for offset changes in a window around the zone's instants (a year
+// either side) and emit one STANDARD or DAYLIGHT observance per change, with
+// no RRULE. A zone with no change in the window gets a single STANDARD
+// observance starting at the window start.
 
 const icsProdID = "-//Aerly//Trip Planner//EN"
 
@@ -190,95 +186,53 @@ func findTransitions(loc *time.Location, start, end time.Time) []tzTransition {
 	return out
 }
 
-// rruleFor renders a yearly RRULE describing a transition that recurs on the
-// same weekday-of-month as the given local transition time (e.g. the last
-// Sunday of October). This matches how civil DST rules are defined, so a single
-// observance covers years of transitions.
-func rruleFor(local time.Time) string {
-	weekday := int(local.Weekday()) // 0=Sun..6=Sat
-	days := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
-	// Which occurrence of this weekday within the month: 1..5, or -1 for "last"
-	// when the date falls in the final week.
-	nth := (local.Day()-1)/7 + 1
-	lastOfMonth := time.Date(local.Year(), local.Month()+1, 0, 0, 0, 0, 0, local.Location()).Day()
-	setpos := strconv.Itoa(nth)
-	if local.Day()+7 > lastOfMonth {
-		setpos = "-1"
+// tzName is the TZNAME for an observance of tz beginning at instant at: Go's
+// abbreviation, unless tzdata has none and gives a bare offset ("+05"), in
+// which case the offset label the app shows ("UTC+5").
+func tzName(abbr string, at time.Time, tz string) string {
+	if abbr == "" || abbr[0] == '+' || abbr[0] == '-' {
+		return timing.OffsetLabel(at, tz)
 	}
-	return fmt.Sprintf("RRULE:FREQ=YEARLY;BYMONTH=%d;BYDAY=%s%s",
-		int(local.Month()), setpos, days[weekday])
+	return abbr
 }
 
-func writeVTimezone(b *strings.Builder, tzName string, loc *time.Location, instants []time.Time) {
+func writeVTimezone(b *strings.Builder, tz string, loc *time.Location, instants []time.Time) {
 	start, end := tzWindow(instants)
 	transitions := findTransitions(loc, start, end)
 
 	writeLine(b, "BEGIN:VTIMEZONE")
-	writeLine(b, "TZID:"+tzName)
+	writeLine(b, "TZID:"+tz)
 
 	if len(transitions) == 0 {
-		// No DST in the window: a single STANDARD observance with the fixed
-		// offset at the window start (RFC 5545 requires at least one observance).
-		at := start
-		if len(instants) > 0 {
-			at = instants[0].UTC()
-		}
-		abbr, off := at.In(loc).Zone()
-		if abbr == "" {
-			abbr = tzName
-		}
-		writeLine(b, "BEGIN:STANDARD")
-		writeLine(b, "DTSTART:"+at.In(loc).Format("20060102T150405"))
-		writeLine(b, "TZOFFSETFROM:"+formatTZOffset(off))
-		writeLine(b, "TZOFFSETTO:"+formatTZOffset(off))
-		writeLine(b, "TZNAME:"+abbr)
-		writeLine(b, "END:STANDARD")
+		// No change in the window: one STANDARD observance with the fixed
+		// offset from the window start (RFC 5545 requires at least one).
+		abbr, off := start.In(loc).Zone()
+		writeObservance(b, "STANDARD", start.In(loc), off, off, tzName(abbr, start, tz))
 		writeLine(b, "END:VTIMEZONE")
 		return
 	}
 
-	// Group transitions by their target (offsetTo, abbr, isDST): each group
-	// becomes one observance, anchored at its earliest transition with a yearly
-	// RRULE. Recurring civil rules produce two groups (into-DST, out-of-DST).
-	type group struct {
-		first      tzTransition
-		offsetFrom int
-	}
-	groups := map[string]*group{}
-	var order []string
+	// One observance per change. Its DTSTART is the local time just before
+	// the change, read in the offset being left (RFC 5545 section 3.6.5).
 	for _, tr := range transitions {
-		key := fmt.Sprintf("%d|%s|%t", tr.OffsetTo, tr.Abbr, tr.IsDST)
-		g := groups[key]
-		if g == nil {
-			groups[key] = &group{first: tr, offsetFrom: tr.OffsetFrom}
-			order = append(order, key)
-		} else if tr.At.Before(g.first.At) {
-			g.first = tr
-			g.offsetFrom = tr.OffsetFrom
-		}
-	}
-	sort.Strings(order)
-
-	for _, key := range order {
-		g := groups[key]
-		local := g.first.At.In(loc)
 		comp := "STANDARD"
-		if g.first.IsDST {
+		if tr.IsDST {
 			comp = "DAYLIGHT"
 		}
-		abbr := g.first.Abbr
-		if abbr == "" {
-			abbr = tzName
-		}
-		writeLine(b, "BEGIN:"+comp)
-		writeLine(b, "DTSTART:"+local.Format("20060102T150405"))
-		writeLine(b, rruleFor(local))
-		writeLine(b, "TZOFFSETFROM:"+formatTZOffset(g.offsetFrom))
-		writeLine(b, "TZOFFSETTO:"+formatTZOffset(g.first.OffsetTo))
-		writeLine(b, "TZNAME:"+abbr)
-		writeLine(b, "END:"+comp)
+		before := tr.At.In(time.FixedZone("", tr.OffsetFrom))
+		writeObservance(b, comp, before, tr.OffsetFrom, tr.OffsetTo, tzName(tr.Abbr, tr.At, tz))
 	}
 	writeLine(b, "END:VTIMEZONE")
+}
+
+// writeObservance writes one STANDARD or DAYLIGHT sub-block.
+func writeObservance(b *strings.Builder, comp string, local time.Time, from, to int, name string) {
+	writeLine(b, "BEGIN:"+comp)
+	writeLine(b, "DTSTART:"+local.Format("20060102T150405"))
+	writeLine(b, "TZOFFSETFROM:"+formatTZOffset(from))
+	writeLine(b, "TZOFFSETTO:"+formatTZOffset(to))
+	writeLine(b, "TZNAME:"+name)
+	writeLine(b, "END:"+comp)
 }
 
 func writeVEvent(b *strings.Builder, e *store.CalendarEvent) {
@@ -286,13 +240,9 @@ func writeVEvent(b *strings.Builder, e *store.CalendarEvent) {
 	writeLine(b, fmt.Sprintf("UID:plan-part-%d@aerly", e.PartID))
 	writeStamp(b, e)
 
-	writeLine(b, dtLine("DTSTART", e.StartsAt, e.StartTZ))
+	writeLine(b, dtLine("DTSTART", e.StartsAt, e.StartTZ, e.StartTZSource))
 	if e.EndsAt != nil {
-		endTZ := e.EndTZ
-		if endTZ == "" {
-			endTZ = e.StartTZ
-		}
-		writeLine(b, dtLine("DTEND", *e.EndsAt, endTZ))
+		writeLine(b, dtLine("DTEND", *e.EndsAt, e.EndTZ, e.EndTZSource))
 	}
 
 	writeLine(b, "SUMMARY:"+escapeText(summaryFor(e)))
@@ -316,12 +266,12 @@ func writeBandFirst(b *strings.Builder, e *store.CalendarEvent) {
 	writeLine(b, "BEGIN:VEVENT")
 	writeLine(b, fmt.Sprintf("UID:plan-part-%d-%s@aerly", e.PartID, bandUIDSuffix(e.Type, false)))
 	writeStamp(b, e)
-	writeLine(b, dtLine("DTSTART", e.StartsAt, e.StartTZ))
+	writeLine(b, dtLine("DTSTART", e.StartsAt, e.StartTZ, e.StartTZSource))
 	writeLine(b, "SUMMARY:"+escapeText(bandEdgeSummary(e, bandEdgeLabel(e.Type, false))))
 	if e.StartLabel != "" {
 		writeLine(b, "LOCATION:"+escapeText(e.StartLabel))
 	}
-	if desc := descriptionFor(e); desc != "" {
+	if desc := describe(e, startBlock(e), nil); desc != "" {
 		writeLine(b, "DESCRIPTION:"+escapeText(desc))
 	}
 	writeStatus(b, e)
@@ -329,10 +279,6 @@ func writeBandFirst(b *strings.Builder, e *store.CalendarEvent) {
 }
 
 func writeBandLast(b *strings.Builder, e *store.CalendarEvent) {
-	endTZ := e.EndTZ
-	if endTZ == "" {
-		endTZ = e.StartTZ
-	}
 	loc := e.EndLabel
 	if loc == "" {
 		loc = e.StartLabel
@@ -340,12 +286,12 @@ func writeBandLast(b *strings.Builder, e *store.CalendarEvent) {
 	writeLine(b, "BEGIN:VEVENT")
 	writeLine(b, fmt.Sprintf("UID:plan-part-%d-%s@aerly", e.PartID, bandUIDSuffix(e.Type, true)))
 	writeStamp(b, e)
-	writeLine(b, dtLine("DTSTART", *e.EndsAt, endTZ))
+	writeLine(b, dtLine("DTSTART", *e.EndsAt, e.EndTZ, e.EndTZSource))
 	writeLine(b, "SUMMARY:"+escapeText(bandEdgeSummary(e, bandEdgeLabel(e.Type, true))))
 	if loc != "" {
 		writeLine(b, "LOCATION:"+escapeText(loc))
 	}
-	if desc := descriptionFor(e); desc != "" {
+	if desc := describe(e, nil, endBlock(e)); desc != "" {
 		writeLine(b, "DESCRIPTION:"+escapeText(desc))
 	}
 	writeStatus(b, e)
@@ -410,16 +356,14 @@ func bandEdgeSummary(e *store.CalendarEvent, edge string) string {
 // rather than render as one spanning banner: a booking of a banding type (see
 // banding.go) whose end falls on a later local calendar day than its start.
 // Mirrors the frontend rule in web/src/lib/trip-format.ts so the feed and the
-// UI timeline agree.
+// UI timeline agree. Each end is read in its own zone; one with none is read
+// in UTC, which is its instant when unknown and its digits when floating, as
+// the printed itinerary does.
 func isBandedEvent(e *store.CalendarEvent) bool {
 	if _, ok := bandLabelsFor(e.Type); !ok || e.EndsAt == nil {
 		return false
 	}
-	endTZ := e.EndTZ
-	if endTZ == "" {
-		endTZ = e.StartTZ
-	}
-	return bandsToLaterDay(e.StartsAt, e.StartTZ, *e.EndsAt, endTZ)
+	return bandsToLaterDay(e.StartsAt, e.StartTZ, *e.EndsAt, e.EndTZ)
 }
 
 // tripBand is one all-day trip banner: its id, name, inclusive local date span,
@@ -466,11 +410,7 @@ func tripBandEvents(events []*store.CalendarEvent) []tripBand {
 		start := localDate(e.StartsAt, e.StartTZ)
 		end := start
 		if e.EndsAt != nil {
-			endTZ := e.EndTZ
-			if endTZ == "" {
-				endTZ = e.StartTZ
-			}
-			end = localDate(*e.EndsAt, endTZ)
+			end = localDate(*e.EndsAt, e.EndTZ)
 		}
 		if !a.havePart {
 			a.partStart, a.partEnd, a.havePart = start, end, true
@@ -525,15 +465,20 @@ func dateOnly(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// dtLine formats a DTSTART/DTEND property. When the zone is known we emit a
-// floating local time with a TZID parameter referencing the matching
-// VTIMEZONE; otherwise we fall back to UTC ("Z") so the instant is still
-// unambiguous.
-func dtLine(prop string, t time.Time, tzName string) string {
-	if tzName != "" {
-		if loc, err := time.LoadLocation(tzName); err == nil {
-			return fmt.Sprintf("%s;TZID=%s:%s", prop, tzName, t.In(loc).Format("20060102T150405"))
+// dtLine formats a DTSTART/DTEND property by the time's zone source. A zoned
+// time (confirmed or inferred, the only sources a zone is stored with) is
+// local time with a TZID referencing the matching VTIMEZONE. A floating time
+// is its UTC digits with no Z and no TZID, the RFC 5545 floating form, so it
+// imports back as floating. Anything else, an unknown source or a zone that
+// does not load, is UTC with a Z, which keeps the instant unambiguous.
+func dtLine(prop string, t time.Time, tz, source string) string {
+	if tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return fmt.Sprintf("%s;TZID=%s:%s", prop, tz, t.In(loc).Format("20060102T150405"))
 		}
+	}
+	if timing.Source(source) == timing.Floating {
+		return prop + ":" + t.UTC().Format("20060102T150405")
 	}
 	return prop + ":" + t.UTC().Format("20060102T150405Z")
 }
@@ -547,8 +492,56 @@ func summaryFor(e *store.CalendarEvent) string {
 	return fmt.Sprintf("%s (%s)", title, typ)
 }
 
+// descriptionFor is the DESCRIPTION of an event covering the whole part: its
+// start and, when it has one, its end.
 func descriptionFor(e *store.CalendarEvent) string {
+	return describe(e, startBlock(e), endBlock(e))
+}
+
+// startBlock and endBlock are a part's two ends as the time labels need them.
+// endBlock is nil when the part has no end. The end never borrows the start's
+// zone: a blank end zone is labelled by its own source.
+func startBlock(e *store.CalendarEvent) *timing.Block {
+	return icsBlock(e.StartsAt, e.StartTZ, e.StartTZSource)
+}
+
+func endBlock(e *store.CalendarEvent) *timing.Block {
+	if e.EndsAt == nil {
+		return nil
+	}
+	return icsBlock(*e.EndsAt, e.EndTZ, e.EndTZSource)
+}
+
+func icsBlock(at time.Time, tz, source string) *timing.Block {
+	return &timing.Block{
+		At: at, TZ: tz, Source: timing.Source(source),
+		Place: timing.PlaceName(tz, ""), Kind: timing.Scheduled,
+	}
+}
+
+// describe builds a DESCRIPTION from the ends given (either may be nil, as a
+// band edge event carries only its own): "Starts:" and "Ends:" lines in the
+// app's full form, "Time zone unknown" when a given end has no zone, then the
+// confirmation and the notes. A feed has no viewer, so an unknown time is
+// shown in UTC.
+func describe(e *store.CalendarEvent, start, end *timing.Block) string {
 	var parts []string
+	zoneless := false
+	for _, x := range []struct {
+		label string
+		b     *timing.Block
+	}{{"Starts: ", start}, {"Ends: ", end}} {
+		if x.b == nil {
+			continue
+		}
+		parts = append(parts, x.label+timing.Full(*x.b, ""))
+		if x.b.TZ == "" {
+			zoneless = true
+		}
+	}
+	if zoneless {
+		parts = append(parts, "Time zone unknown")
+	}
 	if ref := strings.TrimSpace(e.ConfirmationRef); ref != "" {
 		parts = append(parts, "Confirmation: "+ref)
 	}

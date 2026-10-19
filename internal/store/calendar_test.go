@@ -494,3 +494,32 @@ func TestCalendarEventsTitleFlightLegsByOwnIdent(t *testing.T) {
 		t.Errorf("titles = %q, want %q", got, want)
 	}
 }
+
+// TestCalendarEventsCarryZoneSources: the feed's events carry each end's zone
+// source, so the renderer can write a floating time differently from an
+// unknown one.
+func TestCalendarEventsCarryZoneSources(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+	plan := mkTypedPlan(t, s, trip, owner, "flight", "XX100", "TEST01", "")
+	start := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
+	end := start.Add(4 * time.Hour)
+	if _, err := s.pool.Exec(ctx,
+		`INSERT INTO plan_parts (plan_id, starts_at, ends_at, start_tz, end_tz,
+		     start_tz_source, end_tz_source)
+		 VALUES ($1, $2, $3, 'Asia/Tashkent', '', 'inferred', 'floating')`,
+		plan, start, end); err != nil {
+		t.Fatalf("insert part: %v", err)
+	}
+	evs, err := s.CalendarEventsForPlan(ctx, owner, plan)
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("CalendarEventsForPlan = %v, %v", evs, err)
+	}
+	if evs[0].StartTZSource != "inferred" || evs[0].EndTZSource != "floating" {
+		t.Errorf("sources = %q/%q, want inferred/floating", evs[0].StartTZSource, evs[0].EndTZSource)
+	}
+}

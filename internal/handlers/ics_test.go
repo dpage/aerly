@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dpage/aerly/internal/importics"
 	"github.com/dpage/aerly/internal/store"
+	"github.com/dpage/aerly/internal/timing"
 )
 
 // TestTitleCaseType pins the SUMMARY parenthetical for a non-banded event.
@@ -118,8 +121,11 @@ func TestRenderICSStructure(t *testing.T) {
 			t.Errorf("ICS output missing %q\n---\n%s", m, out)
 		}
 	}
-	// Confirmation + notes folded into DESCRIPTION, with escaping.
-	if !strings.Contains(out, "DESCRIPTION:Confirmation: ABC123\\nwindow\\; seat") {
+	// The time labels, then confirmation and notes, in DESCRIPTION, escaped.
+	// The line is long enough to fold, so compare it unfolded.
+	unfolded := strings.ReplaceAll(out, "\r\n ", "")
+	if !strings.Contains(unfolded, `DESCRIPTION:Starts: Wed 1 Jul\, 10:00 London (UTC+1)\n`+
+		`Ends: Wed 1 Jul\, 10:30 New York (UTC-4)\nConfirmation: ABC123\nwindow\; seat`+"\r\n") {
 		t.Errorf("DESCRIPTION wrong/unescaped:\n%s", out)
 	}
 	// CRLF line endings.
@@ -128,9 +134,10 @@ func TestRenderICSStructure(t *testing.T) {
 	}
 }
 
-// TestRenderICSDSTTransitions verifies the VTIMEZONE carries proper
-// DAYLIGHT/STANDARD observances with RRULE transitions, and that two events
-// straddling a DST boundary render the correct local wall-clock times.
+// TestRenderICSDSTTransitions verifies the VTIMEZONE carries DAYLIGHT and
+// STANDARD observances, and that two events straddling a DST boundary render
+// the correct local wall-clock times. TestICSVTimezoneOneBlockPerChange pins
+// the observances themselves.
 func TestRenderICSDSTTransitions(t *testing.T) {
 	// Two events in Europe/London on either side of the autumn 2026 transition
 	// (BST→GMT at 02:00 BST on the last Sunday of October, 2026-10-25).
@@ -149,10 +156,8 @@ func TestRenderICSDSTTransitions(t *testing.T) {
 		"TZID:Europe/London",
 		"BEGIN:DAYLIGHT",
 		"BEGIN:STANDARD",
-		"RRULE:FREQ=YEARLY;BYMONTH=3",  // spring forward in March
-		"RRULE:FREQ=YEARLY;BYMONTH=10", // fall back in October
-		"TZOFFSETTO:+0100",             // BST
-		"TZOFFSETTO:+0000",             // GMT
+		"TZOFFSETTO:+0100", // BST
+		"TZOFFSETTO:+0000", // GMT
 		// Local wall-clock times the client renders against the VTIMEZONE.
 		"DTSTART;TZID=Europe/London:20261020T130000", // 13:00 BST
 		"DTSTART;TZID=Europe/London:20261103T120000", // 12:00 GMT
@@ -161,12 +166,6 @@ func TestRenderICSDSTTransitions(t *testing.T) {
 		if !strings.Contains(out, m) {
 			t.Errorf("ICS DST output missing %q\n---\n%s", m, out)
 		}
-	}
-
-	// The DST RRULE should resolve to the last Sunday (BYDAY=-1SU) for both
-	// transitions in Europe/London.
-	if !strings.Contains(out, "BYDAY=-1SU") {
-		t.Errorf("expected last-Sunday RRULE for Europe/London:\n%s", out)
 	}
 }
 
@@ -317,7 +316,8 @@ func TestRenderICSNoTZFallsBackToUTC(t *testing.T) {
 
 // TestICSHotelOutputUnchangedByBandingRefactor is the golden test for the
 // banding unification: a two-night hotel stay must keep producing exactly the
-// UIDs, SUMMARY lines and DTSTARTs it produced before the refactor. The UIDs in
+// UIDs, SUMMARY lines and DTSTARTs it produced before the refactor (the
+// DESCRIPTION gained each edge's own time label with the zone export). The UIDs in
 // particular are load-bearing, because real calendar clients have already
 // subscribed to this feed and key their stored events off the UID; changing one
 // duplicates the event for every subscriber and orphans the original, which
@@ -335,6 +335,8 @@ func TestICSHotelOutputUnchangedByBandingRefactor(t *testing.T) {
 		EndsAt:          &checkout,
 		StartTZ:         "Europe/London",
 		EndTZ:           "Europe/London",
+		StartTZSource:   "confirmed",
+		EndTZSource:     "confirmed",
 		StartLabel:      "Test Hotel, Testville",
 		EndLabel:        "Test Hotel, Testville",
 		Status:          "confirmed",
@@ -350,7 +352,8 @@ func TestICSHotelOutputUnchangedByBandingRefactor(t *testing.T) {
 		"DTSTART;TZID=Europe/London:20260907T150000",
 		"SUMMARY:Test Hotel (Check-in)",
 		`LOCATION:Test Hotel\, Testville`,
-		`DESCRIPTION:Confirmation: TESTREF1\nLate arrival`,
+		`DESCRIPTION:Starts: Mon 7 Sep\, 15:00 London (UTC+1)\nConfirmation: TESTREF`,
+		` 1\nLate arrival`,
 		"STATUS:CONFIRMED",
 		"END:VEVENT",
 		"BEGIN:VEVENT",
@@ -360,7 +363,8 @@ func TestICSHotelOutputUnchangedByBandingRefactor(t *testing.T) {
 		"DTSTART;TZID=Europe/London:20260909T110000",
 		"SUMMARY:Test Hotel (Check-out)",
 		`LOCATION:Test Hotel\, Testville`,
-		`DESCRIPTION:Confirmation: TESTREF1\nLate arrival`,
+		`DESCRIPTION:Ends: Wed 9 Sep\, 11:00 London (UTC+1)\nConfirmation: TESTREF1\`,
+		` nLate arrival`,
 		"STATUS:CONFIRMED",
 		"END:VEVENT",
 	}, "\n")
@@ -485,5 +489,304 @@ func TestICSOvernightJourneysNeverBand(t *testing.T) {
 		if strings.Count(out, "BEGIN:VEVENT") != 1 {
 			t.Errorf("%s: an overnight journey must not band into two events:\n%s", typ, out)
 		}
+	}
+}
+
+// xx100 is a fake flight from Tashkent to Istanbul whose two ends carry the
+// given zones and sources.
+func xx100(startTZ string, startSrc timing.Source, endTZ string, endSrc timing.Source) *store.CalendarEvent {
+	end := time.Date(2026, 10, 18, 13, 0, 0, 0, time.UTC) // 16:00 in Istanbul
+	return &store.CalendarEvent{
+		PartID:          100,
+		PlanID:          10,
+		Type:            "flight",
+		Title:           "XX100",
+		ConfirmationRef: "TEST01",
+		StartsAt:        time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC), // 14:00 in Tashkent
+		EndsAt:          &end,
+		StartTZ:         startTZ,
+		EndTZ:           endTZ,
+		StartTZSource:   string(startSrc),
+		EndTZSource:     string(endSrc),
+		Status:          "confirmed",
+		UpdatedAt:       time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+	}
+}
+
+// TestICSTimesWrittenByZoneSource: a zoned time (confirmed or inferred) is
+// written against its VTIMEZONE, a floating one in the RFC 5545 floating form
+// (its digits, no Z and no TZID), and an unknown one as UTC.
+func TestICSTimesWrittenByZoneSource(t *testing.T) {
+	cases := []struct {
+		name    string
+		ev      *store.CalendarEvent
+		want    []string
+		mustNot []string
+	}{
+		{
+			name: "confirmed",
+			ev:   xx100("Asia/Tashkent", timing.Confirmed, "Europe/Istanbul", timing.Confirmed),
+			want: []string{"DTSTART;TZID=Asia/Tashkent:20261018T140000", "DTEND;TZID=Europe/Istanbul:20261018T160000"},
+		},
+		{
+			name: "inferred",
+			ev:   xx100("Asia/Tashkent", timing.Inferred, "Europe/Istanbul", timing.Inferred),
+			want: []string{"DTSTART;TZID=Asia/Tashkent:20261018T140000", "DTEND;TZID=Europe/Istanbul:20261018T160000"},
+		},
+		{
+			name:    "floating",
+			ev:      xx100("", timing.Floating, "", timing.Floating),
+			want:    []string{"DTSTART:20261018T090000\r\n", "DTEND:20261018T130000\r\n"},
+			mustNot: []string{"DTSTART:20261018T090000Z", "TZID="},
+		},
+		{
+			name:    "unknown",
+			ev:      xx100("", timing.Unknown, "", timing.Unknown),
+			want:    []string{"DTSTART:20261018T090000Z", "DTEND:20261018T130000Z"},
+			mustNot: []string{"TZID="},
+		},
+	}
+	for _, tc := range cases {
+		out := renderICS("Aerly", []*store.CalendarEvent{tc.ev}, false)
+		for _, w := range tc.want {
+			if !strings.Contains(out, w) {
+				t.Errorf("%s: missing %q\n---\n%s", tc.name, w, out)
+			}
+		}
+		for _, n := range tc.mustNot {
+			if strings.Contains(out, n) {
+				t.Errorf("%s: must not contain %q\n---\n%s", tc.name, n, out)
+			}
+		}
+	}
+}
+
+// TestICSDescriptionCarriesFullLabels: the description opens with the start
+// and end in their own zones, in the same words the app shows, before the
+// confirmation and notes.
+func TestICSDescriptionCarriesFullLabels(t *testing.T) {
+	ev := xx100("Asia/Tashkent", timing.Confirmed, "Europe/Istanbul", timing.Confirmed)
+	ev.Notes = "Aisle seat"
+	want := "Starts: Sun 18 Oct, 14:00 Tashkent (UTC+5)\n" +
+		"Ends: Sun 18 Oct, 16:00 Istanbul (UTC+3)\n" +
+		"Confirmation: TEST01\nAisle seat"
+	if got := descriptionFor(ev); got != want {
+		t.Errorf("descriptionFor =\n%q\nwant\n%q", got, want)
+	}
+	// With no end there is no Ends line.
+	ev.EndsAt = nil
+	if got := descriptionFor(ev); strings.Contains(got, "Ends:") {
+		t.Errorf("an event with no end must not carry an Ends line: %q", got)
+	}
+}
+
+// TestICSDescriptionSaysTimeZoneUnknown: when either end has no zone, the
+// description says so on its own line, after the time labels.
+func TestICSDescriptionSaysTimeZoneUnknown(t *testing.T) {
+	cases := map[string]struct {
+		ev   *store.CalendarEvent
+		want string
+	}{
+		"floating start": {
+			ev: xx100("", timing.Floating, "Europe/Istanbul", timing.Confirmed),
+			want: "Starts: Sun 18 Oct, 09:00\n" +
+				"Ends: Sun 18 Oct, 16:00 Istanbul (UTC+3)\n" +
+				"Time zone unknown\nConfirmation: TEST01",
+		},
+		"unknown end": {
+			ev: xx100("Asia/Tashkent", timing.Confirmed, "", timing.Unknown),
+			want: "Starts: Sun 18 Oct, 14:00 Tashkent (UTC+5)\n" +
+				"Ends: Sun 18 Oct, 13:00 UTC\n" +
+				"Time zone unknown\nConfirmation: TEST01",
+		},
+	}
+	for name, tc := range cases {
+		if got := descriptionFor(tc.ev); got != tc.want {
+			t.Errorf("%s: descriptionFor =\n%q\nwant\n%q", name, got, tc.want)
+		}
+	}
+	if got := descriptionFor(xx100("Asia/Tashkent", timing.Inferred, "Europe/Istanbul", timing.Confirmed)); strings.Contains(got, "Time zone unknown") {
+		t.Errorf("a zoned event must not say its time zone is unknown: %q", got)
+	}
+}
+
+// vTimezoneBlock returns the VTIMEZONE section for tzid, CRLFs intact.
+func vTimezoneBlock(t *testing.T, ics, tzid string) string {
+	t.Helper()
+	start := strings.Index(ics, "BEGIN:VTIMEZONE\r\nTZID:"+tzid+"\r\n")
+	if start < 0 {
+		t.Fatalf("no VTIMEZONE for %s:\n%s", tzid, ics)
+	}
+	end := strings.Index(ics[start:], "END:VTIMEZONE\r\n")
+	return ics[start : start+end]
+}
+
+// TestICSVTimezoneOneBlockPerChange: a zone with daylight saving gets one
+// observance per offset change in the window (the referenced instants padded
+// by a year either side), each starting at the local time just before the
+// change, and none of them recurring.
+func TestICSVTimezoneOneBlockPerChange(t *testing.T) {
+	events := []*store.CalendarEvent{
+		{PartID: 1, Type: "flight", Title: "XX100", StartsAt: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC),
+			StartTZ: "Europe/London", StartTZSource: "confirmed"},
+		{PartID: 2, Type: "flight", Title: "XX101", StartsAt: time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC),
+			StartTZ: "Europe/London", StartTZSource: "confirmed"},
+	}
+	vtz := vTimezoneBlock(t, renderICS("Aerly", events, false), "Europe/London")
+	// 20 Oct 2025 to 3 Nov 2027 holds five changes: Oct 2025, Mar and Oct 2026,
+	// Mar and Oct 2027.
+	if n := strings.Count(vtz, "BEGIN:STANDARD") + strings.Count(vtz, "BEGIN:DAYLIGHT"); n != 5 {
+		t.Errorf("observances = %d, want 5\n%s", n, vtz)
+	}
+	if strings.Contains(vtz, "RRULE") {
+		t.Errorf("observances must not recur:\n%s", vtz)
+	}
+	for _, want := range []string{
+		"BEGIN:STANDARD\r\nDTSTART:20251026T020000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0000\r\nTZNAME:GMT\r\nEND:STANDARD",
+		"BEGIN:DAYLIGHT\r\nDTSTART:20260329T010000\r\nTZOFFSETFROM:+0000\r\nTZOFFSETTO:+0100\r\nTZNAME:BST\r\nEND:DAYLIGHT",
+		"BEGIN:STANDARD\r\nDTSTART:20261025T020000\r\n",
+		"BEGIN:DAYLIGHT\r\nDTSTART:20270328T010000\r\n",
+		"BEGIN:STANDARD\r\nDTSTART:20271031T020000\r\n",
+	} {
+		if !strings.Contains(vtz, want) {
+			t.Errorf("VTIMEZONE missing %q\n%s", want, vtz)
+		}
+	}
+}
+
+// TestICSVTimezoneFixedZone: a zone with no change in the window gets one
+// STANDARD observance starting at the window start, and a numeric Go
+// abbreviation ("+05") is named by its offset instead.
+func TestICSVTimezoneFixedZone(t *testing.T) {
+	ev := xx100("Asia/Tashkent", timing.Confirmed, "", timing.Unknown)
+	vtz := vTimezoneBlock(t, renderICS("Aerly", []*store.CalendarEvent{ev}, false), "Asia/Tashkent")
+	want := "BEGIN:STANDARD\r\nDTSTART:20251018T140000\r\nTZOFFSETFROM:+0500\r\n" +
+		"TZOFFSETTO:+0500\r\nTZNAME:UTC+5\r\nEND:STANDARD\r\n"
+	if !strings.HasSuffix(vtz, want) || strings.Count(vtz, "BEGIN:") != 2 {
+		t.Errorf("fixed-offset VTIMEZONE =\n%s\nwant one observance ending\n%s", vtz, want)
+	}
+}
+
+// TestICSHotelBlankEndZoneUsesItsOwnSource: a hotel whose check-out has no
+// zone writes the check-out by its own source, not by the check-in's zone,
+// keeps both historic UIDs, and each edge describes only its own end.
+func TestICSHotelBlankEndZoneUsesItsOwnSource(t *testing.T) {
+	for _, tc := range []struct {
+		src     timing.Source
+		dtstart string
+		label   string
+	}{
+		{timing.Unknown, "DTSTART:20260909T100000Z", `Ends: Wed 9 Sep\, 10:00 UTC`},
+		{timing.Floating, "DTSTART:20260909T100000\r\n", `Ends: Wed 9 Sep\, 10:00`},
+	} {
+		checkout := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+		ev := &store.CalendarEvent{
+			PartID: 42, PlanID: 7, Type: "hotel", Title: "Test Hotel",
+			StartsAt: time.Date(2026, 9, 7, 14, 0, 0, 0, time.UTC), EndsAt: &checkout,
+			StartTZ: "Europe/London", StartTZSource: "confirmed", EndTZSource: string(tc.src),
+			UpdatedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		}
+		out := vEventBlocks(renderICS("Aerly", []*store.CalendarEvent{ev}, false))
+		checkin, checkoutEv, _ := strings.Cut(out, "END:VEVENT\nBEGIN:VEVENT")
+		for _, want := range []string{"UID:plan-part-42-checkin@aerly", `DESCRIPTION:Starts: Mon 7 Sep\, 15:00 London (UTC+1)`} {
+			if !strings.Contains(checkin, want) {
+				t.Errorf("%s: check-in missing %q\n%s", tc.src, want, checkin)
+			}
+		}
+		if strings.Contains(checkin, "Ends:") || strings.Contains(checkin, "Time zone unknown") {
+			t.Errorf("%s: check-in must describe only its own end:\n%s", tc.src, checkin)
+		}
+		if !strings.Contains(checkoutEv, "UID:plan-part-42-checkout@aerly") ||
+			!strings.Contains(checkoutEv, "DESCRIPTION:"+tc.label+`\nTime zone unknown`) ||
+			strings.Contains(checkoutEv, "Starts:") {
+			t.Errorf("%s: check-out UID or description wrong:\n%s", tc.src, checkoutEv)
+		}
+		raw := renderICS("Aerly", []*store.CalendarEvent{ev}, false)
+		if !strings.Contains(raw, tc.dtstart) || strings.Contains(raw, "TZID=Europe/London:20260909") {
+			t.Errorf("%s: check-out must be written by its own source (%q):\n%s", tc.src, tc.dtstart, raw)
+		}
+	}
+}
+
+// TestICSBlankEndZoneNeverBorrowsStartZone: banding and the trip banner read a
+// blank end zone by its own source (UTC for an unknown end), never the start
+// zone. In Tokyo the end would fall on the next day; in UTC it does not.
+func TestICSBlankEndZoneNeverBorrowsStartZone(t *testing.T) {
+	end := time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC) // 12 Jun 05:00 in Tokyo
+	ev := &store.CalendarEvent{
+		PartID: 5, Type: "hotel", Title: "Test Hotel", TripID: 3, TripName: "Test Trip",
+		StartsAt: time.Date(2026, 6, 11, 1, 0, 0, 0, time.UTC), EndsAt: &end,
+		StartTZ: "Asia/Tokyo", StartTZSource: "confirmed", EndTZSource: "unknown",
+	}
+	if isBandedEvent(ev) {
+		t.Error("an unknown end on the same UTC day must not band by the start zone")
+	}
+	bands := tripBandEvents([]*store.CalendarEvent{ev})
+	if len(bands) != 1 || !bands[0].end.Equal(time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("trip band = %+v, want it to end on 11 Jun", bands)
+	}
+}
+
+// TestICSRoundTripKeepsZonesAndSources exports a trip with a part of every
+// zone source and imports it back through the real parser and resolver: each
+// end keeps its instant, its zone and its source, except that inferred comes
+// back confirmed, because on import a TZID is the time's own zone.
+func TestICSRoundTripKeepsZonesAndSources(t *testing.T) {
+	mk := func(id int64, tz string, src timing.Source) *store.CalendarEvent {
+		ev := xx100(tz, src, tz, src)
+		ev.PartID = id
+		return ev
+	}
+	events := []*store.CalendarEvent{
+		mk(1, "Asia/Tashkent", timing.Confirmed),
+		mk(2, "Europe/London", timing.Inferred),
+		mk(3, "", timing.Floating),
+		mk(4, "", timing.Unknown),
+	}
+	want := map[string]struct {
+		tz  string
+		src timing.Source
+	}{
+		"plan-part-1@aerly": {"Asia/Tashkent", timing.Confirmed},
+		"plan-part-2@aerly": {"Europe/London", timing.Confirmed}, // inferred is confirmed on import
+		"plan-part-3@aerly": {"", timing.Floating},
+		"plan-part-4@aerly": {"", timing.Unknown},
+	}
+	cal, err := importics.Parse(strings.NewReader(renderICS("Test Traveller", events, true)))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	seen := 0
+	for _, ev := range cal.Events {
+		w, ok := want[ev.UID]
+		if !ok {
+			continue // the trip banner
+		}
+		seen++
+		src := events[0]
+		for _, e := range events {
+			if fmt.Sprintf("plan-part-%d@aerly", e.PartID) == ev.UID {
+				src = e
+			}
+		}
+		for _, end := range []struct {
+			dt importics.DateTime
+			at time.Time
+		}{{ev.Start, src.StartsAt}, {ev.End, *src.EndsAt}} {
+			r, ok := importics.Resolve(end.dt, importics.Context{})
+			if !ok {
+				t.Fatalf("%s: %q did not resolve", ev.UID, end.dt.Raw)
+			}
+			if !r.At.Equal(end.at) || r.TZ != w.tz || r.Source != w.src {
+				t.Errorf("%s: round trip = %s %q %s, want %s %q %s",
+					ev.UID, r.At, r.TZ, r.Source, end.at, w.tz, w.src)
+			}
+		}
+	}
+	if seen != len(want) {
+		t.Errorf("imported %d of %d parts", seen, len(want))
+	}
+	if events[1].StartTZSource != string(timing.Inferred) {
+		t.Fatal("the fixture must export an inferred part for the round trip to test it")
 	}
 }
