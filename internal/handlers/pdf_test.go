@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -531,6 +532,7 @@ func TestWinAnsiByte(t *testing.T) {
 	cases := map[rune]byte{
 		'A': 'A', ' ': ' ', '~': '~', 0xE9: 0xE9, // é (Latin-1)
 		'’': '\'', '“': '"', '”': '"', '–': '-', '—': '-', '•': '*', '→': '>',
+		'≈': '~',
 		'☃': '?', // outside any mapping
 	}
 	for in, want := range cases {
@@ -916,5 +918,117 @@ func TestPDFHeadingsForFloatingAndUnknown(t *testing.T) {
 		if !hasRun(runs, want) {
 			t.Errorf("missing %q in %q", want, runs)
 		}
+	}
+}
+
+// A derived arrival (only the departure was revised) keeps its approximate
+// mark in the PDF as '~', since WinAnsi has no '≈', rather than printing '?'.
+func TestPDFDerivedArrival(t *testing.T) {
+	out := mustTime(t, "2026-10-18T13:00:00Z")
+	in := mustTime(t, "2026-10-18T14:07:00Z")
+	sameDay := api.TimeBlockDTO{At: in, TZ: "Asia/Tashkent", TZSource: "confirmed", Place: "Tashkent", Kind: "derived"}
+	plans := []api.PlanDTO{{Type: "flight", Title: "XX100", Parts: []api.PlanPartDTO{{
+		Start: api.TimeBlockDTO{At: out, TZ: "Europe/London", TZSource: "confirmed", Place: "London", Kind: "estimated"},
+		End:   &sameDay,
+	}}}}
+	runs := pdfText(plans)
+	if !hasRun(runs, `Sun 18 Oct, 14:00 London \(UTC+1\) - ~19:07 UTC+5`) {
+		t.Errorf("same-day derived arrival: %q", runs)
+	}
+	for _, r := range runs {
+		if strings.Contains(r, "?") {
+			t.Errorf("unrenderable glyph in %q", r)
+		}
+	}
+
+	// On another day the end is in full form, with the web's wording.
+	nextDay := sameDay
+	nextDay.At = mustTime(t, "2026-10-18T20:07:00Z")
+	plans[0].Parts[0].End = &nextDay
+	runs = pdfText(plans)
+	if got := strings.Join(runs, " "); !strings.Contains(got, `Mon 19 Oct, ~01:07 Tashkent \(UTC+5\) \(based on departure delay\)`) {
+		t.Errorf("next-day derived arrival: %q", runs)
+	}
+}
+
+// pdfTextAt pairs each drawn string with the x of its text matrix, so a test
+// can check where a run starts rather than only what it says.
+func pdfTextAt(pdf string) map[string]float64 {
+	out := map[string]float64{}
+	var x float64
+	for _, line := range strings.Split(pdf, "\n") {
+		var y float64
+		if n, _ := fmt.Sscanf(line, "1 0 0 1 %f %f Tm", &x, &y); n == 2 {
+			continue
+		}
+		if strings.HasPrefix(line, "(") && strings.HasSuffix(line, ") Tj") {
+			out[line[1:len(line)-len(") Tj")]] = x
+		}
+	}
+	return out
+}
+
+// The bold clock in the left column never reaches the title beside it, even
+// for half-hour, double-digit and approximate offsets.
+func TestPDFTimeColumnFitsWidestClock(t *testing.T) {
+	zones := []string{"Asia/Kolkata", "Australia/Sydney", "Pacific/Honolulu", "Pacific/Chatham", "Europe/London"}
+	var plans []api.PlanDTO
+	for i, tz := range zones {
+		b := api.TimeBlockDTO{At: mustTime(t, "2026-10-18T09:00:00Z").Add(time.Duration(i) * time.Hour), TZ: tz, TZSource: "confirmed"}
+		if tz == "Pacific/Chatham" {
+			b.Kind = "derived"
+		}
+		plans = append(plans, api.PlanDTO{Type: "train", Title: fmt.Sprintf("Train %d", i), Parts: []api.PlanPartDTO{{Start: b}}})
+	}
+	l := newPDFLayout("a4")
+	l.renderTrip(&store.Trip{Name: "Test"}, plans, nil)
+	pos := pdfTextAt(string(l.encode()))
+	titleX, ok := pos["Train: Train 0"]
+	if !ok {
+		t.Fatalf("title not drawn: %v", pos)
+	}
+	clocks := 0
+	for s, x := range pos {
+		if !strings.Contains(s, "UTC") || x != l.margin {
+			continue
+		}
+		clocks++
+		if end := l.margin + helveticaBoldTextWidth(s, 10); end >= titleX-4 {
+			t.Errorf("clock %q ends at %.1f, title starts at %.1f", s, end, titleX)
+		}
+	}
+	if clocks != len(zones) {
+		t.Errorf("found %d clocks, want %d: %v", clocks, len(zones), pos)
+	}
+	if _, ok := pos["~01:45 UTC+13:45"]; !ok {
+		t.Errorf("Chatham clock missing: %v", pos)
+	}
+}
+
+func TestTimeColumnWidth(t *testing.T) {
+	if got := timeColumnWidth(nil); got != 64 {
+		t.Errorf("empty = %v", got)
+	}
+	if got := timeColumnWidth([]string{"14:00", "all day"}); got != 64 {
+		t.Errorf("short clocks keep the original column, got %v", got)
+	}
+	// 10pt bold: "14:00 UTC+5:30" is 74.8pt, so the column is that plus the gap.
+	if got := timeColumnWidth([]string{"14:00 UTC+5:30"}); got < 84.7 || got > 84.9 {
+		t.Errorf("kolkata = %v", got)
+	}
+}
+
+func TestHelveticaBoldTextWidth(t *testing.T) {
+	// Six digits (556), a colon (333), a space (278), U (722), T (611),
+	// C (722) and '+' (584): 6586 units, 65.86pt at 10pt.
+	if got := helveticaBoldTextWidth("14:00 UTC+10", 10); got < 65.85 || got > 65.87 {
+		t.Errorf("width = %v", got)
+	}
+	// '≈' folds to '~' (584); an unmapped rune falls back to the average.
+	if got := helveticaBoldTextWidth("≈", 1000); got != 584 {
+		t.Errorf("approx = %v", got)
+	}
+	if got := helveticaBoldTextWidth("é", 1000); got != 556 {
+		t.Errorf("non-ASCII = %v", got)
 	}
 }

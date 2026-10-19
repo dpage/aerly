@@ -290,9 +290,13 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 		l.y -= 16
 	}
 
-	bodyX := l.margin + 64
+	clocks := make([]string, len(rows))
+	for i, row := range rows {
+		clocks[i] = rowClock(row)
+	}
+	bodyX := l.margin + timeColumnWidth(clocks)
 	var lastDay string
-	for _, row := range rows {
+	for i, row := range rows {
 		sb := row.start()
 		day := sb.At.In(eventLoc(sb.TZ)).Format("Monday, 2 January 2006")
 		if day != lastDay {
@@ -308,18 +312,13 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 		l.ensure(28)
 		var title string
 		var details []string
+		l.text(l.margin, l.y, "F2", 10, 0.1, clocks[i])
 		if row.part != nil {
-			l.text(l.margin, l.y, "F2", 10, 0.1, timing.Compact(sb, ""))
 			title = typeLabel(row.part.plan.Type) + ": " +
 				nonEmpty(row.part.plan.Title, typeLabel(row.part.plan.Type)) +
 				edgeSuffix(row.part.plan.Type, row.part.edge)
 			details = partDetails(*row.part)
 		} else {
-			if row.ev.AllDay {
-				l.text(l.margin, l.y, "F2", 10, 0.1, "all day")
-			} else {
-				l.text(l.margin, l.y, "F2", 10, 0.1, timing.Compact(sb, ""))
-			}
 			title = "Event: " + nonEmpty(row.ev.Title, "Event")
 			details = externalEventDetails(row.ev)
 		}
@@ -331,6 +330,27 @@ func (l *pdfLayout) renderTrip(trip *store.Trip, plans []api.PlanDTO, externals 
 		}
 		l.y -= 8
 	}
+}
+
+// rowClock is the bold time in a row's left column: the start in its own zone
+// with its offset, or "all day" for an all-day feed event.
+func rowClock(row itinRow) string {
+	if row.ev != nil && row.ev.AllDay {
+		return "all day"
+	}
+	return timing.Compact(row.start(), "")
+}
+
+// timeColumnWidth is the left column's width for these clocks: the original
+// 64pt, or wider when the widest clock at 10pt bold would otherwise run into
+// the title, as "≈14:00 UTC+12:45" does.
+func timeColumnWidth(clocks []string) float64 {
+	const minWidth, gap = 64.0, 10.0
+	w := minWidth
+	for _, c := range clocks {
+		w = max(w, helveticaBoldTextWidth(c, 10)+gap)
+	}
+	return w
 }
 
 // externalEventDetails builds the indented detail lines under an external feed
@@ -729,6 +749,8 @@ func winAnsiByte(r rune) byte {
 		return '*'
 	case '→': // →
 		return '>'
+	case '≈': // ≈, a derived time; WinAnsi has no approximately-equal sign
+		return '~'
 	default:
 		return '?'
 	}
@@ -796,6 +818,20 @@ func helveticaTextWidth(s string, size float64) float64 {
 	return float64(units) * size / 1000
 }
 
+// helveticaBoldTextWidth is helveticaTextWidth for Helvetica-Bold (F2).
+func helveticaBoldTextWidth(s string, size float64) float64 {
+	var units int
+	for _, r := range s {
+		b := winAnsiByte(r)
+		if b >= 32 && b <= 126 {
+			units += helvBoldASCII[b-32]
+		} else {
+			units += 556
+		}
+	}
+	return float64(units) * size / 1000
+}
+
 // helveticaWidth is the advance width (per 1000 em) of one WinAnsi byte in
 // Helvetica. The table covers printable ASCII (the bulk of itinerary text);
 // other bytes fall back to a representative average so wrapping stays sane.
@@ -815,4 +851,15 @@ var helvAscii = [95]int{
 	667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
 	333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
 	556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+}
+
+// helvBoldASCII holds the Helvetica-Bold advance widths for ASCII codes 32
+// through 126 in WinAnsi, in 1000-em units (from the Adobe AFM).
+var helvBoldASCII = [95]int{
+	278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278,
+	556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
+	975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778,
+	667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
+	333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
+	611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584,
 }
