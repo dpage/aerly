@@ -16,7 +16,14 @@ import {
   Typography,
 } from '@mui/material';
 
-import type { Plan, PlanPart, TZSource, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
+import type {
+  Plan,
+  PlanPart,
+  TimeBlock,
+  TZSource,
+  UpdatePlanInput,
+  UpdatePlanPartInput,
+} from '../api/types';
 import PlanAttachments from './PlanAttachments';
 import TimezoneSelect from './TimezoneSelect';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
@@ -30,9 +37,11 @@ import { coordsFromText, isMapsUrl } from '../lib/maps-url';
 import { MAPS_NO_COORDS, resolveCoordsFromInput } from '../lib/resolve-coords';
 import {
   ACCOMMODATION_KINDS,
+  endBlockOf,
   isTransferType,
   planTypeLabel,
   splitLocal,
+  startBlockOf,
   typeHasEnd,
   zonedTimeToUtc,
 } from '../lib/trip-format';
@@ -148,13 +157,26 @@ function endForm(
   return { label, address, date, time, tz, coords };
 }
 
+// The zone the form edits an end's stored time in: the block's, which is blank
+// for floating digits even where the raw zone carries an airport fallback. A
+// floating flight's provider estimate keeps the airport zone in its block, but
+// the form edits the timetable digits, so floating always reads as blank.
+function formZone(b: TimeBlock | undefined): string {
+  return !b || b.tz_source === 'floating' ? '' : b.tz;
+}
+
 function partForm(part: PlanPart): PartForm {
+  const startTz = formZone(startBlockOf(part));
+  const eb = endBlockOf(part);
+  // An end with no zone of its own borrows the start's, unless its digits are
+  // floating and would be misread in it.
+  const endTz = formZone(eb) || (eb?.tz_source === 'floating' ? '' : startTz);
   return {
     start: endForm(
       part.start_label ?? '',
       part.start_address ?? '',
       part.starts_at,
-      part.start_tz ?? '',
+      startTz,
       part.start_lat,
       part.start_lon,
     ),
@@ -162,7 +184,7 @@ function partForm(part: PlanPart): PartForm {
       part.end_label ?? '',
       part.end_address ?? '',
       part.ends_at,
-      part.end_tz || part.start_tz || '',
+      endTz,
       part.end_lat,
       part.end_lon,
     ),
@@ -262,12 +284,12 @@ function hasEnd(part: PlanPart): boolean {
 }
 
 /** The source to send with a zone being written. A blank zone is floating (the
- * digits are wall-clock time). A zone
- * the user changed is their own choice, so confirmed. A zone left as it was
- * keeps the part's existing source, so a guessed (inferred) zone is not
- * silently upgraded to confirmed; where there is none to keep (an end whose
- * form zone was borrowed from the start, or an older part with no source) it
- * is inferred in the first case and left to the server default in the second. */
+ * digits are wall-clock time). A zone the user changed is their own choice, so
+ * confirmed. A zone left as it was keeps a confirmed or inferred source, so a
+ * guessed zone is not silently upgraded to confirmed. Otherwise it is inferred
+ * when the form's zone differs from the stored one (an end borrowing the
+ * start's), and undefined when there is no source worth keeping (an older part
+ * with none, or a floating or unknown one); timePatch settles that case. */
 function zoneSource(
   tz: string,
   edited: boolean,
@@ -298,8 +320,10 @@ function timePatch(
   if (f.tz === init.tz && !local) return {};
   const src = zoneSource(f.tz, f.tz !== init.tz, origTz, origSource);
   // With digits being sent a source is mandatory, so an unchanged zone with
-  // no recorded source is a guess made on the part's behalf: inferred.
-  const source = src ?? (local ? (origSource ?? 'inferred') : undefined);
+  // no usable source is a guess made on the part's behalf: inferred. Floating
+  // and unknown both say there is no zone, which a zone being sent contradicts
+  // (the server refuses a zone sent as floating).
+  const source = src ?? (local ? 'inferred' : undefined);
   return {
     [`${which}_local`]: local,
     [`${which}_tz`]: f.tz,
