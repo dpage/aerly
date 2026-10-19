@@ -169,11 +169,30 @@ func findTransitions(loc *time.Location, start, end time.Time) []tzTransition {
 			OffsetFrom: prevOff,
 			OffsetTo:   newOff,
 			Abbr:       newAbbr,
-			IsDST:      hi.In(loc).IsDST(),
+			IsDST:      isDaylight(loc, hi),
 		})
 		prevOff = newOff
 	}
 	return out
+}
+
+// isDaylight reports whether the offset in force at t is a seasonal one: some
+// day in the year before had a lower offset, and some day in the year after
+// returns to one. time.Time.IsDST is not used because tzdata models
+// Europe/Dublin with negative DST, so Go flags its winter GMT as DST; and a
+// permanent change upward (Pyongyang in 2018) never returns, so it stays
+// STANDARD.
+func isDaylight(loc *time.Location, t time.Time) bool {
+	_, off := t.In(loc).Zone()
+	lower := func(sign int) bool {
+		for d := 1; d <= 366; d++ {
+			if _, o := t.AddDate(0, 0, sign*d).In(loc).Zone(); o < off {
+				return true
+			}
+		}
+		return false
+	}
+	return lower(-1) && lower(1)
 }
 
 // tzName is the TZNAME for an observance of tz beginning at instant at: Go's
@@ -199,7 +218,7 @@ func writeVTimezone(b *strings.Builder, tz string, loc *time.Location, instants 
 	// when the zone does not change in the window.
 	abbr, off := start.In(loc).Zone()
 	opening := "STANDARD"
-	if start.In(loc).IsDST() {
+	if isDaylight(loc, start) {
 		opening = "DAYLIGHT"
 	}
 	writeObservance(b, opening, start.In(loc), off, off, tzName(abbr, start, tz))

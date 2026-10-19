@@ -842,3 +842,20 @@ func TestICSVTimezonePermanentChangeIsStandard(t *testing.T) {
 		t.Errorf("permanent change must be STANDARD:\n%s", vtz)
 	}
 }
+
+// TestICSVTimezoneDublinSummerIsDaylight: tzdata models Europe/Dublin with
+// negative DST, so Go flags winter GMT as DST; the export must still label
+// summer IST DAYLIGHT and winter GMT STANDARD.
+func TestICSVTimezoneDublinSummerIsDaylight(t *testing.T) {
+	ev := xx100("Europe/Dublin", timing.Confirmed, "", timing.Unknown)
+	ev.StartsAt = time.Date(2026, 7, 10, 9, 0, 0, 0, time.UTC)
+	vtz := vTimezoneBlock(t, renderICS("Aerly", []*store.CalendarEvent{ev}, false), "Europe/Dublin")
+	for _, want := range []string{
+		"BEGIN:DAYLIGHT\r\nDTSTART:20260329T010000\r\nTZOFFSETFROM:+0000\r\nTZOFFSETTO:+0100\r\nTZNAME:IST",
+		"BEGIN:STANDARD\r\nDTSTART:20261025T020000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0000\r\nTZNAME:GMT",
+	} {
+		if !strings.Contains(vtz, want) {
+			t.Errorf("missing %q in:\n%s", want, vtz)
+		}
+	}
+}

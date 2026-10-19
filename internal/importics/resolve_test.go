@@ -81,9 +81,9 @@ func TestResolve(t *testing.T) {
 	}
 }
 
-// TestResolveLondonGap pins the gap time itself: 01:30 does not
-// exist in London that night, and Resolve settles it at 01:30 UTC (the offset from before the gap, so
-// 01:30 GMT).
+// TestResolveLondonGap pins the gap time itself: 01:30 does not exist in
+// London that night, and Resolve settles it at 01:30 UTC, the offset from
+// before the gap (so 01:30 GMT).
 func TestResolveLondonGap(t *testing.T) {
 	want := time.Date(2026, 3, 29, 1, 30, 0, 0, time.UTC)
 	r, _ := Resolve(DateTime{HasTime: true, Floating: true, Time: londonGap}, Context{CalendarTZ: "Europe/London"})
