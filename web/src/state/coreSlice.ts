@@ -149,7 +149,7 @@ async function autoSetHomeTz(me: User, setHomeTz: (tz: string) => Promise<void>)
     await setHomeTz(tz);
     window.localStorage.setItem(HOME_TZ_AUTO_KEY, '1');
   } catch {
-    // ignore — best effort
+    // ignore: best effort
   }
 }
 
