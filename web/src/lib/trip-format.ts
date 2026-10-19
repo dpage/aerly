@@ -559,26 +559,28 @@ export function planTypeLabel(type: PlanType): string {
 /** The PATCH that confirms the zone of one end of a part. When the zone picked
  * differs from the one shown, the scheduled wall-clock time is sent too (taken
  * from starts_at/ends_at, not from the block, so an estimate or actual, which
- * is a real instant, is never moved). The scheduled wall-clock time is kept and
- * the instant moves: a guessed zone was a guess about where, not about when. A
- * floating end's digits are already wall-clock. */
+ * is a real instant, is never moved), so the wall-clock time is kept and the
+ * instant moves: a guessed zone was a guess about where, not about when. A
+ * floating end's digits are already wall-clock. An unknown end's time is a
+ * true instant, so only its zone is sent and the server keeps the instant. */
 export function zoneConfirmPatch(
   part: PlanPart,
   which: 'start' | 'end',
   tz: string,
 ): UpdatePlanPartInput {
   const b = which === 'start' ? startBlockOf(part) : endBlockOf(part);
-  const shown = b && b.tz_source !== 'floating' ? b.tz : '';
+  const shown = timetableZone(b);
+  const keepInstant = b?.tz_source === 'unknown';
   if (which === 'start') {
     const patch: UpdatePlanPartInput = { start_tz: tz, start_tz_source: 'confirmed' };
-    if (tz !== shown) {
+    if (tz !== shown && !keepInstant) {
       const { date, time } = splitLocal(part.starts_at, shown);
       patch.start_local = `${date}T${time}`;
     }
     return patch;
   }
   const patch: UpdatePlanPartInput = { end_tz: tz, end_tz_source: 'confirmed' };
-  if (tz !== shown && part.ends_at) {
+  if (tz !== shown && !keepInstant && part.ends_at) {
     const { date, time } = splitLocal(part.ends_at, shown);
     patch.end_local = `${date}T${time}`;
   }

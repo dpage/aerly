@@ -1130,6 +1130,39 @@ describe('zone confirm and count', () => {
     expect(zoneConfirmPatch(p, 'start', 'Asia/Tashkent').start_local).toBe('2026-10-18T14:00');
   });
 
+  it('reads a floating flight by its digits whatever its raw zone says', () => {
+    // As the server sends one: the raw zone is the airport fallback.
+    const p = hotel({
+      type: 'flight',
+      start_tz: 'Europe/London', start_tz_source: 'floating',
+      starts_at: '2026-10-18T14:00:00Z',
+      start: block('2026-10-18T14:00:00Z', ''),
+    });
+    expect(zoneConfirmPatch(p, 'start', 'Europe/London')).toEqual({
+      start_tz: 'Europe/London',
+      start_tz_source: 'confirmed',
+      start_local: '2026-10-18T14:00',
+    });
+  });
+
+  it('confirms an unknown zone without moving its instant', () => {
+    // An unknown end's time is a true instant; only where it is was missing.
+    const p = hotel({
+      start_tz: '', start_tz_source: 'unknown',
+      end_tz: '', end_tz_source: 'unknown',
+      start: block('2026-10-18T09:00:00Z', '', { tz_source: 'unknown' }),
+      end: block('2026-10-21T01:00:00Z', '', { tz_source: 'unknown' }),
+    });
+    expect(zoneConfirmPatch(p, 'start', 'Asia/Tashkent')).toEqual({
+      start_tz: 'Asia/Tashkent',
+      start_tz_source: 'confirmed',
+    });
+    expect(zoneConfirmPatch(p, 'end', 'Asia/Tashkent')).toEqual({
+      end_tz: 'Asia/Tashkent',
+      end_tz_source: 'confirmed',
+    });
+  });
+
   it('takes the scheduled time from starts_at when the start block is an estimate', () => {
     const p = hotel({
       start: block('2026-10-18T10:30:00Z', 'Asia/Tashkent', { kind: 'estimated', delay_min: 90 }),
