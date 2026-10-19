@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button, Stack, Typography } from '@mui/material';
 
 import { errorMessage } from '../state/helpers';
@@ -16,7 +16,7 @@ function isZone(tz: string): boolean {
 
 /** The signed-in user's home time zone (Preferences → Itinerary). It drives the
  * 'Your time' line and the zone used in emails and notifications. Saves
- * immediately once the typed text is a valid zone or has been cleared; on
+ * when a zone is picked, Enter is pressed or the field loses focus; on
  * failure it surfaces the error and the stored value from `me` is shown again. */
 export default function HomeZoneSection() {
   const me = useStore((s) => s.me);
@@ -24,27 +24,35 @@ export default function HomeZoneSection() {
   const setError = useStore((s) => s.setError);
   const saved = me?.home_tz ?? '';
   // The picker reports every keystroke, so keep the text being typed locally and
-  // only save once it is a zone (or empty).
+  // only save on commit.
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? saved;
+  const lastSent = useRef<string | null>(null);
   const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const save = async (next: string) => {
-    if (next === saved) {
-      setDraft(null);
-      return;
-    }
     try {
       await setHomeTz(next);
     } catch (err) {
       setError(errorMessage(err));
     }
-    setDraft(null);
+    // Keep anything typed whilst the request was in flight.
+    setDraft((d) => (d === next ? null : d));
   };
 
-  const onChange = (next: string) => {
-    setDraft(next);
-    if (next === '' || isZone(next)) void save(next);
+  const onCommit = (text: string) => {
+    const next = text.trim();
+    if (next !== '' && !isZone(next)) {
+      setDraft(null);
+      setError(`'${next}' is not a time zone`);
+      return;
+    }
+    // Enter and the blur that follows it both commit; save once.
+    if (next === saved || next === lastSent.current) return;
+    lastSent.current = next;
+    void save(next).finally(() => {
+      lastSent.current = null;
+    });
   };
 
   return (
@@ -56,9 +64,9 @@ export default function HomeZoneSection() {
         Emails, notifications and the 'Your time' line use this zone. Leave it blank to use this
         device's zone on the web and to show one time in emails.
       </Typography>
-      <TimezoneSelect value={value} onChange={onChange} label="Home time zone" />
+      <TimezoneSelect value={value} onChange={setDraft} onCommit={onCommit} label="Home time zone" />
       {saved === '' && device && (
-        <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => void save(device)}>
+        <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => onCommit(device)}>
           {`Use this device's zone (${device})`}
         </Button>
       )}

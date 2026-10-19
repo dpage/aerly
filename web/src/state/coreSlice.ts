@@ -23,6 +23,7 @@ const SHOW_ALL_KEY = 'ft.show_all';
 
 /** The signed-out state the store resets to after any logout flow. */
 function anonymousReset(): Partial<StoreState> {
+  setViewerZone(null);
   return {
     me: null,
     auth: 'anonymous',

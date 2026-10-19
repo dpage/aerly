@@ -22,6 +22,7 @@ vi.mock('../api/client', async () => {
       updateMe: vi.fn(),
       getNotifications: vi.fn(),
       logout: vi.fn(),
+      logoutAll: vi.fn(),
     },
   };
 });
@@ -326,6 +327,16 @@ describe('user mutations', () => {
     await useStore.getState().setHomeTz('');
     expect(mockApi.updateMe).toHaveBeenLastCalledWith({ home_tz: '' });
     expect(viewerZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it('logout and logoutAll reset the viewer zone', async () => {
+    mockApi.logout.mockResolvedValue(undefined);
+    mockApi.logoutAll.mockResolvedValue(undefined);
+    for (const fn of ['logout', 'logoutAll'] as const) {
+      setViewerZone('Asia/Tashkent');
+      await useStore.getState()[fn]();
+      expect(viewerZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    }
   });
 
   it('setPaperSize updates me and the users list', async () => {

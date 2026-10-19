@@ -29,6 +29,9 @@ function fold(s: string): string {
 interface Props {
   value: string;
   onChange: (tz: string) => void;
+  /** Fired with the current text when a choice is made (option picked, or Enter)
+   * or the field loses focus; for callers that must not act on every keystroke. */
+  onCommit?: (tz: string) => void;
   label?: string;
   helperText?: string;
   placeholder?: string;
@@ -45,6 +48,7 @@ interface Props {
 export default function TimezoneSelect({
   value,
   onChange,
+  onCommit,
   label = 'Timezone',
   helperText,
   placeholder,
@@ -69,7 +73,12 @@ export default function TimezoneSelect({
       value={value}
       inputValue={value}
       onInputChange={(_, v) => onChange(v)}
-      onChange={(_, v) => onChange(v ?? '')}
+      onChange={(_, v, reason) => {
+        const text = v ?? '';
+        onChange(text);
+        // Emptying the text reports a 'clear'; the blur that follows commits it.
+        if (reason !== 'clear') onCommit?.(text);
+      }}
       filterOptions={filterOptions}
       fullWidth={fullWidth}
       renderInput={(params) => (
@@ -79,6 +88,9 @@ export default function TimezoneSelect({
           size={size}
           placeholder={placeholder}
           helperText={helperText}
+          onBlur={(e) => {
+            onCommit?.(e.target.value);
+          }}
         />
       )}
     />

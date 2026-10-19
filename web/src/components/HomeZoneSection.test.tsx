@@ -42,18 +42,46 @@ describe('HomeZoneSection', () => {
     expect(screen.queryByRole('button', { name: /Use this device's zone/ })).toBeNull();
   });
 
-  it('saves a picked zone', async () => {
+  it('does not save whilst a zone is still being typed', async () => {
     render(<HomeZoneSection />);
-    await userEvent.type(screen.getByRole('combobox'), 'Asia/Tashkent');
+    await userEvent.type(screen.getByRole('combobox'), 'Etc/GMT+5');
+    expect(h.setHomeTz).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox')).toHaveValue('Etc/GMT+5');
+  });
+
+  it('saves a picked option once', async () => {
+    render(<HomeZoneSection />);
+    await userEvent.type(screen.getByRole('combobox'), 'tashk');
     await userEvent.keyboard('{Enter}');
+    await userEvent.tab();
     await waitFor(() => expect(h.setHomeTz).toHaveBeenCalledWith('Asia/Tashkent'));
-    expect(h.setHomeTz).not.toHaveBeenCalledWith('A');
+    expect(h.setHomeTz).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves a valid zone when the field loses focus', async () => {
+    render(<HomeZoneSection />);
+    await userEvent.type(screen.getByRole('combobox'), 'UTC');
+    await userEvent.tab();
+    await waitFor(() => expect(h.setHomeTz).toHaveBeenCalledWith('UTC'));
+  });
+
+  it('reverts and reports invalid text on blur', async () => {
+    h.state.me = user({ home_tz: 'Asia/Tashkent' });
+    render(<HomeZoneSection />);
+    const box = screen.getByRole('combobox');
+    await userEvent.clear(box);
+    await userEvent.type(box, 'Mars/Olympus');
+    await userEvent.tab();
+    expect(h.setHomeTz).not.toHaveBeenCalled();
+    expect(h.setError).toHaveBeenCalledWith("'Mars/Olympus' is not a time zone");
+    expect(box).toHaveValue('Asia/Tashkent');
   });
 
   it('saves an empty string when cleared', async () => {
     h.state.me = user({ home_tz: 'Asia/Tashkent' });
     render(<HomeZoneSection />);
     await userEvent.clear(screen.getByRole('combobox'));
+    await userEvent.tab();
     await waitFor(() => expect(h.setHomeTz).toHaveBeenCalledWith(''));
   });
 
