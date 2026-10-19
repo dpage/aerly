@@ -20,6 +20,11 @@ type FlightTimes struct {
 	ScheduledOut, ScheduledIn time.Time
 	EstimatedOut, EstimatedIn *time.Time
 	ActualOut, ActualIn       *time.Time
+	// StartSource is the zone source of the part's departure. A floating
+	// departure leaves flight_details holding wall-clock digits rather than
+	// instants, so the timetable cannot be measured against a provider time.
+	// The zero value is not floating.
+	StartSource Source
 }
 
 // End is one end's effective time. Delay is measured against the timetable
@@ -52,11 +57,16 @@ func (t Times) Duration() (time.Duration, bool) {
 // Effective applies the one rule for a flight's times: actual, then estimated,
 // then (arrival only) the timetable moved by the departure delay, then the
 // timetable. The departure delay is always the off-block estimate's, never
-// wheels-off, which would count taxi time as delay.
+// wheels-off, which would count taxi time as delay. A floating departure has
+// no delay, because its timetable is digits and not an instant.
 func Effective(f FlightTimes) Times {
 	var t Times
 	var delay time.Duration
-	if f.EstimatedOut != nil {
+	// A floating timetable is digits, not instants: subtracting it from a
+	// provider time would report the zone offset as a delay. The provider's
+	// times are still instants and are returned as such.
+	floating := f.StartSource == Floating
+	if f.EstimatedOut != nil && !floating {
 		t.Revised = true
 		delay = f.EstimatedOut.Sub(f.ScheduledOut)
 	}
@@ -71,7 +81,7 @@ func Effective(f FlightTimes) Times {
 
 	timetabled := f.ScheduledIn.After(f.ScheduledOut)
 	against := func(at time.Time) time.Duration {
-		if !timetabled {
+		if !timetabled || floating {
 			return 0
 		}
 		return at.Sub(f.ScheduledIn)

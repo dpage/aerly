@@ -153,3 +153,14 @@ func YourTime(b Block, home string) string {
 	}
 	return fmt.Sprintf("(%s, %s your time)", t.Format(dateLayout), t.Format(clockLayout))
 }
+
+// Day is the calendar date a block falls on, as midnight UTC of that date: in
+// its own zone when it has one, in its UTC digits when floating, and in home
+// when it is an unknown true instant. A blank or invalid home reads as UTC.
+// This is the zone rule Block.view applies, so a day heading or a banding
+// decision agrees with the label shown beside it.
+func Day(b Block, home string) time.Time {
+	loc, _, _ := b.view(home)
+	y, m, d := b.At.In(loc).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}

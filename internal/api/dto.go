@@ -1074,7 +1074,11 @@ func ToPlanPartDTO(
 // ToFlightDetailDTO mirrors the old ToFlightDTO position handling and adds the
 // per-end time blocks, quoted in the zones the caller supplies.
 func ToFlightDetailDTO(d *store.FlightDetail, latest *store.Position, track []*store.Position, originTZ, originSrc, destTZ, destSrc string) *FlightDetailDTO {
-	t := timing.Effective(d.Times())
+	ft := d.Times()
+	// A floating departure is not measured against provider times; the part's
+	// stored source is the departure's, not the airport fallback's.
+	ft.StartSource = timing.Source(originSrc)
+	t := timing.Effective(ft)
 	callsign := ""
 	if d.Callsign != nil {
 		callsign = *d.Callsign

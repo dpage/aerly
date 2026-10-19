@@ -159,8 +159,7 @@ func (p *Poller) departureForecast(ctx context.Context, f *store.Flight, destTZ 
 		}
 		lat, lon = *f.DestLat, *f.DestLon
 	}
-	local := inZone(landing, destTZ)
-	from := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	from := timing.Day(instantBlock(landing, timing.Scheduled, endZone{TZ: destTZ, Source: timing.Confirmed}, f.DestIATA), "")
 	fctx, cancel := context.WithTimeout(ctx, forecastTimeout)
 	defer cancel()
 	days, err := p.Weather.Forecast(fctx, lat, lon, destTZ, from, forecastDays)

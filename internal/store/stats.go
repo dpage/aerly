@@ -46,6 +46,7 @@ func (s *Store) MyFlights(ctx context.Context, viewerID int64) ([]FlightForStats
 			&f.DestBaggageBelt,
 			&f.Resolved,
 			&f.IsPublic,
+			&f.StartTZSource,
 			&f.CreatedAt, &f.UpdatedAt,
 			&pax,
 		); err != nil {

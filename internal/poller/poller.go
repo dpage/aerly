@@ -596,7 +596,8 @@ func beltIsCurrent(f *store.Flight, now time.Time) bool {
 func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time.Time) (*store.Flight, error) {
 	// The provider matches on the local departure date, so ask in the origin's
 	// zone; the UTC date is a day out for flights leaving near local midnight.
-	depart := inZone(f.ScheduledOut, airportZone(f.OriginIATA, f.OriginLat, f.OriginLon))
+	start := instantBlock(f.ScheduledOut, timing.Scheduled, startZone("", f.StartTZSource, f.OriginIATA, f.OriginLat, f.OriginLon), f.OriginIATA)
+	depart := timing.Day(start, "")
 	rf, err := p.Resolver.Resolve(ctx, f.Ident, depart)
 	if err != nil {
 		if !errors.Is(err, providers.ErrFlightNotFound) {

@@ -1329,3 +1329,55 @@ func TestSignatureCarryingDelay(t *testing.T) {
 		}
 	}
 }
+
+// A floating flight's timetable is wall-clock digits, so a real estimate
+// cannot be measured against it: the snapshot reports no delay at all.
+func TestSnapshot_FloatingDepartureHasNoDelay(t *testing.T) {
+	out := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	est := out.Add(-5 * time.Hour)
+	f := &store.Flight{Status: "Scheduled", ScheduledOut: out, EstimatedOut: &est, StartTZSource: "floating"}
+	if st := snapshot(f); st.hasDelay {
+		t.Errorf("floating departure with an estimate reported a delay: %+v", st)
+	}
+}
+
+// TestAlert_FloatingFlightWithEstimateSendsNoDelayAlert: a floating flight has
+// no airport zone, so its scheduled_out digits are not an instant; an estimate
+// the provider quotes as one must not be taken for a delay.
+func TestAlert_FloatingFlightWithEstimateSendsNoDelayAlert(t *testing.T) {
+	p, s, hub, cap := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "XX100", ScheduledOut: now.Add(time.Hour), ScheduledIn: now.Add(3 * time.Hour),
+		OriginIATA: "LHR", DestIATA: "JFK",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE plan_parts SET start_tz = '', start_tz_source = 'floating' WHERE id = $1`, f.ID); err != nil {
+		t.Fatalf("make floating: %v", err)
+	}
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+
+	prev, err := s.FlightPartByID(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	// An hour after the digits: a delay if they were an instant, which they are not.
+	setEstimatedOut(t, s, f.ID, f.ScheduledOut.Add(time.Hour))
+	p.maybeAlert(ctx, prev, f.ID, true)
+
+	if got := drainAlerts(t, ch); len(got) != 0 {
+		t.Fatalf("expected no in-app alert, got %d", len(got))
+	}
+	if cap.count() != 0 {
+		t.Fatalf("expected no email, got %d", cap.count())
+	}
+}

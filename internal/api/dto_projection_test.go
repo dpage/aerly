@@ -274,8 +274,8 @@ func TestPlanPartTimeBlocks_FloatingFlightEndHasNoZone(t *testing.T) {
 	}
 }
 
-// Only a floating end's timetable-based times (scheduled, and derived from
-// the timetable) are wall-clock digits; a provider estimate or actual on the
+// Only a floating end's timetable-based times (the scheduled ones)
+// are wall-clock digits; a provider estimate or actual on the
 // same part is a true instant, so it keeps the airport's zone and place.
 func TestPlanPartTimeBlocks_FloatingFlightProviderTimesKeepZone(t *testing.T) {
 	out := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
@@ -295,12 +295,16 @@ func TestPlanPartTimeBlocks_FloatingFlightProviderTimesKeepZone(t *testing.T) {
 		t.Errorf("end = %+v, want the actual quoted at %s", dto.End, jfk)
 	}
 
-	// The same part with only a departure estimate derives its arrival from
-	// the timetable, so that end is digits again and gets no zone.
+	// The same part with only a departure estimate keeps its timetabled
+	// arrival: a floating departure has no delay to move it by, because its
+	// digits are not an instant, so that end is digits again and gets no zone.
 	flight.ActualIn = nil
 	dto = ToPlanPartDTO(part, flight, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	if dto.End == nil || dto.End.Kind != "derived" || dto.End.TZ != "" || dto.End.Place != "" {
-		t.Errorf("derived end = %+v, want no zone or place", dto.End)
+	if dto.End == nil || dto.End.Kind != "scheduled" || dto.End.TZ != "" || dto.End.Place != "" || !dto.End.At.Equal(in) {
+		t.Errorf("end = %+v, want the timetable, no zone or place", dto.End)
+	}
+	if dto.Start.DelayMin != 0 {
+		t.Errorf("start delay = %d, want 0 for a floating departure", dto.Start.DelayMin)
 	}
 }
 
