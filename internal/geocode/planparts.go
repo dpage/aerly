@@ -169,7 +169,7 @@ type Resolver struct {
 // Flight parts never use the label. ok=false when nothing resolved.
 func (r *Resolver) Endpoint(ctx context.Context, partType, address, label, tripCountry string) (float64, float64, bool) {
 	if partType != "flight" {
-		if code := iataIn(label); code != "" {
+		if code := airports.CodeIn(label); code != "" {
 			if lat, lon, ok := airports.Lookup(code); ok {
 				return lat, lon, true
 			}
@@ -312,22 +312,6 @@ func countryFromAddress(address string) string {
 		return ""
 	}
 	return strings.TrimSpace(segs[len(segs)-1])
-}
-
-// iataIn returns an all-uppercase 3-letter token in the label that's a known
-// IATA airport (e.g. "LHR" in "LHR T5"). Requiring all-caps avoids matching
-// ordinary place-name words that happen to spell a code.
-func iataIn(label string) string {
-	for _, tok := range strings.FieldsFunc(label, func(r rune) bool {
-		return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'))
-	}) {
-		if len(tok) == 3 && tok == strings.ToUpper(tok) {
-			if _, _, ok := airports.Lookup(tok); ok {
-				return tok
-			}
-		}
-	}
-	return ""
 }
 
 // isAirportLabel reports whether a place label clearly denotes an airport (so

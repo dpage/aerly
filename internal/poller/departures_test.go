@@ -176,7 +176,7 @@ func TestRemindDepartures_FullSummary(t *testing.T) {
 		t.Fatalf("want one forecast fetch, got %d", fc.count())
 	}
 	c := fc.calls[0]
-	if c.lat != 41.9742 || c.lon != -87.9073 || c.tz != "America/Chicago" || c.days != forecastDays {
+	if c.lat != 41.9786 || c.lon != -87.9048 || c.tz != "America/Chicago" || c.days != forecastDays {
 		t.Errorf("forecast call = %+v", c)
 	}
 	// The scheduled arrival, 00:00 UTC on the 16th, is the evening of the 15th

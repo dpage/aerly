@@ -271,7 +271,7 @@ func TestProposePartZoneSources(t *testing.T) {
 			flight.StartTZ, flight.StartTZSource, flight.EndTZ, flight.EndTZSource)
 	}
 	offTable, _ := proposePart(ctx, Deps{}, ExtractedPart{Type: "flight", Flight: FlightFields{
-		Ident: "XX100", Date: "2026-07-01", OriginIATA: "AAA", DestIATA: "BBB", DepartTimeLocal: "09:00",
+		Ident: "XX100", Date: "2026-07-01", OriginIATA: "XCC", DestIATA: "XDD", DepartTimeLocal: "09:00",
 	}})
 	// The email's own wall-clock times, with no airport zone to place them,
 	// are floating digits and not instants.
@@ -303,7 +303,7 @@ func TestFlightSource(t *testing.T) {
 // parseLocalInTZ with no airport zone returns the digits as they stand, and
 // with a zone converts them to the true instant.
 func TestParseLocalInTZ(t *testing.T) {
-	if got := parseLocalInTZ("2026-07-01", "09:00", "AAA"); !got.Equal(time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)) {
+	if got := parseLocalInTZ("2026-07-01", "09:00", "XCC"); !got.Equal(time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)) {
 		t.Errorf("unknown airport = %v, want the digits as UTC", got)
 	}
 	if got := parseLocalInTZ("2026-07-01", "09:00", "LHR"); !got.Equal(time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)) {
