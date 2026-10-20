@@ -622,7 +622,7 @@ func writeLine(b *strings.Builder, line string) {
 	limit := max
 	for i < len(line) {
 		end := i + limit
-		if end > len(line) {
+		if end >= len(line) {
 			end = len(line)
 		} else {
 			// Back off so we don't split a UTF-8 continuation byte.

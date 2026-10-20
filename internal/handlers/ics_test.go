@@ -78,6 +78,20 @@ func TestWriteLineFolding(t *testing.T) {
 	}
 }
 
+// A line that ends exactly on a fold boundary (75, then 74 per continuation)
+// must fold without reading past its end.
+func TestWriteLineFoldsOnExactBoundary(t *testing.T) {
+	for _, n := range []int{76, 149, 223} {
+		var b strings.Builder
+		long := strings.Repeat("x", n)
+		writeLine(&b, long)
+		unfolded := strings.TrimRight(strings.ReplaceAll(b.String(), "\r\n ", ""), "\r\n")
+		if unfolded != long {
+			t.Errorf("%d octets: unfold mismatch %q", n, b.String())
+		}
+	}
+}
+
 func TestRenderICSStructure(t *testing.T) {
 	end := time.Date(2026, 7, 1, 14, 30, 0, 0, time.UTC)
 	events := []*store.CalendarEvent{
