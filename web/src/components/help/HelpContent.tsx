@@ -476,7 +476,7 @@ export const HELP_PAGES: HelpPage[] = [
         />
         <FeatureItem
           title="Departure summary"
-          description="In Preferences → Alerts, turn on Send me a departure summary to get a summary of your flight's status, gate and the weather where you land, four hours before each departure. It's off until you ask for it, and covers every flight you own, travel on, or have turned Notify me of changes on for, arriving in-app, by email and as a push notification like your other alerts."
+          description="Four hours before each departure you get a summary of your flight's status, gate and the weather where you land. It's on unless you turn off Send me a departure summary in Preferences → Alerts, and covers every flight you own, travel on, or have turned Notify me of changes on for, arriving in-app, by email and as a push notification like your other alerts."
         />
         <HelpTip>
           Reminders are about timing (a heads-up before you travel); the flight alerts above fire

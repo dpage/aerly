@@ -7,31 +7,6 @@ import (
 	"github.com/dpage/aerly/internal/testsupport"
 )
 
-// TestMigration0054DepartureSummaryPrefDefaultsOff verifies the new alert_prefs column
-// exists and defaults to FALSE, so an existing user is opted out of departure
-// summaries until they ask for them (issue #130).
-func TestMigration0054DepartureSummaryPrefDefaultsOff(t *testing.T) {
-	pool := testsupport.NewPool(t)
-	if pool == nil {
-		return
-	}
-	ctx := context.Background()
-
-	uid := testsupport.InsertUser(t, pool, "m54user", false, true)
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO alert_prefs (user_id) VALUES ($1)`, uid); err != nil {
-		t.Fatalf("insert alert_prefs: %v", err)
-	}
-	var pref bool
-	if err := pool.QueryRow(ctx,
-		`SELECT departure_summary FROM alert_prefs WHERE user_id = $1`, uid).Scan(&pref); err != nil {
-		t.Fatalf("select departure_summary: %v", err)
-	}
-	if pref {
-		t.Fatal("departure_summary should default to FALSE")
-	}
-}
-
 // TestMigration0054DepartureSummarySentCascades verifies the dedupe table's foreign keys
 // clean up after themselves: deleting the part takes its sent rows with it, so
 // a re-created part isn't wrongly considered already reminded.

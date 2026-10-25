@@ -21,12 +21,12 @@ type DueDepartureSummary = DueCheckin
 // DueDepartureSummaries returns every (flight part, user) departure summary
 // ready to fire at `now`: the part is an active, still-upcoming flight whose
 // departure is inside the lead, the user is on the plan's alert-recipient set
-// with the departure-summary preference on, and none was sent for that pair yet.
+// with the departure-summary preference on (the default), and none was sent for that pair yet.
 //
 // As with DueCheckins, visibility is NOT applied here; the caller filters each
 // candidate through VisiblePlanUserIDs.
 func (s *Store) DueDepartureSummaries(ctx context.Context, now time.Time) ([]DueDepartureSummary, error) {
-	return s.dueFlightNotices(ctx, now, DepartureSummaryLead, "departure_summary", "flight_departure_summary_sent")
+	return s.dueFlightNotices(ctx, now, DepartureSummaryLead, "departure_summary", true, "flight_departure_summary_sent")
 }
 
 // MarkDepartureSummarySent records that a departure summary for (part, user)

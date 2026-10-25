@@ -205,8 +205,9 @@ func TestRemindDepartures_FullSummary(t *testing.T) {
 	}
 }
 
-// TestRemindDepartures_OffByDefault: nobody gets a summary without opting in.
-func TestRemindDepartures_OffByDefault(t *testing.T) {
+// TestRemindDepartures_OnByDefault: a user who never touched their alert
+// preferences gets the summary (migration 0056 made it opt-out).
+func TestRemindDepartures_OnByDefault(t *testing.T) {
 	p, s, _, cap := alertPoller(t)
 	ctx := context.Background()
 	owner := seedUser(t, s)
@@ -217,11 +218,36 @@ func TestRemindDepartures_OffByDefault(t *testing.T) {
 
 	p.remindDepartures(ctx, depOut.Add(-store.DepartureSummaryLead))
 
+	if cap.count() != 1 {
+		t.Fatalf("emails to a user on the default: %d, want 1", cap.count())
+	}
+	if alerts, _ := s.ListFlightAlerts(ctx, owner, 10); len(alerts) != 1 {
+		t.Fatalf("in-app summaries for a user on the default: %d, want 1", len(alerts))
+	}
+}
+
+// TestRemindDepartures_OffWhenTurnedOff: turning the preference off stops it.
+func TestRemindDepartures_OffWhenTurnedOff(t *testing.T) {
+	p, s, _, cap := alertPoller(t)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.UpsertVerifiedEmail(ctx, owner, "owner@aerly.test"); err != nil {
+		t.Fatalf("verify email: %v", err)
+	}
+	if err := s.SetAlertPrefs(ctx, store.AlertPrefs{
+		UserID: owner, InApp: true, Email: true, MinDelayMin: 15, DepartureSummary: false,
+	}); err != nil {
+		t.Fatalf("SetAlertPrefs: %v", err)
+	}
+	seedDepartureFlight(t, s, owner, "BA295", "ORD")
+
+	p.remindDepartures(ctx, depOut.Add(-store.DepartureSummaryLead))
+
 	if cap.count() != 0 {
-		t.Fatalf("sent to a user who never opted in: %d", cap.count())
+		t.Fatalf("sent to a user who turned it off: %d", cap.count())
 	}
 	if alerts, _ := s.ListFlightAlerts(ctx, owner, 10); len(alerts) != 0 {
-		t.Fatalf("in-app summary for a user who never opted in: %d", len(alerts))
+		t.Fatalf("in-app summary for a user who turned it off: %d", len(alerts))
 	}
 }
 
