@@ -240,6 +240,24 @@ describe('buildMarkerPopup', () => {
     expect(el.textContent).toContain('N');
   });
 
+  it('renders an external link as an ordinary new-tab anchor', () => {
+    const el = buildMarkerPopup({
+      title: 'BA217',
+      type: 'flight',
+      link: { href: 'https://example.com/ba217', label: 'View elsewhere' },
+    });
+    const a = el.querySelector('a');
+    expect(a?.getAttribute('href')).toBe('https://example.com/ba217');
+    expect(a?.getAttribute('target')).toBe('_blank');
+    expect(a?.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(a?.textContent).toBe('View elsewhere');
+    expect(a?.querySelector('svg')).not.toBeNull();
+  });
+
+  it('has no link unless given one', () => {
+    expect(buildMarkerPopup({ title: 'BA217', type: 'flight' }).querySelector('a')).toBeNull();
+  });
+
   it('omits the passenger row when there are none', () => {
     const el = buildMarkerPopup({ title: 'BA217', type: 'flight', passengers: [] });
     expect(el.textContent).not.toContain('On board');

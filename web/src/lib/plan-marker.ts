@@ -146,6 +146,9 @@ export function buildMarkerPopup(opts: {
   owner?: string;
   /** Who's on the plan (shown as small avatars). */
   passengers?: MarkerPerson[];
+  /** An external page about the plan, e.g. a flight on Flightradar24, shown as
+   * an ordinary link so a tap can hand off to the matching app. */
+  link?: { href: string; label: string };
 }): HTMLElement {
   const s = styleFor(opts.type);
   const root = document.createElement('div');
@@ -223,6 +226,26 @@ export function buildMarkerPopup(opts: {
       paxRow.append(avatarEl(p));
     }
     root.append(paxRow);
+  }
+
+  if (opts.link) {
+    const a = document.createElement('a');
+    a.href = opts.link.href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = opts.link.label;
+    // MUI's OpenInNew glyph, as the app's other external links carry.
+    a.insertAdjacentHTML(
+      'beforeend',
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+        '<path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3z"/></svg>',
+    );
+    a.style.display = 'inline-flex';
+    a.style.alignItems = 'center';
+    a.style.gap = '2px';
+    a.style.marginTop = '6px';
+    a.style.color = '#1565c0';
+    root.append(a);
   }
   return root;
 }
