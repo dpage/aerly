@@ -232,6 +232,14 @@ describe('FlightDetailCard', () => {
     expect(screen.queryByText('Cancelled')).not.toBeInTheDocument();
   });
 
+  it('links the flight to Flightradar24', () => {
+    render(<FlightDetailCard flight={flight()} />);
+    expect(screen.getByRole('link', { name: 'View on Flightradar24' })).toHaveAttribute(
+      'href',
+      'https://www.flightradar24.com/data/flights/ba217',
+    );
+  });
+
   it('collapses the ident, callsign, route and icao rows when those fields are empty', () => {
     render(
       <FlightDetailCard
@@ -250,6 +258,7 @@ describe('FlightDetailCard', () => {
     expect(screen.queryByText('Flight')).not.toBeInTheDocument();
     expect(screen.queryByText('ICAO24')).not.toBeInTheDocument();
     expect(screen.queryByText('Callsign')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View on Flightradar24' })).not.toBeInTheDocument();
     // Route survives: From/To collapse (empty IATA) but Departure/Arrival
     // gate rows always render via fmtGate's "Unknown" fallback.
     expect(screen.getByText('Route')).toBeInTheDocument();

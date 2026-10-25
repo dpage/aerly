@@ -38,6 +38,7 @@ import {
 import { greatCircle, toMultiLine } from '../lib/great-circle';
 import { userInitial, userName } from '../lib/format';
 import { buildMarkerPopup, buildPinEl, planTypeColor } from '../lib/plan-marker';
+import { flightradar24Url } from '../lib/flightradar24';
 import { useViewerZone } from '../state/viewerZone';
 import { personColor } from '../lib/person-color';
 import {
@@ -342,6 +343,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
                     name: userName(u),
                     avatarUrl: u.avatar_url || undefined,
                   })),
+                  link: flightLink(p),
                 }),
               ),
             )
@@ -779,6 +781,13 @@ function TimeSlider({
 }
 
 // --- helpers ----------------------------------------------------------------
+
+/** The Flightradar24 link for a flight's map popup, or undefined for anything
+ * else or a flight with no usable ident. */
+function flightLink(part: PlanPart): { href: string; label: string } | undefined {
+  const href = part.type === 'flight' && part.flight ? flightradar24Url(part.flight) : null;
+  return href ? { href, label: 'View on Flightradar24' } : undefined;
+}
 
 /** A human title for a row: a flight's ident, else the plan's name (a venue like
  * an ice cream parlour), else its place line, else the type. */

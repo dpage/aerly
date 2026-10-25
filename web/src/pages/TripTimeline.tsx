@@ -34,6 +34,7 @@ import { useStore } from '../state/store';
 import type { ExternalEvent, Plan, PlanPart, Trip } from '../api/types';
 import TimeMarker from '../components/TimeMarker';
 import PlanTypeIcon from '../components/PlanTypeIcon';
+import Flightradar24Link from '../components/Flightradar24Link';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
 import PlanNotificationsDialog from '../components/PlanNotificationsDialog';
@@ -875,6 +876,7 @@ function PartCard({
           {part.type === 'flight' && part.flight?.ident && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
               Flight: {part.flight.ident}
+              <Flightradar24Link flight={part.flight} onClick={stop} />
             </Typography>
           )}
 

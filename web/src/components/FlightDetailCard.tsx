@@ -5,6 +5,7 @@ import type { FlightDetail, TZSource } from '../api/types';
 import { fmtAgo } from '../lib/format';
 import { fmtGate } from '../lib/gate';
 import { Mono, Row, Section, TimeRow } from './DetailRows';
+import Flightradar24Link from './Flightradar24Link';
 
 interface Props {
   flight: FlightDetail;
@@ -57,7 +58,7 @@ export default function FlightDetailCard({
 
   return (
     <Stack spacing={1.5} data-testid="flight-detail-card">
-      <Section title="Aircraft">
+      <Section title="Aircraft" titleAdornment={<Flightradar24Link flight={flight} />}>
         <Row label="Flight" value={flight.ident || null} />
         <Row label="Type" value={flight.aircraft_type || null} />
         <Row label="ICAO24" value={flight.icao24 ? <Mono>{flight.icao24}</Mono> : null} />

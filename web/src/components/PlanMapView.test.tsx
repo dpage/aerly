@@ -668,6 +668,13 @@ describe('PlanMapView', () => {
     expect(pin.popup?.html).toContain('Accommodation');
   });
 
+  it("links a flight's pins, and only a flight's, to Flightradar24", () => {
+    render(<PlanMapView parts={[flight(), hotel()]} />);
+    // The fake popup keeps the text; the URL itself is flightradar24Url's.
+    expect(pinFor(1).popup?.html).toContain('View on Flightradar24');
+    expect(pinFor(2).popup?.html).not.toContain('Flightradar24');
+  });
+
   it("rebuilds a pin's Your time line when the home zone changes", () => {
     setViewerZone('America/New_York');
     useStore.setState({ me: user({ home_tz: 'America/New_York' }) });

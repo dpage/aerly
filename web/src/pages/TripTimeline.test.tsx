@@ -1038,6 +1038,38 @@ describe('TripTimeline', () => {
     expect(screen.getByTestId('part-card-1')).toHaveTextContent('Flight: FR9226');
   });
 
+  it('links a flight tile to Flightradar24 without opening the tile', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1, flight: { ident: 'BA0117' } as PlanPart['flight'] })], {
+        id: 1,
+        title: 'Flight to New York',
+        cost_amount: 1,
+        cost_currency: 'GBP',
+      }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    const link = within(card).getByRole('link', { name: 'View on Flightradar24' });
+    expect(link).toHaveAttribute('href', 'https://www.flightradar24.com/data/flights/ba117');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    // The tap goes to the link; the tile does not expand underneath it.
+    await userEvent.click(link);
+    expect(card).not.toHaveTextContent('Cost:');
+  });
+
+  it('gives a non-flight tile no Flightradar24 link', () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1, type: 'hotel' })], { id: 1, title: 'Hotel', type: 'hotel' }),
+    ]);
+    renderTimeline();
+    expect(
+      within(screen.getByTestId('part-card-1')).queryByRole('link', {
+        name: 'View on Flightradar24',
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it('shows the supplier and contact details with an open-in-new-tab website link', async () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1 })], {
