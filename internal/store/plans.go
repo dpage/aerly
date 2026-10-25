@@ -2211,8 +2211,10 @@ func planVisibleExpr(plan, trip, viewer string) string {
 // may see a plan's booking details (confirmation_ref, ticket_number and the
 // cost), on top of seeing the plan at all (issue #163). Those stay with the
 // people the booking is for or who manage it: the trip owner, the plan's
-// creator, its passengers (trip-level passengers included, as via_trip rows),
-// and owner/editor trip members. Everyone the plan is merely shared with, a
+// creator, its passengers (the trip's passengers too, since a plan moved in
+// from another trip carries no via_trip rows for them), owner/editor trip
+// members and superusers, so an admin editing a plan never saves blanked
+// fields over the real ones. Everyone the plan is merely shared with, a
 // viewer member, a share-all friend or an only_visible_to friend, sees the
 // plan without them. Parameters are as for planVisibleExpr.
 func bookingDetailsVisibleExpr(plan, trip, viewer string) string {
@@ -2221,16 +2223,17 @@ func bookingDetailsVisibleExpr(plan, trip, viewer string) string {
 	    OR {P}.created_by = {V}
 	    OR EXISTS (SELECT 1 FROM plan_passengers pp
 	               WHERE pp.plan_id = {P}.id AND pp.user_id = {V})
+	    OR EXISTS (SELECT 1 FROM trip_passengers tp
+	               WHERE tp.trip_id = {P}.trip_id AND tp.user_id = {V})
 	    OR EXISTS (SELECT 1 FROM trip_members tm
 	               WHERE tm.trip_id = {P}.trip_id AND tm.user_id = {V}
 	                 AND tm.role IN ('owner','editor'))
+	    OR EXISTS (SELECT 1 FROM users u WHERE u.id = {V} AND u.is_superuser)
 	)`)
 }
 
 // CanSeeBookingDetails reports whether viewerID may see planID's booking
-// details (see bookingDetailsVisibleExpr). A superuser always may, as with
-// every other check, so an admin editing a plan never saves blanked fields
-// over the real ones. A missing plan returns false.
+// details (see bookingDetailsVisibleExpr). A missing plan returns false.
 func (s *Store) CanSeeBookingDetails(ctx context.Context, planID, viewerID int64) (bool, error) {
 	var ok bool
 	err := s.pool.QueryRow(ctx, `
@@ -2238,8 +2241,7 @@ func (s *Store) CanSeeBookingDetails(ctx context.Context, planID, viewerID int64
 			SELECT 1 FROM plans p
 			JOIN trips t ON t.id = p.trip_id
 			WHERE p.id = $1
-			  AND ( `+bookingDetailsVisibleExpr("p", "t", "$2")+`
-			     OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.is_superuser) )
+			  AND `+bookingDetailsVisibleExpr("p", "t", "$2")+`
 		)`, planID, viewerID).Scan(&ok)
 	return ok, err
 }

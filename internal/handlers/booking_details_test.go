@@ -22,13 +22,14 @@ func TestBookingDetailsHiddenFromShares(t *testing.T) {
 	pax := e.user(t, "bkpax", false)
 	friend := e.user(t, "bkfriend", false)
 	admin := e.user(t, "bkadmin", true)
-	for _, u := range []int64{viewer, editor, pax, friend} {
+	for _, u := range []int64{viewer, editor, pax, friend, admin} {
 		e.befriend(t, owner, u)
 	}
 	tid := newTrip(t, e, owner, "Trip")
 	addMember(t, e, tid, viewer, "viewer")
 	addMember(t, e, tid, editor, "editor")
 	addMember(t, e, tid, pax, "viewer")
+	addMember(t, e, tid, admin, "viewer")
 	pid := newFlightPlan(t, e, tid, owner, "BA117", time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC))
 	if w := e.req(t, "PATCH", "/api/plans/"+itoa(pid), map[string]any{
 		"ticket_number": "1250000000000", "cost_amount": 123.45, "cost_currency": "GBP",
@@ -115,6 +116,9 @@ func TestBookingDetailsHiddenFromShares(t *testing.T) {
 	}
 	if got := refIn(viewer, false); got != "" {
 		t.Errorf("viewer's trip feed ref = %q, want it hidden", got)
+	}
+	if got := refIn(admin, false); got != "PNR" {
+		t.Errorf("superuser's trip feed ref = %q, want PNR", got)
 	}
 	if got := refIn(friend, true); got != "" {
 		t.Errorf("friend's friends feed ref = %q, want it hidden", got)
