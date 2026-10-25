@@ -1582,8 +1582,9 @@ func endOr(t *time.Time, fallback time.Time) time.Time {
 
 // planDTO assembles a full PlanDTO: the plan row, its passengers, visibility,
 // and every part with its type-specific detail (and smart hotel times).
-// viewerID is the requesting user, used to compute alert_opted_in; pass 0 for
-// server-side assembly with no viewer (the flag is then false).
+// viewerID is the requesting user, used to compute alert_opted_in and whether
+// the booking details are shown; pass 0 for server-side assembly with no
+// viewer (the flag is then false and the booking details are left out).
 func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO, error) {
 	plan, err := a.Store.PlanByID(ctx, planID)
 	if err != nil {
@@ -1699,17 +1700,32 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 			return api.PlanDTO{}, err
 		}
 	}
+	// Booking details stay with the people the booking is for or who manage
+	// it; a viewer the plan is only shared with gets it without them (#163).
+	confirmationRef, ticketNumber := plan.ConfirmationRef, plan.TicketNumber
+	costAmount, costCurrency := plan.CostAmount, plan.CostCurrency
+	booking := false
+	if viewerID != 0 {
+		booking, err = a.Store.CanSeeBookingDetails(ctx, planID, viewerID)
+		if err != nil {
+			return api.PlanDTO{}, err
+		}
+	}
+	if !booking {
+		confirmationRef, ticketNumber = "", ""
+		costAmount, costCurrency = nil, ""
+	}
 	return api.PlanDTO{
 		ID:                plan.ID,
 		TripID:            plan.TripID,
 		Type:              plan.Type,
 		Title:             plan.Title,
-		ConfirmationRef:   plan.ConfirmationRef,
-		TicketNumber:      plan.TicketNumber,
+		ConfirmationRef:   confirmationRef,
+		TicketNumber:      ticketNumber,
 		Notes:             plan.Notes,
 		Source:            plan.Source,
-		CostAmount:        plan.CostAmount,
-		CostCurrency:      plan.CostCurrency,
+		CostAmount:        costAmount,
+		CostCurrency:      costCurrency,
 		SupplierName:      plan.SupplierName,
 		ContactEmail:      plan.ContactEmail,
 		ContactPhone:      plan.ContactPhone,

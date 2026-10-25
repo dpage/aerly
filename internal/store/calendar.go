@@ -212,6 +212,10 @@ type CalendarEvent struct {
 // arms are for the LEFT JOIN: fd.ident is absent on every non-flight part, and
 // on a flight part whose details have not been fetched yet, and the column must
 // not come back NULL.
+//
+// The confirmation reference is blanked for a viewer the plan is merely shared
+// with (bookingDetailsVisibleExpr, issue #163), so a friends feed or a shared
+// trip's feed never carries someone else's booking reference.
 var calendarEventSelect = `
 	SELECT part.id, part.plan_id, pl.type,
 	       CASE WHEN pl.type <> 'flight' THEN pl.title
@@ -219,7 +223,8 @@ var calendarEventSelect = `
 	                  WHERE sib.plan_id = pl.id) > 1
 	            THEN COALESCE(NULLIF(fd.ident, ''), pl.title)
 	            ELSE COALESCE(NULLIF(pl.title, ''), fd.ident, pl.title) END,
-	       pl.confirmation_ref,
+	       CASE WHEN ` + bookingDetailsVisibleExpr("pl", "t", "$1") + `
+	            THEN pl.confirmation_ref ELSE '' END,
 	       pl.notes, part.starts_at, part.ends_at, part.start_tz, part.end_tz,
 	       part.start_tz_source, part.end_tz_source,
 	       part.start_label, part.end_label, part.status, part.updated_at,
