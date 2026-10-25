@@ -22,9 +22,9 @@ func TestGetAlertPrefs_Defaults(t *testing.T) {
 	if got.Checkin {
 		t.Fatalf("check-in reminders should default off: %+v", got)
 	}
-	// So are departure summaries (issue #130).
-	if got.DepartureSummary {
-		t.Fatalf("departure summaries should default off: %+v", got)
+	// Departure summaries default on (migration 0056).
+	if !got.DepartureSummary {
+		t.Fatalf("departure summaries should default on: %+v", got)
 	}
 }
 

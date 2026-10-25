@@ -59,7 +59,8 @@ func TestDueDepartureSummaries_Window(t *testing.T) {
 }
 
 // TestDueDepartureSummaries_PreferencesAreIndependent: each notice is gated by
-// its own preference, so enabling one never makes the other fire.
+// its own preference, so enabling one never makes the other fire. Departure
+// summaries default on (migration 0056) whilst check-in reminders default off.
 func TestDueDepartureSummaries_PreferencesAreIndependent(t *testing.T) {
 	s := New(testsupport.NewPool(t))
 	ctx := context.Background()
@@ -69,11 +70,14 @@ func TestDueDepartureSummaries_PreferencesAreIndependent(t *testing.T) {
 	seedCheckinFlightPart(t, s, tid, uid, "BA286", out)
 	now := out.Add(-time.Hour)
 
-	// No alert_prefs row at all.
-	if due, err := s.DueDepartureSummaries(ctx, now); err != nil || len(due) != 0 {
+	// No alert_prefs row at all: the summary's default (on) applies.
+	if due, err := s.DueDepartureSummaries(ctx, now); err != nil || len(due) != 1 {
 		t.Fatalf("no prefs row: %d due (err %v)", len(due), err)
 	}
-	// Check-in on, summary off.
+	if due, err := s.DueCheckins(ctx, now); err != nil || len(due) != 0 {
+		t.Fatalf("no prefs row, checkin: %d due (err %v)", len(due), err)
+	}
+	// Check-in on, summary explicitly off.
 	enableCheckins(t, s, uid)
 	if due, err := s.DueDepartureSummaries(ctx, now); err != nil || len(due) != 0 {
 		t.Fatalf("checkin only: %d due (err %v)", len(due), err)

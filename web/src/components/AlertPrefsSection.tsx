@@ -30,7 +30,7 @@ export default function AlertPrefsSection() {
   const [email, setEmail] = useState(false);
   const [minDelay, setMinDelay] = useState('15');
   const [checkin, setCheckin] = useState(false);
-  const [departureSummary, setDepartureSummary] = useState(false);
+  const [departureSummary, setDepartureSummary] = useState(true);
 
   useEffect(() => {
     void loadAlertPrefs();

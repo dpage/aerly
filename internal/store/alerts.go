@@ -22,11 +22,11 @@ type AlertPrefs struct {
 }
 
 // defaultAlertPrefs mirrors the alert_prefs column defaults (spec §9 / PRD
-// §6.8): in-app + email on, 15-minute delay threshold, check-in reminders off.
-// Returned by AlertPrefsFor when a user has no explicit row, and used as the
-// upsert base.
+// §6.8): in-app + email on, 15-minute delay threshold, check-in reminders off,
+// departure summaries on (migration 0056). Returned by AlertPrefsFor when a
+// user has no explicit row, and used as the upsert base.
 func defaultAlertPrefs(userID int64) AlertPrefs {
-	return AlertPrefs{UserID: userID, InApp: true, Email: true, MinDelayMin: 15}
+	return AlertPrefs{UserID: userID, InApp: true, Email: true, MinDelayMin: 15, DepartureSummary: true}
 }
 
 // AlertPrefsFor returns a user's alert preferences, defaulting to the column
