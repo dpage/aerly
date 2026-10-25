@@ -675,6 +675,18 @@ describe('PlanMapView', () => {
     expect(pinFor(2).popup?.html).not.toContain('Flightradar24');
   });
 
+  it("rebuilds a flight pin's popup when its ident changes", () => {
+    const { rerender } = render(<PlanMapView parts={[flight()]} />);
+    const before = FakeMarker.instances.length;
+    rerender(
+      <PlanMapView
+        parts={[flight({ flight: { ...flight().flight!, ident: 'BA219', callsign: '' } })]}
+      />,
+    );
+    // A fresh marker, so its popup carries the new link.
+    expect(FakeMarker.instances.length).toBeGreaterThan(before);
+  });
+
   it("rebuilds a pin's Your time line when the home zone changes", () => {
     setViewerZone('America/New_York');
     useStore.setState({ me: user({ home_tz: 'America/New_York' }) });

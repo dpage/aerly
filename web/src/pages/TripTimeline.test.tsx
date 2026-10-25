@@ -1058,6 +1058,28 @@ describe('TripTimeline', () => {
     expect(card).not.toHaveTextContent('Cost:');
   });
 
+  it('links a callsign-only flight tile to the live map', () => {
+    state.currentTrip = tripWith([
+      plan(
+        [
+          part({
+            id: 1,
+            plan_id: 1,
+            flight: { ident: '', callsign: 'THY1' } as PlanPart['flight'],
+          }),
+        ],
+        { id: 1, title: 'Flight to Istanbul' },
+      ),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    expect(card).not.toHaveTextContent('Flight:');
+    expect(within(card).getByRole('link', { name: 'View on Flightradar24' })).toHaveAttribute(
+      'href',
+      'https://www.flightradar24.com/THY1',
+    );
+  });
+
   it('gives a non-flight tile no Flightradar24 link', () => {
     state.currentTrip = tripWith([
       plan([part({ id: 1, plan_id: 1, type: 'hotel' })], { id: 1, title: 'Hotel', type: 'hotel' }),

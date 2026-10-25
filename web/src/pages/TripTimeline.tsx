@@ -873,12 +873,14 @@ function PartCard({
             </Typography>
           )}
 
-          {part.type === 'flight' && part.flight?.ident && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              Flight: {part.flight.ident}
-              <Flightradar24Link flight={part.flight} onClick={stop} />
-            </Typography>
-          )}
+          {part.type === 'flight' &&
+            part.flight &&
+            (part.flight.ident || part.flight.callsign) && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                {part.flight.ident && `Flight: ${part.flight.ident}`}
+                <Flightradar24Link flight={part.flight} onClick={stop} />
+              </Typography>
+            )}
 
           {plan.ticket_number && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

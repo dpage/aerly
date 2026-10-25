@@ -319,8 +319,9 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
     for (const p of ordered) {
       for (const ep of endpoints(p)) {
         // The zone is in the key so a changed home zone rebuilds the popup's
-        // 'Your time'.
-        const key = `${p.id}:${ep.role}:${ep.lon},${ep.lat}:${viewerTz}`;
+        // 'Your time', and the flight link so an edited ident rebuilds its link.
+        const link = flightLink(p);
+        const key = `${p.id}:${ep.role}:${ep.lon},${ep.lat}:${viewerTz}:${link?.href ?? ''}`;
         live.add(key);
         let marker = markersRef.current.get(key);
         if (!marker) {
@@ -343,7 +344,7 @@ export default function PlanMapView({ parts, loading, controls, initialSelectedP
                     name: userName(u),
                     avatarUrl: u.avatar_url || undefined,
                   })),
-                  link: flightLink(p),
+                  link,
                 }),
               ),
             )
