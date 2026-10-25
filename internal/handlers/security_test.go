@@ -42,6 +42,7 @@ func TestSecurityHeaders_SetOnEveryResponse(t *testing.T) {
 		"script-src 'self'",
 		"https://tile.openstreetmap.org",
 		"https://demotiles.maplibre.org",
+		"img-src 'self' data: blob: https:;",
 	} {
 		if !strings.Contains(csp, frag) {
 			t.Errorf("CSP missing %q\nfull policy: %s", frag, csp)

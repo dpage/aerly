@@ -18,6 +18,10 @@ import "net/http"
 //     affordance) uses https://github.com/<login>.png, which 302s to the
 //     githubusercontent CDN; the redirect's origin (github.com) must therefore
 //     also be allowed for that avatar to load.
+//   - A plan's links (issue #109) can point at an image on any HTTPS host, which
+//     the timeline shows in a dialog when the user taps the link, so img-src
+//     allows https: (which also covers the tile and avatar hosts above). Nothing
+//     loads such an image without that tap: Markdown renders no images.
 //
 // MUI/emotion injects <style> elements at runtime, so style-src must allow
 // 'unsafe-inline'; there is, however, no inline script (index.html loads a
@@ -31,7 +35,7 @@ const contentSecurityPolicy = "default-src 'self'; " +
 	"form-action 'self'; " +
 	"script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob: https://tile.openstreetmap.org https://github.com https://*.githubusercontent.com https://*.googleusercontent.com; " +
+	"img-src 'self' data: blob: https:; " +
 	"font-src 'self' data:; " +
 	"worker-src 'self' blob:; " +
 	"manifest-src 'self'; " +

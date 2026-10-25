@@ -248,6 +248,7 @@ type CreatePlanPayload struct {
 	ContactPhone    string
 	Website         string
 	TripItUID       string // TripIt event UID for .ics imports (else ""); skips re-imported plans
+	Links           []PlanLinkInput
 	Parts           []CreatePlanPartPayload
 }
 
@@ -306,6 +307,9 @@ type UpdatePlanPayload struct {
 	ContactEmail    *string
 	ContactPhone    *string
 	Website         *string
+	// Links, when non-nil, replaces the plan's links wholesale (an empty slice
+	// clears them); nil leaves them alone.
+	Links *[]PlanLinkInput
 }
 
 // UpdatePlanPartPayload carries the optionally-set fields of a part edit
@@ -481,6 +485,9 @@ func (s *Store) CreatePlan(ctx context.Context, in CreatePlanPayload, createdBy 
 		if err := insertPartTx(ctx, tx, p.ID, in.Type, part); err != nil {
 			return nil, err
 		}
+	}
+	if err := replacePlanLinksTx(ctx, tx, p.ID, in.Links); err != nil {
+		return nil, err
 	}
 	// A trip's trip-level passengers (issue #20) travel on every plan they may
 	// see, so a new plan inherits them as (via_trip) passengers — skipping any
@@ -759,7 +766,12 @@ func (s *Store) TripPartDwells(ctx context.Context, tripID int64) ([]TripPartDwe
 
 // UpdatePlan applies the supplied fields to a plan.
 func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanPayload) (*Plan, error) {
-	return scanPlan(s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	p, err := scanPlan(tx.QueryRow(ctx, `
 		UPDATE plans SET
 			title            = COALESCE($2, title),
 			confirmation_ref = COALESCE($3, confirmation_ref),
@@ -776,6 +788,18 @@ func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanPayload) 
 		RETURNING `+planColumns,
 		id, in.Title, in.ConfirmationRef, in.TicketNumber, in.Notes, in.CostAmount, in.CostCurrency,
 		in.SupplierName, in.ContactEmail, in.ContactPhone, in.Website))
+	if err != nil {
+		return nil, err
+	}
+	if in.Links != nil {
+		if err := replacePlanLinksTx(ctx, tx, id, *in.Links); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // DeletePlan removes a plan and its parts/details (cascade).
@@ -888,6 +912,18 @@ func (s *Store) LinkPlans(ctx context.Context, primaryID int64, absorbIDs []int6
 	// and deleting the now-empty absorbed plans.
 	if _, err := tx.Exec(ctx,
 		`UPDATE flight_alerts SET plan_id = $1 WHERE plan_id = ANY($2)`, primaryID, absorbIDs); err != nil {
+		return err
+	}
+	// Keep the absorbed plans' links (tickets, issue #109) rather than letting
+	// them cascade away, appending them after the primary's own in their
+	// original order.
+	if _, err := tx.Exec(ctx, `
+		UPDATE plan_links l SET plan_id = $1, position = m.base + m.rn
+		  FROM (SELECT pl.id,
+		               ROW_NUMBER() OVER (ORDER BY array_position($2::bigint[], pl.plan_id), pl.position, pl.id) AS rn,
+		               (SELECT COALESCE(MAX(position), -1) FROM plan_links WHERE plan_id = $1) AS base
+		          FROM plan_links pl WHERE pl.plan_id = ANY($2)) m
+		 WHERE l.id = m.id`, primaryID, absorbIDs); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx,

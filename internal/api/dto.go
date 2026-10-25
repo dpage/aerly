@@ -539,8 +539,23 @@ type PlanDTO struct {
 	// Attachments are the plan's uploaded files (issue #91). Always non-nil
 	// (empty when the feature is off or the plan has none).
 	Attachments []AttachmentDTO `json:"attachments"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	// Links are the plan's title/URL pairs (issue #109). Always non-nil, and
+	// empty for a viewer who can't see booking details.
+	Links     []PlanLinkDTO `json:"links"`
+	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
+}
+
+// PlanLinkDTO is one title/URL pair on a plan (issue #109).
+type PlanLinkDTO struct {
+	ID    int64  `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+// ToPlanLinkDTO projects a stored link into its DTO.
+func ToPlanLinkDTO(l *store.PlanLink) PlanLinkDTO {
+	return PlanLinkDTO{ID: l.ID, Title: l.Title, URL: l.URL}
 }
 
 // AttachmentDTO is one uploaded file on a plan. The bytes are fetched from the
