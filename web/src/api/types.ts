@@ -629,8 +629,24 @@ export interface Plan {
   parts: PlanPart[];
   /** Uploaded file attachments (issue #91); always present, [] when none. */
   attachments: Attachment[];
+  /** Title/URL pairs pointing at tickets and the like (issue #109), in display
+   * order; always present, [] when none or hidden from this viewer. */
+  links: PlanLink[];
   created_at: string;
   updated_at: string;
+}
+
+/** A link on a plan (issue #109). Aerly stores only the URL, never the target. */
+export interface PlanLink {
+  id: number;
+  title: string;
+  url: string;
+}
+
+/** A link as sent when saving a plan; an empty title becomes the URL's host. */
+export interface PlanLinkInput {
+  title: string;
+  url: string;
 }
 
 /** A file attached to a plan (issue #91). Metadata only — fetch the bytes from
@@ -772,6 +788,7 @@ export interface CreatePlanInput {
   website?: string;
   passenger_ids?: number[];
   visibility?: PlanVisibility;
+  links?: PlanLinkInput[];
   parts: PlanPartInput[];
 }
 
@@ -786,6 +803,8 @@ export interface UpdatePlanInput {
   contact_email?: string;
   contact_phone?: string;
   website?: string;
+  /** When present, replaces the plan's links wholesale. */
+  links?: PlanLinkInput[];
 }
 
 /** A part as supplied when creating/editing a plan. */

@@ -106,12 +106,15 @@ func TestMigration0010UpDown(t *testing.T) {
 	//     its constraints must be dropped before flight_alerts (and before
 	//     0010 can drop plan_parts/plans/trips);
 	//   - 0020-down then drops the flight_alerts table itself;
+	//   - 0057 added plan_links → plans, so it must be dropped before 0010 can
+	//     drop plans;
 	//   - 0054 added flight_departure_summary_sent → plan_parts/users, so it
 	//     must be dropped before 0010 can drop plan_parts;
 	//   - 0052 added flight_checkin_sent → plan_parts/users, so it must be
 	//     dropped before 0010 can drop plan_parts;
 	//   - 0013 (applied by NewPool) dropped the legacy flights tables, so its
 	//     down must run before 0010-down's positions→flights FK restore.
+	_, down0057 := readUpDown(t, "0057_plan_links")
 	_, down0054 := readUpDown(t, "0054_departure_summary")
 	_, down0052 := readUpDown(t, "0052_checkin_reminders")
 	_, down0051 := readUpDown(t, "0051_vehicle_hire")
@@ -126,6 +129,9 @@ func TestMigration0010UpDown(t *testing.T) {
 	_, down0020 := readUpDown(t, "0020_flight_alerts")
 	up0013, down0013 := readUpDown(t, "0013_drop_legacy_flights")
 	up, down := readUpDown(t, "0010_trip_core")
+	if _, err := pool.Exec(ctx, down0057); err != nil {
+		t.Fatalf("apply 0057 down: %v", err)
+	}
 	if _, err := pool.Exec(ctx, down0054); err != nil {
 		t.Fatalf("apply 0054 down: %v", err)
 	}

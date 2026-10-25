@@ -16,8 +16,17 @@ import {
   Typography,
 } from '@mui/material';
 
-import type { Plan, PlanPart, TZSource, UpdatePlanInput, UpdatePlanPartInput } from '../api/types';
+import type {
+  Plan,
+  PlanLinkInput,
+  PlanPart,
+  TZSource,
+  UpdatePlanInput,
+  UpdatePlanPartInput,
+} from '../api/types';
 import PlanAttachments from './PlanAttachments';
+import PlanLinksEditor from './PlanLinksEditor';
+import { cleanLinks, isHttpUrl, linksChanged } from '../lib/plan-links';
 import TimezoneSelect from './TimezoneSelect';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -497,6 +506,11 @@ function parseAmount(v: string): number | undefined {
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
+/** The editor's starting link rows: the plan's saved links (issue #109). */
+function linkRows(plan: Plan): PlanLinkInput[] {
+  return (plan.links ?? []).map((l) => ({ title: l.title, url: l.url }));
+}
+
 /** Edit a plan's title / confirmation / notes plus every part's schedule and
  * places — date/time/timezone and start/end label + address for each endpoint
  * (PRD §6.4). Moving a plan to another trip is a separate action (see
@@ -534,6 +548,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
   const [contactEmail, setContactEmail] = useState(plan.contact_email);
   const [contactPhone, setContactPhone] = useState(plan.contact_phone);
   const [website, setWebsite] = useState(plan.website);
+  const [links, setLinks] = useState<PlanLinkInput[]>(() => linkRows(plan));
   const [busy, setBusy] = useState(false);
 
   // The editable parts (dismissed ones are hidden) and their initial snapshot.
@@ -560,6 +575,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
     setContactEmail(plan.contact_email);
     setContactPhone(plan.contact_phone);
     setWebsite(plan.website);
+    setLinks(linkRows(plan));
     const snap: Record<number, PartForm> = {};
     for (const p of editableParts) snap[p.id] = partForm(p);
     setForms(snap);
@@ -708,6 +724,13 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
         return;
       }
     }
+    const savedLinks = plan.links ?? [];
+    const linkRowsToSave = cleanLinks(links);
+    if (linkRowsToSave.some((l) => !isHttpUrl(l.url))) {
+      setError('Links need a full web address starting with https:// or http://.');
+      return;
+    }
+    const linksDirty = linksChanged(savedLinks, linkRowsToSave);
     setBusy(true);
     try {
       // The plan-level metadata is sent as one snapshot when any of it changed;
@@ -728,6 +751,7 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
         contactEmail.trim() !== plan.contact_email ||
         contactPhone.trim() !== plan.contact_phone ||
         website.trim() !== plan.website ||
+        linksDirty ||
         costChanged;
       if (metaChanged) {
         const payload: UpdatePlanInput = {
@@ -742,6 +766,8 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
           website: website.trim(),
         };
         if (costChanged) payload.cost_amount = costNum;
+        // Links replace the set wholesale, so send them only when edited.
+        if (linksDirty) payload.links = linkRowsToSave;
         await updatePlan(plan.id, payload);
       }
       const stranded: string[] = [];
@@ -878,6 +904,8 @@ export default function PlanEditDialog({ open, plan, onClose }: Props) {
               multiline
               minRows={2}
             />
+
+            <PlanLinksEditor links={links} onChange={setLinks} readOnly={readOnly} />
 
             <PlanAttachments planId={plan.id} attachments={plan.attachments} readOnly={readOnly} />
 

@@ -163,6 +163,7 @@ type createPlanReq struct {
 	Website         string             `json:"website"`
 	PassengerIDs    []int64            `json:"passenger_ids"`
 	Visibility      *planVisibilityReq `json:"visibility"`
+	Links           []planLinkReq      `json:"links"`
 	Parts           []planPartReq      `json:"parts"`
 }
 
@@ -177,6 +178,8 @@ type updatePlanReq struct {
 	ContactEmail    *string  `json:"contact_email,omitempty"`
 	ContactPhone    *string  `json:"contact_phone,omitempty"`
 	Website         *string  `json:"website,omitempty"`
+	// Links, when present, replaces the plan's links wholesale.
+	Links *[]planLinkReq `json:"links,omitempty"`
 }
 
 type planVisibilityReq struct {
@@ -344,6 +347,11 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid plan type.")
 		return
 	}
+	links, err := validatePlanLinks(in.Links)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	parts := make([]store.CreatePlanPartPayload, 0, len(in.Parts))
 	for i := range in.Parts {
 		if err := applyLocalTimes(&in.Parts[i]); err != nil {
@@ -366,6 +374,7 @@ func (a *API) createPlan(w http.ResponseWriter, r *http.Request) {
 		ContactEmail:    in.ContactEmail,
 		ContactPhone:    in.ContactPhone,
 		Website:         in.Website,
+		Links:           links,
 		Parts:           parts,
 	}, me.ID)
 	if err != nil {
@@ -425,6 +434,15 @@ func (a *API) updatePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	var links *[]store.PlanLinkInput
+	if in.Links != nil {
+		ls, err := validatePlanLinks(*in.Links)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		links = &ls
+	}
 	if _, err := a.Store.UpdatePlan(r.Context(), id, store.UpdatePlanPayload{
 		Title:           in.Title,
 		ConfirmationRef: in.ConfirmationRef,
@@ -436,6 +454,7 @@ func (a *API) updatePlan(w http.ResponseWriter, r *http.Request) {
 		ContactEmail:    in.ContactEmail,
 		ContactPhone:    in.ContactPhone,
 		Website:         in.Website,
+		Links:           links,
 	}); err != nil {
 		handleStoreErr(w, err)
 		return
@@ -1715,6 +1734,18 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 		confirmationRef, ticketNumber = "", ""
 		costAmount, costCurrency = nil, ""
 	}
+	// Links are typically the tickets themselves (#109), so they are booking
+	// details too and follow the same rule.
+	links := make([]api.PlanLinkDTO, 0)
+	if booking {
+		pls, err := a.Store.LinksByPlan(ctx, planID)
+		if err != nil {
+			return api.PlanDTO{}, err
+		}
+		for _, l := range pls {
+			links = append(links, api.ToPlanLinkDTO(l))
+		}
+	}
 	return api.PlanDTO{
 		ID:                plan.ID,
 		TripID:            plan.TripID,
@@ -1739,6 +1770,7 @@ func (a *API) planDTO(ctx context.Context, planID, viewerID int64) (api.PlanDTO,
 		ShareAllFriends:   plan.ShareAllFriends,
 		Parts:             partDTOs,
 		Attachments:       attachments,
+		Links:             links,
 		CreatedAt:         plan.CreatedAt,
 		UpdatedAt:         plan.UpdatedAt,
 	}, nil

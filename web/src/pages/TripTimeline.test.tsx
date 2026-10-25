@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -1118,6 +1118,44 @@ describe('TripTimeline', () => {
     expect(site).toHaveAttribute('href', 'https://www.ba.example/manage');
     expect(site).toHaveAttribute('target', '_blank');
     expect(site).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
+  it('marks a tile that has links and lists them once expanded', async () => {
+    state.currentTrip = tripWith([
+      plan([part({ id: 1, plan_id: 1 })], {
+        id: 1,
+        title: 'Two links',
+        links: [
+          { id: 1, title: 'E-ticket', url: 'https://example.com/ticket.pdf' },
+          { id: 2, title: 'Boarding pass', url: 'https://example.com/pass.png' },
+        ],
+      }),
+      plan([part({ id: 2, plan_id: 2 })], {
+        id: 2,
+        title: 'One link',
+        links: [{ id: 3, title: 'Voucher', url: 'https://example.com/v.pdf' }],
+      }),
+      plan([part({ id: 3, plan_id: 3 })], { id: 3, title: 'No links', links: [] }),
+    ]);
+    renderTimeline();
+    const card = screen.getByTestId('part-card-1');
+    expect(within(card).getByRole('img', { name: '2 links' })).toHaveTextContent('2');
+    expect(
+      within(screen.getByTestId('part-card-2')).getByRole('img', { name: '1 link' }),
+    ).not.toHaveTextContent('1');
+    expect(within(screen.getByTestId('part-card-3')).queryByRole('img', { name: /link/ })).toBeNull();
+    // The links themselves are only on the expanded tile.
+    expect(within(card).queryByText('E-ticket')).toBeNull();
+    await userEvent.click(card);
+    expect(within(card).getByRole('link', { name: /E-ticket/ })).toHaveAttribute(
+      'href',
+      'https://example.com/ticket.pdf',
+    );
+    // An image opens in a dialog, and closing it leaves the tile expanded.
+    await userEvent.click(within(card).getByRole('button', { name: /Boarding pass/ }));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(within(card).getByRole('link', { name: /E-ticket/ })).toBeInTheDocument();
   });
 
   it('preserves an explicit https website but suppresses unsafe schemes', async () => {

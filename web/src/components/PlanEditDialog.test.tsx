@@ -77,6 +77,7 @@ function plan(over: Partial<Plan> = {}): Plan {
     alert_opted_in: false,
     parts: [],
     attachments: [],
+    links: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...over,
@@ -326,6 +327,59 @@ describe('PlanEditDialog', () => {
     await userEvent.type(title, 'BA999');
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(h.setError).toHaveBeenCalledWith('plain string boom'));
+  });
+
+  describe('links', () => {
+    const saved = { id: 5, title: 'E-ticket', url: 'https://example.com/t.pdf' };
+
+    it('saves an added link with the rest of the plan', async () => {
+      h.updatePlan.mockResolvedValue(undefined);
+      render_();
+      await userEvent.click(screen.getByRole('button', { name: 'Add link' }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'URL' }), {
+        target: { value: ' https://example.com/pass.png ' },
+      });
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() =>
+        expect(h.updatePlan).toHaveBeenCalledWith(
+          42,
+          expect.objectContaining({ links: [{ title: '', url: 'https://example.com/pass.png' }] }),
+        ),
+      );
+    });
+
+    it('sends an empty list when the last link is removed', async () => {
+      h.updatePlan.mockResolvedValue(undefined);
+      render_(plan({ links: [saved] }));
+      await userEvent.click(screen.getByRole('button', { name: 'Remove link 1' }));
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() =>
+        expect(h.updatePlan).toHaveBeenCalledWith(42, expect.objectContaining({ links: [] })),
+      );
+    });
+
+    it('leaves unchanged links (and a blank added row) out of the save', async () => {
+      const onClose = vi.fn();
+      render(<PlanEditDialog open plan={plan({ links: [saved] })} onClose={onClose} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Add link' }));
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(h.updatePlan).not.toHaveBeenCalled();
+    });
+
+    it('refuses a link that is not a web address', async () => {
+      render_(plan({ links: [saved] }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'URL' }), {
+        target: { value: 'example.com/t.pdf' },
+      });
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() =>
+        expect(h.setError).toHaveBeenCalledWith(
+          'Links need a full web address starting with https:// or http://.',
+        ),
+      );
+      expect(h.updatePlan).not.toHaveBeenCalled();
+    });
   });
 
   it('surfaces save errors via setError', async () => {

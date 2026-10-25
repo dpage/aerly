@@ -21,6 +21,7 @@ import {
 } from '@mui/material';
 import LocationOffIcon from '@mui/icons-material/LocationOff';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import LinkIcon from '@mui/icons-material/Link';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import PlaceIcon from '@mui/icons-material/Place';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
@@ -37,6 +38,7 @@ import PlanTypeIcon from '../components/PlanTypeIcon';
 import Flightradar24Link from '../components/Flightradar24Link';
 import PlanPrivacyDialog from '../components/PlanPrivacyDialog';
 import PlanEditDialog from '../components/PlanEditDialog';
+import PlanLinks from '../components/PlanLinks';
 import PlanNotificationsDialog from '../components/PlanNotificationsDialog';
 import MovePlanDialog from '../components/MovePlanDialog';
 import AddToTripDialog from '../components/AddToTripDialog';
@@ -644,6 +646,7 @@ function PartCard({
   // `status === 'cancelled'`, which also correctly greys a plain cancellation.
   // Dismissed parts are already dropped by buildTimeline().
   const greyed = part.status === 'cancelled';
+  const linkCount = plan.links?.length ?? 0;
   const places = edge
     ? bandEdgeField(edge, part.start_label, part.end_label)
     : fmtPartPlaces(part.type, part.start_label, part.end_label);
@@ -783,6 +786,25 @@ function PartCard({
                 variant="outlined"
                 sx={{ height: 18, fontSize: 10 }}
               />
+            )}
+            {/* The links themselves (tickets, #109) are in the expanded body;
+                this marker just says there's something there to tap for. */}
+            {linkCount > 0 && (
+              <Tooltip title={linkCount === 1 ? '1 link' : `${linkCount} links`}>
+                <Box
+                  component="span"
+                  role="img"
+                  aria-label={linkCount === 1 ? '1 link' : `${linkCount} links`}
+                  sx={{ display: 'inline-flex', alignItems: 'center', color: accent, flexShrink: 0 }}
+                >
+                  <LinkIcon sx={{ fontSize: 16 }} />
+                  {linkCount > 1 && (
+                    <Typography component="span" variant="caption" sx={{ ml: 0.25 }}>
+                      {linkCount}
+                    </Typography>
+                  )}
+                </Box>
+              </Tooltip>
             )}
           </Stack>
 
@@ -1016,6 +1038,7 @@ function PartCard({
             </Typography>
           ))}
           <PlanContact plan={plan} onClickStop={stop} />
+          <PlanLinks links={plan.links ?? []} />
           {plan.notes && (
             <Typography
               variant="body2"
