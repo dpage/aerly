@@ -1136,7 +1136,7 @@ describe('TripTimeline', () => {
     expect(within(card).getByRole('button', { name: /^Edit$/i })).toBeInTheDocument();
   });
 
-  it('shows the departure gate on a flight tile face', async () => {
+  it('shows the departure and arrival gates on a flight tile face', async () => {
     state.currentTrip = tripWith([
       plan(
         [
@@ -1154,6 +1154,7 @@ describe('TripTimeline', () => {
               flight_status: 'Scheduled',
               origin_terminal: '5',
               origin_gate: 'B32',
+              dest_gate: '32',
             },
           }),
         ],
@@ -1162,9 +1163,10 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     expect(await screen.findByText('Departure gate: Terminal 5 · Gate B32')).toBeInTheDocument();
+    expect(screen.getByText('Arrival gate: Gate 32')).toBeInTheDocument();
   });
 
-  it('labels the departure gate as Unknown on a flight tile when neither terminal nor gate is known', async () => {
+  it('labels the departure and arrival gates as Unknown on a flight tile when neither terminal nor gate is known', async () => {
     state.currentTrip = tripWith([
       plan(
         [
@@ -1182,6 +1184,8 @@ describe('TripTimeline', () => {
               flight_status: 'Scheduled',
               origin_terminal: '',
               origin_gate: '',
+              dest_terminal: '',
+              dest_gate: '',
             },
           }),
         ],
@@ -1190,6 +1194,7 @@ describe('TripTimeline', () => {
     ]);
     renderTimeline();
     expect(await screen.findByText('Departure gate: Unknown')).toBeInTheDocument();
+    expect(screen.getByText('Arrival gate: Unknown')).toBeInTheDocument();
   });
 
   it('shows a "Not on map" chip on a tile whose addressed part has no coordinates', () => {

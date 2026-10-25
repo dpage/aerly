@@ -896,6 +896,12 @@ function PartCard({
             </Typography>
           )}
 
+          {part.type === 'flight' && part.flight && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              Arrival gate: {fmtGate(part.flight.dest_terminal, part.flight.dest_gate)}
+            </Typography>
+          )}
+
           {/* Belt is only known close to arrival, so show it only when published
               (unlike the departure gate, which is known well ahead). */}
           {part.type === 'flight' && part.flight?.dest_baggage_belt && (
