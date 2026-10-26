@@ -454,14 +454,74 @@ func TestFlightPartsNeedingMetadata(t *testing.T) {
 		now.Add(13*time.Hour), now.Add(14*time.Hour), "Scheduled", 51.47, -0.46, 40.64, -73.78)
 	// Terminal in-band: excluded.
 	mkFlightPartInTrip(t, s, trip, owner, "DONE1",
+		now.Add(6*time.Hour), now.Add(7*time.Hour), "Arrived", 51.47, -0.46, 40.64, -73.78)
+	mkFlightPartInTrip(t, s, trip, owner, "DONE2",
+		now.Add(6*time.Hour), now.Add(7*time.Hour), "Diverted", 51.47, -0.46, 40.64, -73.78)
+	// Cancelled, still ahead of departure: watched in case the provider
+	// withdraws the cancellation, right up to departure.
+	cancelled := mkFlightPartInTrip(t, s, trip, owner, "CANX1",
 		now.Add(6*time.Hour), now.Add(7*time.Hour), "Cancelled", 51.47, -0.46, 40.64, -73.78)
+	cancelledSoon := mkFlightPartInTrip(t, s, trip, owner, "CANX2",
+		now.Add(10*time.Minute), now.Add(2*time.Hour), "Cancelled", 51.47, -0.46, 40.64, -73.78)
+	// Cancelled and past its timetabled departure, but retimed later: still
+	// ahead of the departure that counts.
+	retimed := mkFlightPartInTrip(t, s, trip, owner, "CANX3",
+		now.Add(-10*time.Minute), now.Add(2*time.Hour), "Cancelled", 51.47, -0.46, 40.64, -73.78)
+	later := now.Add(time.Hour)
+	if err := s.RefreshFlightPartDeparture(ctx, retimed, &later, nil); err != nil {
+		t.Fatalf("RefreshFlightPartDeparture: %v", err)
+	}
+	// Cancelled and gone: no longer watched.
+	mkFlightPartInTrip(t, s, trip, owner, "CANX4",
+		now.Add(-10*time.Minute), now.Add(2*time.Hour), "Cancelled", 51.47, -0.46, 40.64, -73.78)
+	// Cancelled but beyond the 12h window.
+	mkFlightPartInTrip(t, s, trip, owner, "CANX5",
+		now.Add(13*time.Hour), now.Add(14*time.Hour), "Cancelled", 51.47, -0.46, 40.64, -73.78)
 
 	parts, err := s.FlightPartsNeedingMetadata(ctx, now)
 	if err != nil {
 		t.Fatalf("FlightPartsNeedingMetadata: %v", err)
 	}
-	if len(parts) != 1 || parts[0].ID != inBand {
-		t.Fatalf("expected only the in-band part %d, got %d: %+v", inBand, len(parts), parts)
+	got := map[int64]bool{}
+	for _, p := range parts {
+		got[p.ID] = true
+	}
+	want := []int64{inBand, cancelled, cancelledSoon, retimed}
+	if len(parts) != len(want) {
+		t.Fatalf("expected parts %v, got %d: %+v", want, len(parts), parts)
+	}
+	for _, id := range want {
+		if !got[id] {
+			t.Errorf("part %d missing from %+v", id, parts)
+		}
+	}
+}
+
+// TestReinstateFlightPart: a withdrawn cancellation moves the part back to
+// Scheduled for the derivation to take over; any other status is untouched.
+func TestReinstateFlightPart(t *testing.T) {
+	s := newStore(t)
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	owner := mkUser(t, s)
+	trip := mkTrip(t, s, owner)
+
+	cancelled := mkFlightPartInTrip(t, s, trip, owner, "RNST1",
+		now.Add(6*time.Hour), now.Add(7*time.Hour), "Cancelled", 51.47, -0.46, 40.64, -73.78)
+	diverted := mkFlightPartInTrip(t, s, trip, owner, "RNST2",
+		now.Add(-6*time.Hour), now.Add(-time.Hour), "Diverted", 51.47, -0.46, 40.64, -73.78)
+	for _, id := range []int64{cancelled, diverted} {
+		if err := s.ReinstateFlightPart(ctx, id); err != nil {
+			t.Fatalf("ReinstateFlightPart(%d): %v", id, err)
+		}
+	}
+	if got, _ := s.FlightPartByID(ctx, cancelled); got.Status != "Scheduled" {
+		t.Errorf("reinstated flight is %q, want Scheduled", got.Status)
+	}
+	if got, _ := s.FlightPartByID(ctx, diverted); got.Status != "Diverted" {
+		t.Errorf("a diversion was reinstated to %q", got.Status)
 	}
 }
 

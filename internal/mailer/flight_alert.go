@@ -11,18 +11,17 @@ import (
 
 // FlightAlertInput is the data needed to render a flight-change alert email
 // (spec §9). Kind selects the headline ("delayed" / "cancelled" / "diverted" /
-// "gate" / "gate_assigned" / "belt" / "terminal"). Detail is a short human
-// phrase describing the change, e.g. "now departing 14:35 London (UTC+1)", "to
-// a different airport", "now departs gate B32", "departs gate B32", or "bags
-// on belt 34". The route and time
-// fields describe which flight changed, since a traveller with several
+// "reinstated" / "gate" / "gate_assigned" / "belt" / "terminal"). Detail is a
+// short human phrase describing the change, e.g. "now departing 14:35 London
+// (UTC+1)", "to a different airport", "now departs gate B32", "departs gate
+// B32", or "bags on belt 34". The route and time fields describe which flight changed, since a traveller with several
 // flights booked can't tell them apart from the ident alone (issue #144).
 type FlightAlertInput struct {
 	FromAddr  string
 	ToAddr    string
 	PublicURL string
 	Ident     string // flight ident, e.g. "BA123"
-	Kind      string // delayed|cancelled|diverted|gate|gate_assigned|belt|terminal
+	Kind      string // delayed|cancelled|diverted|reinstated|gate|gate_assigned|belt|terminal
 	Detail    string // ready-to-render change phrase
 
 	Origin  string        // departure airport label, e.g. "London Heathrow (LHR)"
@@ -77,6 +76,9 @@ func FlightAlertSubject(ident, kind string) string {
 		return fmt.Sprintf("Your flight %s has been cancelled", ident)
 	case "diverted":
 		return fmt.Sprintf("Your flight %s has been diverted", ident)
+	case "reinstated":
+		// A cancellation the provider has since withdrawn.
+		return fmt.Sprintf("Your flight %s is no longer cancelled", ident)
 	case "gate":
 		// Lead with "Gate change" so the notification preview is actionable,
 		// e.g. "Gate change: BA286" + " — now departs gate B32".

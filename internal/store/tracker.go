@@ -111,13 +111,21 @@ func (s *Store) ActiveFlightParts(ctx context.Context, now time.Time) ([]*Flight
 // so a gate published hours ahead surfaces promptly instead of waiting until
 // 30 minutes before departure. The 12h bound matches lateRefreshWindow; the
 // 30min bound matches ActiveFlightParts, so the two passes partition cleanly.
+//
+// A Cancelled part is also returned, from 12h out until its departure (the
+// later of the timetabled and revised times), so that a cancellation the
+// provider withdraws is noticed and the flight reinstated. It stays out of
+// ActiveFlightParts, having no position worth tracking, so this pass covers its
+// last 30 minutes too.
 func (s *Store) FlightPartsNeedingMetadata(ctx context.Context, now time.Time) ([]*Flight, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+flightPartColumns+` `+flightPartFrom+`
-		WHERE fd.flight_status NOT IN ('Arrived', 'Cancelled', 'Diverted')
-		  AND part.dismissed_at IS NULL
+		WHERE part.dismissed_at IS NULL
 		  AND $1 >= fd.scheduled_out - INTERVAL '12 hours'
-		  AND $1 <  fd.scheduled_out - INTERVAL '30 minutes'
+		  AND ((fd.flight_status NOT IN ('Arrived', 'Cancelled', 'Diverted')
+		        AND $1 < fd.scheduled_out - INTERVAL '30 minutes')
+		    OR (fd.flight_status = 'Cancelled'
+		        AND $1 < GREATEST(fd.scheduled_out, fd.estimated_out)))
 		ORDER BY fd.scheduled_out ASC`, now)
 	if err != nil {
 		return nil, err
@@ -476,6 +484,18 @@ func (s *Store) SetFlightPartTerminalStatus(ctx context.Context, partID int64, s
 		WHERE plan_part_id = $1
 		  AND flight_status NOT IN ('Cancelled', 'Diverted')
 		  AND actual_in IS NULL`, partID, status)
+	return err
+}
+
+// ReinstateFlightPart undoes a cancellation the provider has withdrawn, by
+// moving a Cancelled part back to Scheduled for RefreshFlightPartStatus to
+// re-derive from its times. Nothing else is touched: a part in any other status
+// is left alone, Diverted included, since a diversion is reported in flight and
+// is not something a provider takes back.
+func (s *Store) ReinstateFlightPart(ctx context.Context, partID int64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE flight_details SET flight_status = 'Scheduled'
+		WHERE plan_part_id = $1 AND flight_status = 'Cancelled'`, partID)
 	return err
 }
 

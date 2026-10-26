@@ -656,6 +656,45 @@ func TestAeroDataBoxCarriesTerminalStatus(t *testing.T) {
 	}
 }
 
+// Operating is set only for a status that positively says the flight is
+// running, so that a cancellation is withdrawn on evidence rather than on the
+// provider not knowing.
+func TestAeroDataBoxCarriesOperating(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		want     bool
+	}{
+		{"Expected", true},
+		{"CheckIn", true},
+		{"Boarding", true},
+		{"GateClosed", true},
+		{"Departed", true},
+		{"Delayed", true},
+		{"EnRoute", true},
+		{"Approaching", true},
+		{"Arrived", true},
+		{"Canceled", false},
+		{"Diverted", false},
+		{"CanceledUncertain", false},
+		{"Unknown", false},
+		{"", false},
+	} {
+		body := `[{"number":"ZZ 967","codeshareStatus":"IsOperator","status":"` + tc.provider + `",
+		  "departure":{"airport":{"iata":"VIE"},"scheduledTime":{"utc":"2026-08-19 15:05Z"}},
+		  "arrival":{"airport":{"iata":"ARN"},"scheduledTime":{"utc":"2026-08-19 17:15Z"}}}]`
+		a := newADB(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(body))
+		})
+		rf, err := a.Resolve(context.Background(), "ZZ967", time.Now())
+		if err != nil {
+			t.Fatalf("Resolve(%q): %v", tc.provider, err)
+		}
+		if rf.Operating != tc.want {
+			t.Errorf("provider status %q: operating = %v, want %v", tc.provider, rf.Operating, tc.want)
+		}
+	}
+}
+
 // A flight held on stand: the airline has revised the departure later and there
 // is no runway time yet, which is precisely the state that must not be read as
 // airborne, and the one a rolling weather delay parks a flight in for hours.

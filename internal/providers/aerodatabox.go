@@ -247,14 +247,37 @@ func (a *AeroDataBox) doOne(ctx context.Context, ident, date string) (
 		// flight asked for, so it is not found rather than wrongly matched.
 		return nil, http.StatusNoContent, retry, body, nil
 	}
-	pick := flights[0]
+	picked := 0
 	for i := range flights {
 		if flights[i].CodeshareStatus == "IsOperator" {
-			pick = flights[i]
+			picked = i
 			break
 		}
 	}
-	return buildResolved(&pick, ident), resp.StatusCode, retry, body, nil
+	if len(flights) > 1 {
+		logCandidates(ident, date, flights, picked)
+	}
+	return buildResolved(&flights[picked], ident), resp.StatusCode, retry, body, nil
+}
+
+// logCandidates records every record the provider returned for one flight on
+// one date, and which was used. A retimed flight can come back as more than one
+// record (the old slot cancelled, the new one live), and picking the wrong one
+// tells somebody their flight is cancelled when it is not; the raw response is
+// not kept, so without this there is no telling afterwards which happened.
+func logCandidates(ident, date string, flights []adbFlight, picked int) {
+	for i := range flights {
+		f := &flights[i]
+		dep := ""
+		if t := f.Departure.ScheduledTime; t != nil {
+			dep = t.UTC
+		}
+		slog.Info("aerodatabox: several records", "ident", ident, "date", date,
+			"record", i, "number", f.Number, "status", f.Status,
+			"codeshare", f.CodeshareStatus, "scheduled_out", dep,
+			"origin", f.Departure.Airport.IATA, "dest", f.Arrival.Airport.IATA,
+			"picked", i == picked)
+	}
 }
 
 // onLocalDate keeps the flights whose scheduled local departure falls on date
@@ -480,6 +503,7 @@ func buildResolved(f *adbFlight, fallbackIdent string) *ResolvedFlight {
 		r.AircraftType = strings.TrimSpace(f.Aircraft.Model)
 	}
 	r.Status = adbTerminalStatus(f.Status)
+	r.Operating = adbOperating(f.Status)
 	r.Callsign = strings.ToUpper(strings.TrimSpace(f.CallSign))
 	var notes []string
 	if f.Airline != nil && f.Airline.Name != "" {
@@ -546,6 +570,20 @@ func adbTerminalStatus(s string) string {
 		return "Diverted"
 	default:
 		return ""
+	}
+}
+
+// adbOperating reports whether an AeroDataBox status says the flight is
+// positively running. As with adbTerminalStatus the match is exact, so a value
+// not seen before counts as not saying so; "Unknown" and "CanceledUncertain"
+// are deliberately absent.
+func adbOperating(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "expected", "checkin", "boarding", "gateclosed", "departed",
+		"delayed", "enroute", "approaching", "arrived":
+		return true
+	default:
+		return false
 	}
 }
 
