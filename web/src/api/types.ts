@@ -1007,7 +1007,7 @@ export interface FlightAlert {
   plan_id: number;
   trip_id: number;
   ident: string;
-  kind: string; // delayed|cancelled|diverted|gate|gate_assigned|belt|terminal|checkin|departure
+  kind: string; // delayed|cancelled|diverted|reinstated|gate|gate_assigned|belt|terminal|checkin|departure
   status: string;
   message: string;
   created_at: string;

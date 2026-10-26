@@ -726,6 +726,68 @@ func TestTickRecordsProviderCancellation(t *testing.T) {
 	}
 }
 
+// A cancellation the provider later withdraws, as it did for a flight being
+// retimed, must not stand: the flight is still re-checked ahead of departure,
+// and once the provider reports it operating it is reinstated and everyone who
+// was told it was cancelled is told it is not.
+func TestTickReinstatesWithdrawnCancellation(t *testing.T) {
+	tr := &mockTracker{}
+	p, s, hub := newPoller(t, tr, time.Minute)
+	ctx := context.Background()
+	owner := seedUser(t, s)
+	if err := s.SetAlertPrefs(ctx, store.AlertPrefs{UserID: owner, InApp: true, MinDelayMin: 6000}); err != nil {
+		t.Fatalf("set prefs: %v", err)
+	}
+	now := time.Now()
+	f, err := mkPart(ctx, s, partSeed{
+		Ident: "ZZ267", ScheduledOut: now.Add(6 * time.Hour), ScheduledIn: now.Add(16 * time.Hour),
+		OriginIATA: "VIE", DestIATA: "ARN",
+	}, owner)
+	if err != nil {
+		t.Fatalf("mkPart: %v", err)
+	}
+	// The state an earlier poll left it in: cancelled, and announced.
+	if err := s.SetFlightPartTerminalStatus(ctx, f.ID, "Cancelled"); err != nil {
+		t.Fatalf("SetFlightPartTerminalStatus: %v", err)
+	}
+	if err := s.SetFlightPartAlertSig(ctx, f.ID, "status:Cancelled"); err != nil {
+		t.Fatalf("SetFlightPartAlertSig: %v", err)
+	}
+
+	// Not on the provider's say-so that it does not know.
+	res := &fakeResolver{rf: &providers.ResolvedFlight{
+		Ident: "ZZ267", OriginIATA: "VIE", DestIATA: "ARN",
+	}}
+	p.Resolver = res
+	ch, unsub := hub.Subscribe(sse.Subscription{ViewerID: owner})
+	defer unsub()
+	p.tick(ctx)
+	if res.calls != 1 {
+		t.Fatalf("a cancelled flight ahead of departure was not re-checked (calls = %d)", res.calls)
+	}
+	if got, _ := s.FlightPartByID(ctx, f.ID); got.Status != "Cancelled" {
+		t.Fatalf("reinstated without the provider saying it operates: %q", got.Status)
+	}
+	if alerts := drainAlerts(t, ch); len(alerts) != 0 {
+		t.Fatalf("expected no alert, got %+v", alerts)
+	}
+
+	// The provider now reports it operating.
+	res.rf.Operating = true
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET last_polled_at = NULL, last_resolved_at = NULL WHERE plan_part_id = $1`, f.ID); err != nil {
+		t.Fatalf("reset poll stamps: %v", err)
+	}
+	p.tick(ctx)
+	if got, _ := s.FlightPartByID(ctx, f.ID); got.Status != "Scheduled" {
+		t.Fatalf("withdrawn cancellation left the flight %q", got.Status)
+	}
+	alerts := drainAlerts(t, ch)
+	if len(alerts) != 1 || alerts[0].Kind != "reinstated" {
+		t.Fatalf("expected a single reinstated alert, got %+v", alerts)
+	}
+}
+
 // A resolver that hands back a status the store will not accept must not derail
 // the resolve: the airframe, gate and time work already persisted in the same
 // call is worth keeping, and the derived status still runs. Guards against a
@@ -1321,9 +1383,24 @@ func TestNeedsLateRefresh(t *testing.T) {
 	if needsLateRefresh(arrived, now) {
 		t.Error("an arrived flight should not need a late refresh")
 	}
+	// A cancelled flight is watched until it would have left, in case the
+	// provider withdraws the cancellation, and not after.
 	cancelled := &store.Flight{Status: "Cancelled", ScheduledOut: now.Add(time.Hour)}
-	if needsLateRefresh(cancelled, now) {
-		t.Error("a cancelled flight should not need a late refresh")
+	if !needsLateRefresh(cancelled, now) {
+		t.Error("a cancelled flight ahead of departure should be re-checked")
+	}
+	gone := &store.Flight{Status: "Cancelled", ScheduledOut: now.Add(-time.Minute)}
+	if needsLateRefresh(gone, now) {
+		t.Error("a cancelled flight past departure should not need a late refresh")
+	}
+	retimedLater := now.Add(time.Hour)
+	retimed := &store.Flight{Status: "Cancelled", ScheduledOut: now.Add(-time.Minute), EstimatedOut: &retimedLater}
+	if !needsLateRefresh(retimed, now) {
+		t.Error("a cancelled flight retimed later should be re-checked until the revised departure")
+	}
+	diverted := &store.Flight{Status: "Diverted", ScheduledOut: now.Add(-time.Hour)}
+	if needsLateRefresh(diverted, now) {
+		t.Error("a diverted flight should not need a late refresh")
 	}
 	// In-window, never resolved → needs it.
 	fresh := &store.Flight{Status: "Scheduled", ScheduledOut: now.Add(time.Hour)}

@@ -153,6 +153,14 @@ type ResolvedFlight struct {
 	// saying so outright a cancelled flight goes on being derived from its
 	// timetable and is eventually declared to have landed.
 	Status string
+	// Operating is true when the provider positively reports the flight as
+	// running: a status such as "Expected", "Boarding" or "EnRoute", rather
+	// than a cancellation, a diversion, "Unknown", "CanceledUncertain" or no
+	// status at all. It is what lets a flight the provider reported cancelled
+	// be reinstated when the provider changes its mind, as it can whilst an
+	// airline retimes a flight; an empty Status alone is not enough, since
+	// that also covers the provider simply not knowing.
+	Operating bool
 	// EstimatedOut / ActualOut are the departure-side counterparts, and the two
 	// are NOT interchangeable, so mind which one you reach for.
 	//
