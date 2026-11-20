@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
@@ -113,6 +113,7 @@ function renderLayout(initial = '/') {
           <Route path="/friends" element={<div data-testid="page">friends page</div>} />
           <Route path="/tracker" element={<div data-testid="page">tracker page</div>} />
           <Route path="/trips/:id" element={<div data-testid="page">trip page</div>} />
+          <Route path="/trips/:id/explore" element={<div data-testid="page">explore page</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -189,6 +190,18 @@ describe('Layout', () => {
     renderLayout('/trips/7');
     await userEvent.click(screen.getByRole('button', { name: 'Help' }));
     expect(h.openHelp).toHaveBeenCalledWith('plans');
+  });
+
+  it('opens help to Explore nearby on a trip Explore tab', async () => {
+    renderLayout('/trips/7/explore');
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(h.openHelp).toHaveBeenCalledWith('explore');
+  });
+
+  it('hides the Tracker nav item when maps are hidden', () => {
+    h.state.me = user({ hide_maps: true });
+    renderLayout();
+    expect(screen.queryByRole('link', { name: 'Tracker' })).not.toBeInTheDocument();
   });
 
   it('hides the admin button for non-superusers', () => {
@@ -330,6 +343,11 @@ describe('Layout', () => {
     await userEvent.click(screen.getByRole('button', { name: 'close-admin-dialog' }));
     expect(screen.queryByTestId('admin-dialog')).not.toBeInTheDocument();
 
+    // Alerts (top-bar action).
+    await userEvent.click(screen.getByRole('button', { name: 'Alerts' }));
+    await userEvent.click(screen.getByRole('button', { name: 'close-alerts-dialog' }));
+    expect(screen.queryByTestId('alerts-dialog')).not.toBeInTheDocument();
+
     // The menu-driven dialogs.
     const menuDialogs: Array<[string, string]> = [
       ['Friends…', 'friends-dialog'],
@@ -337,6 +355,7 @@ describe('Layout', () => {
       ['Subscribe to your calendar…', 'subscribe-dialog'],
       ["Subscribe to friends' calendar…", 'subscribe-dialog'],
       ['Preferences…', 'preferences-dialog'],
+      ['About Aerly…', 'about-dialog'],
     ];
     for (const [item, testid] of menuDialogs) {
       await openMenu();
@@ -379,6 +398,16 @@ describe('Layout (narrow / mobile)', () => {
     expect(screen.getByTestId('page')).toHaveTextContent('tracker page');
     // Drawer dismissed → its links are no longer mounted.
     expect(screen.queryByRole('link', { name: 'Tracker' })).not.toBeInTheDocument();
+  });
+
+  it('closes the drawer on Escape', async () => {
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    expect(screen.getByRole('link', { name: 'Tracker' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: 'Tracker' })).not.toBeInTheDocument(),
+    );
   });
 
   it('still exposes Help and the account menu as icons', () => {
