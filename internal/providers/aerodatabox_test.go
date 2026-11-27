@@ -985,7 +985,11 @@ func TestAeroDataBoxPrefersFlightOnRequestedLocalDate(t *testing.T) {
 			 "departure":{"airport":{"iata":"LHR"},"scheduledTime":{"utc":"2026-05-19T20:00Z","local":"2026-05-19 21:00+01:00"}},
 			 "arrival":{"airport":{"iata":"JFK"},"scheduledTime":{"utc":"2026-05-20T04:00Z","local":"2026-05-20 00:00-04:00"}}}]`))
 	})
-	rf, err := a.Resolve(context.Background(), "XX100", time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC))
+	day := time.Date(2026, 5, 19, 0, 0, 0, 0, time.UTC)
+	// Pin the clock, or the fixed date falls outside the provider's ±180-day
+	// window and the lookup never reaches the server.
+	a.Now = func() time.Time { return day }
+	rf, err := a.Resolve(context.Background(), "XX100", day)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
