@@ -227,6 +227,11 @@ func TestChangeDetail(t *testing.T) {
 	if got := changeDetail("terminal", prevT, curT, noEff); got != "now arrives at terminal 4" {
 		t.Errorf("dest-terminal detail = %q", got)
 	}
+
+	// A reinstatement with no revised departure stands alone.
+	if got := changeDetail("reinstated", alertState{}, alertState{}, noEff); got != "" {
+		t.Errorf("reinstated with no delay detail = %q, want none", got)
+	}
 }
 
 // TestChangeDetail_DelayQuotedInAirportTime: a revised departure is quoted on
@@ -250,6 +255,14 @@ func TestChangeDetail_DelayQuotedInAirportTime(t *testing.T) {
 	// clock, labelled, and with no second "your time" to compare it against.
 	if got := recipientDetail("delayed", "", unknown, "Europe/London"); got != "now departing 13:35 UTC+1" {
 		t.Errorf("unplaceable delay detail at home = %q, want 'now departing 13:35 UTC+1'", got)
+	}
+	// A reinstatement carrying the revised departure gets the same treatment,
+	// and one without stays bare.
+	if got := recipientDetail("reinstated", "now departing 12:35 UTC", unknown, "Europe/London"); got != "now departing 13:35 UTC+1" {
+		t.Errorf("reinstated detail at home = %q, want 'now departing 13:35 UTC+1'", got)
+	}
+	if got := recipientDetail("reinstated", "", unknown, "Europe/London"); got != "" {
+		t.Errorf("bare reinstated detail at home = %q, want none", got)
 	}
 }
 

@@ -212,7 +212,7 @@ type FlightAlert struct {
 	PlanID     int64
 	TripID     int64
 	Ident      string
-	Kind       string // delayed|cancelled|diverted|gate|gate_assigned|belt|terminal
+	Kind       string // delayed|cancelled|diverted|reinstated|gate|gate_assigned|belt|terminal
 	Status     string
 	Message    string
 	CreatedAt  time.Time

@@ -525,6 +525,16 @@ func resolveBackoffFor(f *store.Flight, now time.Time) time.Duration {
 // closer in than that, so the cheap thing is to keep poking from here.
 const lateRefreshWindow = 12 * time.Hour
 
+// cancelledWatchUntil is when a cancelled flight stops being re-checked: its
+// departure, taking the later of the timetabled and revised times, as
+// FlightPartsNeedingMetadata does.
+func cancelledWatchUntil(f *store.Flight) time.Time {
+	if f.EstimatedOut != nil && f.EstimatedOut.After(f.ScheduledOut) {
+		return *f.EstimatedOut
+	}
+	return f.ScheduledOut
+}
+
 // needsLateRefresh is true when the flight is in (or close to) its active
 // window and we haven't asked the resolver recently. It complements
 // needsBackfill: backfill cares about *which fields are empty*, this
@@ -533,7 +543,12 @@ func needsLateRefresh(f *store.Flight, now time.Time) bool {
 	if now.Before(f.ScheduledOut.Add(-lateRefreshWindow)) {
 		return false
 	}
-	if f.Status == "Arrived" || f.Status == "Cancelled" || f.Status == "Diverted" {
+	// A cancellation is watched until departure, in case the provider takes it
+	// back (see FlightPartsNeedingMetadata); the other terminal states are over.
+	if f.Status == "Cancelled" && !now.Before(cancelledWatchUntil(f)) {
+		return false
+	}
+	if f.Status == "Arrived" || f.Status == "Diverted" {
 		return false
 	}
 	if f.LastResolvedAt == nil {
@@ -675,6 +690,16 @@ func (p *Poller) resolveAndUpdate(ctx context.Context, f *store.Flight, now time
 			slog.Error("poller: set terminal status failed", "id", f.ID, "status", rf.Status, "err", err)
 		} else {
 			slog.Info("poller: provider reports terminal status", "id", f.ID, "ident", f.Ident, "status", rf.Status)
+		}
+	} else if f.Status == "Cancelled" && rf.Operating {
+		// The provider has withdrawn a cancellation it reported earlier, as it
+		// can whilst an airline retimes a flight. Reinstate the flight so the
+		// status is derived from its times again; the alert step sees the move
+		// out of Cancelled and tells everyone.
+		if err := p.Store.ReinstateFlightPart(ctx, f.ID); err != nil {
+			slog.Error("poller: reinstate cancelled flight failed", "id", f.ID, "err", err)
+		} else {
+			slog.Info("poller: provider reports cancelled flight operating", "id", f.ID, "ident", f.Ident)
 		}
 	}
 	// Terminal is updatable like gate (a change is what the terminal-change

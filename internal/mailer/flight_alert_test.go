@@ -13,6 +13,7 @@ func TestFlightAlertSubject(t *testing.T) {
 		"delayed":       "Your flight BA123 is now delayed",
 		"cancelled":     "Your flight BA123 has been cancelled",
 		"diverted":      "Your flight BA123 has been diverted",
+		"reinstated":    "Your flight BA123 is no longer cancelled",
 		"gate":          "Gate change: BA123",
 		"gate_assigned": "Gate assigned: BA123",
 		"belt":          "Baggage belt: BA123",

@@ -365,7 +365,7 @@ type FlightAlertDTO struct {
 	PlanID     int64      `json:"plan_id"`
 	TripID     int64      `json:"trip_id"`
 	Ident      string     `json:"ident"`
-	Kind       string     `json:"kind"` // delayed|cancelled|diverted|gate|gate_assigned|belt|terminal
+	Kind       string     `json:"kind"` // delayed|cancelled|diverted|reinstated|gate|gate_assigned|belt|terminal
 	Status     string     `json:"status"`
 	Message    string     `json:"message"`
 	CreatedAt  time.Time  `json:"created_at"`

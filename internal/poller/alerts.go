@@ -24,7 +24,8 @@ import (
 // suppress re-sending the same change on the next tick.
 //
 // "Meaningful" per spec §9 / PRD §6.8:
-//   - any transition INTO Cancelled or Diverted always alerts;
+//   - any transition INTO Cancelled or Diverted always alerts, as does one
+//     back OUT of Cancelled when the provider withdraws a cancellation;
 //   - a departure delay (estimated_out - scheduled_out) that grows by at least
 //     the recipient's alert_prefs.min_delay_min threshold alerts.
 //
@@ -393,6 +394,12 @@ func changeKind(prev, cur alertState) string {
 	if cur.status == "Diverted" && prev.status != "Diverted" {
 		return "diverted"
 	}
+	// Reinstated: a cancellation the provider has since withdrawn. Always
+	// alert, since everyone was told the flight was off, and ahead of anything
+	// else that changed in the same poll.
+	if prev.status == "Cancelled" && cur.status != "Cancelled" {
+		return "reinstated"
+	}
 	// Gate change: a known departure or arrival gate that moved to a
 	// different one. Always-alert (like cancellation), ahead of a delay so a
 	// flight that both slips and re-gates leads with the actionable gate. A
@@ -469,13 +476,22 @@ func terminalChanged(prev, cur string) bool {
 // names the airline's revised departure; for a gate change it names the new gate
 // (departure preferred when both moved) and for an assignment the gate assigned,
 // adding that end's terminal when it changed alongside the gate inside the
-// quiet period; cancellation/diversion stand alone.
+// quiet period; a reinstatement names the revised departure when there is one;
+// cancellation/diversion stand alone.
 func changeDetail(kind string, prev, cur alertState, f *store.Flight) string {
 	switch kind {
 	case "delayed":
 		return delayDetail(f, "")
 	case "diverted":
 		return "diverted to a different airport"
+	case "reinstated":
+		// A retimed flight comes back with its new departure in the same poll,
+		// and that delay goes into the signature stamped with this alert, so no
+		// delay alert follows: this is the only place it can be announced.
+		if cur.hasDelay && cur.delayMin > 0 {
+			return delayDetail(f, "")
+		}
+		return ""
 	case "gate":
 		if gateMoved(prev.originGate, cur.originGate) {
 			return "now departs gate " + cur.originGate + withTerminal(cur.originTerminalWithGate, cur.originTerminal)
@@ -532,9 +548,10 @@ func delayDetail(f *store.Flight, home string) string {
 }
 
 // recipientDetail is the detail one recipient sees. Only a delay's differs
-// between recipients, since it may add their own time.
+// between recipients, since it may add their own time, and so does a
+// reinstatement's when it carries the revised departure.
 func recipientDetail(kind, detail string, f *store.Flight, home string) string {
-	if kind == "delayed" {
+	if kind == "delayed" || (kind == "reinstated" && detail != "") {
 		return delayDetail(f, home)
 	}
 	return detail
@@ -561,7 +578,7 @@ func (p *Poller) dispatchAlert(
 	st alertState,
 	recips []store.AlertRecipient,
 ) {
-	always := kind == "cancelled" || kind == "diverted" || kind == "gate" || kind == "gate_assigned" || kind == "belt" || kind == "terminal"
+	always := kind == "cancelled" || kind == "diverted" || kind == "reinstated" || kind == "gate" || kind == "gate_assigned" || kind == "belt" || kind == "terminal"
 
 	for _, r := range recips {
 		// Threshold filter for delays only; cancellations/diversions always
