@@ -793,7 +793,14 @@ func TestTickReinstatesWithdrawnCancellation(t *testing.T) {
 	if !strings.Contains(alerts[0].Message, "now departing") {
 		t.Errorf("reinstated alert does not give the revised departure: %q", alerts[0].Message)
 	}
+	if _, err := s.Pool().Exec(ctx,
+		`UPDATE flight_details SET last_polled_at = NULL, last_resolved_at = NULL WHERE plan_part_id = $1`, f.ID); err != nil {
+		t.Fatalf("reset poll stamps: %v", err)
+	}
 	p.tick(ctx)
+	if res.calls != 3 {
+		t.Fatalf("the follow-up poll did not re-resolve (calls = %d)", res.calls)
+	}
 	if alerts := drainAlerts(t, ch); len(alerts) != 0 {
 		t.Fatalf("the retiming was announced a second time: %+v", alerts)
 	}
