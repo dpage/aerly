@@ -55,10 +55,10 @@ import { useScrollRestoration } from '../lib/useScrollRestoration';
 
 /** The authenticated app chrome for the trip-planning redesign (spec §11).
  *
- * Holds the top bar (Trips / Tracker nav, a Help button, and the account menu)
- * plus the account-level dialogs and the help panel, and renders the routed page
- * via `<Outlet>`. Plan capture now lives on the trip page (the "New plan"
- * action), not in this global chrome. */
+ * Holds the top bar (Trips / Tracker nav, Help and Alerts buttons, and the
+ * account menu) plus the account-level dialogs and the help panel, and renders
+ * the routed page via `<Outlet>`. Plan capture now lives on the trip page (the
+ * "New plan" action), not in this global chrome. */
 export default function Layout() {
   const me = useStore((s) => s.me);
   const logout = useStore((s) => s.logout);
@@ -203,10 +203,28 @@ export default function Layout() {
             </Tooltip>
           )}
           <Badge
-            badgeContent={pendingRequests + unreadAlerts + unreadShares}
+            badgeContent={unreadAlerts + unreadShares}
             color="error"
             overlap="circular"
-            invisible={pendingRequests + unreadAlerts + unreadShares === 0}
+            invisible={unreadAlerts + unreadShares === 0}
+            anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <Tooltip title="Alerts">
+              <IconButton
+                size="small"
+                onClick={() => setAlertsOpen(true)}
+                aria-label="Alerts"
+                sx={{ mr: 1 }}
+              >
+                <NotificationsIcon />
+              </IconButton>
+            </Tooltip>
+          </Badge>
+          <Badge
+            badgeContent={pendingRequests}
+            color="error"
+            overlap="circular"
+            invisible={pendingRequests === 0}
             anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
           >
             <Tooltip title="Account menu">
@@ -238,27 +256,6 @@ export default function Layout() {
 
             <Divider />
             {sectionLabel('Activity')}
-            <MenuItem
-              onClick={() => {
-                closeMenu();
-                setAlertsOpen(true);
-              }}
-            >
-              <ListItemIcon>
-                <NotificationsIcon fontSize="small" />
-              </ListItemIcon>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
-                <Box>Alerts…</Box>
-                {unreadAlerts + unreadShares > 0 && (
-                  <Chip
-                    label={unreadAlerts + unreadShares}
-                    size="small"
-                    color="error"
-                    sx={{ ml: 'auto' }}
-                  />
-                )}
-              </Box>
-            </MenuItem>
             <MenuItem
               disabled={!online}
               onClick={() => {

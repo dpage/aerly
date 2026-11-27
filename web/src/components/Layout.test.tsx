@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
@@ -113,6 +113,7 @@ function renderLayout(initial = '/') {
           <Route path="/friends" element={<div data-testid="page">friends page</div>} />
           <Route path="/tracker" element={<div data-testid="page">tracker page</div>} />
           <Route path="/trips/:id" element={<div data-testid="page">trip page</div>} />
+          <Route path="/trips/:id/explore" element={<div data-testid="page">explore page</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -189,6 +190,18 @@ describe('Layout', () => {
     renderLayout('/trips/7');
     await userEvent.click(screen.getByRole('button', { name: 'Help' }));
     expect(h.openHelp).toHaveBeenCalledWith('plans');
+  });
+
+  it('opens help to Explore nearby on a trip Explore tab', async () => {
+    renderLayout('/trips/7/explore');
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(h.openHelp).toHaveBeenCalledWith('explore');
+  });
+
+  it('hides the Tracker nav item when maps are hidden', () => {
+    h.state.me = user({ hide_maps: true });
+    renderLayout();
+    expect(screen.queryByRole('link', { name: 'Tracker' })).not.toBeInTheDocument();
   });
 
   it('hides the admin button for non-superusers', () => {
@@ -268,12 +281,11 @@ describe('Layout', () => {
     expect(screen.getByTestId('preferences-dialog')).toBeInTheDocument();
   });
 
-  it('shows a count chip on the Alerts item for unread alerts + shares', async () => {
+  it('shows a count badge on the Alerts button for unread alerts + shares', () => {
     h.state.notifications = { friend_requests_pending: 0, unread_alerts: 2, unread_shares: 1 };
     renderLayout();
-    await openMenu();
-    const alertsItem = screen.getByText('Alerts…').closest('li')!;
-    expect(alertsItem).toHaveTextContent('3');
+    expect(screen.getByRole('button', { name: 'Alerts' })).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
   });
 
   it('changes the theme preference', async () => {
@@ -331,14 +343,19 @@ describe('Layout', () => {
     await userEvent.click(screen.getByRole('button', { name: 'close-admin-dialog' }));
     expect(screen.queryByTestId('admin-dialog')).not.toBeInTheDocument();
 
+    // Alerts (top-bar action).
+    await userEvent.click(screen.getByRole('button', { name: 'Alerts' }));
+    await userEvent.click(screen.getByRole('button', { name: 'close-alerts-dialog' }));
+    expect(screen.queryByTestId('alerts-dialog')).not.toBeInTheDocument();
+
     // The menu-driven dialogs.
     const menuDialogs: Array<[string, string]> = [
-      ['Alerts…', 'alerts-dialog'],
       ['Friends…', 'friends-dialog'],
       ['Statistics…', 'stats-dialog'],
       ['Subscribe to your calendar…', 'subscribe-dialog'],
       ["Subscribe to friends' calendar…", 'subscribe-dialog'],
       ['Preferences…', 'preferences-dialog'],
+      ['About Aerly…', 'about-dialog'],
     ];
     for (const [item, testid] of menuDialogs) {
       await openMenu();
@@ -383,6 +400,16 @@ describe('Layout (narrow / mobile)', () => {
     expect(screen.queryByRole('link', { name: 'Tracker' })).not.toBeInTheDocument();
   });
 
+  it('closes the drawer on Escape', async () => {
+    renderLayout();
+    await userEvent.click(screen.getByRole('button', { name: /open navigation menu/i }));
+    expect(screen.getByRole('link', { name: 'Tracker' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: 'Tracker' })).not.toBeInTheDocument(),
+    );
+  });
+
   it('still exposes Help and the account menu as icons', () => {
     renderLayout();
     expect(screen.getByRole('button', { name: 'Help' })).toBeInTheDocument();
@@ -391,27 +418,32 @@ describe('Layout (narrow / mobile)', () => {
 });
 
 describe('Layout (alerts)', () => {
-  it('opens the Alerts dialog from the menu (alert history now lives there)', async () => {
+  it('opens the Alerts dialog from the top bar', async () => {
     h.state.notifications = { friend_requests_pending: 0, unread_alerts: 1, unread_shares: 0 };
     renderLayout();
-    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
-    await userEvent.click(screen.getByText('Alerts…'));
+    await userEvent.click(screen.getByRole('button', { name: 'Alerts' }));
     expect(screen.getByTestId('alerts-dialog')).toBeInTheDocument();
   });
 
-  it('does NOT mark alerts read merely by opening the account menu', async () => {
-    // Reading now happens in the Alerts dialog (on close), not on menu open, so
-    // alerts no longer silently clear just because the menu was glanced at.
+  it('does not show Alerts in the account menu', async () => {
     h.state.notifications = { friend_requests_pending: 0, unread_alerts: 2, unread_shares: 0 };
     renderLayout();
-    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
-    expect(h.markAlertsRead).not.toHaveBeenCalled();
+    await openMenu();
+    expect(screen.queryByText('Alerts…')).not.toBeInTheDocument();
   });
 
-  it('counts unread shares in the avatar badge', () => {
+  it('counts unread shares in the Alerts badge', () => {
     h.state.notifications = { friend_requests_pending: 0, unread_alerts: 0, unread_shares: 2 };
     renderLayout();
-    // The badge surfaces the combined inbox count (here, share notifications).
     expect(screen.getByText('2')).toBeInTheDocument();
+  });
+
+  it('keeps pending friend requests on the account badge', () => {
+    h.state.notifications = { friend_requests_pending: 2, unread_alerts: 0, unread_shares: 0 };
+    renderLayout();
+    expect(screen.getByRole('button', { name: /account menu/i }).parentElement).toHaveTextContent(
+      '2',
+    );
+    expect(screen.getByRole('button', { name: 'Alerts' })).toBeInTheDocument();
   });
 });
