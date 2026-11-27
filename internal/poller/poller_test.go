@@ -772,8 +772,10 @@ func TestTickReinstatesWithdrawnCancellation(t *testing.T) {
 		t.Fatalf("expected no alert, got %+v", alerts)
 	}
 
-	// The provider now reports it operating.
+	// The provider now reports it operating, retimed two hours later.
+	retimed := f.ScheduledOut.Add(2 * time.Hour)
 	res.rf.Operating = true
+	res.rf.EstimatedOut = &retimed
 	if _, err := s.Pool().Exec(ctx,
 		`UPDATE flight_details SET last_polled_at = NULL, last_resolved_at = NULL WHERE plan_part_id = $1`, f.ID); err != nil {
 		t.Fatalf("reset poll stamps: %v", err)
@@ -785,6 +787,15 @@ func TestTickReinstatesWithdrawnCancellation(t *testing.T) {
 	alerts := drainAlerts(t, ch)
 	if len(alerts) != 1 || alerts[0].Kind != "reinstated" {
 		t.Fatalf("expected a single reinstated alert, got %+v", alerts)
+	}
+	// The new departure rides on the reinstatement, since it is stamped into
+	// the signature and no delay alert will follow to announce it.
+	if !strings.Contains(alerts[0].Message, "now departing") {
+		t.Errorf("reinstated alert does not give the revised departure: %q", alerts[0].Message)
+	}
+	p.tick(ctx)
+	if alerts := drainAlerts(t, ch); len(alerts) != 0 {
+		t.Fatalf("the retiming was announced a second time: %+v", alerts)
 	}
 }
 
